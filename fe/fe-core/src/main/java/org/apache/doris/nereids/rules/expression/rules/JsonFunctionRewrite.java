@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBool;
@@ -154,7 +153,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
         } else if (function instanceof JsonbExtractDouble) {
             return new Cast(jsonExtract, DoubleType.INSTANCE, false);
         } else if (function instanceof JsonbExtractString) {
-            return new JsonUnQuote(new Cast(jsonExtract, StringType.INSTANCE, false));
+            return new Cast(jsonExtract, StringType.INSTANCE, false);
         } else {
             return function;
         }

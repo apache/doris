@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 
 import org.junit.jupiter.api.Assertions;
@@ -611,6 +613,9 @@ class DateTimeLiteralTest {
         Assertions.assertEquals(25, dt2.minute);
         Assertions.assertEquals(59, dt2.second);
         Assertions.assertEquals(0, dt2.microSecond);
+
+        DateTimeLiteral finalV1 = v1;
+        Assertions.assertThrows(AnalysisException.class, () -> finalV1.uncheckedCastTo(IntegerType.INSTANCE));
     }
 
     @Test

@@ -33,6 +33,19 @@ suite("load") {
       "replication_allocation" = "tag.location.default: 1"
     );
     """
+    sql """
+        DROP TABLE IF EXISTS t2
+       """
+    sql """
+    CREATE TABLE IF NOT EXISTS t2(
+      `id` int(11) NULL,
+      `msg` text NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
 
     def tbl = "tbl_unique_function_with_one_row"
     sql "drop table if exists ${tbl} force"

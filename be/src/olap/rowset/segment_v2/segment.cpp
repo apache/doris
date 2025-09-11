@@ -252,12 +252,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,
                                        read_options.target_cast_type_for_variants,
-                                       read_options.io_ctx.reader_type) &&
-            !reader->match_condition(entry.second.get())) {
-            // any condition not satisfied, return.
-            *iter = std::make_unique<EmptySegmentIterator>(*schema);
-            read_options.stats->filtered_segment_number++;
-            return Status::OK();
+                                       read_options.io_ctx.reader_type)) {
+            bool matched = true;
+            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
+            if (!matched) {
+                // any condition not satisfied, return.
+                *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
         }
     }
 
@@ -281,12 +284,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             DCHECK(reader != nullptr);
             if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
                                            read_options.target_cast_type_for_variants,
-                                           read_options.io_ctx.reader_type) &&
-                !reader->match_condition(&and_predicate)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
+                                           read_options.io_ctx.reader_type)) {
+                bool matched = true;
+                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
+                if (!matched) {
+                    // any condition not satisfied, return.
+                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                    read_options.stats->filtered_segment_number++;
+                    return Status::OK();
+                }
             }
         }
     }
@@ -312,7 +318,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         for (auto& it : _column_reader_cache->get_available_readers(false)) {
             const auto uid = it.first;
             const auto column_id = read_options.tablet_schema->field_index(uid);
-            pruned |= it.second->prune_predicates_by_zone_map(pruned_predicates, column_id);
+            bool tmp_pruned = false;
+            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, column_id,
+                                                                    &tmp_pruned));
+            pruned |= tmp_pruned;
         }
 
         if (pruned) {
@@ -472,7 +481,8 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
             LOG(WARNING) << "failed to write error file: " << st.to_string();
         }
         return Status::Corruption(
-                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, cache_key: ",
+                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, "
+                "cache_key: ",
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
@@ -674,7 +684,8 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
                                      std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
-                "invalid nonexistent column without default value. column_uid={}, column_name={}, "
+                "invalid nonexistent column without default value. column_uid={}, "
+                "column_name={}, "
                 "column_type={}",
                 tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
     }

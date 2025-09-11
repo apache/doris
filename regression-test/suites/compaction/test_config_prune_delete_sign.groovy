@@ -71,14 +71,20 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         }
         trigger_and_wait_compaction(table1, "cumulative")
 
-        trigger_and_wait_compaction(table1, "base")
-        qt_sql "select count() from ${table1};"
-        getDeleteSignCnt()
-
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
         String compactionUrl = tablets[0]["CompactionStatus"]
         def (code, out, err) = curl("GET", compactionUrl)
+        logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+
+        trigger_and_wait_compaction(table1, "base")
+        qt_sql "select count() from ${table1};"
+        getDeleteSignCnt()
+
+        tablets = sql_return_maparray """ show tablets from ${table1}; """
+        logger.info("tablets: ${tablets}")
+        compactionUrl = tablets[0]["CompactionStatus"]
+        (code, out, err) = curl("GET", compactionUrl)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assert code == 0
         def tabletJson = parseJson(out.trim())

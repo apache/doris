@@ -236,6 +236,8 @@ protected:
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
+    Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
+
     Status execute_compact_impl(int64_t permits);
 
     Status build_basic_info();

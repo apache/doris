@@ -649,4 +649,9 @@ size_t ColumnMap::get_max_row_byte_size() const {
     return sizeof(size_t) + max_size;
 }
 
+void ColumnMap::replace_float_special_values() {
+    keys_column->replace_float_special_values();
+    values_column->replace_float_special_values();
+}
+
 } // namespace doris::vectorized

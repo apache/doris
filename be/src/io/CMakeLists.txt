@@ -53,6 +53,13 @@ if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
         benchmark
     )
 
+    if (COMPILER_CLANG)
+        target_compile_options(fs_benchmark_tool PRIVATE
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
+    endif()
+
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS fs_benchmark_tool DESTINATION ${OUTPUT_DIR}/lib/)
 

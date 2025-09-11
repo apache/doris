@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -95,6 +96,25 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
             replaceMap.put(slot.getExprId(), slot);
         }
         return logicalPlan;
+    }
+
+    @Override
+    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation relation, Map<ExprId, Slot> replaceMap) {
+        relation = (LogicalCatalogRelation) super.visit(relation, replaceMap);
+        relation = (LogicalCatalogRelation) relation.recomputeLogicalProperties();
+        for (Slot slot : relation.getOutput()) {
+            replaceMap.put(slot.getExprId(), slot);
+        }
+        Optional<List<NamedExpression>> newVirtualColumns
+                = updateExpressions(relation.getVirtualColumns(), replaceMap, true);
+        if (!newVirtualColumns.isPresent()) {
+            return relation;
+        }
+        for (NamedExpression newVirtualColumn : newVirtualColumns.get()) {
+            replaceMap.put(newVirtualColumn.getExprId(), newVirtualColumn.toSlot());
+        }
+        return relation.withVirtualColumns(newVirtualColumns.get())
+                .recomputeLogicalProperties();
     }
 
     @Override

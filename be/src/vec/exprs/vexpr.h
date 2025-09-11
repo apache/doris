@@ -159,6 +159,8 @@ public:
 
     DataTypePtr& data_type() { return _data_type; }
 
+    const DataTypePtr& data_type() const { return _data_type; }
+
     bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
     bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
@@ -307,6 +309,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -314,6 +317,18 @@ protected:
                 res += ", ";
             }
             res += child->expr_name();
+        }
+        return res;
+    }
+
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
     }

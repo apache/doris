@@ -2895,19 +2895,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    // seek_schema is set when get_row_ranges_by_keys, it is null when there is no primary key range
-    // in this case, we need to read data
-    if (!_seek_schema) {
-        return false;
-    }
-    // check if the column is in the seek_schema
-    if (std::none_of(_seek_schema->columns().begin(), _seek_schema->columns().end(),
-                     [&](const Field* col) {
-                         return (col && _opts.tablet_schema->field_index(col->unique_id()) == cid);
-                     })) {
-        return false;
-    }
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
         return false;
     }
 

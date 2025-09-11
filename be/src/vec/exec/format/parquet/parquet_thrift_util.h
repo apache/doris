@@ -28,6 +28,7 @@
 #include "olap/iterators.h"
 #include "util/coding.h"
 #include "util/thrift_util.h"
+#include "vec/common/custom_allocator.h"
 #include "vparquet_file_metadata.h"
 
 namespace doris::vectorized {
@@ -62,10 +63,10 @@ static Status parse_thrift_footer(io::FileReaderSPtr file,
         return Status::Corruption("Parquet footer size({}) is large than file size({})",
                                   metadata_size, file_size);
     }
-    std::unique_ptr<uint8_t[]> new_buff;
+    DorisUniqueBufferPtr<uint8_t> new_buff;
     uint8_t* meta_ptr;
     if (metadata_size > bytes_read - PARQUET_FOOTER_SIZE) {
-        new_buff.reset(new uint8_t[metadata_size]);
+        new_buff = make_unique_buffer<uint8_t>(metadata_size);
         RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
                                       Slice(new_buff.get(), metadata_size), &bytes_read, io_ctx));
         meta_ptr = new_buff.get();

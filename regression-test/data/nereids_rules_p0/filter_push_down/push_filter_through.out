@@ -229,7 +229,7 @@ PhysicalResultSink
 -- !filter_aggregation_group_set --
 PhysicalResultSink
 --filter((cast(msg as DOUBLE) = 1.0))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------filter((t1.id > 10))
 ----------PhysicalOlapScan[t1]
@@ -237,7 +237,7 @@ PhysicalResultSink
 -- !filter_aggregation_group_set --
 PhysicalResultSink
 --filter(OR[(t1.id > 10),(cast(msg as DOUBLE) = 1.0)])
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalRepeat
 --------PhysicalOlapScan[t1]
 
@@ -358,13 +358,6 @@ PhysicalResultSink
 --PhysicalWindow
 ----PhysicalQuickSort[LOCAL_SORT]
 ------filter((t1.id <= 5))
---------PhysicalOlapScan[t1]
-
--- !filter_window_row_number_complex_predicate --
-PhysicalResultSink
---PhysicalWindow
-----PhysicalQuickSort[LOCAL_SORT]
-------filter(((cast(id as DOUBLE) + cast(msg as DOUBLE)) = cast('' as DOUBLE)))
 --------PhysicalOlapScan[t1]
 
 -- !filter_multi_window --

@@ -182,18 +182,16 @@ public:
         auto&& [col_from, col_from_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        if (col_from_is_const) {
-            if (col_from->is_null_at(0)) {
-                auto col_str = ColumnString::create();
-                col_str->insert_default();
-                auto null_map = ColumnUInt8::create(1, 1);
-                auto nullable_col = ColumnNullable::create(std::move(col_str), std::move(null_map));
-                if (input_rows_count > 1) {
-                    block.get_by_position(result).column =
-                            ColumnConst::create(std::move(nullable_col), input_rows_count);
-                } else {
-                    block.get_by_position(result).column = std::move(nullable_col);
-                }
+        if (col_from_is_const && col_from->is_null_at(0)) {
+            auto col_str = ColumnString::create();
+            col_str->insert_default();
+            auto null_map = ColumnUInt8::create(1, 1);
+            auto nullable_col = ColumnNullable::create(std::move(col_str), std::move(null_map));
+            if (input_rows_count > 1) {
+                block.get_by_position(result).column =
+                        ColumnConst::create(std::move(nullable_col), input_rows_count);
+            } else {
+                block.get_by_position(result).column = std::move(nullable_col);
             }
             return Status::OK();
         }
@@ -303,7 +301,8 @@ public:
                 continue;
             }
 
-            const auto& val = col_from_string->get_data_at(i);
+            auto index = index_check_const(i, col_from_is_const);
+            const auto& val = col_from_string->get_data_at(index);
             auto st = jsonb_value.from_json_string(val.data, val.size);
             if (st.ok()) {
                 // insert jsonb format data
@@ -809,7 +808,6 @@ template <typename ValueType>
 struct JsonbExtractStringImpl {
     using ReturnType = typename ValueType::ReturnType;
     using ColumnType = typename ValueType::ColumnType;
-    static const bool only_check_exists = ValueType::only_check_exists;
 
 private:
     static ALWAYS_INLINE void inner_loop_impl(JsonbWriter* writer, size_t i,
@@ -837,9 +835,8 @@ private:
             StringOP::push_value_string(std::string_view(find_result.value->typeName()), i,
                                         res_data, res_offsets);
             return;
-        }
-
-        if constexpr (std::is_same_v<DataTypeJsonb, ReturnType>) {
+        } else {
+            static_assert(std::is_same_v<DataTypeJsonb, ReturnType>);
             if constexpr (ValueType::no_quotes) {
                 if (find_result.value->isString()) {
                     const auto* str_value = find_result.value->unpack<JsonbStringVal>();
@@ -857,46 +854,10 @@ private:
                     }
                 }
             }
-
-            writer->writeValue(find_result.value);
+            writer->writeValueSimple(find_result.value);
             StringOP::push_value_string(std::string_view(writer->getOutput()->getBuffer(),
                                                          writer->getOutput()->getSize()),
                                         i, res_data, res_offsets);
-        } else {
-            if (LIKELY(find_result.value->isString())) {
-                const auto* str_value = find_result.value->unpack<JsonbStringVal>();
-                StringOP::push_value_string(
-                        std::string_view(str_value->getBlob(), str_value->length()), i, res_data,
-                        res_offsets);
-            } else if (find_result.value->isNull()) {
-                StringOP::push_null_string(i, res_data, res_offsets, null_map);
-            } else if (find_result.value->isTrue()) {
-                StringOP::push_value_string("true", i, res_data, res_offsets);
-            } else if (find_result.value->isFalse()) {
-                StringOP::push_value_string("false", i, res_data, res_offsets);
-            } else if (find_result.value->isInt8()) {
-                StringOP::push_value_string(
-                        std::to_string(find_result.value->unpack<JsonbInt8Val>()->val()), i,
-                        res_data, res_offsets);
-            } else if (find_result.value->isInt16()) {
-                StringOP::push_value_string(
-                        std::to_string(find_result.value->unpack<JsonbInt16Val>()->val()), i,
-                        res_data, res_offsets);
-            } else if (find_result.value->isInt32()) {
-                StringOP::push_value_string(
-                        std::to_string(find_result.value->unpack<JsonbInt32Val>()->val()), i,
-                        res_data, res_offsets);
-            } else if (find_result.value->isInt64()) {
-                StringOP::push_value_string(
-                        std::to_string(find_result.value->unpack<JsonbInt64Val>()->val()), i,
-                        res_data, res_offsets);
-            } else {
-                if (!formater) {
-                    formater.reset(new JsonbToJson());
-                }
-                StringOP::push_value_string(formater->to_json_string(find_result.value), i,
-                                            res_data, res_offsets);
-            }
         }
     }
 
@@ -950,6 +911,7 @@ public:
             }
         }
 
+        res_data.reserve(ldata.size());
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (null_map[i]) {
                 continue;
@@ -1275,18 +1237,10 @@ public:
     } //function
 };
 
-struct JsonbTypeExists {
-    using T = uint8_t;
-    using ReturnType = DataTypeUInt8;
-    using ColumnType = ColumnUInt8;
-    static const bool only_check_exists = true;
-};
-
 struct JsonbTypeJson {
     using T = std::string;
     using ReturnType = DataTypeJsonb;
     using ColumnType = ColumnString;
-    static const bool only_check_exists = false;
     static const bool only_get_type = false;
     static const bool no_quotes = false;
 };
@@ -1295,7 +1249,6 @@ struct JsonbTypeJsonNoQuotes {
     using T = std::string;
     using ReturnType = DataTypeJsonb;
     using ColumnType = ColumnString;
-    static const bool only_check_exists = false;
     static const bool only_get_type = false;
     static const bool no_quotes = true;
 };
@@ -1304,7 +1257,6 @@ struct JsonbTypeType {
     using T = std::string;
     using ReturnType = DataTypeString;
     using ColumnType = ColumnString;
-    static const bool only_check_exists = false;
     static const bool only_get_type = true;
     static const bool no_quotes = false;
 };
@@ -2008,7 +1960,7 @@ public:
 
         JsonbWriter writer;
         struct DocumentBuffer {
-            std::unique_ptr<char[]> ptr;
+            DorisUniqueBufferPtr<char> ptr;
             size_t size = 0;
             size_t capacity = 0;
         };
@@ -2100,7 +2052,7 @@ public:
                 if (writer_output->getSize() > tmp_buffer.capacity) {
                     tmp_buffer.capacity =
                             ((size_t(writer_output->getSize()) + 1024 - 1) / 1024) * 1024;
-                    tmp_buffer.ptr = std::make_unique<char[]>(tmp_buffer.capacity);
+                    tmp_buffer.ptr = make_unique_buffer<char>(tmp_buffer.capacity);
                     DCHECK_LE(writer_output->getSize(), tmp_buffer.capacity);
                 }
 

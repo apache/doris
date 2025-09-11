@@ -258,7 +258,7 @@ public:
                get_null_map_column().is_exclusive();
     }
 
-    bool only_null() const override { return size() == 1 && is_null_at(0); }
+    bool only_null() const override;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
@@ -303,6 +303,8 @@ public:
             _nested_column->replace_column_data(*nullable_rhs._nested_column, row, self_row);
         }
     }
+
+    void replace_float_special_values() override { _nested_column->replace_float_special_values(); }
 
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         _nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();

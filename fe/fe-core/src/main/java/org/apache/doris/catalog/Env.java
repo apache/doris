@@ -4779,20 +4779,20 @@ public class Env {
         }
         DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
         dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
-                true, dropMTMVInfo.isIfExists(), true);
+                true, dropMTMVInfo.isIfExists(), false, true);
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
-                          boolean ifExists, boolean force) throws DdlException {
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, force);
+        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, mustTemporary, force);
     }
 
     public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, true, false, ifExists, false);
+        catalogIf.dropTable(dbName, tableName, true, false, ifExists,  false, false);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,

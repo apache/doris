@@ -70,6 +70,7 @@ public class AzureProperties extends StorageProperties {
 
     @Getter
     @ConnectorProperty(names = {"azure.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key"},
+            sensitive = true,
             description = "The secret key of S3.")
     protected String secretKey = "";
 

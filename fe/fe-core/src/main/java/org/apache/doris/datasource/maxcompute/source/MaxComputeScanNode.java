@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.maxcompute.source;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
@@ -295,7 +294,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         for (Expr dorisPredicate : conjuncts) {
             try {
                 odpsPredicates.add(convertExprToOdpsPredicate(dorisPredicate));
-            } catch (AnalysisException e) {
+            } catch (Exception e) {
                 Log.warn("Failed to convert predicate " + dorisPredicate.toString() + "Reason: "
                         + e.getMessage());
             }
@@ -355,11 +354,13 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN;
 
             String columnName = convertSlotRefToColumnName(expr.getChild(0));
+            if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {
+                throw new AnalysisException("Column " + columnName + " not found in table, can not push "
+                        + "down predicate to MaxCompute " + table.getName());
+            }
             com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
 
             StringBuilder stringBuilder = new StringBuilder();
-
-
             stringBuilder.append(columnName);
             stringBuilder.append(" ");
             stringBuilder.append(odpsOp.getDescription());
@@ -413,6 +414,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
             if (odpsOp != null) {
                 String columnName = convertSlotRefToColumnName(expr.getChild(0));
+                if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {
+                    throw new AnalysisException("Column " + columnName + " not found in table, can not push "
+                            + "down predicate to MaxCompute " + table.getName());
+                }
                 com.aliyun.odps.OdpsType odpsType  =  table.getColumnNameToOdpsColumn().get(columnName).getType();
                 StringBuilder stringBuilder = new StringBuilder();
                 stringBuilder.append(columnName);
@@ -448,10 +453,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private String convertSlotRefToColumnName(Expr expr) throws AnalysisException {
         if (expr instanceof SlotRef) {
             return ((SlotRef) expr).getColumnName();
-        } else if (expr instanceof CastExpr) {
-            if (expr.getChild(0) instanceof SlotRef) {
-                return ((SlotRef) expr.getChild(0)).getColumnName();
-            }
         }
 
         throw new AnalysisException("Do not support convert ["

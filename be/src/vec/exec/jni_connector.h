@@ -391,12 +391,12 @@ private:
         // orc can only push down is_null. When col_value_range._contain_null = true, only indicating that
         // value can be null, not equals null, so ignore _contain_null in col_value_range
         if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
-            col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
+            col_val_range.is_low_value_minimum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
             return;
         }
 
         if (low_value < high_value) {
-            if (!col_val_range.is_low_value_mininum() ||
+            if (!col_val_range.is_low_value_minimum() ||
                 SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
                 ScanPredicate<CppType> low_predicate(column_name);
                 low_predicate.scale = col_val_range.scale();

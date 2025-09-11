@@ -44,6 +44,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/pod_array.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -565,7 +566,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     }
 
     FilterMap& filter_map = *filter_map_ptr;
-    std::unique_ptr<uint8_t[]> rebuild_filter_map = nullptr;
+    DorisUniqueBufferPtr<uint8_t> rebuild_filter_map = nullptr;
     if (_cached_filtered_rows != 0) {
         RETURN_IF_ERROR(_rebuild_filter_map(filter_map, rebuild_filter_map, pre_read_rows));
         pre_read_rows += _cached_filtered_rows;
@@ -625,7 +626,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 }
 
 Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
-                                           std::unique_ptr<uint8_t[]>& filter_map_data,
+                                           DorisUniqueBufferPtr<uint8_t>& filter_map_data,
                                            size_t pre_read_rows) const {
     if (_cached_filtered_rows == 0) {
         return Status::OK();
@@ -636,8 +637,8 @@ Status RowGroupReader::_rebuild_filter_map(FilterMap& filter_map,
         return Status::OK();
     }
 
-    uint8_t* map = new uint8_t[total_rows];
-    filter_map_data.reset(map);
+    filter_map_data = make_unique_buffer<uint8_t>(total_rows);
+    auto* map = filter_map_data.get();
     for (size_t i = 0; i < _cached_filtered_rows; ++i) {
         map[i] = 0;
     }

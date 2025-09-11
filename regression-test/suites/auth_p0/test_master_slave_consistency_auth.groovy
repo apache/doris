@@ -61,7 +61,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         try_sql("DROP role ${role}")
         sql """CREATE ROLE ${role}"""
         sql """drop WORKLOAD GROUP if exists '${wg}' $forComputeGroupStr """
-        sql """CREATE WORKLOAD GROUP "${wg} $forComputeGroupStr "
+        sql """CREATE WORKLOAD GROUP '${wg}' $forComputeGroupStr "
         PROPERTIES (
             "min_cpu_percent"="10"
         );"""

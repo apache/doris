@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
@@ -29,6 +30,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
@@ -48,7 +52,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
-import org.apache.doris.nereids.trees.expressions.functions.agg.LLMAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -135,6 +138,18 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitBitmapUnionInt(BitmapUnionInt bitmapUnionInt, C context) {
         return visitAggregateFunction(bitmapUnionInt, context);
+    }
+
+    default R visitBoolAnd(BoolAnd boolAnd, C context) {
+        return visitAggregateFunction(boolAnd, context);
+    }
+
+    default R visitBoolOr(BoolOr boolOr, C context) {
+        return visitAggregateFunction(boolOr, context);
+    }
+
+    default R visitBoolXor(BoolXor boolXor, C context) {
+        return visitAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {
@@ -233,8 +248,8 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(linearHistogram, context);
     }
 
-    default R visitLLMAgg(LLMAgg llmAgg, C context) {
-        return visitNullableAggregateFunction(llmAgg, context);
+    default R visitAIAgg(AIAgg aiAgg, C context) {
+        return visitNullableAggregateFunction(aiAgg, context);
     }
 
     default R visitMapAgg(MapAgg mapAgg, C context) {

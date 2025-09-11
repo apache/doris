@@ -54,6 +54,7 @@
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/slice.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -1089,7 +1090,18 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
         if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+            MonotonicStopWatch close_timer;
+            close_timer.start();
             RETURN_IF_ERROR(file_writer->close());
+            close_timer.stop();
+
+            auto close_time_ms = close_timer.elapsed_time_milliseconds();
+            if (close_time_ms > 1000) {
+                LOG(INFO) << "file_writer->close() took " << close_time_ms
+                          << "ms for segment_id=" << segment_id
+                          << ", tablet_id=" << _context.tablet_id
+                          << ", rowset_id=" << _context.rowset_id;
+            }
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }

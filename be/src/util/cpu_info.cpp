@@ -64,6 +64,7 @@
 using boost::algorithm::contains;
 using boost::algorithm::trim;
 namespace fs = std::filesystem;
+#include "common/compile_check_avoid_begin.h"
 using std::max;
 
 DECLARE_bool(abort_on_config_error);

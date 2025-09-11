@@ -37,6 +37,7 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
@@ -102,11 +103,11 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
 
-    Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+    Status _read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
     // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
     // Need to read all the data before performing JSON parsing.
-    Status _read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+    Status _read_one_message_from_pipe(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -239,7 +240,7 @@ private:
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
-    std::unique_ptr<uint8_t[]> _json_str_ptr;
+    DorisUniqueBufferPtr<uint8_t> _json_str_ptr;
     const uint8_t* _json_str = nullptr;
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;

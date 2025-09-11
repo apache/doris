@@ -26,6 +26,7 @@
 #include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -43,7 +44,7 @@ protected:
             dict_data_size += 4 + strlen(values[i]); // 4 bytes for length + string data
         }
 
-        auto dict_data = std::make_unique<uint8_t[]>(dict_data_size);
+        auto dict_data = make_unique_buffer<uint8_t>(dict_data_size);
         size_t offset = 0;
         for (int i = 0; i < 3; i++) {
             uint32_t len = strlen(values[i]);
@@ -180,7 +181,7 @@ TEST_F(ByteArrayDictDecoderTest, test_decode_with_filter_and_null) {
 // Test empty dictionary case
 TEST_F(ByteArrayDictDecoderTest, test_empty_dict) {
     ByteArrayDictDecoder empty_decoder;
-    auto dict_data = std::make_unique<uint8_t[]>(0);
+    auto dict_data = make_unique_buffer<uint8_t>(0);
     ASSERT_TRUE(empty_decoder.set_dict(dict_data, 0, 0).ok());
 }
 

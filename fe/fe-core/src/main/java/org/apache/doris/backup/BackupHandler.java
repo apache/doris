@@ -608,8 +608,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "not supported now.");
         }
         if (command.isLocal()) {
-            String jobInfoString = new String(command.getJobInfo());
-            jobInfo = BackupJobInfo.genFromJson(jobInfoString);
+            jobInfo = command.getJobInfo();
 
             if (jobInfo.extraInfo == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Invalid job extra info empty");
@@ -646,13 +645,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 metaVersion = jobInfo.metaVersion;
             }
 
-            BackupMeta backupMeta;
-            try {
-                backupMeta = BackupMeta.fromBytes(command.getMeta(), metaVersion);
-            } catch (IOException e) {
-                LOG.warn("read backup meta failed, current meta version {}", Env.getCurrentEnvJournalVersion(), e);
-                throw new DdlException("read backup meta failed", e);
-            }
+            BackupMeta backupMeta = command.getMeta();
             String backupTimestamp = TimeUtils.longToTimeString(
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(command.getLabel(), backupTimestamp,

@@ -17,6 +17,7 @@
 
 #include "txn_lazy_committer.h"
 
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <chrono>
@@ -658,7 +659,8 @@ void TxnLazyCommitTask::commit() {
                     } else {
                         TabletIndexPB tablet_idx_pb;
                         int64_t first_tablet_id = tmp_rowset_metas.begin()->second.tablet_id();
-                        err = meta_reader.get_tablet_index(first_tablet_id, &tablet_idx_pb);
+                        err = meta_reader.get_tablet_index(txn.get(), first_tablet_id,
+                                                           &tablet_idx_pb);
                         if (err != TxnErrorCode::TXN_OK) {
                             code_ = err == TxnErrorCode::TXN_KEY_NOT_FOUND
                                             ? MetaServiceCode::TXN_ID_NOT_FOUND
@@ -700,7 +702,8 @@ void TxnLazyCommitTask::commit() {
                         break;
                     }
                 } else {
-                    err = meta_reader.get_partition_version(partition_id, &version_pb, nullptr);
+                    err = meta_reader.get_partition_version(txn.get(), partition_id, &version_pb,
+                                                            nullptr);
                     if (TxnErrorCode::TXN_OK != err) {
                         code_ = err == TxnErrorCode::TXN_KEY_NOT_FOUND
                                         ? MetaServiceCode::TXN_ID_NOT_FOUND

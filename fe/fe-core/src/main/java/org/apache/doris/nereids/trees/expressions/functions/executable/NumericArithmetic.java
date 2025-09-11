@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 
 import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.commons.math3.util.FastMath;
@@ -937,6 +938,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(DoubleLiteral first, DoubleLiteral second) {
+        if (second.getValue() == 0) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
         return new DoubleLiteral(first.getValue() % second.getValue());
     }
 
@@ -945,6 +949,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "fmod")
     public static Expression fmod(FloatLiteral first, FloatLiteral second) {
+        if (second.getValue() == 0) {
+            return new NullLiteral(FloatType.INSTANCE);
+        }
         return new FloatLiteral(first.getValue() % second.getValue());
     }
 
@@ -1036,5 +1043,29 @@ public class NumericArithmetic {
     @ExecFunction(name = "isinf")
     public static Expression isinf(FloatLiteral first) {
         return BooleanLiteral.of(Float.isInfinite(first.getValue()));
+    }
+
+    /**
+     * bool_and
+     */
+    @ExecFunction(name = "bool_and")
+    public static Expression booland(BooleanLiteral first) {
+        return first;
+    }
+
+    /**
+     * bool_or
+     */
+    @ExecFunction(name = "bool_or")
+    public static Expression boolor(BooleanLiteral first) {
+        return first;
+    }
+
+    /**
+     * bool_xor
+     */
+    @ExecFunction(name = "bool_xor")
+    public static Expression boolxor(BooleanLiteral first) {
+        return first;
     }
 }

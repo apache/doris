@@ -134,12 +134,14 @@ public:
     int64_t max_version_unlocked() const override { return _max_version; }
     int64_t base_compaction_cnt() const { return _base_compaction_cnt; }
     int64_t cumulative_compaction_cnt() const { return _cumulative_compaction_cnt; }
+    int64_t full_compaction_cnt() const { return _full_compaction_cnt; }
     int64_t cumulative_layer_point() const {
         return _cumulative_point.load(std::memory_order_relaxed);
     }
 
     void set_base_compaction_cnt(int64_t cnt) { _base_compaction_cnt = cnt; }
     void set_cumulative_compaction_cnt(int64_t cnt) { _cumulative_compaction_cnt = cnt; }
+    void set_full_compaction_cnt(int64_t cnt) { _full_compaction_cnt = cnt; }
     void set_cumulative_layer_point(int64_t new_point);
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
@@ -346,6 +348,7 @@ private:
 
     int64_t _base_compaction_cnt = 0;
     int64_t _cumulative_compaction_cnt = 0;
+    int64_t _full_compaction_cnt = 0;
     int64_t _max_version = -1;
     int64_t _base_size = 0;
     int64_t _alter_version = -1;

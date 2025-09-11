@@ -23,6 +23,18 @@
 #include "exec/olap_utils.h"
 
 namespace doris {
+template <>
+const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MIN =
+        -std::numeric_limits<float>::infinity();
+template <>
+const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MAX =
+        std::numeric_limits<float>::quiet_NaN();
+template <>
+const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MIN =
+        -std::numeric_limits<double>::infinity();
+template <>
+const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX =
+        std::numeric_limits<double>::quiet_NaN();
 
 Status OlapScanKeys::get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range) {
     key_range->clear();

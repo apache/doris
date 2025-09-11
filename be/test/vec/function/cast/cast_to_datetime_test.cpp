@@ -206,6 +206,7 @@ TEST_F(FunctionCastTest, string_to_datetime6_strict_case_non_strict_mode) {
             {{std::string("12010203040506.999")}, std::string("1201-02-03 04:05:06.999000")},
             {{std::string("12010203040506.")}, std::string("1201-02-03 04:05:06")},
             {{std::string("2024/05/01")}, std::string("2024-05-01")},
+            {{std::string("2024-05-01:12:12:12.1230")}, std::string("2024-05-01 12:12:12.123")},
 
             // Invalid formats (should return NULL)
             {{std::string("19991231T235960.5UTC")}, Null()},
