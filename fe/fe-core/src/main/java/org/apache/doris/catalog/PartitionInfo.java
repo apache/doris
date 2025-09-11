@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletType;
 
@@ -36,6 +37,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,6 +71,7 @@ public class PartitionInfo implements Writable {
     @SerializedName("IdToDataProperty")
     protected Map<Long, DataProperty> idToDataProperty;
     // partition id -> storage policy
+    @SerializedName("IdToStoragePolicy")
     protected Map<Long, String> idToStoragePolicy;
     // partition id -> replication allocation
     @SerializedName("IdToReplicaAllocation")
@@ -457,6 +460,9 @@ public class PartitionInfo implements Writable {
             Expr.writeTo(e, out);
         }
         out.writeBoolean(isAutoCreatePartitions);
+
+        String json = GsonUtils.GSON.toJson(idToStoragePolicy);
+        Text.writeString(out, json);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -491,6 +497,14 @@ public class PartitionInfo implements Writable {
             }
             this.isAutoCreatePartitions = in.readBoolean();
         }
+
+        Text jsonText = new Text();
+        jsonText.readFields(in);
+        String jsonString = jsonText.toString();
+
+        // Deserialize Map<Long, String> IdToStoragePolicyfrom JSON
+        TypeToken<Map<Long, String>> token = new TypeToken<Map<Long, String>>() {};
+        this.idToStoragePolicy = GsonUtils.GSON.fromJson(jsonString, token.getType());
     }
 
     @Override
