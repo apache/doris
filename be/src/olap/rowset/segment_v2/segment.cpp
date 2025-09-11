@@ -235,7 +235,9 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (col.is_extracted_column()) {
             auto relative_path = col.path_info_ptr()->copy_pop_front();
             int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
-            const auto* node = _sub_column_tree[unique_id].find_exact(relative_path);
+            const auto* node = _sub_column_tree.contains(unique_id)
+                                       ? _sub_column_tree.at(unique_id).find_exact(relative_path)
+                                       : nullptr;
             reader = node != nullptr ? node->data.reader.get() : nullptr;
         } else {
             reader = _column_readers.contains(col.unique_id())
@@ -747,9 +749,9 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         return Status::OK();
     }
     auto relative_path = tablet_column.path_info_ptr()->copy_pop_front();
-    const auto* root = _sub_column_tree[unique_id].get_root();
+    const auto* root = _sub_column_tree.at(unique_id).get_root();
     const auto* node = tablet_column.has_path_info()
-                               ? _sub_column_tree[unique_id].find_exact(relative_path)
+                               ? _sub_column_tree.at(unique_id).find_exact(relative_path)
                                : nullptr;
     const auto* sparse_node =
             tablet_column.has_path_info() && _sparse_column_tree.contains(unique_id)
@@ -769,7 +771,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     auto new_default_iter_with_same_nested = [&](const TabletColumn& tablet_column,
                                                  std::unique_ptr<ColumnIterator>* iter) {
         // We find node that represents the same Nested type as path.
-        const auto* parent = _sub_column_tree[unique_id].find_best_match(relative_path);
+        const auto* parent = _sub_column_tree.at(unique_id).find_best_match(relative_path);
         VLOG_DEBUG << "find with path " << tablet_column.path_info_ptr()->get_path() << " parent "
                    << (parent ? parent->path.get_path() : "nullptr") << ", type "
                    << ", parent is nested " << (parent ? parent->is_nested() : false) << ", "
@@ -804,7 +806,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
     if (opt != nullptr && type_to_read_flat_leaves(opt->io_ctx.reader_type)) {
         // compaction need to read flat leaves nodes data to prevent from amplification
         const auto* node = tablet_column.has_path_info()
-                                   ? _sub_column_tree[unique_id].find_leaf(relative_path)
+                                   ? _sub_column_tree.at(unique_id).find_leaf(relative_path)
                                    : nullptr;
         if (!node) {
             // sparse_columns have this path, read from root
@@ -831,7 +833,7 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         if (node->is_leaf_node() && sparse_node == nullptr) {
             // Node contains column without any child sub columns and no corresponding sparse columns
             // Direct read extracted columns
-            const auto* node = _sub_column_tree[unique_id].find_leaf(relative_path);
+            const auto* node = _sub_column_tree.at(unique_id).find_leaf(relative_path);
             ColumnIterator* it;
             RETURN_IF_ERROR(node->data.reader->new_iterator(&it));
             iter->reset(it);
@@ -916,8 +918,11 @@ ColumnReader* Segment::_get_column_reader(const TabletColumn& col) {
     if (col.has_path_info() || col.is_variant_type()) {
         auto relative_path = col.path_info_ptr()->copy_pop_front();
         int32_t unique_id = col.unique_id() > 0 ? col.unique_id() : col.parent_unique_id();
+        if (!_sub_column_tree.contains(unique_id)) {
+            return nullptr;
+        }
         const auto* node = col.has_path_info()
-                                   ? _sub_column_tree[unique_id].find_exact(relative_path)
+                                   ? _sub_column_tree.at(unique_id).find_exact(relative_path)
                                    : nullptr;
         if (node != nullptr) {
             return node->data.reader.get();
