@@ -60,6 +60,8 @@ public class MasterOpExecutor {
 
     private boolean shouldNotRetry;
 
+    protected boolean moreStmtExists = false;
+
     public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status, boolean isQuery) {
         this.originStmt = originStmt;
         this.ctx = ctx;
@@ -175,6 +177,7 @@ public class MasterOpExecutor {
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        params.setMoreResultExists(moreStmtExists);
 
         // query options
         params.setQueryOptions(ctx.getSessionVariable().getQueryOptionVariables());
@@ -239,6 +242,10 @@ public class MasterOpExecutor {
         // just make the protocol happy
         params.setSql("");
         return params;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     public ByteBuffer getOutputPacket() {
