@@ -1600,7 +1600,7 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
     }
 
     // Create old tablet
-    { create_tablet(meta_service.get(), table_id, index_id, partition_id, old_tablet_id); }
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, old_tablet_id);
 
     auto txn_kv = meta_service->txn_kv();
 
@@ -2090,6 +2090,132 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
                     << version << " after recycling tablets";
         }
     }
+}
+
+TEST(RecycleOperationLogTest, RecycleDeletedInstance) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    update_instance_info(txn_kv.get(), instance);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    uint64_t tablet_id = 1, partition_id = 2, index_id = 3, table_id = 4, db_id = 5;
+    {
+        // Create tablet meta
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_id, tablet_id});
+        doris::TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        tablet_meta.set_creation_time(::time(nullptr));
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), tablet_meta_key, tablet_meta.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put partition version
+        std::string partition_version_key =
+                versioned::partition_version_key({instance_id, partition_id});
+        VersionPB version;
+        version.set_version(12345);
+        version.set_update_time_ms(0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), partition_version_key, version.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put partition index
+        std::string partition_index_key =
+                versioned::partition_index_key({instance_id, partition_id});
+        PartitionIndexPB partition_index;
+        partition_index.set_table_id(table_id);
+        partition_index.set_db_id(db_id);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(partition_index_key, partition_index.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put rowset meta, tablet stats and data ref count
+        // Create rowset meta
+        std::string rowset_key = meta_rowset_key({instance_id, tablet_id, 2});
+        doris::RowsetMetaCloudPB rowset_meta;
+        rowset_meta.set_rowset_id(12345);
+        rowset_meta.set_rowset_id_v2("test_rowset_id");
+        rowset_meta.set_tablet_id(tablet_id);
+        rowset_meta.set_partition_id(partition_id);
+        rowset_meta.set_start_version(2);
+        rowset_meta.set_end_version(2);
+        rowset_meta.set_num_rows(100);
+        rowset_meta.set_data_disk_size(10000);
+        rowset_meta.set_index_disk_size(1000);
+        rowset_meta.set_total_disk_size(11000);
+
+        // Create tablet stats
+        std::string tablet_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        TabletStatsPB tablet_stats;
+        tablet_stats.set_num_rows(100);
+        tablet_stats.set_data_size(10000);
+        tablet_stats.set_num_rowsets(1);
+        tablet_stats.set_num_segments(1);
+        tablet_stats.set_index_size(1000);
+        tablet_stats.set_segment_size(11000);
+        tablet_stats.set_cumulative_point(1);
+
+        // Create data ref count
+        std::string data_ref_count_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id, "test_rowset_id"});
+        std::string ref_count = "1";
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::document_put(txn.get(), rowset_key, std::move(rowset_meta));
+        versioned_put(txn.get(), tablet_stats_key, tablet_stats.SerializeAsString());
+        versioned_put(txn.get(), data_ref_count_key, ref_count);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Put operation logs
+        std::string log_key = versioned::log_key(instance_id);
+        Versionstamp versionstamp(123, 0);
+        OperationLogPB operation_log;
+        operation_log.set_min_timestamp(versionstamp.version());
+
+        // Create a commit txn log
+        auto* commit_txn = operation_log.mutable_commit_txn();
+        commit_txn->set_db_id(db_id);
+        commit_txn->set_txn_id(100);
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned_put(txn.get(), log_key, operation_log.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        // Mark instance deleted.
+        InstanceInfoPB deleted_instance = instance;
+        deleted_instance.set_status(InstanceInfoPB::DELETED);
+        update_instance_info(txn_kv.get(), deleted_instance);
+    }
+
+    ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+
+    // Verify all keys are deleted
+    ASSERT_TRUE(is_empty_range(txn_kv.get())) << dump_range(txn_kv.get());
 }
 
 // Test OperationLogRecycleChecker class

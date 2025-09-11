@@ -36,17 +36,16 @@
 #ifndef JSONB_JSONBWRITER_H
 #define JSONB_JSONBWRITER_H
 
+#include <glog/logging.h>
+
 #include <cstdint>
 #include <limits>
 #include <stack>
 #include <string>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -135,6 +134,18 @@ public:
             return true;
         }
         return false;
+    }
+
+    bool writeValueSimple(const JsonbValue* value) {
+        DCHECK(value) << "value should not be nullptr";
+        DCHECK(first_) << "only called at the beginning";
+        DCHECK(stack_.empty()) << "only called at the beginning";
+        DCHECK(!hasHdr_) << "only called at the beginning";
+        first_ = false;
+        writeHeader();
+        os_->write((char*)value, value->numPackedBytes());
+        kvState_ = WS_Value;
+        return true;
     }
 
     // write a key id

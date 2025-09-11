@@ -409,6 +409,9 @@ private:
     int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
                                      const RowsetMetaCloudPB& rowset_meta);
 
+    // Whether the instance has any snapshots, return 0 for success otherwise error.
+    int has_cluster_snapshots(bool* any);
+
 private:
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
