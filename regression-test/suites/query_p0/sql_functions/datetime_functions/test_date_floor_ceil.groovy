@@ -101,4 +101,116 @@ suite("test_date_floor_ceil") {
     qt_boundary_4 """ select date_ceil('9999-12-31 23:59:58', interval 1 second); """
     qt_boundary_5 """ select date_ceil('9999-12-31 21:00:01', interval 1 hour); """
     qt_boundary_6 """ select date_ceil('9999-10-17 23:59:58', interval 1 month); """
+
+    qt_three_param_1 """ select hour_floor('2023-07-14 15:30:45', 3, '2023-01-01 00:00:00'); """
+    qt_three_param_2 """ select hour_floor('2023-07-14 15:30:45', 6, '2023-01-01 02:00:00'); """
+    qt_three_param_3 """ select hour_floor('2023-07-14 15:30:45', 12, '1970-01-01 00:00:00'); """
+    qt_three_param_4 """ select hour_floor('2023-07-14 15:30:45', 24, '2023-01-01 00:00:00'); """
+
+    qt_three_param_5 """ select minute_floor('2023-07-14 15:30:45', 15, '2023-01-01 00:00:00'); """
+    qt_three_param_6 """ select minute_floor('2023-07-14 15:30:45', 30, '2023-01-01 00:05:00'); """
+    qt_three_param_7 """ select minute_floor('2023-07-14 15:30:45', 60, '1970-01-01 00:00:00'); """
+
+    qt_three_param_8 """ select second_floor('2023-07-14 15:30:45', 10, '2023-01-01 00:00:00'); """
+    qt_three_param_9 """ select second_floor('2023-07-14 15:30:45', 30, '2023-01-01 00:00:05'); """
+    qt_three_param_10 """ select second_floor('2023-07-14 15:30:45', 60, '1970-01-01 00:00:00'); """
+
+    qt_three_param_11 """ select hour_ceil('2023-07-14 15:30:45', 3, '2023-01-01 00:00:00'); """
+    qt_three_param_12 """ select hour_ceil('2023-07-14 15:30:45', 6, '2023-01-01 02:00:00'); """
+    qt_three_param_13 """ select hour_ceil('2023-07-14 15:30:45', 12, '1970-01-01 00:00:00'); """
+
+    qt_three_param_14 """ select minute_ceil('2023-07-14 15:30:45', 15, '2023-01-01 00:00:00'); """
+    qt_three_param_15 """ select minute_ceil('2023-07-14 15:30:45', 30, '2023-01-01 00:05:00'); """
+
+    qt_three_param_16 """ select second_ceil('2023-07-14 15:30:45', 10, '2023-01-01 00:00:00'); """
+    qt_three_param_17 """ select second_ceil('2023-07-14 15:30:45', 30, '2023-01-01 00:00:05'); """
+
+    qt_three_param_18 """ select hour_floor('2023-07-14 15:30:45', 1, '2023-07-14 15:30:45'); """
+    qt_three_param_19 """ select minute_floor('2023-07-14 15:30:45', 1, '2023-07-14 15:30:45'); """
+    qt_three_param_20 """ select second_floor('2023-07-14 15:30:45', 1, '2023-07-14 15:30:45'); """
+
+    qt_three_param_21 """ select hour_floor('2023-07-14 15:30:45', 2, '2023-07-15 00:00:00'); """
+    qt_three_param_22 """ select minute_floor('2023-07-14 15:30:45', 10, '2023-07-14 16:00:00'); """
+    qt_three_param_23 """ select second_floor('2023-07-14 15:30:45', 30, '2023-07-14 15:31:00'); """
+
+    qt_three_param_24 """ select hour_floor('2023-07-14 15:30:45', 4, '2020-01-01 00:00:00'); """
+    qt_three_param_25 """ select hour_floor('2023-07-14 15:30:45', 8, '2025-01-01 00:00:00'); """
+
+    qt_three_param_26 """ select hour_floor('2023-07-14 15:30:45', 100, '2023-01-01 00:00:00'); """
+    qt_three_param_27 """ select minute_floor('2023-07-14 15:30:45', 500, '2023-01-01 00:00:00'); """
+    qt_three_param_28 """ select second_floor('2023-07-14 15:30:45', 3600, '2023-01-01 00:00:00'); """
+
+    qt_three_param_29 """ select hour_ceil('2023-07-14 15:00:00', 3, '2023-01-01 00:00:00'); """
+    qt_three_param_30 """ select minute_ceil('2023-07-14 15:30:00', 15, '2023-01-01 00:00:00'); """
+    qt_three_param_31 """ select second_ceil('2023-07-14 15:30:45', 15, '2023-01-01 00:00:00'); """
+
+    qt_three_param_32 """ select hour_floor('0001-01-01 01:00:00', 2, '0001-01-01 00:00:00'); """
+    qt_three_param_33 """ select hour_floor('9999-12-31 23:00:00', 3, '9999-12-31 00:00:00'); """
+    qt_three_param_34 """ select minute_floor('0001-01-01 00:01:00', 5, '0001-01-01 00:00:00'); """
+    qt_three_param_35 """ select minute_floor('9999-12-31 23:59:00', 10, '9999-12-31 23:00:00'); """
+    
+    qt_three_param_36 """ select day_floor('2023-07-14 15:30:45', 3, '2023-01-01 00:00:00'); """
+    qt_three_param_37 """ select day_floor('2023-07-14 15:30:45', 7, '2023-07-01 00:00:00'); """
+    qt_three_param_38 """ select day_floor('2023-07-14 15:30:45', 15, '1970-01-01 00:00:00'); """
+    qt_three_param_39 """ select day_floor('2023-07-14 15:30:45', 30, '2023-01-15 00:00:00'); """
+    
+    qt_three_param_40 """ select day_ceil('2023-07-14 15:30:45', 3, '2023-01-01 00:00:00'); """
+    qt_three_param_41 """ select day_ceil('2023-07-14 15:30:45', 7, '2023-07-01 00:00:00'); """
+    qt_three_param_42 """ select day_ceil('2023-07-14 15:30:45', 15, '1970-01-01 00:00:00'); """
+    qt_three_param_43 """ select day_ceil('2023-07-14 15:30:45', 30, '2023-01-15 00:00:00'); """
+    
+    qt_three_param_44 """ select month_floor('2023-07-14 15:30:45', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_45 """ select month_floor('2023-07-14 15:30:45', 3, '2023-02-01 00:00:00'); """
+    qt_three_param_46 """ select month_floor('2023-07-14 15:30:45', 6, '1970-01-01 00:00:00'); """
+    qt_three_param_47 """ select month_floor('2023-07-14 15:30:45', 12, '2022-06-01 00:00:00'); """
+    
+    qt_three_param_48 """ select month_ceil('2023-07-14 15:30:45', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_49 """ select month_ceil('2023-07-14 15:30:45', 3, '2023-02-01 00:00:00'); """
+    qt_three_param_50 """ select month_ceil('2023-07-14 15:30:45', 6, '1970-01-01 00:00:00'); """
+    qt_three_param_51 """ select month_ceil('2023-07-14 15:30:45', 12, '2022-06-01 00:00:00'); """
+
+    qt_three_param_52 """ select year_floor('2023-07-14 15:30:45', 2, '2020-01-01 00:00:00'); """
+    qt_three_param_53 """ select year_floor('2023-07-14 15:30:45', 5, '2021-01-01 00:00:00'); """
+    qt_three_param_54 """ select year_floor('2023-07-14 15:30:45', 10, '1970-01-01 00:00:00'); """
+    qt_three_param_55 """ select year_floor('2023-07-14 15:30:45', 100, '1900-01-01 00:00:00'); """
+    
+    qt_three_param_56 """ select year_ceil('2023-07-14 15:30:45', 2, '2020-01-01 00:00:00'); """
+    qt_three_param_57 """ select year_ceil('2023-07-14 15:30:45', 5, '2021-01-01 00:00:00'); """
+    qt_three_param_58 """ select year_ceil('2023-07-14 15:30:45', 10, '1970-01-01 00:00:00'); """
+    qt_three_param_59 """ select year_ceil('2023-07-14 15:30:45', 100, '1900-01-01 00:00:00'); """
+
+    qt_three_param_60 """ select quarter_floor('2023-07-14 15:30:45', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_61 """ select quarter_floor('2023-07-14 15:30:45', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_62 """ select quarter_floor('2023-07-14 15:30:45', 1, '2022-10-01 00:00:00'); """
+    qt_three_param_63 """ select quarter_floor('2023-11-20 10:15:30', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_64 """ select quarter_floor('2023-11-20 10:15:30', 2, '2022-07-01 00:00:00'); """
+    qt_three_param_65 """ select quarter_floor('2023-02-28 12:00:00', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_66 """ select quarter_floor('2023-05-15 18:45:00', 1, '2023-04-01 00:00:00'); """
+    qt_three_param_67 """ select quarter_floor('2023-08-10 09:30:00', 3, '2020-01-01 00:00:00'); """
+    qt_three_param_68 """ select quarter_floor('2023-12-31 23:59:59', 1, '2023-10-01 00:00:00'); """
+    qt_three_param_69 """ select quarter_floor('2024-01-01 00:00:00', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_70 """ select quarter_floor('2023-07-14 15:30:45', 4, '1970-01-01 00:00:00'); """
+    qt_three_param_71 """ select quarter_floor('2023-07-14 15:30:45', 1, '2023-07-01 00:00:00'); """
+
+    qt_three_param_72 """ select quarter_ceil('2023-07-14 15:30:45', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_73 """ select quarter_ceil('2023-07-14 15:30:45', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_74 """ select quarter_ceil('2023-07-14 15:30:45', 1, '2022-10-01 00:00:00'); """
+    qt_three_param_75 """ select quarter_ceil('2023-11-20 10:15:30', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_76 """ select quarter_ceil('2023-11-20 10:15:30', 2, '2022-07-01 00:00:00'); """
+    qt_three_param_77 """ select quarter_ceil('2023-02-28 12:00:00', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_78 """ select quarter_ceil('2023-05-15 18:45:00', 1, '2023-04-01 00:00:00'); """
+    qt_three_param_79 """ select quarter_ceil('2023-08-10 09:30:00', 3, '2020-01-01 00:00:00'); """
+    qt_three_param_80 """ select quarter_ceil('2023-12-31 23:59:59', 1, '2023-10-01 00:00:00'); """
+    qt_three_param_81 """ select quarter_ceil('2024-01-01 00:00:00', 2, '2023-01-01 00:00:00'); """
+    qt_three_param_82 """ select quarter_ceil('2023-07-14 15:30:45', 4, '1970-01-01 00:00:00'); """
+    qt_three_param_83 """ select quarter_ceil('2023-07-14 15:30:45', 1, '2023-07-01 00:00:00'); """
+
+    qt_three_param_84 """ select quarter_floor('2023-01-01 00:00:00', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_85 """ select quarter_ceil('2023-01-01 00:00:00', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_86 """ select quarter_floor('2023-03-31 23:59:59', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_87 """ select quarter_ceil('2023-04-01 00:00:01', 1, '2023-01-01 00:00:00'); """
+    qt_three_param_88 """ select quarter_floor('9999-12-31 23:59:59', 1, '9999-10-01 00:00:00'); """
+    qt_three_param_89 """ select quarter_ceil('0001-01-01 00:00:00', 1, '0001-01-01 00:00:00'); """
+    qt_three_param_90 """ select quarter_floor('2023-06-30 23:59:59', 2, '2022-01-01 00:00:00'); """
+    qt_three_param_91 """ select quarter_ceil('2023-07-01 00:00:01', 2, '2022-01-01 00:00:00'); """
 }
