@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -951,6 +952,131 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(invalid '2' '1')"));
         Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(from '1')"));
         Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("trim(both '1')"));
+    }
+
+    @Test
+    public void testSubstring() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "substring('Sakila' FROM -4 FOR 2)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(2, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substring('Sakila', -5, 3)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(3, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substring('foobarbar' FROM 4)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        sql = "substring('Quadratically', 5)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substring", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from for)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring('Sakila' from)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(from 1)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substring(for 1)"));
+    }
+
+    @Test
+    public void testSubstr() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "substr('Sakila' FROM -4 FOR 2)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(2, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substr('Sakila', -5, 3)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(3, unboundFunction.arity());
+        Assertions.assertEquals("Sakila", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(-5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+        Assertions.assertEquals(3, ((IntegerLikeLiteral) unboundFunction.child(2)).getIntValue());
+
+        sql = "substr('foobarbar' FROM 4)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(4, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        sql = "substr('Quadratically', 5)";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("substr", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("Quadratically", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals(5, ((IntegerLikeLiteral) unboundFunction.child(1)).getIntValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' for 2)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from for)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr('Sakila' from)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(from 1)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("substr(for 1)"));
+    }
+
+    @Test
+    public void testPositon() {
+        NereidsParser parser = new NereidsParser();
+        String sql;
+        Expression e;
+        UnboundFunction unboundFunction;
+
+        sql = "position('bar' in 'foobarbar')";
+        e = parser.parseExpression(sql);
+        Assertions.assertInstanceOf(UnboundFunction.class, e);
+        unboundFunction = (UnboundFunction) e;
+        Assertions.assertEquals("position", unboundFunction.getName());
+        Assertions.assertEquals(2, unboundFunction.arity());
+        Assertions.assertEquals("bar", ((StringLikeLiteral) unboundFunction.child(0)).getStringValue());
+        Assertions.assertEquals("foobarbar", ((StringLikeLiteral) unboundFunction.child(1)).getStringValue());
+
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position('bar' in)"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in 'foobarbar')"));
+        Assertions.assertThrowsExactly(ParseException.class, () -> parser.parseExpression("position(in)"));
     }
 
     @Test

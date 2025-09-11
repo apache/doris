@@ -60,6 +60,180 @@
 0.0
 0.0
 
+-- !sql_position_Varchar_Varchar --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_Varchar_Varchar_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_String_String --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_String_String_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_Varchar_Varchar --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_Varchar_Varchar_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_String_String --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_String_String_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_position_Varchar_Varchar_Integer --
+\N
+1
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_position_Varchar_Varchar_Integer_notnull --
+1
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_position_String_String_Integer --
+\N
+1
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_position_String_String_Integer_notnull --
+1
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
 -- !sql_positive_BigInt --
 \N
 1
@@ -159,8 +333,8 @@
 0.8365116420730186
 0.9095325760829622
 1.0
-1.1105342410545758
-1.2445647472039776
+1.110534241054576
+1.244564747203978
 
 -- !sql_pow_Double_Double_notnull --
 0.7943282347242815
@@ -173,8 +347,8 @@
 0.8365116420730186
 0.9095325760829622
 1.0
-1.1105342410545758
-1.2445647472039776
+1.110534241054576
+1.244564747203978
 
 -- !sql_power_Double_Double --
 \N
@@ -188,8 +362,8 @@
 0.8365116420730186
 0.9095325760829622
 1.0
-1.1105342410545758
-1.2445647472039776
+1.110534241054576
+1.244564747203978
 
 -- !sql_power_Double_Double_notnull --
 0.7943282347242815
@@ -202,8 +376,8 @@
 0.8365116420730186
 0.9095325760829622
 1.0
-1.1105342410545758
-1.2445647472039776
+1.110534241054576
+1.244564747203978
 
 -- !sql_protocol_String --
 
