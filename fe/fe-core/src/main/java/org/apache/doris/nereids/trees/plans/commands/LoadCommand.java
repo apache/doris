@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
@@ -360,7 +359,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
             properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
-                    properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
+                    properties.getOrDefault(TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
         }
 
         // send batch parallelism

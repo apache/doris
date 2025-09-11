@@ -35,6 +35,7 @@
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_full_compaction.h"
+#include "cloud/cloud_index_change_compaction.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_snapshot_mgr.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -261,6 +262,9 @@ void CloudStorageEngine::stop() {
     if (_calc_tablet_delete_bitmap_task_thread_pool) {
         _calc_tablet_delete_bitmap_task_thread_pool->shutdown();
     }
+    if (_sync_delete_bitmap_thread_pool) {
+        _sync_delete_bitmap_thread_pool->shutdown();
+    }
 }
 
 bool CloudStorageEngine::stopped() {
@@ -303,6 +307,10 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
                             .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
+    RETURN_IF_ERROR(ThreadPoolBuilder("SyncDeleteBitmapThreadPool")
+                            .set_min_threads(config::sync_delete_bitmap_task_max_thread)
+                            .set_max_threads(config::sync_delete_bitmap_task_max_thread)
+                            .build(&_sync_delete_bitmap_thread_pool));
 
     // TODO(plat1ko): check_bucket_enable_versioning_thread
 
@@ -541,6 +549,51 @@ void CloudStorageEngine::_compaction_tasks_producer_callback() {
     } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
+void CloudStorageEngine::unregister_index_change_compaction(int64_t tablet_id,
+                                                            bool is_base_compact) {
+    std::lock_guard lock(_compaction_mtx);
+    if (is_base_compact) {
+        _submitted_index_change_base_compaction.erase(tablet_id);
+    } else {
+        _submitted_index_change_cumu_compaction.erase(tablet_id);
+    }
+}
+
+bool CloudStorageEngine::register_index_change_compaction(
+        std::shared_ptr<CloudIndexChangeCompaction> compact, int64_t tablet_id,
+        bool is_base_compact, std::string& err_reason) {
+    std::lock_guard lock(_compaction_mtx);
+    if (is_base_compact) {
+        if (_submitted_base_compactions.contains(tablet_id) ||
+            _submitted_full_compactions.contains(tablet_id) ||
+            _submitted_index_change_base_compaction.contains(tablet_id)) {
+            std::stringstream ss;
+            ss << "reason:" << ((int)_submitted_base_compactions.contains(tablet_id)) << ", "
+               << ((int)_submitted_full_compactions.contains(tablet_id)) << ", "
+               << ((int)_submitted_index_change_base_compaction.contains(tablet_id));
+            err_reason = ss.str();
+            return false;
+        } else {
+            _submitted_index_change_base_compaction[tablet_id] = compact;
+            return true;
+        }
+    } else {
+        if (_tablet_preparing_cumu_compaction.contains(tablet_id) ||
+            _submitted_cumu_compactions.contains(tablet_id) ||
+            _submitted_index_change_cumu_compaction.contains(tablet_id)) {
+            std::stringstream ss;
+            ss << "reason:" << ((int)_tablet_preparing_cumu_compaction.contains(tablet_id)) << ", "
+               << ((int)_submitted_cumu_compactions.contains(tablet_id)) << ", "
+               << ((int)_submitted_index_change_cumu_compaction.contains(tablet_id));
+            err_reason = ss.str();
+            return false;
+        } else {
+            _submitted_index_change_cumu_compaction[tablet_id] = compact;
+        }
+        return true;
+    }
+}
+
 std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_tasks(
         CompactionType compaction_type, bool check_score) {
     std::vector<std::shared_ptr<CloudTablet>> tablets_compaction;
@@ -551,12 +604,18 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
             submitted_cumu_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudBaseCompaction>> submitted_base_compactions;
     std::unordered_map<int64_t, std::shared_ptr<CloudFullCompaction>> submitted_full_compactions;
+    std::unordered_map<int64_t, std::shared_ptr<CloudIndexChangeCompaction>>
+            submitted_index_change_cumu_compactions;
+    std::unordered_map<int64_t, std::shared_ptr<CloudIndexChangeCompaction>>
+            submitted_index_change_base_compactions;
     {
         std::lock_guard lock(_compaction_mtx);
         tablet_preparing_cumu_compaction = _tablet_preparing_cumu_compaction;
         submitted_cumu_compactions = _submitted_cumu_compactions;
         submitted_base_compactions = _submitted_base_compactions;
         submitted_full_compactions = _submitted_full_compactions;
+        submitted_index_change_cumu_compactions = _submitted_index_change_cumu_compaction;
+        submitted_index_change_base_compactions = _submitted_index_change_base_compaction;
     }
 
     bool need_pick_tablet = true;
@@ -585,21 +644,26 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     // Return true for skipping compaction
     std::function<bool(CloudTablet*)> filter_out;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
-        filter_out = [&submitted_base_compactions, &submitted_full_compactions](CloudTablet* t) {
+        filter_out = [&submitted_base_compactions, &submitted_full_compactions,
+                      &submitted_index_change_base_compactions](CloudTablet* t) {
             return submitted_base_compactions.contains(t->tablet_id()) ||
                    submitted_full_compactions.contains(t->tablet_id()) ||
+                   submitted_index_change_base_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else if (config::enable_parallel_cumu_compaction) {
-        filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
+        filter_out = [&tablet_preparing_cumu_compaction,
+                      &submitted_index_change_cumu_compactions](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
                    (t->tablet_state() != TABLET_RUNNING &&
                     (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     } else {
-        filter_out = [&tablet_preparing_cumu_compaction,
-                      &submitted_cumu_compactions](CloudTablet* t) {
+        filter_out = [&tablet_preparing_cumu_compaction, &submitted_cumu_compactions,
+                      &submitted_index_change_cumu_compactions](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_index_change_cumu_compactions.contains(t->tablet_id()) ||
                    submitted_cumu_compactions.contains(t->tablet_id()) ||
                    (t->tablet_state() != TABLET_RUNNING &&
                     (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
@@ -988,6 +1052,7 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
         std::vector<std::shared_ptr<CloudBaseCompaction>> base_compactions;
         std::vector<std::shared_ptr<CloudCumulativeCompaction>> cumu_compactions;
         std::vector<std::shared_ptr<CloudCompactionStopToken>> compation_stop_tokens;
+        std::vector<std::shared_ptr<CloudIndexChangeCompaction>> index_change_compations;
         {
             std::lock_guard lock(_compaction_mtx);
             for (auto& [_, base] : _executing_base_compactions) {
@@ -1010,6 +1075,16 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
                     compation_stop_tokens.push_back(stop_token);
                 }
             }
+            for (auto& [_, index_change] : _submitted_index_change_cumu_compaction) {
+                if (index_change) {
+                    index_change_compations.push_back(index_change);
+                }
+            }
+            for (auto& [_, index_change] : _submitted_index_change_base_compaction) {
+                if (index_change) {
+                    index_change_compations.push_back(index_change);
+                }
+            }
         }
         // TODO(plat1ko): Support batch lease rpc
         for (auto& stop_token : compation_stop_tokens) {
@@ -1022,6 +1097,9 @@ void CloudStorageEngine::_lease_compaction_thread_callback() {
             comp->do_lease();
         }
         for (auto& comp : base_compactions) {
+            comp->do_lease();
+        }
+        for (auto& comp : index_change_compations) {
             comp->do_lease();
         }
     }

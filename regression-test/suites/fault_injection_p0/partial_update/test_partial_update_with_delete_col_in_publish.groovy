@@ -92,7 +92,8 @@ suite("test_partial_update_with_delete_col_in_publish", "nonConcurrent") {
 
         disable_block_in_publish()
         threads.each { t -> t.join() }
-
+        sleep(2000)
+        sql "sync;"
         qt_sql "select * from ${tableName} order by k;"
     } catch(Exception e) {
         logger.info(e.getMessage())

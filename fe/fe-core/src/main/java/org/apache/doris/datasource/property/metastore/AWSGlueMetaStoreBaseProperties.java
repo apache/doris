@@ -53,6 +53,7 @@ public class AWSGlueMetaStoreBaseProperties {
 
     @ConnectorProperty(names = {"glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            sensitive = true,
             description = "The secret key of the AWS Glue.")
     protected String glueSecretKey = "";
 

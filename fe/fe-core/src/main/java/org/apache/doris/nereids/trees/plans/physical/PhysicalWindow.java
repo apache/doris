@@ -22,7 +22,6 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
-import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -49,8 +48,7 @@ import java.util.Optional;
 /**
  * physical node for window function
  */
-public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Window,
-        RequirePropertiesSupplier<PhysicalWindow<CHILD_TYPE>> {
+public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Window {
 
     private final WindowFrameGroup windowFrameGroup;
     private final RequireProperties requireProperties;
@@ -140,11 +138,6 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
-    public RequireProperties getRequireProperties() {
-        return requireProperties;
-    }
-
-    @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
@@ -170,12 +163,6 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
                                                        Statistics statistics) {
         return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
-    }
-
-    @Override
-    public PhysicalWindow<Plan> withRequireAndChildren(RequireProperties requireProperties, List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return withRequirePropertiesAndChild(requireProperties, children.get(0));
     }
 
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,

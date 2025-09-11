@@ -18,6 +18,7 @@
 #include "meta-store/keys.h"
 
 #include <set>
+#include <string>
 
 #include "meta-store/codec.h"
 
@@ -554,6 +555,54 @@ std::string system_meta_service_encryption_key_info_key() {
 
 namespace versioned {
 
+std::string version_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(VERSION_KEY_PREFIX, &out); // "version"
+    encode_bytes(instance_id, &out);        // instance_id
+    return out;
+}
+
+std::string index_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(INDEX_INDEX_KEY_INFIX, &out); // "version"
+    encode_bytes(instance_id, &out);           // instance_id
+    return out;
+}
+
+std::string stats_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(STATS_KEY_PREFIX, &out); // "stats"
+    encode_bytes(instance_id, &out);      // instance_id
+    return out;
+}
+
+std::string meta_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, &out); // "meta"
+    encode_bytes(instance_id, &out);     // instance_id
+    return out;
+}
+
+std::string data_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(DATA_KEY_PREFIX, &out); // "data"
+    encode_bytes(instance_id, &out);     // instance_id
+    return out;
+}
+
+std::string log_key_prefix(std::string_view instance_id) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(LOG_KEY_PREFIX, &out); // "log"
+    encode_bytes(instance_id, &out);    // instance_id
+    return out;
+}
+
 //==============================================================================
 // Version keys
 //==============================================================================
@@ -705,6 +754,14 @@ void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* ou
     encode_int64(std::get<2>(in), out);               // version
 }
 
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out) {
+    out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(META_KEY_PREFIX, out);              // "meta"
+    encode_bytes(std::get<0>(in), out);              // instance_id
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP, out); // "delete_bitmap"
+    encode_int64(std::get<1>(in), out);              // tablet_id
+    encode_bytes(std::get<2>(in), out);              // rowset_id
+}
 //==============================================================================
 // Data keys
 //==============================================================================

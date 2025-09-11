@@ -130,6 +130,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
+    // ATTN: This field is only used for compatible with old version
+    // Do not use it except for replaying OP_CREATE_DB
+    // it will be removed in version 4.0
+    @Deprecated
+    @SerializedName(value = "cn")
+    private String ctlName;
+
     public Database() {
         this(0, null);
     }
@@ -152,6 +159,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+    }
+
+    // DO NOT use it except for replaying OP_CREATE_DB
+    public String getCtlName() {
+        return ctlName;
     }
 
     public void markDropped() {
@@ -301,20 +313,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public long getUsedDataQuotaWithLock() {
+    public long getUsedDataQuota() {
         return getUsedDataSize().first;
     }
 
     public Pair<Long, Long> getUsedDataSize() {
         long usedDataSize = 0;
         long usedRemoteDataSize = 0;
-        List<Table> tables = new ArrayList<>();
-        readLock();
-        try {
-            tables.addAll(this.idToTable.values());
-        } finally {
-            readUnlock();
-        }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
 
         for (Table table : tables) {
             if (!table.isManagedTable()) {
@@ -356,7 +362,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
-        long usedDataQuota = getUsedDataQuotaWithLock();
+        long usedDataQuota = getUsedDataQuota();
         long leftDataQuota = Math.max(dataQuotaBytes - usedDataQuota, 0);
 
         Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftDataQuota);

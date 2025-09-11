@@ -135,14 +135,18 @@ public:
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
         int64_t lazy_read_filtered_rows = 0;
+        int64_t file_footer_read_calls = 0;
+        int64_t file_footer_hit_cache = 0;
     };
 
     OrcReader(RuntimeProfile* profile, RuntimeState* state, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, size_t batch_size, const std::string& ctz,
-              io::IOContext* io_ctx, bool enable_lazy_mat = true);
+              io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
+              bool enable_lazy_mat = true);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat = true);
+              const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache = nullptr,
+              bool enable_lazy_mat = true);
 
     ~OrcReader() override;
     //If you want to read the file by index instead of column name, set hive_use_column_names to false.
@@ -248,6 +252,8 @@ private:
         RuntimeProfile::Counter* lazy_read_filtered_rows = nullptr;
         RuntimeProfile::Counter* selected_row_group_count = nullptr;
         RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {

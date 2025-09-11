@@ -297,6 +297,10 @@ using MetaRowsetLoadKeyInfo = BasicKeyInfo<44, std::tuple<std::string, int64_t, 
 //                                                      0:instance_id  1:tablet_id  2:version 
 using MetaRowsetCompactKeyInfo = BasicKeyInfo<45, std::tuple<std::string, int64_t, int64_t>>;
 
+// 0x03 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} -> DeleteBitmapStoragePB
+//                                                      0:instance_id  1:tablet_id  2:rowest_id
+using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,   std::string>>;
+
 // 0x03 "data" ${instance_id} "rowset_ref_count" ${tablet_id} ${rowset_id}            -> int64
 //                                                      0:instance_id  1:tablet_id  2:rowset_id
 using DataRowsetRefCountKeyInfo = BasicKeyInfo<46, std::tuple<std::string, int64_t, std::string>>;
@@ -433,6 +437,13 @@ std::string system_meta_service_encryption_key_info_key();
 namespace versioned {
 
 // clang-format off
+std::string version_key_prefix(std::string_view instance_id);
+std::string index_key_prefix(std::string_view instance_id);
+std::string stats_key_prefix(std::string_view instance_id);
+std::string meta_key_prefix(std::string_view instance_id);
+std::string data_key_prefix(std::string_view instance_id);
+std::string log_key_prefix(std::string_view instance_id);
+
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
 
@@ -480,6 +491,9 @@ static inline std::string meta_rowset_load_key(const MetaRowsetLoadKeyInfo& in) 
 
 void meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in, std::string* out);
 static inline std::string meta_rowset_compact_key(const MetaRowsetCompactKeyInfo& in) { std::string s; meta_rowset_compact_key(in, &s); return s; }
+
+void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
+static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
 
 void data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in, std::string* out);
 static inline std::string data_rowset_ref_count_key(const DataRowsetRefCountKeyInfo& in) { std::string s; data_rowset_ref_count_key(in, &s); return s; }

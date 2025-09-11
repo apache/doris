@@ -27,13 +27,13 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------PhysicalProject
 --------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_cdemo_sk = cd1.cd_demo_sk)) otherCondition=() build RFs:RF10 cd_demo_sk->[ss_cdemo_sk]
 ----------------------------------------------------PhysicalProject
-------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_shipto_date_sk = d3.d_date_sk)) otherCondition=() build RFs:RF9 d_date_sk->[c_first_shipto_date_sk]
+------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF9 s_store_sk->[ss_store_sk]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[c_first_sales_date_sk]
+----------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF8 d_date_sk->[ss_sold_date_sk]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF7 s_store_sk->[ss_store_sk]
+--------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_shipto_date_sk = d3.d_date_sk)) otherCondition=() build RFs:RF7 d_date_sk->[c_first_shipto_date_sk]
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = d1.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[ss_sold_date_sk]
+------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_first_sales_date_sk = d2.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[c_first_sales_date_sk]
 --------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF5 c_customer_sk->[ss_customer_sk]
 ------------------------------------------------------------------------PhysicalProject
@@ -41,7 +41,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ----------------------------------------------------------------------------PhysicalProject
 ------------------------------------------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=() build RFs:RF2 sr_item_sk->[ss_item_sk];RF3 sr_ticket_number->[ss_ticket_number]
 --------------------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF5 RF6 RF7 RF10 RF12 RF13 RF15 RF19
+----------------------------------------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF2 RF3 RF4 RF5 RF8 RF9 RF10 RF12 RF13 RF15 RF19
 --------------------------------------------------------------------------------PhysicalProject
 ----------------------------------------------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF4 RF19
 ----------------------------------------------------------------------------PhysicalProject
@@ -56,16 +56,16 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------------------------------------------------------------------------------------------PhysicalProject
 --------------------------------------------------------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF19
 ------------------------------------------------------------------------PhysicalProject
---------------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF8 RF9 RF11 RF14 RF16
+--------------------------------------------------------------------------PhysicalOlapScan[customer] apply RFs: RF6 RF7 RF11 RF14 RF16
 --------------------------------------------------------------------PhysicalProject
-----------------------------------------------------------------------filter(d_year IN (2001, 2002))
-------------------------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------------------------------------PhysicalProject
-------------------------------------------------------------------PhysicalOlapScan[store]
+------------------------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------------------------------PhysicalProject
---------------------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------------------------------------filter(d_year IN (2001, 2002))
+----------------------------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------------------------------PhysicalProject
-----------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------------------------PhysicalOlapScan[store]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------------------------PhysicalProject

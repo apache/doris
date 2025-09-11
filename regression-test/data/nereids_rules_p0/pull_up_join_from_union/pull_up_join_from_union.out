@@ -72,9 +72,9 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_b]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_c]
 ----PhysicalOlapScan[table_a]
 

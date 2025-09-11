@@ -130,6 +130,8 @@ public:
     }
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
+    // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
+    [[nodiscard]] virtual bool is_blockable() const { return false; }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
     virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
@@ -305,6 +307,7 @@ protected:
         return out.str();
     }
 
+    // used in expr name
     std::string get_child_names() {
         std::string res;
         for (auto child : _children) {
@@ -312,6 +315,18 @@ protected:
                 res += ", ";
             }
             res += child->expr_name();
+        }
+        return res;
+    }
+
+    // only for errmsg now
+    std::string get_child_type_names() {
+        std::string res;
+        for (auto child : _children) {
+            if (!res.empty()) {
+                res += ", ";
+            }
+            res += child->expr_name() + ": " + child->data_type()->get_name();
         }
         return res;
     }

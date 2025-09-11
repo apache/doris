@@ -309,8 +309,17 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
+                    // This OP_CREATE_DB is deprecated in version 4.0, the following logic are just for compatibility
+                    // when upgrading from 3.x to 4.0
                     Database db = (Database) journal.getData();
-                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    CreateDbInfo info;
+                    if (!Strings.isNullOrEmpty(db.getCtlName())) {
+                        // if ctlName is not empty, it means this db is created in an external catalog
+                        // we just need db name and ctl name
+                        info = new CreateDbInfo(db.getCtlName(), db.getName(), null);
+                    } else {
+                        info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    }
                     env.replayCreateDb(info);
                     break;
                 }
@@ -1144,15 +1153,6 @@ public class EditLog {
                 case OperationType.OP_CLEAN_LABEL: {
                     final CleanLabelOperationLog log = (CleanLabelOperationLog) journal.getData();
                     env.getLoadManager().replayCleanLabel(log);
-                    break;
-                }
-                case OperationType.OP_CREATE_MTMV_JOB:
-                case OperationType.OP_CHANGE_MTMV_JOB:
-                case OperationType.OP_DROP_MTMV_JOB:
-                case OperationType.OP_CREATE_MTMV_TASK:
-                case OperationType.OP_CHANGE_MTMV_TASK:
-                case OperationType.OP_DROP_MTMV_TASK:
-                case OperationType.OP_ALTER_MTMV_STMT: {
                     break;
                 }
                 case OperationType.OP_ADD_CONSTRAINT: {

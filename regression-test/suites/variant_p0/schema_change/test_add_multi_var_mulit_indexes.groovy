@@ -38,24 +38,18 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
     def table_name = "variant_add_multi_var_mulit_indexes"
-    int count = new Random().nextInt(10) + 3
-    sql "set default_variant_max_subcolumns_count = ${count}"
     sql "set default_variant_enable_typed_paths_to_sparse = false"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<properties("variant_max_subcolumns_count" = "${count}")>
+            v variant
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into  ${table_name} values (0, '{"a" : 12345,"b" : 2}')"""
-    test {
-        sql """alter table  ${table_name} add column var2 variant<properties("variant_max_subcolumns_count" = "0")> NULL"""
-        exception("The variant_max_subcolumns_count must either be 0 in all columns or greater than 0 in all columns")
-    }
     
     sql """ alter table  ${table_name} add column v2 variant<'a': string, 'b': string> NULL"""
 

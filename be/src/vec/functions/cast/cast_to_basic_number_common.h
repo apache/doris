@@ -166,7 +166,7 @@ struct CastToInt {
         if (from < min_to_value || from > max_to_value) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -190,7 +190,7 @@ struct CastToInt {
     static inline bool from_float(FromCppT from, ToCppT& to, CastParameters& params) {
         if (std::isinf(from) || std::isnan(from)) {
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -200,7 +200,7 @@ struct CastToInt {
             truncated_value >= ValidFloatingRange<ToCppT, FromCppT>::UPPER) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;
@@ -275,7 +275,7 @@ struct CastToInt {
         if (from < min_to_value || from > max_to_value) {
             // overflow
             if (params.is_strict) {
-                params.status = Status::InternalError(fmt::format(
+                params.status = Status::InvalidArgument(fmt::format(
                         "Value {} out of range for type {}", from, int_type_name<ToCppT>));
             }
             return false;

@@ -334,9 +334,9 @@ public abstract class ExternalCatalog
                 this.errorMsg = "";
             }
         } catch (Exception e) {
+            LOG.warn("failed to init catalog {}:{}", name, id, e);
             this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
-            throw new RuntimeException("Failed to init catalog: " + name + ", error: "
-                    + this.errorMsg + " You can use 'SHOW CATALOGS' to find the root cause", e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
         }
@@ -1168,7 +1168,7 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                          boolean force) throws DdlException {
+            boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());

@@ -380,6 +380,8 @@ public:
 
     static DeleteBitmapAggCache* create_instance(size_t capacity);
 
+    DeleteBitmap snapshot(int64_t tablet_id);
+
     class Value : public LRUCacheValueBase {
     public:
         roaring::Roaring bitmap;
@@ -524,6 +526,17 @@ public:
      */
     void subset(const BitmapKey& start, const BitmapKey& end,
                 DeleteBitmap* subset_delete_map) const;
+    void subset(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids, int64_t start_version,
+                int64_t end_version, DeleteBitmap* subset_delete_map) const;
+
+    /**
+     * Gets subset of delete_bitmap of the input rowsets
+     * with given version range [start_version, end_version] and agg to end_version,
+     * then merge to subset_delete_map
+     */
+    void subset_and_agg(std::vector<std::pair<RowsetId, int64_t>>& rowset_ids,
+                        int64_t start_version, int64_t end_version,
+                        DeleteBitmap* subset_delete_map) const;
 
     /**
      * Gets count of delete_bitmap with given range [start, end)
@@ -560,7 +573,7 @@ public:
      */
     bool contains_agg(const BitmapKey& bitmap, uint32_t row_id) const;
 
-    bool contains_agg_without_cache(const BitmapKey& bmk, uint32_t row_id) const;
+    bool contains_agg_with_cache_if_eligible(const BitmapKey& bmk, uint32_t row_id) const;
     /**
      * Gets aggregated delete_bitmap on rowset_id and version, the same effect:
      * `select sum(roaring::Roaring) where RowsetId=rowset_id and SegmentId=seg_id and Version <= version`
@@ -585,7 +598,9 @@ public:
 
     void clear_rowset_cache_version();
 
-    std::set<RowsetId> get_rowset_cache_version();
+    std::set<std::string> get_rowset_cache_version();
+
+    DeleteBitmap agg_cache_snapshot();
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;

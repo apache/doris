@@ -7,19 +7,23 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_addr_sk = current_addr.ca_address_sk)) otherCondition=(( not (ca_city = bought_city)))
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN broadcast] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=()
+------------------hashAgg[GLOBAL]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------hashAgg[LOCAL]
 ------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[ss_hdemo_sk]
+--------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_hdemo_sk = household_demographics.hd_demo_sk)) otherCondition=() build RFs:RF3 hd_demo_sk->[ss_hdemo_sk]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF1 s_store_sk->[ss_store_sk]
+------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 s_store_sk->[ss_store_sk]
 --------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
+----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=()
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[customer_address]
 ------------------------------------PhysicalProject
 --------------------------------------filter(d_dow IN (0, 6) and d_year IN (1999, 2000, 2001))
 ----------------------------------------PhysicalOlapScan[date_dim]
@@ -29,8 +33,6 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter(OR[(household_demographics.hd_dep_count = 6),(household_demographics.hd_vehicle_count = 0)])
 --------------------------------PhysicalOlapScan[household_demographics]
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer]
 ------------PhysicalProject

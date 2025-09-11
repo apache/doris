@@ -17,6 +17,7 @@
 
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
@@ -763,6 +764,7 @@ int compaction_update_tablet_stats(const TabletCompactionJobPB& compaction, Tabl
     } else if (compaction.type() == TabletCompactionJobPB::FULL) {
         // clang-format off
         stats->set_base_compaction_cnt(stats->base_compaction_cnt() + 1);
+        stats->set_full_compaction_cnt(stats->has_full_compaction_cnt() ? stats->full_compaction_cnt() + 1 : 1);
         if (compaction.output_cumulative_point() > stats->cumulative_point()) {
             // After supporting parallel cumu compaction, compaction with older cumu point may be committed after
             // new cumu point has been set, MUST NOT set cumu point back to old value
@@ -1339,6 +1341,64 @@ void schema_change_update_tablet_stats(const TabletSchemaChangeJobPB& schema_cha
                                                      segment_size_remove_rowsets));
 }
 
+std::pair<TabletStatsPB, TabletStatsPB> split_tablet_stats_into_load_and_compact_parts(
+        const TabletStatsPB& stats) {
+    TabletStatsPB load_stats, compact_stats;
+    compact_stats.set_base_compaction_cnt(stats.base_compaction_cnt());
+    compact_stats.set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+    compact_stats.set_cumulative_point(stats.cumulative_point());
+    compact_stats.set_last_base_compaction_time_ms(stats.last_base_compaction_time_ms());
+    compact_stats.set_last_cumu_compaction_time_ms(stats.last_cumu_compaction_time_ms());
+    compact_stats.set_full_compaction_cnt(stats.full_compaction_cnt());
+    compact_stats.set_last_full_compaction_time_ms(stats.last_full_compaction_time_ms());
+    compact_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    load_stats.set_num_rows(stats.num_rows());
+    load_stats.set_num_rowsets(stats.num_rowsets());
+    load_stats.set_num_segments(stats.num_segments());
+    load_stats.set_data_size(stats.data_size());
+    load_stats.set_index_size(stats.index_size());
+    load_stats.set_segment_size(stats.segment_size());
+    load_stats.mutable_idx()->CopyFrom(stats.idx());
+
+    return {load_stats, compact_stats};
+}
+
+std::pair<MetaServiceCode, std::string> scan_schema_change_input_rowsets(
+        Transaction* txn, std::string_view instance_id, int64_t new_tablet_id,
+        std::string& rs_start, std::string& rs_end, auto&& callback) {
+    std::unique_ptr<RangeGetIterator> it;
+    auto rs_start1 = rs_start;
+    do {
+        TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            return {MetaServiceCode::KV_TXN_GET_ERR,
+                    fmt::format(
+                            "internal error, failed to get rowset range, err={} new_tablet_id={} "
+                            "range=[{}, {})",
+                            err, new_tablet_id, hex(rs_start), hex(rs_end))};
+        }
+
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+
+            doris::RowsetMetaCloudPB rs;
+            if (!rs.ParseFromArray(v.data(), v.size())) {
+                return {MetaServiceCode::PROTOBUF_PARSE_ERR,
+                        fmt::format("malformed rowset meta, unable to deserialize, "
+                                    "new_tablet_id={} key={}",
+                                    new_tablet_id, hex(k))};
+            }
+
+            callback(std::move(rs));
+
+            if (!it->has_next()) rs_start1 = k;
+        }
+        rs_start1.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+    return {MetaServiceCode::OK, ""};
+}
+
 void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                                std::unique_ptr<Transaction>& txn,
                                const FinishTabletJobRequest* request,
@@ -1638,56 +1698,54 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     auto rs_start = meta_rowset_key({instance_id, new_tablet_id, 2});
     auto rs_end = meta_rowset_key({instance_id, new_tablet_id, schema_change.alter_version() + 1});
-    std::unique_ptr<RangeGetIterator> it;
-    auto rs_start1 = rs_start;
-    do {
-        TxnErrorCode err = txn->get(rs_start1, rs_end, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = MetaServiceCode::KV_TXN_GET_ERR;
-            SS << "internal error, failed to get rowset range, err=" << err
-               << " tablet_id=" << new_tablet_id << " range=[" << hex(rs_start1) << ", << "
-               << hex(rs_end) << ")";
-            msg = ss.str();
+    auto handle_schema_change_input_rowset_meta = [&](doris::RowsetMetaCloudPB rs) {
+        num_remove_rows += rs.num_rows();
+        size_remove_rowsets += rs.total_disk_size();
+        ++num_remove_rowsets;
+        num_remove_segments += rs.num_segments();
+        index_size_remove_rowsets += rs.index_disk_size();
+        segment_size_remove_rowsets += rs.data_disk_size();
+
+        int64_t start_version = rs.start_version(), end_version = rs.end_version();
+        auto recycle_key = recycle_rowset_key({instance_id, new_tablet_id, rs.rowset_id_v2()});
+        RecycleRowsetPB recycle_rowset;
+        recycle_rowset.set_creation_time(now);
+        recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
+        recycle_rowset.set_type(RecycleRowsetPB::DROP);
+        if (is_versioned_write) {
+            schema_change_log.add_recycle_rowsets()->Swap(&recycle_rowset);
+        } else {
+            auto recycle_val = recycle_rowset.SerializeAsString();
+            txn->put(recycle_key, recycle_val);
+        }
+        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id << " version=["
+                           << start_version << "-" << end_version << "] key=" << hex(recycle_key);
+    };
+
+    if (!is_versioned_read) {
+        std::tie(code, msg) =
+                scan_schema_change_input_rowsets(txn.get(), instance_id, new_tablet_id, rs_start,
+                                                 rs_end, handle_schema_change_input_rowset_meta);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << msg;
             return;
         }
-
-        while (it->has_next()) {
-            auto [k, v] = it->next();
-
-            doris::RowsetMetaCloudPB rs;
-            if (!rs.ParseFromArray(v.data(), v.size())) {
-                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-                SS << "malformed rowset meta, unable to deserialize, tablet_id=" << new_tablet_id
-                   << " key=" << hex(k);
-                msg = ss.str();
-                return;
-            }
-
-            num_remove_rows += rs.num_rows();
-            size_remove_rowsets += rs.total_disk_size();
-            ++num_remove_rowsets;
-            num_remove_segments += rs.num_segments();
-            index_size_remove_rowsets += rs.index_disk_size();
-            segment_size_remove_rowsets += rs.data_disk_size();
-
-            auto recycle_key = recycle_rowset_key({instance_id, new_tablet_id, rs.rowset_id_v2()});
-            RecycleRowsetPB recycle_rowset;
-            recycle_rowset.set_creation_time(now);
-            recycle_rowset.mutable_rowset_meta()->CopyFrom(rs);
-            recycle_rowset.set_type(RecycleRowsetPB::DROP);
-            if (is_versioned_write) {
-                schema_change_log.add_recycle_rowsets()->Swap(&recycle_rowset);
-            } else {
-                auto recycle_val = recycle_rowset.SerializeAsString();
-                txn->put(recycle_key, recycle_val);
-            }
-            INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id
-                               << " key=" << hex(recycle_key);
-
-            if (!it->has_next()) rs_start1 = k;
+    } else {
+        std::vector<RowsetMetaCloudPB> rowset_metas;
+        TxnErrorCode err = reader.get_rowset_metas(txn.get(), new_tablet_id, 2,
+                                                   schema_change.alter_version(), &rowset_metas);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format(
+                    "failed to get rowset metas, new_tablet_id={}, start={}, end={}, err={}",
+                    new_tablet_id, 2, schema_change.alter_version(), err);
+            LOG(WARNING) << msg;
+            return;
         }
-        rs_start1.push_back('\x00'); // Update to next smallest key for iteration
-    } while (it->more());
+        for (auto&& rowset_meta : rowset_metas) {
+            handle_schema_change_input_rowset_meta(std::move(rowset_meta));
+        }
+    }
 
     txn->remove(rs_start, rs_end);
 
@@ -1696,58 +1754,83 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     //==========================================================================
     auto stats = response->mutable_stats();
     TabletStats detached_stats;
-    // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
-    //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
-    //  with `config::split_tablet_stats = true` can meet the condition.
-    internal_get_tablet_stats(code, msg, txn.get(), instance_id, new_tablet_idx, *stats,
-                              detached_stats, config::snapshot_get_tablet_stats);
-    if (code != MetaServiceCode::OK) {
-        LOG_WARNING("failed to get tablet stats")
-                .tag("instance_id", instance_id)
-                .tag("tablet_id", tablet_id)
-                .tag("code", code)
-                .tag("msg", msg);
-        return;
+    if (is_versioned_read) {
+        TxnErrorCode err =
+                reader.get_tablet_merged_stats(txn.get(), new_tablet_id, stats, nullptr, true);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, tablet_id={}, err={}", new_tablet_id,
+                              err);
+            LOG(WARNING) << msg;
+            return;
+        }
+    } else {
+        // ATTN: The condition that snapshot read can be used to get tablet stats is: all other transactions that put tablet stats
+        //  can make read write conflicts with this transaction on other keys. Currently, if all meta-service nodes are running
+        //  with `config::split_tablet_stats = true` can meet the condition.
+        internal_get_tablet_stats(code, msg, txn.get(), instance_id, new_tablet_idx, *stats,
+                                  detached_stats, config::snapshot_get_tablet_stats);
+        if (code != MetaServiceCode::OK) {
+            LOG_WARNING("failed to get tablet stats")
+                    .tag("instance_id", instance_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("code", code)
+                    .tag("msg", msg);
+            return;
+        }
     }
     if (is_versioned_write) {
         // read new TabletLoadStatsKey -> TabletStatsPB
-        TabletStatsPB new_tablet_load_stats;
+        TabletStatsPB new_tablet_stats;
         MetaReader meta_reader(instance_id, txn_kv);
         Versionstamp* versionstamp = nullptr;
-        TxnErrorCode err = meta_reader.get_tablet_load_stats(
-                txn.get(), new_tablet_id, &new_tablet_load_stats, versionstamp, false);
+        TxnErrorCode err = TxnErrorCode::TXN_OK;
+        if (is_versioned_read) {
+            new_tablet_stats.CopyFrom(*stats);
+        } else {
+            err = meta_reader.get_tablet_merged_stats(txn.get(), new_tablet_id, &new_tablet_stats,
+                                                      versionstamp, false);
+        }
         if (err == TxnErrorCode::TXN_OK) {
             // new_tablet_load_stats exists, update TabletStatsPB
-            schema_change_update_tablet_stats(
-                    schema_change, &new_tablet_load_stats, num_remove_rows, size_remove_rowsets,
-                    num_remove_rowsets, num_remove_segments, index_size_remove_rowsets,
-                    segment_size_remove_rowsets);
+            schema_change_update_tablet_stats(schema_change, &new_tablet_stats, num_remove_rows,
+                                              size_remove_rowsets, num_remove_rowsets,
+                                              num_remove_segments, index_size_remove_rowsets,
+                                              segment_size_remove_rowsets);
         } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             // First time switching from single write to double write mode
             // Step 1: Copy from single version stats as baseline
-            new_tablet_load_stats.CopyFrom(*stats);
+            new_tablet_stats.CopyFrom(*stats);
             // Step 2: Apply schema change updates
-            schema_change_update_tablet_stats(
-                    schema_change, &new_tablet_load_stats, num_remove_rows, size_remove_rowsets,
-                    num_remove_rowsets, num_remove_segments, index_size_remove_rowsets,
-                    segment_size_remove_rowsets);
+            schema_change_update_tablet_stats(schema_change, &new_tablet_stats, num_remove_rows,
+                                              size_remove_rowsets, num_remove_rowsets,
+                                              num_remove_segments, index_size_remove_rowsets,
+                                              segment_size_remove_rowsets);
         } else if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             msg = fmt::format("failed to get tablet compact stats, tablet_id={}, err={}", tablet_id,
                               err);
             return;
         }
-        // Write new TabletLoadStatsKey -> TabletStatsPB for versioned storage
-        auto new_tablet_load_stats_val = new_tablet_load_stats.SerializeAsString();
-        std::string new_tablet_load_stats_version_key =
-                versioned::tablet_load_stats_key({instance_id, new_tablet_id});
-        LOG_INFO("put versioned tablet compact stats key")
-                .tag("new_tablet_load_stats_version_key", hex(new_tablet_load_stats_version_key))
+
+        auto [load_stats, compact_stats] =
+                split_tablet_stats_into_load_and_compact_parts(new_tablet_stats);
+        std::string load_value = load_stats.SerializeAsString();
+        std::string compact_value = compact_stats.SerializeAsString();
+        std::string load_stats_key = versioned::tablet_load_stats_key({instance_id, new_tablet_id});
+        std::string compact_stats_key =
+                versioned::tablet_compact_stats_key({instance_id, new_tablet_id});
+
+        LOG_INFO("put versioned tablet load/compact stats key")
                 .tag("tablet_id", tablet_id)
                 .tag("new_tablet_id", new_tablet_id)
-                .tag("value_size", new_tablet_load_stats_val.size())
+                .tag("load_value_size", load_value.size())
+                .tag("compact_value_size", compact_value.size())
+                .tag("load_stats_key", hex(load_stats_key))
+                .tag("compact_stats_key", hex(compact_stats_key))
                 .tag("instance_id", instance_id);
-        versioned_put(txn.get(), new_tablet_load_stats_version_key, new_tablet_load_stats_val);
+        versioned_put(txn.get(), load_stats_key, load_value);
+        versioned_put(txn.get(), compact_stats_key, compact_value);
     }
     schema_change_update_tablet_stats(schema_change, stats, num_remove_rows, size_remove_rowsets,
                                       num_remove_rowsets, num_remove_segments,
@@ -1851,6 +1934,9 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;
+        if (is_versioned_read) {
+            operation_log.set_min_timestamp(reader.min_read_version());
+        }
         operation_log.mutable_schema_change()->Swap(&schema_change_log);
         if (!operation_log.SerializeToString(&operation_log_value)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
