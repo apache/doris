@@ -31,7 +31,9 @@
 #endif
 
 #include <algorithm>
+#if !defined(__APPLE__)
 #include <execution>
+#endif
 #include <ostream>
 #include <utility>
 
@@ -159,7 +161,11 @@ FileCacheFactory::get_query_context_holders(const TUniqueId& query_id) {
 std::string FileCacheFactory::clear_file_caches(bool sync) {
     std::vector<std::string> results(_caches.size());
 
+#if defined(__APPLE__)
+    std::for_each(_caches.begin(), _caches.end(), [&](const auto& cache) {
+#else
     std::for_each(std::execution::par, _caches.begin(), _caches.end(), [&](const auto& cache) {
+#endif
         size_t index = &cache - &_caches[0];
         results[index] =
                 sync ? cache->clear_file_cache_directly() : cache->clear_file_cache_async();

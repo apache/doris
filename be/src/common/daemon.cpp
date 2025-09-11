@@ -166,7 +166,7 @@ void Daemon::tcmalloc_gc_thread() {
             }
         }
 
-        int release_rate_index = memory_pressure / 10;
+        int release_rate_index = static_cast<int>(memory_pressure / 10);
         double release_rate = 1.0;
         if (release_rate_index >= sizeof(release_rates) / sizeof(release_rates[0])) {
             release_rate = 2000.0;

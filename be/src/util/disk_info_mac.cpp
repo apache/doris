@@ -74,7 +74,7 @@ void DiskInfo::get_device_names() {
             auto it = major_to_disk_id.find(major(dev));
             int disk_id;
             if (it == major_to_disk_id.end()) {
-                disk_id = _s_disks.size();
+                disk_id = static_cast<int>(_s_disks.size());
                 major_to_disk_id[major(dev)] = disk_id;
 
                 std::string name = "disk" + std::to_string(disk_id);
