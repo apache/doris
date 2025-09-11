@@ -25,6 +25,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
@@ -37,6 +38,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -295,8 +297,18 @@ public class RangePartitionInfo extends PartitionInfo {
             // print all partitions' range is fixed range, even if some of them is created by less than range
             sb.append("PARTITION ").append(partitionName).append(" VALUES [");
             sb.append(range.lowerEndpoint().toSql());
-            sb.append(", ").append(range.upperEndpoint().toSql()).append(")");
+            sb.append(", ").append(range.upperEndpoint().toSql()).append("]");
 
+            Map<String, String> properties = new HashMap<>();
+            Optional.ofNullable(this.idToStoragePolicy.get(entry.getKey()))
+                    .filter(p -> !p.isEmpty())
+                    .ifPresent(p -> properties.put("storage_policy", p));
+
+            if (!properties.isEmpty()) {
+                sb.append(", (");
+                sb.append(new PrintableMap<>(properties, "=", true, false));
+                sb.append(")");
+            }
             if (partitionId != null) {
                 partitionId.add(entry.getKey());
                 break;
