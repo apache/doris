@@ -630,40 +630,32 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
                 "decimal literal must have 0 scale and in range [Long.MIN_VALUE, Long.MAX_VALUE]");
         long val = decimal.longValue();
+        // for integer like convert to float, only [-2^24, 2^24] can convert to float without loss of precision,
+        // but here need to exclude the boundary value, because
+        // cast(2^24 as float) = cast(2^24 + 1 as float) = 2^24 = MAX_INT_TO_FLOAT_NO_LOSS,
+        // so for cast(c_int as float) = 2^24, we can't simplify it to c_int = 2^24,
+        // c_int can be 2^24 + 1. The same for -2^24
+        if (castDataType.isFloatType()
+                && (val <= MIN_INT_TO_FLOAT_NO_LOSS || val >= MAX_INT_TO_FLOAT_NO_LOSS)) {
+            return Optional.empty();
+        }
+        // for long convert to double, only [-2^53, 2^53] can convert to double without loss of precision,
+        // but here need to exclude the boundary value, because
+        // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_TO_DOUBLE_NO_LOSS,
+        // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
+        // c_bigint can be 2^53 + 1. The same for -2^53
+        if (castDataType.isDoubleType()
+                && (val <= MIN_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_LONG_TO_DOUBLE_NO_LOSS)) {
+            return Optional.empty();
+        }
         if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
             return Optional.of(new TinyIntLiteral((byte) val));
         } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
             return Optional.of(new SmallIntLiteral((short) val));
         } else if (val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE) {
-            // double/decimal can represent all int value without loss of precision,
-            // but float can't represent all int value without loss of precision.
-            // need to handle the float case specially.
-            if (castDataType.isFloatType()
-                    && (val <= MIN_INT_TO_FLOAT_NO_LOSS || val >= MAX_INT_TO_FLOAT_NO_LOSS)) {
-                // for float, only [-2^24, 2^24] can convert to int without loss of precision,
-                // but here need to exclude the boundary value, because
-                // cast(2^24 as float) = cast(2^24 + 1 as float) = 2^24 = MAX_INT_TO_FLOAT_NO_LOSS,
-                // so for cast(c_int as float) = 2^24, we can't simplify it to c_int = 2^24,
-                // c_int can be 2^24 + 1. The same for -2^24
-                return Optional.empty();
-            } else {
-                return Optional.of(new IntegerLiteral((int) val));
-            }
+            return Optional.of(new IntegerLiteral((int) val));
         } else {
-            // decimal can represent all long value without loss of precision,
-            // but float/double can't represent all long value without loss of precision.
-            if (castDataType.isFloatType()
-                    || (castDataType.isDoubleType()
-                            && (val <= MIN_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_LONG_TO_DOUBLE_NO_LOSS))) {
-                // for double, only [-2^53, 2^53] can convert to long without loss of precision,
-                // but here need to exclude the boundary value, because
-                // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_TO_DOUBLE_NO_LOSS,
-                // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
-                // c_bigint can be 2^53 + 1. The same for -2^53
-                return Optional.empty();
-            } else {
-                return Optional.of(new BigIntLiteral(val));
-            }
+            return Optional.of(new BigIntLiteral(val));
         }
     }
 
