@@ -623,8 +623,9 @@ Status ParquetReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                expr = binary_expr;
             } else {
                 continue;
             }
