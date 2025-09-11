@@ -2079,6 +2079,7 @@ nonReserved
     | ROLLBACK
     | ROLLUP
     | ROOT
+    | ROTATE
     | ROUTINE
     | S3
     | SAMPLE
@@ -2114,6 +2115,7 @@ nonReserved
     | TAG
     | TASK
     | TASKS
+    | TDE
     | TEMPORARY
     | TEXT
     | THAN
