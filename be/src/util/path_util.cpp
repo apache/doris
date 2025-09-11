@@ -23,9 +23,11 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
+#include "runtime/plugin/cloud_plugin_downloader.h"
 
 using std::string;
 using std::vector;
@@ -99,13 +101,37 @@ std::string check_and_return_default_plugin_url(const std::string& url,
         // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
         // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
         // so we need to check the old default dir for compatibility.
-        std::filesystem::path file = default_url + "/" + url;
-        if (std::filesystem::exists(file)) {
-            return "file://" + default_url + "/" + url;
-        } else {
-            return "file://" + default_old_url + "/" + url;
+        std::string target_path = default_url + "/" + url;
+        if (std::filesystem::exists(target_path)) {
+            // File exists in new default directory
+            return "file://" + target_path;
+        } else if (config::is_cloud_mode()) {
+            // Cloud mode: try to download from cloud to new default directory
+            CloudPluginDownloader::PluginType plugin_type;
+            if (plugin_dir_name == "jdbc_drivers") {
+                plugin_type = CloudPluginDownloader::PluginType::JDBC_DRIVERS;
+            } else if (plugin_dir_name == "java_udf") {
+                plugin_type = CloudPluginDownloader::PluginType::JAVA_UDF;
+            } else {
+                // Unknown plugin type, fallback to old directory
+                return "file://" + default_old_url + "/" + url;
+            }
+
+            std::string downloaded_path;
+            Status status = CloudPluginDownloader::download_from_cloud(
+                    plugin_type, url, target_path, &downloaded_path);
+            if (status.ok() && !downloaded_path.empty()) {
+                return "file://" + downloaded_path;
+            }
+            // Download failed, log warning but continue to fallback
+            LOG(WARNING) << "Failed to download plugin from cloud: " << status.to_string()
+                         << ", fallback to old directory";
         }
+
+        // Fallback to old default directory for compatibility
+        return "file://" + default_old_url + "/" + url;
     } else {
+        // User specified custom directory - use directly
         return "file://" + plugin_dir_config_value + "/" + url;
     }
 }
