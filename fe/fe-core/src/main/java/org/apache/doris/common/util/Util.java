@@ -66,7 +66,7 @@ public class Util {
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
     private static final String[] ORDINAL_SUFFIX
-            = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+            = new String[] {"th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"};
 
     private static final List<String> REGEX_ESCAPES
             = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
@@ -389,7 +389,7 @@ public class Util {
     }
 
     public static double getDoublePropertyOrDefault(String valStr, double defaultVal, Predicate<Double> pred,
-                                                String hintMsg) throws AnalysisException {
+            String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
@@ -498,8 +498,8 @@ public class Util {
 
     public static boolean showHiddenColumns() {
         return ConnectContext.get() != null && (
-            ConnectContext.get().getSessionVariable().showHiddenColumns()
-            || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
+                ConnectContext.get().getSessionVariable().showHiddenColumns()
+                        || ConnectContext.get().getSessionVariable().skipStorageEngineMerge());
     }
 
     public static String escapeSingleRegex(String s) {
@@ -700,7 +700,12 @@ public class Util {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buffer = ByteBuffer.wrap(hash);
-            return buffer.getLong();
+            long result = buffer.getLong();
+            // Handle Long.MIN_VALUE case to ensure non-negative ID generation
+            if (result == Long.MIN_VALUE) {
+                return str.hashCode();
+            }
+            return result;
         } catch (NoSuchAlgorithmException e) {
             return str.hashCode();
         }
