@@ -16,42 +16,27 @@
 // under the License.
 import java.sql.SQLException
 
-suite("too_many_versions_detection", "nonConcurrent") {
+suite("too_many_versions_detection") {
     sql """ DROP TABLE IF EXISTS t """
     sql """
-        CREATE TABLE t (
-            id INT
-        ) ENGINE=OLAP
-        DUPLICATE KEY(id)
-        DISTRIBUTED BY HASH(id) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        create table t(a int)
+        DUPLICATE KEY(a)
+        DISTRIBUTED BY HASH(a)
+        BUCKETS 10 PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true");
     """
 
-    def custoBeConfig = [
-        "max_tablet_version_num": 1
-    ]
+    for (int i = 1; i <= 2000; i++) {
+        sql """ INSERT INTO t VALUES (${i}) """
+    }
 
-    setBeConfigTemporary(custoBeConfig) {
-        def beIds = sql """ SHOW BACKENDS """
-        beIds.each { be ->
-            def beId = be[0]
-            def beHost = be[1]
-            def beHttpPort = be[4]
-            def response = "curl --max-time 10 -X GET http://${beHost}:${beHttpPort}/api/show_config?conf_item=max_tablet_version_num".execute().text
-            logger.info("BE ${beId} config response: ${response}")
-            assertTrue(response.contains("max_tablet_version_num") && response.contains("1"), 
-                "Failed to set max_tablet_version_num to 1 on BE ${beId}")
-        }
-
-        try {
-            sql """ INSERT INTO t VALUES (1) """
-            sql """ INSERT INTO t VALUES (2) """
-            assertTrue(false, "Expected TOO_MANY_VERSION error but none occurred")
-        } catch (SQLException e) {
-            logger.info("Exception caught: ${e.getMessage()}")
-            def expectedError = "failed to init rowset builder. version count: 2, exceed limit: 1, tablet:"
-            assertTrue(e.getMessage().contains(expectedError),
-                "Expected TOO_MANY_VERSION error with message containing '${expectedError}', but got: ${e.getMessage()}")
-        }
+    // check the TOO_MANY_VERSION error
+    try {
+        sql """ INSERT INTO t VALUES (2001) """
+        assertTrue(false, "Expected TOO_MANY_VERSION error but none occurred")
+    } catch (SQLException e) {
+        logger.info("Exception caught: ${e.getMessage()}")
+        def expectedError = "failed to init rowset builder. version count: 2001, exceed limit: 2000, tablet:"
+        assertTrue(e.getMessage().contains(expectedError),
+            "Expected TOO_MANY_VERSION error with message containing '${expectedError}', but got: ${e.getMessage()}")
     }
 }
