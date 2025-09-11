@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -47,18 +48,25 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.LogicalPlanBuilder;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.statistics.TableStatsMeta;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -67,10 +75,12 @@ import java.util.Map;
 import java.util.Optional;
 
 public class StatsCalculatorTest {
-    private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     private Group newFakeGroup() {
-        GroupExpression groupExpression = new GroupExpression(scan);
+        GroupExpression groupExpression = new GroupExpression(scan1);
         Group group = new Group(null, groupExpression,
                 new LogicalProperties(Collections::emptyList, () -> DataTrait.EMPTY_TRAIT));
         group.getLogicalExpressions().remove(0);
@@ -533,5 +543,33 @@ public class StatsCalculatorTest {
         StatsCalculator calculator = new StatsCalculator(null);
         Statistics outputStats = calculator.computeLimit(limit, childStats);
         Assertions.assertNull(outputStats.findColumnStatistics(ia).getHotValues());
+    }
+
+    @Test
+    public void testDisableJoinReorderIfStatsInvalid() throws IOException {
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .build();
+
+        // mock StatsCalculator to return -1 for getTableRowCount
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCountForIndex(long indexId, boolean strict) {
+                return -1;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public long getRowCount(long indexId) {
+                return -1;
+            }
+        };
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(join);
+        cascadesContext.getConnectContext().getSessionVariable()
+                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "false");
+        StatsCalculator.disableJoinReorderIfStatsInvalid(ImmutableList.of(scan1, scan2, scan3), cascadesContext);
+        // because table row count is -1, so disable join reorder
+        Assertions.assertTrue(cascadesContext.getConnectContext().getSessionVariable().isDisableJoinReorder());
     }
 }

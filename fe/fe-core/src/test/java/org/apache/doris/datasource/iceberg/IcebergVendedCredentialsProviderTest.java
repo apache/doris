@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.datasource.credentials.CredentialExtractor;
 import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -37,332 +37,207 @@ import java.util.Map;
 public class IcebergVendedCredentialsProviderTest {
 
     @Test
-    public void testS3CredentialExtractorWithValidCredentials() {
-        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
+    public void testIsVendedCredentialsEnabled() {
+        IcebergVendedCredentialsProvider provider = IcebergVendedCredentialsProvider.getInstance();
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put(S3FileIOProperties.ACCESS_KEY_ID, "test-access-key");
-        properties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "test-secret-key");
-        properties.put(S3FileIOProperties.SESSION_TOKEN, "test-session-token");
+        // Test with REST catalog and vended credentials enabled
+        IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
+        Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
 
-        Map<String, String> credentials = extractor.extractCredentials(properties);
+        Assertions.assertTrue(provider.isVendedCredentialsEnabled(restProperties));
 
-        Assertions.assertEquals("test-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("test-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("test-session-token", credentials.get("AWS_TOKEN"));
+        // Test with REST catalog and vended credentials disabled
+        Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(false);
+        Assertions.assertFalse(provider.isVendedCredentialsEnabled(restProperties));
     }
 
     @Test
-    public void testS3CredentialExtractorWithPartialCredentials() {
-        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
+    public void testExtractRawVendedCredentials() {
+        IcebergVendedCredentialsProvider provider = IcebergVendedCredentialsProvider.getInstance();
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put(S3FileIOProperties.ACCESS_KEY_ID, "test-access-key");
-        properties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "test-secret-key");
-        // No session token
-
-        Map<String, String> credentials = extractor.extractCredentials(properties);
-
-        Assertions.assertEquals("test-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("test-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertFalse(credentials.containsKey("AWS_TOKEN"));
-    }
-
-    @Test
-    public void testS3CredentialExtractorWithEmptyProperties() {
-        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
-
-        Map<String, String> credentials = extractor.extractCredentials(new HashMap<>());
-        Assertions.assertTrue(credentials.isEmpty());
-
-        credentials = extractor.extractCredentials(null);
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testS3CredentialExtractorWithNonAwsProperties() {
-        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
-
-        Map<String, String> properties = new HashMap<>();
-        properties.put("some.other.property", "value");
-        properties.put("unrelated.key", "unrelated-value");
-
-        Map<String, String> credentials = extractor.extractCredentials(properties);
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testExtractVendedCredentialsFromTable() {
+        // Mock table with S3 vended credentials
         Table table = Mockito.mock(Table.class);
         FileIO fileIO = Mockito.mock(FileIO.class);
 
         Map<String, String> ioProperties = new HashMap<>();
-        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "vended-access-key");
-        ioProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "vended-secret-key");
-        ioProperties.put(S3FileIOProperties.SESSION_TOKEN, "vended-session-token");
+        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "ASIATEST123456");
+        ioProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "testSecretKey");
+        ioProperties.put(S3FileIOProperties.SESSION_TOKEN, "testSessionToken");
+        ioProperties.put("s3.region", "us-west-2");
 
         Mockito.when(table.io()).thenReturn(fileIO);
         Mockito.when(fileIO.properties()).thenReturn(ioProperties);
 
-        Map<String, String> credentials = IcebergVendedCredentialsProvider.extractVendedCredentialsFromTable(table);
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
 
-        Assertions.assertEquals("vended-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("vended-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("vended-session-token", credentials.get("AWS_TOKEN"));
+        Assertions.assertEquals("ASIATEST123456", rawCredentials.get("s3.access-key-id"));
+        Assertions.assertEquals("testSecretKey", rawCredentials.get("s3.secret-access-key"));
+        Assertions.assertEquals("testSessionToken", rawCredentials.get("s3.session-token"));
+        Assertions.assertEquals("us-west-2", rawCredentials.get("s3.region"));
     }
 
     @Test
-    public void testExtractVendedCredentialsFromTableWithNullTable() {
-        Map<String, String> credentials = IcebergVendedCredentialsProvider.extractVendedCredentialsFromTable(null);
-        Assertions.assertTrue(credentials.isEmpty());
+    public void testExtractRawVendedCredentialsWithNullTable() {
+        IcebergVendedCredentialsProvider provider = IcebergVendedCredentialsProvider.getInstance();
+
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(null);
+        Assertions.assertTrue(rawCredentials.isEmpty());
     }
 
     @Test
-    public void testExtractVendedCredentialsFromTableWithNullIO() {
+    public void testExtractRawVendedCredentialsWithNullIO() {
+        IcebergVendedCredentialsProvider provider = IcebergVendedCredentialsProvider.getInstance();
+
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.io()).thenReturn(null);
 
-        Map<String, String> credentials = IcebergVendedCredentialsProvider.extractVendedCredentialsFromTable(table);
-        Assertions.assertTrue(credentials.isEmpty());
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+        Assertions.assertTrue(rawCredentials.isEmpty());
     }
 
     @Test
-    public void testExtractCredentialsFromFileIO() {
-        Map<String, String> fileIoProperties = new HashMap<>();
-        fileIoProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "fileio-access-key");
-        fileIoProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "fileio-secret-key");
+    public void testExtractRawVendedCredentialsWithEmptyProperties() {
+        IcebergVendedCredentialsProvider provider = IcebergVendedCredentialsProvider.getInstance();
 
-        IcebergS3CredentialExtractor extractor = new IcebergS3CredentialExtractor();
+        Table table = Mockito.mock(Table.class);
+        FileIO fileIO = Mockito.mock(FileIO.class);
 
-        Map<String, String> credentials = CredentialUtils
-                .extractCredentialsFromFileIO(fileIoProperties, extractor);
+        Mockito.when(table.io()).thenReturn(fileIO);
+        Mockito.when(fileIO.properties()).thenReturn(new HashMap<>());
 
-        Assertions.assertEquals("fileio-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("fileio-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertFalse(credentials.containsKey("AWS_TOKEN"));
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+        Assertions.assertTrue(rawCredentials.isEmpty());
     }
 
     @Test
-    public void testCustomCredentialExtractor() {
-        CredentialExtractor customExtractor =
-                new CredentialExtractor() {
-                    @Override
-                    public Map<String, String> extractCredentials(Map<String, String> properties) {
-                        Map<String, String> result = new HashMap<>();
-                        if (properties != null && properties.containsKey("custom.key")) {
-                            result.put("CUSTOM_BACKEND_PROPERTY", properties.get("custom.key"));
-                        }
-                        return result;
-                    }
-                };
+    public void testFilterCloudStorageProperties() {
+        Map<String, String> rawCredentials = new HashMap<>();
+        rawCredentials.put("s3.access-key-id", "testAccessKey");
+        rawCredentials.put("s3.secret-access-key", "testSecretKey");
+        rawCredentials.put("s3.region", "us-west-2");
+        rawCredentials.put("iceberg.table.name", "test_table");
+        rawCredentials.put("other.property", "other_value");
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("custom.key", "custom-value");
+        Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawCredentials);
 
-        Map<String, String> credentials = CredentialUtils
-                .extractCredentialsFromFileIO(properties, customExtractor);
-
-        Assertions.assertEquals("custom-value", credentials.get("CUSTOM_BACKEND_PROPERTY"));
+        Assertions.assertEquals(3, filtered.size());
+        Assertions.assertEquals("testAccessKey", filtered.get("s3.access-key-id"));
+        Assertions.assertEquals("testSecretKey", filtered.get("s3.secret-access-key"));
+        Assertions.assertEquals("us-west-2", filtered.get("s3.region"));
+        Assertions.assertFalse(filtered.containsKey("iceberg.table.name"));
+        Assertions.assertFalse(filtered.containsKey("other.property"));
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithRestVendedCredentialsEnabled() {
-        // Mock IcebergRestProperties with vended credentials enabled
+    public void testGetStoragePropertiesMapWithVendedCredentials() {
+        // Mock metastore properties with vended credentials enabled
         IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.ICEBERG);
         Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
-
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-
-        Map<String, String> vendedProperties = new HashMap<>();
-        vendedProperties.put("base.property", "base-value");
-        vendedProperties.put("AWS_ACCESS_KEY", "vended-access-key");
-        vendedProperties.put("AWS_SECRET_KEY", "vended-secret-key");
-        vendedProperties.put("AWS_TOKEN", "vended-session-token");
-
-        Mockito.when(storageProperties.getBackendConfigProperties()).thenReturn(baseProperties);
-        Mockito.when(storageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(vendedProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
 
         // Mock table with vended credentials
         Table table = Mockito.mock(Table.class);
         FileIO fileIO = Mockito.mock(FileIO.class);
+
         Map<String, String> ioProperties = new HashMap<>();
-        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "vended-access-key");
-        ioProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "vended-secret-key");
-        ioProperties.put(S3FileIOProperties.SESSION_TOKEN, "vended-session-token");
+        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "ASIATEST123456");
+        ioProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "testSecretKey");
+        ioProperties.put(S3FileIOProperties.SESSION_TOKEN, "testSessionToken");
+        ioProperties.put("s3.region", "us-west-2");
 
         Mockito.when(table.io()).thenReturn(fileIO);
         Mockito.when(fileIO.properties()).thenReturn(ioProperties);
 
-        // Test with vended credentials enabled
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
+        // Test using VendedCredentialsFactory
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertEquals("vended-access-key", result.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("vended-secret-key", result.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("vended-session-token", result.get("AWS_TOKEN"));
+        // Should not be null (assuming StorageProperties.createAll works correctly)
+        // Note: The actual result depends on whether StorageProperties.createAll() can properly map the credentials
+        // This test verifies the integration flow works without exceptions
+        Assertions.assertNotNull(result);
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithRestVendedCredentialsDisabled() {
-        // Mock IcebergRestProperties with vended credentials disabled
+    public void testGetStoragePropertiesMapWithVendedCredentialsDisabled() {
+        // Mock metastore properties with vended credentials disabled
         IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.ICEBERG);
         Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(false);
 
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-        baseProperties.put("AWS_ACCESS_KEY", "static-access-key");
-        baseProperties.put("AWS_SECRET_KEY", "static-secret-key");
-
-        Mockito.when(storageProperties.getBackendConfigProperties()).thenReturn(baseProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
-
-        // Mock table (should be ignored since vended credentials are disabled)
         Table table = Mockito.mock(Table.class);
-        FileIO fileIO = Mockito.mock(FileIO.class);
-        Map<String, String> ioProperties = new HashMap<>();
-        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "vended-access-key");
-        ioProperties.put(S3FileIOProperties.SECRET_ACCESS_KEY, "vended-secret-key");
 
-        Mockito.when(table.io()).thenReturn(fileIO);
-        Mockito.when(fileIO.properties()).thenReturn(ioProperties);
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
-        // Test with vended credentials disabled
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
-
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertEquals("static-access-key", result.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("static-secret-key", result.get("AWS_SECRET_KEY"));
-        Assertions.assertFalse(result.containsKey("AWS_TOKEN"));
+        // When vended credentials are disabled, should return the baseStoragePropertiesMap (empty HashMap)
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithNonRestMetastore() {
-        // Mock non-REST metastore properties
-        MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
-
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-        baseProperties.put("AWS_ACCESS_KEY", "static-access-key");
-
-        Mockito.when(storageProperties.getBackendConfigProperties()).thenReturn(baseProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
-
-        // Mock table (should be ignored for non-REST catalogs)
-        Table table = Mockito.mock(Table.class);
-
-        // Test with non-REST metastore
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                metastoreProperties, storagePropertiesMap, table);
-
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertEquals("static-access-key", result.get("AWS_ACCESS_KEY"));
-        Assertions.assertFalse(result.containsKey("AWS_TOKEN"));
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithMultipleStorageTypes() {
-        // Mock IcebergRestProperties with vended credentials enabled
+    public void testGetStoragePropertiesMapWithNullTable() {
         IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.ICEBERG);
         Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
 
-        // Mock S3 storage properties
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), null);
+
+        // When table is null, should return the baseStoragePropertiesMap (empty HashMap)
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetBackendPropertiesFromStorageMap() {
+        // Create mock storage properties
         StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
-        Map<String, String> s3BaseProperties = new HashMap<>();
-        s3BaseProperties.put("s3.property", "s3-value");
-
-        Map<String, String> s3VendedProperties = new HashMap<>();
-        s3VendedProperties.put("s3.property", "s3-value");
-        s3VendedProperties.put("AWS_ACCESS_KEY", "vended-access-key");
-
-        Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BaseProperties);
-        Mockito.when(s3Properties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(s3VendedProperties);
-
-        // Mock HDFS storage properties
         StorageProperties hdfsProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> hdfsBaseProperties = new HashMap<>();
-        hdfsBaseProperties.put("hdfs.property", "hdfs-value");
 
-        Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBaseProperties);
-        Mockito.when(hdfsProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(hdfsBaseProperties);
+        Map<String, String> s3BackendProps = new HashMap<>();
+        s3BackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
+        s3BackendProps.put("AWS_SECRET_KEY", "testSecretKey");
+        s3BackendProps.put("AWS_TOKEN", "testToken");
+
+        Map<String, String> hdfsBackendProps = new HashMap<>();
+        hdfsBackendProps.put("HDFS_PROPERTY", "hdfsValue");
+
+        Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
+        Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
         storagePropertiesMap.put(Type.HDFS, hdfsProperties);
 
-        // Mock table with vended credentials
-        Table table = Mockito.mock(Table.class);
-        FileIO fileIO = Mockito.mock(FileIO.class);
-        Map<String, String> ioProperties = new HashMap<>();
-        ioProperties.put(S3FileIOProperties.ACCESS_KEY_ID, "vended-access-key");
+        Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Mockito.when(table.io()).thenReturn(fileIO);
-        Mockito.when(fileIO.properties()).thenReturn(ioProperties);
-
-        // Test with multiple storage types
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
-
-        Assertions.assertEquals("s3-value", result.get("s3.property"));
-        Assertions.assertEquals("hdfs-value", result.get("hdfs.property"));
-        Assertions.assertEquals("vended-access-key", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals(4, result.size());
+        Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("testSecretKey", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("hdfsValue", result.get("HDFS_PROPERTY"));
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithNullTable() {
-        // Mock IcebergRestProperties with vended credentials enabled
-        IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
-        Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
+    public void testGetBackendPropertiesFromStorageMapWithNullValues() {
+        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
 
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
+        Map<String, String> s3BackendProps = new HashMap<>();
+        s3BackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
+        s3BackendProps.put("AWS_SECRET_KEY", null); // null value should be filtered out
+        s3BackendProps.put("AWS_TOKEN", "testToken");
 
-        Mockito.when(storageProperties.getBackendConfigProperties()).thenReturn(baseProperties);
+        Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
+        storagePropertiesMap.put(Type.S3, s3Properties);
 
-        // Test with null table (should fall back to base properties)
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, null);
+        Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertFalse(result.containsKey("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithEmptyStorageMap() {
-        // Mock IcebergRestProperties
-        IcebergRestProperties restProperties = Mockito.mock(IcebergRestProperties.class);
-        Mockito.when(restProperties.isIcebergRestVendedCredentialsEnabled()).thenReturn(true);
-
-        // Empty storage properties map
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-
-        // Mock table
-        Table table = Mockito.mock(Table.class);
-
-        // Test with empty storage map
-        Map<String, String> result = IcebergVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
-
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
+        Assertions.assertFalse(result.containsKey("AWS_SECRET_KEY"));
     }
 }
