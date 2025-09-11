@@ -151,16 +151,9 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             DateTimeV2Type.class,
             FloatType.class,
             DoubleType.class,
-            QuantileStateType.class,
-            BitmapType.class,
             CharType.class,
             VarcharType.class,
-            HllType.class,
             StringType.class,
-            VariantType.class,
-            JsonType.class,
-            StructType.class,
-            MapType.class,
             DecimalV2Type.class,
             DecimalV3Type.class
     );
