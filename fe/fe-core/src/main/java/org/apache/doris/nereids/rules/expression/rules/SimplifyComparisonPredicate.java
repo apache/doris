@@ -80,10 +80,10 @@ import java.util.Optional;
 public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
-    private static final int MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS = 1 << 24;
-    private static final int MIN_CONTINUE_INT_TO_FLOAT_NO_LOSS = -MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS;
-    private static final long MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS = 1L << 53;
-    private static final long MIN_CONTINUE_LONG_TO_DOUBLE_NO_LOSS = -MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS;
+    private static final int MAX_INT_TO_FLOAT_NO_LOSS = 1 << 24;
+    private static final int MIN_INT_TO_FLOAT_NO_LOSS = -MAX_INT_TO_FLOAT_NO_LOSS;
+    private static final long MAX_LONG_TO_DOUBLE_NO_LOSS = 1L << 53;
+    private static final long MIN_LONG_TO_DOUBLE_NO_LOSS = -MAX_LONG_TO_DOUBLE_NO_LOSS;
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
@@ -642,10 +642,10 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             // it should convert to `cast(integer like as double) cmp double literal`.
             // but we still process it to be more robust
             if (castDataType.isFloatType()
-                    && (val <= MIN_CONTINUE_INT_TO_FLOAT_NO_LOSS || val >= MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS)) {
+                    && (val <= MIN_INT_TO_FLOAT_NO_LOSS || val >= MAX_INT_TO_FLOAT_NO_LOSS)) {
                 // for float, only [-2^24, 2^24] can convert to int without loss of precision,
                 // but here need to exclude the boundary value, because
-                // cast(2^24 as float) = cast(2^24 + 1 as float) = 2^24 = MAX_CONTINUE_INT_TO_FLOAT_NO_LOSS,
+                // cast(2^24 as float) = cast(2^24 + 1 as float) = 2^24 = MAX_INT_TO_FLOAT_NO_LOSS,
                 // so for cast(c_int as float) = 2^24, we can't simplify it to c_int = 2^24,
                 // c_int can be 2^24 + 1. The same for -2^24
                 return Optional.empty();
@@ -656,10 +656,10 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             // decimal can represent all long value without loss of precision,
             // but float/double can't represent all long value without loss of precision.
             if (castDataType.isFloatLikeType()
-                    && (val <= MIN_CONTINUE_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS)) {
+                    && (val <= MIN_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_LONG_TO_DOUBLE_NO_LOSS)) {
                 // for double, only [-2^53, 2^53] can convert to long without loss of precision,
                 // but here need to exclude the boundary value, because
-                // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_CONTINUE_LONG_TO_DOUBLE_NO_LOSS,
+                // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_TO_DOUBLE_NO_LOSS,
                 // so for cast(c_bigint as double) = 2^53, we can't simplify it to c_bigint = 2^53,
                 // c_bigint can be 2^53 + 1. The same for -2^53
                 return Optional.empty();
