@@ -105,7 +105,7 @@ message RowsetMetaPB {
     optional PUniqueId tablet_uid = 21;
     // total number of segments
     optional int64 num_segments = 22;
-    // rowset id definition, it will replace required rowset id
+    // rowset id definition, it will replace required rowset id 
     optional string rowset_id_v2 = 23;
     // resource id
     optional string resource_id = 24;
@@ -354,7 +354,7 @@ message ColumnPB {
     optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
     // this field is only used during flexible partial update load
     optional bool is_on_update_current_timestamp = 28 [default = false];
-    // variant_max_sparse_column_statistics_size
+    // variant_max_sparse_column_statistics_size 
     optional int32 variant_max_sparse_column_statistics_size = 29 [default = 10000];
 }
 
