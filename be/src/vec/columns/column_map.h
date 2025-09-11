@@ -193,6 +193,21 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
+    // Remove duplicate key-value pairs from each internal map in the ColumnMap.
+    //
+    // For each map stored in the ColumnMap, if multiple entries have the same key
+    // and identical value, only the **last** such key-value pair is retained; earlier
+    // duplicates are removed. This ensures that all keys within each map are unique.
+    //
+    // Note: This function modifies the internal state of the ColumnMap in-place.
+    // It is intended to be used after data loading or merging steps where
+    // redundant key-value pairs may have been introduced.
+    //
+    // Example:
+    //   Input map: {{"a", 1}, {"b", 2}, {"a", 3}, {"c", 4, null: 5, null: 6}}
+    //   Result:    {{"b", 2}, {"a", 3}, {"c", 3, null: 6}}
+    Status deduplicate_keys(bool recursive = false);
+
     ColumnPtr convert_column_if_overflow() override {
         keys_column = keys_column->convert_column_if_overflow();
         values_column = values_column->convert_column_if_overflow();
