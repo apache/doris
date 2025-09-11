@@ -598,8 +598,6 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
 
         // int and float literal near no loss bound
-        // in fact, shouldn't have cast(c_int as float) cmp float literal, it will convert to cast(c_int as double) cmp double literal
-        // but we still test 'cast(c_int as float) cmp float literal' here for more robustness
         float noLossBoundF = 16777216.0f; // 2^24
         assertRewrite(new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)),
                 new EqualTo(new Cast(intSlot, FloatType.INSTANCE), new FloatLiteral(-noLossBoundF)));

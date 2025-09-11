@@ -638,9 +638,6 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             // double/decimal can represent all int value without loss of precision,
             // but float can't represent all int value without loss of precision.
             // need to handle the float case specially.
-            // but notice that, in fact, type convert shouldn't have `cast(integer like as float) cmp float literal`,
-            // it should convert to `cast(integer like as double) cmp double literal`.
-            // but we still process it to be more robust
             if (castDataType.isFloatType()
                     && (val <= MIN_INT_TO_FLOAT_NO_LOSS || val >= MAX_INT_TO_FLOAT_NO_LOSS)) {
                 // for float, only [-2^24, 2^24] can convert to int without loss of precision,
@@ -655,8 +652,9 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         } else {
             // decimal can represent all long value without loss of precision,
             // but float/double can't represent all long value without loss of precision.
-            if (castDataType.isFloatLikeType()
-                    && (val <= MIN_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_LONG_TO_DOUBLE_NO_LOSS)) {
+            if (castDataType.isFloatType()
+                    || (castDataType.isDoubleType()
+                            && (val <= MIN_LONG_TO_DOUBLE_NO_LOSS || val >= MAX_LONG_TO_DOUBLE_NO_LOSS))) {
                 // for double, only [-2^53, 2^53] can convert to long without loss of precision,
                 // but here need to exclude the boundary value, because
                 // cast(2^53 as double) = cast(2^53 + 1 as double) = 2^53 = MAX_LONG_TO_DOUBLE_NO_LOSS,
