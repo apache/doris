@@ -53,6 +53,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -825,6 +827,12 @@ public class BackupJobInfo implements GsonPostProcessable {
          */
         BackupJobInfo jobInfo = GsonUtils.GSON.fromJson(json, BackupJobInfo.class);
         return jobInfo;
+    }
+
+    public static BackupJobInfo fromInputStream(InputStream inputStream) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(inputStream)) {
+            return GsonUtils.GSON.fromJson(reader, BackupJobInfo.class);
+        }
     }
 
     public void writeToFile(File jobInfoFile) throws FileNotFoundException {

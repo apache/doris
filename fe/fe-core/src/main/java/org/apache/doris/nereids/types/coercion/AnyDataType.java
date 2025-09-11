@@ -25,6 +25,12 @@ import java.util.Locale;
 
 /**
  * Represent any datatype in type coercion.
+ * with index = -1: individual slot, just accept any input type. process in `implementAnyDataTypeWithOutIndex`
+ * with index != -1: slots with same index are treated as type-equal. target type is the common type of them.
+ * for example:
+ *  two slots with AnyDataType(0) has type int and bigint separately, then the target type of both is bigint.
+ *  process in `implementAnyDataTypeWithIndex`.
+ * AnyDataType could NOT be return type. see more in FollowToAnyDataType.java
  */
 public class AnyDataType extends DataType {
 

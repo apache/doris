@@ -32,10 +32,4 @@ public class BaseProperties {
         credential.setSessionToken(props.getOrDefault(sessionTokenName, ""));
         return credential;
     }
-
-    public static CloudCredential getCompatibleCredential(Map<String, String> props) {
-        // Compatible with older versions.
-        return getCloudCredential(props, S3Properties.Env.ACCESS_KEY, S3Properties.Env.SECRET_KEY,
-                S3Properties.Env.TOKEN);
-    }
 }

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
@@ -43,8 +44,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -67,6 +70,7 @@ import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Test for PushDownVirtualColumnsIntoOlapScan rule.
@@ -836,5 +840,76 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
             // Expected for lambda expressions or other complex scenarios
             // The important thing is that type checking works correctly
         }
+    }
+
+    @Test
+    void testOnceUniqueFunction() {
+        LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                PlanConstructor.newOlapTable(12345L, "t1", 0));
+        SlotReference id = (SlotReference) olapScan.getOutput().get(0);
+        Random random1 = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
+        Random random2 = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
+        Expression compareExpr = new Add(new Add(random1, random2), id);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(compareExpr, new IntegerLiteral(5)),
+                        new LessThan(compareExpr, new IntegerLiteral(10))
+                ),
+                olapScan);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalProject.class, root);
+        LogicalProject<?> project = (LogicalProject<?>) root;
+        Assertions.assertInstanceOf(LogicalFilter.class, project.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) project.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias alias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertEquals(compareExpr, alias.child());
+        Set<Expression> expectConjuncts = ImmutableSet.of(
+                new GreaterThan(alias.toSlot(), new IntegerLiteral(5)),
+                new LessThan(alias.toSlot(), new IntegerLiteral(10))
+        );
+        Assertions.assertEquals(expectConjuncts, resFilter.getConjuncts());
+    }
+
+    @Test
+    void testMultipleTimesUniqueFunctions() {
+        LogicalOlapScan olapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                PlanConstructor.newOlapTable(12345L, "t1", 0));
+        SlotReference id = (SlotReference) olapScan.getOutput().get(0);
+        Random random = new Random(new IntegerLiteral(1), new IntegerLiteral(10));
+        // don't extract virtual column if it contains an unique function which exists multiple times
+        // compareExpr contains  the one same `random` twice, so compareExpr cann't be a virtual column.
+        // but `random()` itself can still be a virtual column.
+        Expression compareExpr = new Add(new Add(random, random), id);
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(compareExpr, new IntegerLiteral(5)),
+                        new LessThan(compareExpr, new IntegerLiteral(10))
+                ),
+                olapScan);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalProject.class, root);
+        LogicalProject<?> project = (LogicalProject<?>) root;
+        Assertions.assertInstanceOf(LogicalFilter.class, project.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) project.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias alias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertEquals(random, alias.child());
+        Expression newCompareExpr = new Add(new Add(alias.toSlot(), alias.toSlot()), id);
+        Set<Expression> expectConjuncts = ImmutableSet.of(
+                new GreaterThan(newCompareExpr, new IntegerLiteral(5)),
+                new LessThan(newCompareExpr, new IntegerLiteral(10))
+        );
+        Assertions.assertEquals(expectConjuncts, resFilter.getConjuncts());
     }
 }

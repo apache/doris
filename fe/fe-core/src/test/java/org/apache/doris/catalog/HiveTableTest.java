@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -81,8 +81,8 @@ public class HiveTableTest {
 
     @Test()
     public void testVersion() throws DdlException {
-        properties.put(HMSProperties.HIVE_VERSION, "2.1.2");
+        properties.put(HMSBaseProperties.HIVE_VERSION, "2.1.2");
         HiveTable table = new HiveTable(1000, "hive_table", columns, properties);
-        Assert.assertEquals("2.1.2", table.getHiveProperties().get(HMSProperties.HIVE_VERSION));
+        Assert.assertEquals("2.1.2", table.getHiveProperties().get(HMSBaseProperties.HIVE_VERSION));
     }
 }

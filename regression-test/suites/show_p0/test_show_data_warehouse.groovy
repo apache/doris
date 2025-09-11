@@ -91,12 +91,12 @@ suite("test_show_data_warehouse") {
         do {
             current = System.currentTimeMillis()
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
-            if ((result.size() == 2) && result[0][1].toInteger() == 873 * replicaCount1) {
+            if ((result.size() == 2) && result[0][1].toInteger() == 921 * replicaCount1) {
                 hitDb1 = true;
             }
 
             result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
-            if (result.size() == 2 && result[0][1].toInteger() == 850 * replicaCount1) {
+            if (result.size() == 2 && result[0][1].toInteger() == 898 * replicaCount1) {
                 hitDb2 = true;
             }
             if (hitDb1 && hitDb2) {
@@ -110,9 +110,9 @@ suite("test_show_data_warehouse") {
 
         result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
         assertEquals(result.size(), 3)
-        assertEquals(result[0][1].toInteger(), 873 * replicaCount1)
-        assertEquals(result[1][1].toInteger(), 850 * replicaCount1)
-        assertEquals(result[2][1].toInteger(), (873 + 850) * replicaCount1)
+        assertEquals(result[0][1].toInteger(), 921 * replicaCount1)
+        assertEquals(result[1][1].toInteger(), 898 * replicaCount1)
+        assertEquals(result[2][1].toInteger(), (921 + 898) * replicaCount1)
 
         result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() >= 3)

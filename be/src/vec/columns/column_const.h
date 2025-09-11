@@ -27,13 +27,10 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
-#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
@@ -105,8 +102,8 @@ private:
     WrappedPtr data;
     size_t s;
 
-    ColumnConst(const ColumnPtr& data, size_t s_);
-    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,
+                bool need_squash = true);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -123,7 +120,7 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data->clone_resized(1), new_size);
+        return ColumnConst::create(data, new_size, false, false);
     }
 
     size_t size() const override { return s; }
@@ -275,8 +272,6 @@ public:
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
-
-    IColumn& get_data_column() { return *data; }
     const IColumn& get_data_column() const { return *data; }
     const ColumnPtr& get_data_column_ptr() const { return data; }
 
@@ -289,8 +284,8 @@ public:
     }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        data->replace_column_data(rhs, row, self_row);
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Method replace_column_data is not supported for " + get_name());
     }
 
     void finalize() override { data->finalize(); }
@@ -313,6 +308,8 @@ public:
         ++s;
         return data->deserialize_impl(pos);
     }
+
+    void replace_float_special_values() override;
 };
 
 // For example, DataType may not correspond to a type and const,

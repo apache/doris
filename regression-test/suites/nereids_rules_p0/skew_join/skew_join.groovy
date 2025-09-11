@@ -35,7 +35,7 @@ suite("skew_join") {
 
         insert into t2 values (1, 2);
 
-        alter table t1 modify column id set stats ('row_count' = '1000000000', 'hot_values'='1 :80');
+        alter table t1 modify column id set stats ('row_count' = '1000000000', 'ndv'='10000', 'hot_values'='1 :0.8');
 
         set runtime_filter_mode='OFF';
     """
