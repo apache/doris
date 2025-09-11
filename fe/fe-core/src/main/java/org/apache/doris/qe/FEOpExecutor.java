@@ -63,6 +63,7 @@ public class FEOpExecutor {
     protected int thriftTimeoutMs;
 
     protected boolean shouldNotRetry;
+    protected boolean moreStmtExists = false;
 
     public FEOpExecutor(TNetworkAddress feAddress, OriginStatement originStmt, ConnectContext ctx, boolean isQuery) {
         this.feAddr = feAddress;
@@ -173,6 +174,7 @@ public class FEOpExecutor {
         params.setStmtId(ctx.getStmtId());
         params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
         params.setSessionId(ctx.getSessionId());
+        params.setMoreResultExists(moreStmtExists);
 
         if (Config.isCloudMode()) {
             String cluster = "";
@@ -226,6 +228,9 @@ public class FEOpExecutor {
         return result.getErrMessage();
     }
 
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
+    }
 
     public ByteBuffer getOutputPacket() {
         if (result == null) {

@@ -163,11 +163,6 @@ bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
 
 class MetaServiceProxy {
 public:
-    static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
-        return get_pooled_client(stub, nullptr);
-    }
-
     static Status get_proxy(MetaServiceProxy** proxy) {
         // The 'stub' is a useless parameter, added only to reuse the `get_pooled_client` function.
         std::shared_ptr<MetaService_Stub> stub;
@@ -523,6 +518,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             }
             req.set_base_compaction_cnt(tablet->base_compaction_cnt());
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
+            req.set_full_compaction_cnt(tablet->full_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
@@ -776,6 +772,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
             tablet->set_base_compaction_cnt(stats.base_compaction_cnt());
             tablet->set_cumulative_compaction_cnt(stats.cumulative_compaction_cnt());
+            tablet->set_full_compaction_cnt(stats.full_compaction_cnt());
             tablet->set_cumulative_layer_point(stats.cumulative_point());
             tablet->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                             stats.num_rows(), stats.data_size());
@@ -1210,6 +1207,7 @@ Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_meta.tablet_id());
     req.set_expiration(config::snapshot_expire_time_sec);
+    req.set_action(RestoreJobRequest::PREPARE);
 
     doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
     return retry_rpc("prepare restore job", req, &resp, &MetaService_Stub::prepare_restore_job);
@@ -1221,6 +1219,7 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
+    req.set_action(RestoreJobRequest::COMMIT);
 
     return retry_rpc("commit restore job", req, &resp, &MetaService_Stub::commit_restore_job);
 }
@@ -1232,7 +1231,7 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
     RestoreJobResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_tablet_id(tablet_id);
-    req.set_is_completed(is_completed);
+    req.set_action(is_completed ? RestoreJobRequest::COMPLETE : RestoreJobRequest::ABORT);
 
     return retry_rpc("finish restore job", req, &resp, &MetaService_Stub::finish_restore_job);
 }
@@ -1272,6 +1271,15 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         auto* j = resp.mutable_storage_vault(i);
         if (!j->has_obj_info()) continue;
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
+    }
+
+    for (int i = 0; i < resp.obj_info_size(); ++i) {
+        resp.mutable_obj_info(i)->set_ak(hide_access_key(resp.obj_info(i).sk()));
+    }
+    for (int i = 0; i < resp.storage_vault_size(); ++i) {
+        auto* j = resp.mutable_storage_vault(i);
+        if (!j->has_obj_info()) continue;
+        j->mutable_obj_info()->set_sk(hide_access_key(j->obj_info().sk()));
     }
 
     LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
@@ -1323,33 +1331,6 @@ Status CloudMetaMgr::lease_tablet_job(const TabletJobInfoPB& job) {
     req.set_action(FinishTabletJobRequest::LEASE);
     req.set_cloud_unique_id(config::cloud_unique_id);
     return retry_rpc("lease tablet job", req, &res, &MetaService_Stub::finish_tablet_job);
-}
-
-Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema& tablet_schema) {
-    VLOG_DEBUG << "send UpdateTabletSchemaRequest, tablet_id: " << tablet_id;
-
-    std::shared_ptr<MetaService_Stub> stub;
-    RETURN_IF_ERROR(MetaServiceProxy::get_client(&stub));
-
-    brpc::Controller cntl;
-    cntl.set_timeout_ms(config::meta_service_brpc_timeout_ms);
-    UpdateTabletSchemaRequest req;
-    UpdateTabletSchemaResponse resp;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_tablet_id(tablet_id);
-
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema.to_schema_pb(&tablet_schema_pb);
-    doris_tablet_schema_to_cloud(req.mutable_tablet_schema(), std::move(tablet_schema_pb));
-    stub->update_tablet_schema(&cntl, &req, &resp, nullptr);
-    if (cntl.Failed()) {
-        return Status::RpcError("failed to update tablet schema: {}", cntl.ErrorText());
-    }
-    if (resp.status().code() != MetaServiceCode::OK) {
-        return Status::InternalError("failed to update tablet schema: {}", resp.status().msg());
-    }
-    VLOG_DEBUG << "succeed to update tablet schema, tablet_id: " << tablet_id;
-    return Status::OK();
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,

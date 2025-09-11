@@ -111,7 +111,7 @@ suite("regression_test_variant_predefine_delete_and_update", "variant_type"){
                 `score` int(11) NOT NULL COMMENT "用户得分",
                 `test` int(11) NULL COMMENT "null test",
                 `dft` int(11) DEFAULT "4321",
-                `var` variant<'id' : int, 'name' : string, 'score' : int, 'test' : int, 'dft' : int> NULL)
+                `var` variant<'id' : int, 'name' : string, 'score' : int, 'test' : int, 'dft' : int, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")> NULL)
                 UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                 PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true", "store_row_column" = "true")
     """

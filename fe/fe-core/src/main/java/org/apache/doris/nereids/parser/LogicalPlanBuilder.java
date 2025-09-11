@@ -1135,7 +1135,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.LOCAL() != null) {
             brokerDesc = new BrokerDesc("HDFS", StorageBackend.StorageType.LOCAL, brokerPropertiesMap);
         } else if (ctx.BROKER() != null) {
-            brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName), brokerPropertiesMap);
+            brokerDesc = new BrokerDesc(visitIdentifierOrText(ctx.brokerName),
+                    StorageBackend.StorageType.BROKER, brokerPropertiesMap);
         }
         return brokerDesc;
     }
@@ -2610,7 +2611,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         if (ctx.columnDefs() != null) {
-            if (ctx.AS() != null) {
+            if (ctx.query() != null) {
                 throw new AnalysisException("Should not define the entire column in CTAS");
             }
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
@@ -2632,7 +2633,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     properties,
                     extProperties,
                     ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
-        } else if (ctx.AS() != null) {
+        } else if (ctx.query() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
@@ -3602,12 +3603,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
         boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
                 ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
+        int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
 
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer
                                         .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
             enableTypedPathsToSparse = PropertyAnalyzer
                                         .analyzeEnableTypedPathsToSparse(properties, enableTypedPathsToSparse);
+            variantMaxSparseColumnStatisticsSize = PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(
+                                        properties, variantMaxSparseColumnStatisticsSize);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
         }
@@ -3615,10 +3620,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (!properties.isEmpty()) {
             throw new NotSupportedException("only support for "
                     + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
         }
 
-        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse);
+        if (variantMaxSubcolumnsCount == 0 && !fields.isEmpty()) {
+            throw new NotSupportedException("variant_max_subcolumns_count must be greater than 0 "
+                    + "when variant has fields, but got " + variantMaxSubcolumnsCount);
+        }
+
+        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                    variantMaxSparseColumnStatisticsSize);
     }
 
     @Override

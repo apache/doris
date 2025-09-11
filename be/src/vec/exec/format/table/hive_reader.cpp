@@ -46,7 +46,7 @@ Status HiveOrcReader::init_reader(
     if (_state->query_options().hive_orc_use_column_names && !is_hive_col_name) {
         // Directly use the table column name to match the file column name, but pay attention to the case issue.
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(tuple_descriptor, orc_type_ptr,
-                                                        table_info_node_ptr));
+                                                        table_info_node_ptr, _is_file_slot));
     } else {
         // hive1 / use index
         std::map<std::string, const SlotDescriptor*> slot_map; // table_name to slot
@@ -70,6 +70,10 @@ Status HiveOrcReader::init_reader(
                 table_info_node_ptr->add_children(
                         table_column_name, orc_type_ptr->getFieldName(file_index), field_node);
             }
+            slot_map.erase(table_column_name);
+        }
+        for (const auto& [partition_col_name, _] : slot_map) {
+            table_info_node_ptr->add_not_exist_children(partition_col_name);
         }
     }
 
@@ -95,7 +99,7 @@ Status HiveParquetReader::init_reader(
     if (_state->query_options().hive_parquet_use_column_names) {
         // Directly use the table column name to match the file column name, but pay attention to the case issue.
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(tuple_descriptor, *field_desc,
-                                                            table_info_node_ptr));
+                                                            table_info_node_ptr, _is_file_slot));
     } else {                                                   // use idx
         std::map<std::string, const SlotDescriptor*> slot_map; //table_name to slot
         for (const auto& slot : tuple_descriptor->slots()) {
@@ -109,8 +113,10 @@ Status HiveParquetReader::init_reader(
             auto file_index = _params.column_idxs[idx];
 
             if (file_index >= parquet_fields_schema.size()) {
+                // Non-partitioning columns, which may be columns added later.
                 table_info_node_ptr->add_not_exist_children(table_column_name);
             } else {
+                // Non-partitioning columns, columns that exist in both the table and the file.
                 auto field_node = std::make_shared<Node>();
                 // for sub-columns, still use name to match columns.
                 RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(
@@ -119,6 +125,22 @@ Status HiveParquetReader::init_reader(
                 table_info_node_ptr->add_children(
                         table_column_name, parquet_fields_schema[file_index].name, field_node);
             }
+            slot_map.erase(table_column_name);
+        }
+        /*
+         * `_params.column_idxs` only have `isIsFileSlot()`, so we need add `partition slot`.
+         * eg:
+         * Table : A, B, C, D     (D: partition column)
+         * Parquet file : A, B
+         * Column C is obtained by add column.
+         *
+         * sql : select * from table;
+         * slot : A, B, C, D
+         * _params.column_idxs: 0, 1, 2 (There is no 3, because column D is the partition column)
+         *
+         */
+        for (const auto& [partition_col_name, _] : slot_map) {
+            table_info_node_ptr->add_not_exist_children(partition_col_name);
         }
     }
 

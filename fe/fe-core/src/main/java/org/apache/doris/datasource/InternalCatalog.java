@@ -139,6 +139,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.es.EsRepository;
+import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -148,7 +149,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
-import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -168,6 +168,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
@@ -448,8 +449,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 try {
                     unprotectCreateDb(db);
-                    CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
-                    Env.getCurrentEnv().getEditLog().logCreateDb(dbInfo);
+                    // CreateDbInfo dbInfo = new CreateDbInfo(InternalCatalog.INTERNAL_CATALOG_NAME, db.getName(), db);
+                    Env.getCurrentEnv().getEditLog().logCreateDb(db);
                 } finally {
                     db.writeUnlock();
                 }
@@ -575,6 +576,14 @@ public class InternalCatalog implements CatalogIf<Database> {
     public void unprotectDropDb(Database db, boolean isForeDrop, boolean isReplay, long recycleTime) {
         for (Table table : db.getTables()) {
             unprotectDropTable(db, table, isForeDrop, isReplay, recycleTime);
+        }
+        if (!db.getTables().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableIds().stream().collect(Collectors.toSet()));
+        }
+        if (!db.getTableNames().isEmpty()) {
+            throw new IllegalStateException("Database " + db.getFullName() + " is not empty. Contains tables: "
+                                            + db.getTableNames().stream().collect(Collectors.toSet()));
         }
         db.markDropped();
     }
@@ -876,7 +885,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv,
-            boolean ifExists, boolean force) throws DdlException {
+            boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         Map<String, Long> costTimes = new TreeMap<String, Long>();
         StopWatch watch = StopWatch.createStarted();
         LOG.info("begin to drop table: {} from db: {}, is force: {}", tableName, dbName, force);
@@ -952,6 +961,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (table.isTemporary()) {
                 dropTableInternal(db, table, false, true, watch, costTimes);
             } else {
+                if (mustTemporary) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+                }
                 dropTableInternal(db, table, isView, force, watch, costTimes);
             }
         } catch (UserException e) {
@@ -1045,7 +1057,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-        db.unregisterTable(table.getName());
+        db.unregisterTable(table.getId());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
@@ -1704,6 +1716,9 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_TDE_ALGORITHM, olapTable.getTDEAlgorithm().name());
+            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -2204,7 +2219,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
                             tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize(),
+                            tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize());
 
                     task.setStorageFormat(tbl.getStorageFormat());
@@ -3087,6 +3102,27 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
+        }
+
+        try {
+            TEncryptionAlgorithm tdeAlgorithm = PropertyAnalyzer.analyzeTDEAlgorithm(properties);
+            if (tdeAlgorithm != TEncryptionAlgorithm.PLAINTEXT) {
+                List<EncryptionKey> masterKeys = Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+                if (masterKeys == null || masterKeys.isEmpty()) {
+                    throw new DdlException("The TDE master key does not exist, so encrypted table cannot be created. "
+                        + "Please check whether the root key is correctly set");
+                }
+
+                for (EncryptionKey masterKey : masterKeys) {
+                    if (masterKey.algorithm.toThrift() == tdeAlgorithm && !masterKey.isDecrypted()) {
+                        throw new DdlException("The master key has not been decrypted. Please check whether"
+                            + " the root key is functioning properly or configured correctly.");
+                    }
+                }
+            }
+            olapTable.setEncryptionAlgorithm(tdeAlgorithm);
+        } catch (Exception e) {
+            throw new DdlException("Failed to set TDE algorithm: " + e.getMessage(), e);
         }
 
         olapTable.initSchemaColumnUniqueId();
@@ -3978,7 +4014,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     public Map<String, Long> getUsedDataQuota() {
         Map<String, Long> dbToDataSize = new TreeMap<>();
         for (Database db : this.idToDb.values()) {
-            dbToDataSize.put(db.getFullName(), db.getUsedDataQuotaWithLock());
+            dbToDataSize.put(db.getFullName(), db.getUsedDataQuota());
         }
         return dbToDataSize;
     }

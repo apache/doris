@@ -311,7 +311,14 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_DB: {
                     Database db = (Database) journal.getData();
-                    CreateDbInfo info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    CreateDbInfo info;
+                    if (!Strings.isNullOrEmpty(db.getCtlName())) {
+                        // if ctlName is not empty, it means this db is created in an external catalog
+                        // we just need db name and ctl name
+                        info = new CreateDbInfo(db.getCtlName(), db.getName(), null);
+                    } else {
+                        info = new CreateDbInfo(db.getCatalog().getName(), db.getName(), db);
+                    }
                     env.replayCreateDb(info);
                     break;
                 }
@@ -1428,8 +1435,20 @@ public class EditLog {
              */
             LOG.warn("[INCONSISTENT META] replay log {} failed, journal {}: {}", logId, journal, e.getMessage(), e);
         } catch (Exception e) {
-            LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
-            System.exit(-1);
+            short[] ignoreExceptionLogIds = Config.skip_operation_types_on_replay_exception;
+            boolean skip = false;
+            for (short ignoreLogId : ignoreExceptionLogIds) {
+                if (ignoreLogId == opCode) {
+                    skip = true;
+                    break;
+                }
+            }
+            if (!skip) {
+                LOG.error("replay Operation Type {}, log id: {}", opCode, logId, e);
+                System.exit(-1);
+            } else {
+                LOG.warn("Skip replay Operation Type {} due to exception, log id: {}", opCode, logId, e);
+            }
         }
     }
 
@@ -1615,8 +1634,8 @@ public class EditLog {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
 
-    public void logCreateDb(CreateDbInfo info) {
-        logEdit(OperationType.OP_NEW_CREATE_DB, info);
+    public void logCreateDb(Database db) {
+        logEdit(OperationType.OP_CREATE_DB, db);
     }
 
     public void logDropDb(DropDbInfo dropDbInfo) {

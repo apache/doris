@@ -77,5 +77,8 @@ public class RootKeyInfo {
 
     @SerializedName(value = "sk")
     public String sk;
+
+    @SerializedName(value = "password")
+    public String password;
 }
 

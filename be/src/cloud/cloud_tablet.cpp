@@ -470,9 +470,9 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
                 if (rs_it != _stale_rs_version_map.end()) {
                     expired_rowsets.push_back(rs_it->second);
                     stale_rowsets.push_back(rs_it->second);
-                    LOG(INFO) << "erase stale rowset, tablet_id=" << tablet_id()
-                              << " rowset_id=" << rs_it->second->rowset_id().to_string()
-                              << " version=" << rs_it->first.to_string();
+                    VLOG_DEBUG << "erase stale rowset, tablet_id=" << tablet_id()
+                               << " rowset_id=" << rs_it->second->rowset_id().to_string()
+                               << " version=" << rs_it->first.to_string();
                     _stale_rs_version_map.erase(rs_it);
                 } else {
                     LOG(WARNING) << "cannot find stale rowset " << v_ts->version() << " in tablet "
@@ -688,6 +688,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.index_id = index_id();
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
     return RowsetFactory::create_rowset_writer(_engine, context, vertical);
 }
 
@@ -729,6 +730,7 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.txn_expiration = txn_expiration;
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 
     auto storage_resource = rowset.rowset_meta()->remote_storage_resource();
     if (!storage_resource) {
@@ -1138,13 +1140,6 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
         RETURN_IF_ERROR(check_rowid_conversion(output_rowset, *location_map));
     }
     int64_t t5 = MonotonicMicros();
-    if (missed_rows) {
-        DCHECK_EQ(missed_rows->size(), missed_rows_size);
-        if (missed_rows->size() != missed_rows_size) {
-            LOG(WARNING) << "missed rows don't match, before: " << missed_rows_size
-                         << " after: " << missed_rows->size();
-        }
-    }
 
     // 3. store delete bitmap
     auto st = _engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,

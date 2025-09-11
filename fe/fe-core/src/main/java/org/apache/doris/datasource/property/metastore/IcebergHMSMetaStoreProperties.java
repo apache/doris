@@ -63,20 +63,27 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     }
 
     @Override
-    public Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList) {
+    public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
+                               List<StorageProperties> storagePropertiesList) {
         checkInitialized();
-
         Configuration conf = buildHiveConfiguration(storagePropertiesList);
-        Map<String, String> catalogProps = buildCatalogProperties();
-
         HiveCatalog hiveCatalog = new HiveCatalog();
         hiveCatalog.setConf(conf);
         storagePropertiesList.forEach(sp -> {
             for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
                 catalogProps.put(entry.getKey(), entry.getValue());
             }
+            // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
+            // Using FileIO for Kerberos authentication may cause serialization issues when accessing
+            // Iceberg system tables (e.g., history, snapshots, manifests).
+            /*if (sp instanceof HdfsProperties) {
+                HdfsProperties hdfsProps = (HdfsProperties) sp;
+                if (hdfsProps.isKerberos()) {
+                    catalogProps.put(CatalogProperties.FILE_IO_IMPL,
+                            "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
+                }
+            }*/
         });
-
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;

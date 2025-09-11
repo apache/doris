@@ -118,6 +118,9 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+CONF_mBool(enable_restore_job_check, "false");
+
+CONF_mBool(enable_tablet_stats_key_check, "false");
 
 CONF_mBool(enable_checker_for_meta_key_check, "false");
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
@@ -283,7 +286,7 @@ CONF_mInt64(max_txn_commit_byte, "7340032");
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
-CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
+CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
@@ -342,4 +345,6 @@ CONF_mString(ca_cert_file_paths,
              "/etc/ssl/ca-bundle.pem");
 
 CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+CONF_mBool(enable_logging_conflict_keys, "false");
+
 } // namespace doris::cloud::config

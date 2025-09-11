@@ -98,7 +98,7 @@ materializedViewStatement
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
         (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
-        AS query                                                                                #createMTMV
+        AS? query                                                                               #createMTMV
     | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)    #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
         | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
@@ -177,10 +177,10 @@ supportedCreateStatement
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         properties=propertyClause?
         (BROKER extProperties=propertyClause)?
-        (AS query)?                                                       #createTable
+        (AS? query)?                                                      #createTable
     | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        (COMMENT STRING_LITERAL)? AS query                                #createView
+        (COMMENT STRING_LITERAL)? AS? query                               #createView
     | CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
         LIKE existedTable=multipartIdentifier
         (WITH ROLLUP (rollupNames=identifierList)?)?                      #createTableLike
@@ -1779,7 +1779,7 @@ sampleMethod
 
 tableSnapshot
     : FOR VERSION AS OF version=(INTEGER_VALUE | STRING_LITERAL)
-    | FOR TIME AS OF time=STRING_LITERAL
+    | FOR TIME AS OF time=(STRING_LITERAL | INTEGER_VALUE)
     ;
 
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`

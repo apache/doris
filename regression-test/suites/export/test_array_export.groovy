@@ -118,10 +118,11 @@ suite("test_array_export", "export") {
     }
 
     def select_out_file = {exportTable, HdfsPath, outFormat, BrokerName, HdfsUserName, HdfsPasswd->
-        sql """
+
+        def sqlString = """
             SELECT * FROM ${exportTable}
             INTO OUTFILE "${HdfsPath}"
-            FORMAT AS "${outFormat}"
+            FORMAT AS ${outFormat}
             PROPERTIES
             (
                 "broker.name" = "${BrokerName}",
@@ -131,6 +132,8 @@ suite("test_array_export", "export") {
                 "broker.password"="${HdfsPasswd}"
             )
         """
+        logger.info("sqlString: ${sqlString}")
+        sql sqlString
     }
 
     def check_export_result = {checklabel->
@@ -220,7 +223,7 @@ suite("test_array_export", "export") {
             create_test_table.call(tableName)
 
             def resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def currentTotalRows = resultCount[0][0]
 
             def label = UUID.randomUUID().toString().replaceAll("-", "")
             select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)

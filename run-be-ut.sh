@@ -138,6 +138,7 @@ echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
+    WITH_TDE_DIR        -- ${WITH_TDE_DIR}
 "
 echo "Build Backend UT"
 
@@ -259,6 +260,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DENABLE_PCH="${ENABLE_PCH}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
+    -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
     "${DORIS_HOME}/be"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 

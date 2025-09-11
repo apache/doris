@@ -650,7 +650,8 @@ static int create_restore_job_rowset(TxnKv* txn_kv, StorageVaultAccessor* access
     return 0;
 }
 
-static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id) {
+static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id,
+                                     RestoreJobCloudPB::State state) {
     std::string key;
     std::string val;
 
@@ -661,7 +662,7 @@ static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id) {
     restore_job_pb.set_tablet_id(tablet_id);
     restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
     restore_job_pb.set_expired_at_s(0);
-    restore_job_pb.set_state(RestoreJobCloudPB::DROPPED);
+    restore_job_pb.set_state(state);
     restore_job_pb.SerializeToString(&val);
 
     std::unique_ptr<Transaction> txn;
@@ -1837,7 +1838,9 @@ TEST(RecyclerTest, recycle_restore_jobs) {
     for (int i = 0; i < 20; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         ASSERT_EQ(create_tablet(txn_kv.get(), table_id, i, partition_id, tablet_id), 0);
-        create_restore_job_tablet(txn_kv.get(), tablet_id);
+        // create restore job for recycle
+        ASSERT_EQ(create_restore_job_tablet(txn_kv.get(), tablet_id, RestoreJobCloudPB::COMPLETED),
+                  0);
         for (int j = 0; j < 5; ++j) {
             ASSERT_EQ(
                     create_restore_job_rowset(txn_kv.get(), accessor.get(), "recycle_restore_jobs",
@@ -1846,6 +1849,7 @@ TEST(RecyclerTest, recycle_restore_jobs) {
         }
     }
 
+    // not recycle and change restore job from COMPLETED to RECYCLING
     ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
 
     std::unique_ptr<Transaction> txn;
@@ -1854,6 +1858,21 @@ TEST(RecyclerTest, recycle_restore_jobs) {
 
     auto begin_key = job_restore_tablet_key({instance_id, 0});
     auto end_key = job_restore_tablet_key({instance_id, INT64_MAX});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 20);
+
+    begin_key = job_restore_rowset_key({instance_id, 0, 0});
+    end_key = job_restore_rowset_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 100);
+
+    // recycle restore job with status RECYCLING
+    ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    begin_key = job_restore_tablet_key({instance_id, 0});
+    end_key = job_restore_tablet_key({instance_id, INT64_MAX});
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
@@ -4120,6 +4139,67 @@ TEST(CheckerTest, check_job_key) {
     ASSERT_EQ(checker.do_mow_job_key_check(), -1);
 }
 
+TEST(CheckerTest, do_restore_job_check) {
+    config::enable_restore_job_check = true;
+    std::string instance_id = "test_do_restore_job_check";
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Prepare test data: simulate restore jobs in different states
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add a PREPARED restore job
+    RestoreJobCloudPB prepared_job;
+    prepared_job.set_tablet_id(10001);
+    prepared_job.set_state(RestoreJobCloudPB::PREPARED);
+    prepared_job.set_ctime_s(::time(nullptr) - 1800); // 30 minutes ago
+    std::string prepared_key;
+    job_restore_tablet_key({instance_id, prepared_job.tablet_id()}, &prepared_key);
+    txn->put(prepared_key, prepared_job.SerializeAsString());
+
+    // Add a COMMITTED restore job
+    RestoreJobCloudPB committed_job;
+    committed_job.set_tablet_id(10002);
+    committed_job.set_state(RestoreJobCloudPB::COMMITTED);
+    committed_job.set_ctime_s(::time(nullptr) - 7200); // 2 hours ago
+    std::string committed_key;
+    job_restore_tablet_key({instance_id, committed_job.tablet_id()}, &committed_key);
+    txn->put(committed_key, committed_job.SerializeAsString());
+
+    // Add a COMPLETED restore job
+    RestoreJobCloudPB completed_job;
+    completed_job.set_tablet_id(10003);
+    completed_job.set_state(RestoreJobCloudPB::COMPLETED);
+    completed_job.set_ctime_s(::time(nullptr) - 3600); // 1 hour ago
+    std::string completed_key;
+    job_restore_tablet_key({instance_id, completed_job.tablet_id()}, &completed_key);
+    txn->put(completed_key, completed_job.SerializeAsString());
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Run the check
+    ASSERT_EQ(checker.do_restore_job_check(), 0);
+}
+
 TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -4291,6 +4371,191 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_leak) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t table_id = 1001;
+    int64_t index_id = 2001;
+    int64_t partition_id = 3001;
+    int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // normal tablet stats
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    table_id = 1002;
+    index_id = 2002;
+    partition_id = 3002;
+    tablet_id = 4002;
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(100);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_loss) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    doris::TabletMetaCloudPB tablet_meta;
+    tablet_meta.set_tablet_id(tablet_id);
+    auto val = tablet_meta.SerializeAsString();
+    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val);
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_inconsistent_data) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(50);
+    stats.set_num_rowsets(5);
+    stats.set_num_segments(10);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(0);
+    stats.set_num_rows(0);
+    stats.set_num_rowsets(1);
+    stats.set_num_segments(2);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 0);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {
@@ -5574,4 +5839,378 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
               << "ms" << std::endl;
     check_multiple_txn_info_kvs(txn_kv, 5000);
 }
+
+TEST(RecyclerTest, recycle_restore_job_complete_state) {
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
+    // txn_kv->init();
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_restore_job_transaction");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_restore_job_transaction");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    int64_t tablet_id = 9876;
+    std::string key;
+    JobRestoreTabletKeyInfo key_info {instance_id, tablet_id};
+    job_restore_tablet_key(key_info, &key);
+
+    RestoreJobCloudPB restore_job_pb;
+    restore_job_pb.set_tablet_id(tablet_id);
+    restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
+    restore_job_pb.set_expired_at_s(0);
+    // set job state to COMPLETED
+    restore_job_pb.set_state(RestoreJobCloudPB::COMPLETED);
+
+    std::string val = restore_job_pb.SerializeAsString();
+    std::unique_ptr<Transaction> setup_txn;
+    ASSERT_EQ(txn_kv->create_txn(&setup_txn), TxnErrorCode::TXN_OK);
+    setup_txn->put(key, val);
+    ASSERT_EQ(setup_txn->commit(), TxnErrorCode::TXN_OK);
+
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ(create_restore_job_rowset(txn_kv.get(), accessor.get(),
+                                            "recycle_restore_job_transaction", tablet_id, i),
+                  0);
+    }
+
+    ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
+}
+
+TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    auto finish = std::chrono::steady_clock::now();
+
+    std::cout << "Concurrent recycle cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    std::cout << "Update label before count: " << update_label_before_count << std::endl;
+    std::cout << "Update label after count: " << update_label_after_count << std::endl;
+    std::cout << "Transaction conflict count: " << txn_conflict_count << std::endl;
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+
+    RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id, 0, 0};
+    RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id, INT64_MAX, INT64_MAX};
+    std::string begin_key = recycle_txn_key(recycle_txn_key_info0);
+    std::string end_key = recycle_txn_key(recycle_txn_key_info1);
+
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(verify_txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), 0) << "All recycle txn keys should be deleted";
+
+    std::string label_key;
+    std::string label_val;
+    txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+    EXPECT_EQ(verify_txn->get(label_key, &label_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+            << "Shared label should be deleted";
+
+    for (auto txn_id : shared_txn_ids) {
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        EXPECT_EQ(verify_txn->get(info_key, &info_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "TxnInfo for txn_id " << txn_id << " should be deleted";
+    }
+}
+
+TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error",
+                      [&](auto&& args) {
+                          auto ret = try_any_cast<int*>(args[0]);
+                          *ret = -1;
+                          LOG(WARNING)
+                                  << "Simulating delete recycle txn kv error in deal with conflict";
+                      });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // deal with conflict but error during recycle
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+}
+
 } // namespace doris::cloud

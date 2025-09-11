@@ -19,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load_alter_partition', 'p0') {
+suite('test_ingestion_load_alter_partition', 'p0,external') {
 
     def testIngestLoadJob = { testTable, loadLabel, dataFiles, alterAction ->
 
@@ -27,12 +27,12 @@ suite('test_ingestion_load_alter_partition', 'p0') {
 
         sql "CLEAN LABEL ${loadLabel} FROM ${context.dbName}"
 
-        Integer loadId = -1
-        Integer tableId = -1
-        Integer partitionId = -1
-        Integer indexId = -1
-        Integer bucketId = 0
-        Integer schemaHash = -1
+        long loadId = -1
+        long tableId = -1
+        long partitionId = -1
+        long indexId = -1
+        long bucketId = 0
+        long schemaHash = -1
 
         String reqBody =
                 """{
@@ -43,7 +43,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                     "properties": {}
                 }"""
 
-        resultFileNames = []    
+        def resultFileNames = []    
 
         httpTest {
             endpoint context.config.feHttpAddress
@@ -63,7 +63,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                 def index = tableMeta["${testTable}"].indexes[0]
                 indexId = index.indexId
                 schemaHash = index.schemaHash
-                partitions = tableMeta["${testTable}"].partitionInfo.partitions
+                def partitions = tableMeta["${testTable}"].partitionInfo.partitions
                 for(partition in partitions) {
                     logger.info("partitionId: " + partition.partitionId)
                     resultFileNames.add("V1.${loadLabel}.${tableId}.${partition.partitionId}.${indexId}.${bucketId}.${schemaHash}.parquet")
@@ -71,7 +71,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
             }
         }
 
-        etlResultFilePaths = []
+        def etlResultFilePaths = []
         for(int i=0; i < dataFiles.size(); i++) {
             Files.copy(Paths.get(dataFiles[i]),
                 Paths.get(context.config.dataPath + "/load_p0/ingestion_load/${resultFileNames[i]}"), StandardCopyOption.REPLACE_EXISTING)
@@ -115,16 +115,16 @@ suite('test_ingestion_load_alter_partition', 'p0') {
 
         alterAction.call()
 
-        max_try_milli_secs = 120000
+        def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select c1, count(*) from ${testTable} group by c1 order by c1"
                 break
             } else if (result[0][2] == "CANCELLED") {
-                msg = result[0][7]
-                logger.info("err msg: " + msg)
+                def msg2 = result[0][7]
+                logger.info("err msg: " + msg2)
                 assertTrue((result[0][7] =~ /partition does not exist/).find())
                 break
             } else {
@@ -146,6 +146,10 @@ suite('test_ingestion_load_alter_partition', 'p0') {
 
         try {
 
+            sql "DROP TABLE if exists ${tableName1}"
+            sql "DROP TABLE if exists ${tableName2}"
+            sql "DROP TABLE if exists ${tableName3}"
+
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName1} (
                     c0 int not null,
@@ -162,7 +166,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                 )
                 """
 
-            def label = "test_ingestion_load_alter_partition_1"
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
 
             testIngestLoadJob.call(tableName1, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'], {
                 sql "alter table ${tableName1} drop partition p_20240901"
@@ -184,7 +188,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_partition_2"
+            label = UUID.randomUUID().toString().replaceAll("-", "")
 
             testIngestLoadJob.call(tableName2, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'], {
                 sql "alter table ${tableName2} add partition p_20240905 VALUES [('2024-09-05'), ('2024-09-06'))"
@@ -206,7 +210,7 @@ suite('test_ingestion_load_alter_partition', 'p0') {
                 )
                 """
 
-            label = "test_ingestion_load_alter_partition_3"
+            label = UUID.randomUUID().toString().replaceAll("-", "")
 
             testIngestLoadJob.call(tableName3, label, [context.config.dataPath + '/load_p0/ingestion_load/data2-0.parquet', context.config.dataPath + '/load_p0/ingestion_load/data2-1.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-2.parquet',context.config.dataPath + '/load_p0/ingestion_load/data2-3.parquet'], {
                 sql "alter table ${tableName3} add temporary partition tp_20240901 VALUES [('2024-09-01'), ('2024-09-02'))"
@@ -214,9 +218,6 @@ suite('test_ingestion_load_alter_partition', 'p0') {
             })
 
         } finally {
-            sql "DROP TABLE ${tableName1}"
-            sql "DROP TABLE ${tableName2}"
-            sql "DROP TABLE ${tableName3}"
         }
 
     }

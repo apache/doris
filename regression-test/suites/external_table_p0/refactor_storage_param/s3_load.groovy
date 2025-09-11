@@ -24,11 +24,19 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     if (enabled == null || enabled.equalsIgnoreCase("false")) {
         return
     }
+
+    def getConfigOrDefault = { String key, String defaultValue ->
+        def value = context.config.otherConfigs.get(key)
+        if (value == null || value.isEmpty()) {
+            return defaultValue
+        }
+        return value
+    }
     String ak = context.config.otherConfigs.get("AWSAK")
     String sk = context.config.otherConfigs.get("AWSSK")
-    String endpoint = "s3.ap-northeast-1.amazonaws.com"
-    String region = "ap-northeast-1"
-    String bucket = "selectdb-qa-datalake-test"
+    String endpoint =getConfigOrDefault("AWSEndpoint","s3.ap-northeast-1.amazonaws.com")
+    String region = getConfigOrDefault("AWSRegion","ap-northeast-1")
+    String bucket = getConfigOrDefault("AWSS3Bucket","selectdb-qa-datalake-test")
 
     def s3table = "test_s3load";
     sql """
@@ -147,9 +155,9 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     /*----------obs---------------*/
     ak = context.config.otherConfigs.get("hwYunAk")
     sk = context.config.otherConfigs.get("hwYunSk")
-    endpoint = "obs.cn-north-4.myhuaweicloud.com"
-    region = "cn-north-4"
-    bucket = "doris-build";
+    endpoint = getConfigOrDefault("hwYunEndpoint","obs.cn-north-4.myhuaweicloud.com")
+    region = getConfigOrDefault("hwYunRegion","cn-north-4")
+    bucket = getConfigOrDefault("hwYunBucket","doris-build");
     outfile_path = outfile_to_S3(bucket, endpoint, region, ak, sk);
     filePath = outfile_path.replace("s3://${bucket}", "")
     s3Load("s3://${bucket}${filePath}", bucket, "s3.endpoint", endpoint, "s3.region", region, "s3.access_key", ak, "s3.secret_key", sk, "true")
@@ -184,13 +192,13 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     shouldFail {
         s3Load("obs://${endpoint}/${bucket}${filePath}", bucket, "obs.endpoint", endpoint, "obs.region", region, "obs.access_key", ak, "obs.secret_key", sk, "false")
     }
-    
+
     /*-------------Tencent COS ----------*/
     ak = context.config.otherConfigs.get("txYunAk")
     sk = context.config.otherConfigs.get("txYunSk")
-    endpoint = "cos.ap-beijing.myqcloud.com"
-    region = "ap-beijing"
-    bucket = "doris-build-1308700295";
+    endpoint = getConfigOrDefault("txYunEndpoint", "cos.ap-beijing.myqcloud.com")
+    region = getConfigOrDefault("txYunRegion","ap-beijing")
+    bucket = getConfigOrDefault ("txYunBucket","doris-build-1308700295")
 
     outfile_path = outfile_to_S3(bucket, endpoint, region, ak, sk);
     filePath = outfile_path.replace("s3://${bucket}", "")
@@ -204,7 +212,7 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
     s3Load("s3://${bucket}${filePath}", bucket, "cos.endpoint", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "")
     s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "cos.endpoint", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "")
     s3Load("https://${bucket}.${endpoint}${filePath}", bucket, "cos.endpoint", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "")
-      s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "cos.endpoint", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "false")
+    s3Load("http://${bucket}.${endpoint}${filePath}", bucket, "cos.endpoint", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "false")
     shouldFail {
         s3Load("https://${bucket}${filePath}", bucket, "", endpoint, "cos.region", region, "cos.access_key", ak, "cos.secret_key", sk, "false")
     }
@@ -274,8 +282,6 @@ suite("refactor_storage_param_s3_load", "p0,external,external_docker") {
         s3Load("oss://${endpoint}/${bucket}${filePath}", bucket, "oss.endpoint", endpoint, "oss.region", region, "oss.access_key", ak, "oss.secret_key", sk, "false")
     }
     */
-    
+
 
 } 
-
-

@@ -1268,6 +1268,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String[] force_skip_journal_ids = {};
 
+    @ConfField(description = {"当回放 editlog 时遇到特定操作类型的异常导致 FE 无法启动时，可以配置需要忽略的 editlog 操作类型枚举值，"
+            + "从而跳过这些异常，让 replay 线程可以继续回放其他日志",
+        "When replaying editlog encounters exceptions with specific operation types that prevent FE from starting, "
+            + "you can configure the editlog operation type enum values to be ignored, "
+            + "thereby skipping these exceptions and allowing the replay thread to continue replaying other logs"})
+    public static short[] skip_operation_types_on_replay_exception =  {-1, -1};
+
     /**
      * Decide how often to check dynamic partition
      */
@@ -1650,6 +1657,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"是否开启存算分离恢复功能。",
         "Whether to enable cloud restore job."}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cloud_restore_job = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+        "存算分离恢复过程中，一次 create tablets rpc 创建的 tablet 数量上限，默认值为256个",
+        "During the cloud restore job, the maximum number of tablets created by one "
+            + "create tablets RPC, 256 by default."})
+    public static int cloud_restore_create_tablet_batch_size = 256;
 
     /**
      * Control the default max num of the instance for a user.
@@ -2418,7 +2431,7 @@ public class Config extends ConfigBase {
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
      * we may delete the DecimalV2 and DateV1 types in the future.
-     * At this stage, we use ‘disable_decimalv2’ and ‘disable_datev1’
+     * At this stage, we use 'disable_decimalv2' and 'disable_datev1'
      * to determine whether these two types take effect.
      */
     @ConfField(mutable = true)
@@ -3253,6 +3266,14 @@ public class Config extends ConfigBase {
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
 
+    @ConfField(mutable = true, description = {
+            "存算分离模式下是否启用group commit的streamload BE转发功能。"
+                    + "解决LB随机转发导致group commit攒批失效的问题，通过BE二次转发确保同表请求到达同一BE节点。",
+            "Whether to enable group commit streamload BE forward feature in cloud mode. "
+                    + "Solves the issue where LB random forwarding breaks group commit batching "
+                    + "by implementing BE-level forwarding to ensure same-table requests reach the same BE node." })
+    public static boolean enable_group_commit_streamload_be_forward = false;
+
     @ConfField(description = {"存算分离模式下建表是否检查残留recycler key, 默认true",
         "create table in cloud mode, check recycler key remained, default true"})
     public static boolean check_create_table_recycle_key_remained = true;
@@ -3419,4 +3440,33 @@ public class Config extends ConfigBase {
                     + "default is conf/authentication.conf"})
     public static String authentication_config_file_path = "/conf/authentication.conf";
 
+    @ConfField(mutable = true, description = {
+        "KMS 主密钥的 ID，用于生成和加密数据密钥",
+        "The ID of the master key in KMS, used for generating and encrypting data keys"
+    })
+    public static String doris_tde_key_id = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 服务的访问地址（endpoint），需与密钥所在的 region 匹配",
+        "The endpoint of the KMS service, should match the region of the key"
+    })
+    public static String doris_tde_key_endpoint = "";
+
+    @ConfField(mutable = true, description = {
+        "KMS 密钥所属的区域，用于 SDK 调用时的区域配置",
+        "The region where the KMS key is located, used for SDK configuration"
+    })
+    public static String doris_tde_key_region = "";
+
+    @ConfField(mutable = true, description = {
+        "TDE（透明数据加密）的密钥提供方，目前支持 aws_kms",
+        "The key provider for TDE (Transparent Data Encryption), currently supports aws_kms"
+    })
+    public static String doris_tde_key_provider = "";
+
+    @ConfField(mutable = true, description = {
+        "数据加密所使用的算法，默认 AES256，后续可能置空由 KMS 自动决定",
+        "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
+    })
+    public static String doris_tde_algorithm = "PLAINTEXT";
 }

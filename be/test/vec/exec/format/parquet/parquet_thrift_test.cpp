@@ -76,7 +76,7 @@ TEST_F(ParquetThriftReaderTest, normal) {
                                   &reader);
     EXPECT_TRUE(st.ok());
 
-    FileMetaData* meta_data;
+    std::unique_ptr<FileMetaData> meta_data;
     size_t meta_size;
     static_cast<void>(parse_thrift_footer(reader, &meta_data, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = meta_data->to_thrift();
@@ -92,7 +92,6 @@ TEST_F(ParquetThriftReaderTest, normal) {
         LOG(WARNING) << "schema column repetition_type: " << value.repetition_type;
         LOG(WARNING) << "schema column num children: " << value.num_children;
     }
-    delete meta_data;
 }
 
 TEST_F(ParquetThriftReaderTest, complex_nested_file) {
@@ -110,7 +109,7 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
                                   &reader);
     EXPECT_TRUE(st.ok());
 
-    FileMetaData* metadata;
+    std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
     static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
@@ -157,7 +156,6 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
     ASSERT_EQ(schemaDescriptor.get_column_index("friend"), 3);
     ASSERT_EQ(schemaDescriptor.get_column_index("mark"), 4);
-    delete metadata;
 }
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
@@ -399,7 +397,8 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
 
     std::unique_ptr<vectorized::Block> block;
     create_block(block);
-    FileMetaData* metadata;
+
+    std::unique_ptr<FileMetaData> metadata;
     size_t meta_size;
     static_cast<void>(parse_thrift_footer(reader, &metadata, &meta_size, nullptr));
     tparquet::FileMetaData t_metadata = metadata->to_thrift();
@@ -446,7 +445,6 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     Slice res(result_buf.data(), result->size());
     static_cast<void>(result->read_at(0, res, &bytes_read));
     ASSERT_STREQ(block->dump_data(0, rows).c_str(), reinterpret_cast<char*>(result_buf.data()));
-    delete metadata;
 }
 
 TEST_F(ParquetThriftReaderTest, type_decoder) {

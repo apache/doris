@@ -23,8 +23,6 @@ suite("test_array_distance_functions") {
     qt_sql "SELECT inner_product([1, 2], [2, 3])"
 
     qt_sql "SELECT l2_distance([1, 2, 3], NULL)"
-    qt_sql "SELECT cosine_distance([1, 2, 3], [0, NULL, 0])"
-
     // Test cases for nullable arrays with different null distributions
     // These test the fix for correct array size comparison when nulls are present
     qt_sql "SELECT l1_distance(NULL, NULL)"
@@ -71,34 +69,4 @@ suite("test_array_distance_functions") {
     // Edge case: empty arrays should work
     qt_sql "SELECT l1_distance(CAST([] as ARRAY<DOUBLE>), CAST([] as ARRAY<DOUBLE>))"
     qt_sql "SELECT l2_distance(CAST([] as ARRAY<DOUBLE>), CAST([] as ARRAY<DOUBLE>))"
-    
-    // Comprehensive test for the offset fix: test with table data containing mixed nulls
-    // This specifically tests the scenario where offsets might differ due to null distribution
-    // but actual array sizes are the same
-    sql """
-        DROP TABLE IF EXISTS test_array_distance_nullable
-    """
-    sql """
-        CREATE TABLE test_array_distance_nullable (
-            id INT,
-            arr1 ARRAY<DOUBLE>,
-            arr2 ARRAY<DOUBLE>
-        ) PROPERTIES (
-            "replication_num" = "1"
-        )
-    """
-    sql """
-        INSERT INTO test_array_distance_nullable VALUES
-        (1, [1.0, 2.0], [3.0, 4.0]),
-        (2, NULL, [5.0, 6.0]),
-        (3, [7.0, 8.0], NULL),
-        (4, [9.0, 10.0], [11.0, 12.0]),
-        (5, NULL, NULL)
-    """
-    
-    // These queries should work correctly after the fix
-    qt_sql "SELECT id, l1_distance(arr1, arr2) FROM test_array_distance_nullable ORDER BY id"
-    qt_sql "SELECT id, l2_distance(arr1, arr2) FROM test_array_distance_nullable ORDER BY id"
-    qt_sql "SELECT id, cosine_distance(arr1, arr2) FROM test_array_distance_nullable ORDER BY id"
-    qt_sql "SELECT id, inner_product(arr1, arr2) FROM test_array_distance_nullable ORDER BY id"
 }

@@ -3781,7 +3781,7 @@ TEST(MetaServiceTest, FilterCopyFilesTest) {
 
 extern std::vector<std::pair<int64_t, int64_t>> calc_sync_versions(
         int64_t req_bc_cnt, int64_t bc_cnt, int64_t req_cc_cnt, int64_t cc_cnt, int64_t req_cp,
-        int64_t cp, int64_t req_start, int64_t req_end);
+        int64_t cp, int64_t req_fc_cnt, int64_t fc_cnt, int64_t req_start, int64_t req_end);
 
 TEST(MetaServiceTest, CalcSyncVersionsTest) {
     using Versions = std::vector<std::pair<int64_t, int64_t>>;
@@ -3797,7 +3797,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{8, 12}}));
     }
@@ -3813,7 +3813,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 12}})); // [5, 9] v [8, 12]
     }
@@ -3822,7 +3822,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, 14}})); // [5, 14] v [8, 12]
     }
@@ -3839,7 +3839,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3855,7 +3855,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3870,7 +3870,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 3};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{5, INT64_MAX - 1}})); // [5, max] v [8, 12]
     }
@@ -3886,7 +3886,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 4}, {8, 12}}));
     }
@@ -3895,7 +3895,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 1};
         auto [req_cp, cp] = std::tuple {8, 8};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 7] v [8, 12]
     }
@@ -3904,7 +3904,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 10};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 12}})); // [0, 4] v [5, 9] v [8, 12]
     }
@@ -3913,7 +3913,7 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 15};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         ASSERT_EQ(versions, (Versions {{0, 14}})); // [0, 4] v [5, 14] v [8, 12]
     }
@@ -3922,10 +3922,41 @@ TEST(MetaServiceTest, CalcSyncVersionsTest) {
         auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
         auto [req_cp, cp] = std::tuple {5, 5};
         auto [req_start, req_end] = std::tuple {8, 12};
-        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp,
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
                                            req_start, req_end);
         // [0, 4] v [5, max] v [8, 12]
         ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // when there exists full compaction, we can't optimize by "* only one CC happened and CP changed"
+
+        // * one CC happened and CP changed, and full compaction happened
+        // BE  [=][=][=][=][=][=][=][=][=][=]
+        //                  ^~~~~ req_cp
+        // MS  [xxxxxxxxxxxxxx][xxxxxxxxxxxxxx][=======][=][=]
+        //                      ^~~~~~~ ms_cp
+        //                  ^___________________________^ related_versions: [req_cp, max]
+        //
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 1,
+                                           req_start, req_end);
+        ASSERT_EQ(versions, (Versions {{0, INT64_MAX - 1}}));
+    }
+
+    {
+        // abnormal case:
+        auto [req_bc_cnt, bc_cnt] = std::tuple {0, 1};
+        auto [req_cc_cnt, cc_cnt] = std::tuple {1, 2};
+        auto [req_cp, cp] = std::tuple {4, 7};
+        auto [req_start, req_end] = std::tuple {9, 12};
+        auto versions = calc_sync_versions(req_bc_cnt, bc_cnt, req_cc_cnt, cc_cnt, req_cp, cp, 0, 0,
+                                           req_start, req_end);
+        // when not considering full compaction, the returned versions is wrong becasue rowsets in [7-8] are missed
+        ASSERT_EQ(versions, (Versions {{0, 6}, {9, 12}}));
     }
 }
 
@@ -10431,6 +10462,11 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        // empty action
+        meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::PREPARE);
 
         // empty tablet id
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
@@ -10443,6 +10479,13 @@ TEST(MetaServiceTest, RestoreJobTest) {
         meta_service->prepare_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "no tablet meta");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }
@@ -10454,6 +10497,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         req.set_tablet_id(tablet_id);
         req.set_expiration(time(nullptr) + 3600);
+        req.set_action(RestoreJobRequest::PREPARE);
 
         // set tablet meta
         auto* tablet_meta = req.mutable_tablet_meta();
@@ -10494,6 +10538,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_idx_val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::PREPARE);
 
         // set tablet meta
         auto* tablet_meta = req.mutable_tablet_meta();
@@ -10536,10 +10581,23 @@ TEST(MetaServiceTest, RestoreJobTest) {
     // invalid args commit restore job
     {
         reset_meta_service();
+        // empty action
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::COMMIT);
+
         // empty tablet_id
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }
@@ -10551,6 +10609,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "restore job not exists or has been recycled");
@@ -10569,6 +10628,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         RestoreJobResponse make_res;
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
         auto* tablet_meta = make_req.mutable_tablet_meta();
         tablet_meta->set_table_id(table_id);
         tablet_meta->set_index_id(index_id);
@@ -10594,6 +10654,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         // commit_restore_job
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         std::string tablet_key =
@@ -10639,6 +10700,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         RestoreJobResponse make_res;
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
 
         auto* tablet_meta = make_req.mutable_tablet_meta();
         tablet_meta->set_table_id(table_id);
@@ -10670,6 +10732,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         // commit_restore_job
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -10703,10 +10766,23 @@ TEST(MetaServiceTest, RestoreJobTest) {
     // invalid args finish restore job
     {
         reset_meta_service();
+        // empty action
+        meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("invalid action") != std::string::npos);
+        req.set_action(RestoreJobRequest::COMPLETE);
+
         // empty tablet_id
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "empty tablet_id");
+
+        // check key existence
+        std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
+        std::string val;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+
         req.Clear();
         res.Clear();
     }
@@ -10718,6 +10794,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMPLETE);
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_EQ(res.status().msg(), "restore job not exists or has been recycled");
@@ -10736,6 +10813,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         RestoreJobResponse make_res;
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
 
         auto* tablet_meta = make_req.mutable_tablet_meta();
         tablet_meta->set_table_id(table_id);
@@ -10761,6 +10839,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
 
         req.set_tablet_id(tablet_id);
+        req.set_action(RestoreJobRequest::COMMIT);
         meta_service->commit_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -10769,7 +10848,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         // finish_restore_job to COMPLETED
         req.set_tablet_id(tablet_id);
-        req.set_is_completed(true);
+        req.set_action(RestoreJobRequest::COMPLETE);
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -10802,6 +10881,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         RestoreJobResponse make_res;
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
 
         auto* tablet_meta = make_req.mutable_tablet_meta();
         tablet_meta->set_table_id(table_id);
@@ -10823,7 +10903,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         // finish_restore_job to DROPPED
         req.set_tablet_id(tablet_id);
-        req.set_is_completed(false);
+        req.set_action(RestoreJobRequest::ABORT);
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
 
@@ -10856,6 +10936,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
         RestoreJobResponse make_res;
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
+        make_req.set_action(RestoreJobRequest::PREPARE);
 
         // set tablet meta
         auto* tablet_meta = make_req.mutable_tablet_meta();
@@ -10872,7 +10953,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         // finish_restore_job to COMPLETED
         req.set_tablet_id(tablet_id);
-        req.set_is_completed(true);
+        req.set_action(RestoreJobRequest::COMPLETE);
         meta_service->finish_restore_job(&cntl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
         ASSERT_TRUE(res.status().msg().find("invalid state to complete") != std::string::npos);

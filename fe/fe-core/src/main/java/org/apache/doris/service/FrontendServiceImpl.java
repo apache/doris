@@ -28,6 +28,8 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
@@ -61,7 +63,6 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -153,6 +154,7 @@ import org.apache.doris.thrift.TDescribeTablesParams;
 import org.apache.doris.thrift.TDescribeTablesResult;
 import org.apache.doris.thrift.TDropPlsqlPackageRequest;
 import org.apache.doris.thrift.TDropPlsqlStoredProcedureRequest;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TEncryptionKey;
 import org.apache.doris.thrift.TFeResult;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -190,6 +192,8 @@ import org.apache.doris.thrift.TGetMetaTable;
 import org.apache.doris.thrift.TGetQueryStatsRequest;
 import org.apache.doris.thrift.TGetSnapshotRequest;
 import org.apache.doris.thrift.TGetSnapshotResult;
+import org.apache.doris.thrift.TGetTableTDEInfoRequest;
+import org.apache.doris.thrift.TGetTableTDEInfoResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
@@ -649,6 +653,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
+                        if (table.isTemporary()) {
+                            continue;
+                        }
                         if (!Env.getCurrentEnv().getAccessManager()
                                 .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
@@ -961,6 +968,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
+                if (table.isTemporary()) {
+                    // because we return all table names to be,
+                    // so when we skip temporary table, we should add a offset here
+                    tablesOffset.add(columns.size());
+                    continue;
+                }
                 if (table != null) {
                     table.readLock();
                     try {
@@ -1489,7 +1502,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) throws TException {
+
+    public TGetEncryptionKeysResult getEncryptionKeys(TGetEncryptionKeysRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive getDataKeys request: {}, backend: {}", request, clientAddr);
@@ -1506,8 +1520,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         try {
-            List<TEncryptionKey> tKeys = new ArrayList<TEncryptionKey>();
-            List<EncryptionKey> keys =  Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
+            List<TEncryptionKey> tKeys = new ArrayList<>();
+            List<EncryptionKey> keys = Env.getCurrentEnv().getKeyManager().getAllMasterKeys();
             for (EncryptionKey key : keys) {
                 tKeys.add(key.toThrift());
             }
@@ -2824,7 +2838,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             CloudWarmUpJob job = ((CloudEnv) Env.getCurrentEnv())
                     .getCacheHotspotMgr()
                     .getCloudWarmUpJob(request.getWarmUpJobId());
-            if (job == null) {
+            if (job == null || job.isDone()) {
                 LOG.info("warmup job {} is not running, notify caller BE {} to cancel job",
                         job.getJobId(), clientAddr);
                 // notify client to cancel this job
@@ -2833,6 +2847,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getCloudClusterIdByName(job.getDstClusterName());
+            if (clusterId == null) {
+                LOG.warn("cluster {} is not found, cannot get primary backend for warmup job {}",
+                        job.getDstClusterName(), request.getWarmUpJobId());
+                result.setTabletReplicaInfos(tabletReplicaInfos);
+                result.setToken(Env.getCurrentEnv().getToken());
+                result.setStatus(new TStatus(TStatusCode.OK));
+                return result;
+            }
         }
         for (Long tabletId : tabletIds) {
             if (DebugPointUtil.isEnable("getTabletReplicaInfos.returnEmpty")) {
@@ -3120,24 +3142,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
-            byte[] meta = snapshot.getMeta();
-            byte[] jobInfo = snapshot.getJobInfo();
+            long metaSize = snapshot.getMetaSize();
+            long jobInfoSize = snapshot.getJobInfoSize();
+            long snapshotSize = snapshot.getMetaSize() + snapshot.getJobInfoSize();
+            if (metaSize + jobInfoSize >= Integer.MAX_VALUE && !request.isEnableCompress()) {
+                String msg = String.format(
+                        "Snapshot %s is too large (%d bytes > 2GB). Please enable compression to continue.",
+                        label, snapshotSize);
+                LOG.warn("get snapshot failed: {}", msg);
+                result.getStatus().setStatusCode(TStatusCode.INTERNAL_ERROR);
+                result.getStatus().addToErrorMsgs(msg);
+                return result;
+            }
+
             long expiredAt = snapshot.getExpiredAt();
             long commitSeq = snapshot.getCommitSeq();
 
             LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
-                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
+                    + "expired at: {}, commit seq: {}", label, metaSize, jobInfoSize, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
-                meta = GZIPUtils.compress(meta);
-                jobInfo = GZIPUtils.compress(jobInfo);
+                byte[] meta = snapshot.getCompressedMeta();
+                byte[] jobInfo = snapshot.getCompressedJobInfo();
+                result.setMeta(meta);
+                result.setJobInfo(jobInfo);
                 result.setCompressed(true);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("get snapshot info with compress, snapshot: {}, compressed meta "
                             + "size {}, compressed job info size {}", label, meta.length, jobInfo.length);
                 }
+            } else {
+                result.setMeta(snapshot.getMeta());
+                result.setJobInfo(snapshot.getJobInfo());
             }
-            result.setMeta(meta);
-            result.setJobInfo(jobInfo);
             result.setExpiredAt(expiredAt);
             result.setCommitSeq(commitSeq);
         }
@@ -3250,6 +3286,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        BackupMeta backupMeta;
+        BackupJobInfo backupJobInfo;
         byte[] meta = request.getMeta();
         byte[] jobInfo = request.getJobInfo();
         if (Config.enable_restore_snapshot_rpc_compression && request.isCompressed()) {
@@ -3258,18 +3296,29 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         meta.length, jobInfo.length);
             }
             try {
-                meta = GZIPUtils.decompress(meta);
-                jobInfo = GZIPUtils.decompress(jobInfo);
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromCompressedBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
             } catch (Exception e) {
                 LOG.warn("decompress meta and job info failed", e);
                 throw new UserException("decompress meta and job info failed", e);
             }
-        } else if (GZIPUtils.isGZIPCompressed(jobInfo) || GZIPUtils.isGZIPCompressed(meta)) {
+        } else if (Snapshot.isCompressed(meta, jobInfo)) {
             throw new UserException("The request is compressed, but the config "
                     + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
+        } else {
+            try {
+                Pair<BackupMeta, BackupJobInfo> pair = Snapshot.readFromBytes(meta, jobInfo);
+                backupMeta = pair.first;
+                backupJobInfo = pair.second;
+            } catch (Exception e) {
+                LOG.warn("deserialize meta and job info failed", e);
+                throw new UserException("deserialize meta and job info failed", e);
+            }
         }
 
-        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, meta, jobInfo);
+        RestoreStmt restoreStmt = new RestoreStmt(
+                label, repoName, restoreTableRefClause, properties, backupMeta, backupJobInfo);
         restoreStmt.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
@@ -4449,6 +4498,48 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         result.setRoutineLoadJobs(jobInfos);
 
+        return result;
+    }
+
+    @Override
+    public TGetTableTDEInfoResult getTableTDEInfo(TGetTableTDEInfoRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive getTableTDEInfo request: {}, backend: {}", request, clientAddr);
+        }
+
+        if (!request.isSetDbId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        if (!request.isSetTableId()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("Missing db id field");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Database> db = Env.getCurrentEnv().getInternalCatalog().getDb(request.getDbId());
+        if (!db.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Db=" + request.getDbId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+        Optional<Table> tbl = db.get().getTable(request.getTableId());
+        if (!tbl.isPresent()) {
+            TStatus status = new TStatus()
+                    .setStatusCode(TStatusCode.NOT_FOUND);
+            status.addToErrorMsgs("Table=" + request.getTableId() + " not found");
+            return new TGetTableTDEInfoResult().setStatus(status);
+        }
+
+        TEncryptionAlgorithm tdeAlgorithm = ((OlapTable) tbl.get()).getTableProperty().getTDEAlgorithm();
+        TStatus status = new TStatus();
+        status.setStatusCode(TStatusCode.OK);
+        TGetTableTDEInfoResult result = new TGetTableTDEInfoResult();
+        result.setAlgorithm(tdeAlgorithm).setStatus(status);
         return result;
     }
 }

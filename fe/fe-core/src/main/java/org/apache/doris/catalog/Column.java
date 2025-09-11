@@ -62,6 +62,7 @@ import java.util.Set;
  */
 public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -161,6 +162,11 @@ public class Column implements GsonPostProcessable {
     // used for variant sub-field pattern type
     @SerializedName(value = "fpt")
     private TPatternType fieldPatternType;
+
+    // used for saving some extra information, such as timezone info of datetime column
+    // Maybe deprecated if we implement real timestamp with timezone type.
+    @SerializedName(value = "ei")
+    private String extraInfo;
 
     public Column() {
         this.name = "";
@@ -677,6 +683,7 @@ public class Column implements GsonPostProcessable {
         }
         tColumn.setClusterKeyId(this.clusterKeyId);
         tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+        tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -893,6 +900,7 @@ public class Column implements GsonPostProcessable {
         } else if (this.type.isVariantType()) {
             builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
             builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
+            builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -1213,6 +1221,10 @@ public class Column implements GsonPostProcessable {
         this.uniqueId = colUniqueId;
     }
 
+    public void setWithTZExtraInfo() {
+        this.extraInfo = Strings.isNullOrEmpty(extraInfo) ? "WITH_TIMEZONE" : extraInfo + ", WITH_TIMEZONE";
+    }
+
     public int getUniqueId() {
         return this.uniqueId;
     }
@@ -1280,4 +1292,11 @@ public class Column implements GsonPostProcessable {
         this.realDefaultValue = refColumn.realDefaultValue;
     }
 
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantMaxSparseColumnStatisticsSize() : -1;
+    }
+
+    public String getExtraInfo() {
+        return extraInfo;
+    }
 }

@@ -53,10 +53,10 @@ public:
     Status init(const ColumnReaderOptions& opts, const SegmentFooterPB& footer, uint32_t column_id,
                 uint64_t num_rows, io::FileReaderSPtr file_reader);
 
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
 
-    Status new_iterator(ColumnIterator** iterator, const TabletColumn* col,
+    Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
@@ -91,23 +91,24 @@ public:
 
 private:
     // init for compaction read
-    Status _new_default_iter_with_same_nested(ColumnIterator** iterator, const TabletColumn& col,
+    Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
-    Status _new_iterator_with_flat_leaves(ColumnIterator** iterator, const TabletColumn& col,
+    Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                           const StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
                                           bool existed_in_sparse_column,
                                           ColumnReaderCache* column_reader_cache);
 
-    Status _create_hierarchical_reader(ColumnIterator** reader, int32_t col_uid,
+    Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
                                        vectorized::PathInData path,
                                        const SubcolumnColumnMetaInfo::Node* node,
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats);
-    Status _create_sparse_merge_reader(ColumnIterator** iterator, const StorageReadOptions* opts,
-                                       const TabletColumn& target_col, ColumnIterator* inner_iter,
+    Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
+                                       const TabletColumn& target_col,
+                                       ColumnIteratorUPtr inner_iter,
                                        ColumnReaderCache* column_reader_cache);
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
@@ -115,13 +116,18 @@ private:
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes
     std::unordered_map<std::string, TabletIndexes> _variant_subcolumns_indexes;
+    // variant_sparse_column_statistics_size
+    size_t _variant_sparse_column_statistics_size =
+            BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
 };
 
 class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;
 
-    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter) {
+        _inner_iter = std::move(iter);
+    }
 
     ~VariantRootColumnIterator() override = default;
 
@@ -154,8 +160,7 @@ private:
 
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
-    DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
-                                DataTypePtr file_column_type)
+    DefaultNestedColumnIterator(ColumnIteratorUPtr&& sibling, DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {

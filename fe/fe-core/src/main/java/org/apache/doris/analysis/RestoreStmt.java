@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.backup.BackupJobInfo;
+import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -66,8 +68,8 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     private boolean isCleanPartitions = false;
     private boolean isAtomicRestore = false;
     private boolean isForceReplace = false;
-    private byte[] meta = null;
-    private byte[] jobInfo = null;
+    private BackupMeta meta = null;
+    private BackupJobInfo jobInfo = null;
     private String storageVaultName = null;
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
@@ -76,7 +78,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     }
 
     public RestoreStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause restoreTableRefClause,
-            Map<String, String> properties, byte[] meta, byte[] jobInfo) {
+            Map<String, String> properties, BackupMeta meta, BackupJobInfo jobInfo) {
         super(labelName, repoName, restoreTableRefClause, properties);
         this.meta = meta;
         this.jobInfo = jobInfo;
@@ -110,11 +112,11 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         return isLocal;
     }
 
-    public byte[] getMeta() {
+    public BackupMeta getMeta() {
         return meta;
     }
 
-    public byte[] getJobInfo() {
+    public BackupJobInfo getJobInfo() {
         return jobInfo;
     }
 

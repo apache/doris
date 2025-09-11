@@ -625,7 +625,7 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_asynic_work_pool_thread_num_max, "4096");
 DEFINE_Int32(fragment_mgr_asynic_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -786,6 +786,8 @@ DEFINE_String(default_rowset_type, "BETA");
 // Maximum size of a single message body in all protocols
 DEFINE_Int64(brpc_max_body_size, "3147483648");
 DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
+DEFINE_mBool(brpc_usercode_in_pthread, "false");
+
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -809,7 +811,7 @@ DEFINE_Int32(txn_map_shard_size, "1024");
 DEFINE_Int32(txn_shard_size, "1024");
 
 // Whether to continue to start be when load tablet from header failed.
-DEFINE_Bool(ignore_load_tablet_failure, "false");
+DEFINE_Bool(ignore_load_tablet_failure, "true");
 
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_mBool(ignore_rowset_stale_unconsistent_delete, "false");
@@ -1070,6 +1072,8 @@ DEFINE_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
+DEFINE_Bool(enable_graceful_exit_check, "false");
+
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
@@ -1274,7 +1278,7 @@ DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
-DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1333,8 +1337,6 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "600000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
-
-DEFINE_mInt32(variant_max_sparse_column_statistics_size, "10000");
 
 DEFINE_mBool(enable_column_type_check, "true");
 // 128 MB
@@ -1559,6 +1561,8 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "500");
+
+DEFINE_mBool(enable_wal_tde, "false");
 
 // clang-format off
 #ifdef BE_TEST

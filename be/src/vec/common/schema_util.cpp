@@ -509,21 +509,25 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
     }
 
     // 2. inverted index
-    std::vector<TabletIndex> indexes_to_update;
+    TabletIndexes indexes_to_add;
     auto source_indexes = (*target_schema)->inverted_indexs(source.unique_id());
-    for (const auto& source_index_meta : source_indexes) {
-        TabletIndex index_info = *source_index_meta;
-        index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        indexes_to_update.emplace_back(std::move(index_info));
+    // if target is variant type, we need to inherit all indexes
+    // because this schema is a read schema from fe
+    if (target.is_variant_type()) {
+        for (auto& index : source_indexes) {
+            auto index_info = std::make_shared<TabletIndex>(*index);
+            index_info->set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
+            indexes_to_add.emplace_back(std::move(index_info));
+        }
+    } else {
+        inherit_index(source_indexes, indexes_to_add, target);
     }
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
                                                     target.path_info_ptr()->get_path());
-    if (!target_indexes.empty()) {
-        (*target_schema)->update_index(target, IndexType::INVERTED, std::move(indexes_to_update));
-    } else {
-        for (auto& index_info : indexes_to_update) {
-            (*target_schema)->append_index(std::move(index_info));
+    if (target_indexes.empty()) {
+        for (auto& index_info : indexes_to_add) {
+            (*target_schema)->append_index(std::move(*index_info));
         }
     }
 
@@ -885,7 +889,9 @@ Status check_path_stats(const std::vector<RowsetSharedPtr>& intputs, RowsetShare
 
         // In input rowsets, some rowsets may have statistics values exceeding the maximum limit,
         // which leads to inaccurate statistics
-        if (stats.size() > config::variant_max_sparse_column_statistics_size) {
+        if (stats.size() > output->tablet_schema()
+                                   ->column_by_uid(uid)
+                                   .variant_max_sparse_column_statistics_size()) {
             // When there is only one segment, we can ensure that the size of each path in output stats is accurate
             if (output->num_segments() == 1) {
                 for (const auto& [path, size] : stats) {
@@ -1010,7 +1016,8 @@ void get_compaction_subcolumns(TabletSchema::PathsSetInfo& paths_set_info,
             VLOG_DEBUG << "append typed column " << subpath;
         } else if (find_data_types == path_to_data_types.end() || find_data_types->second.empty() ||
                    sparse_paths.find(std::string(subpath)) != sparse_paths.end() ||
-                   sparse_paths.size() >= config::variant_max_sparse_column_statistics_size) {
+                   sparse_paths.size() >=
+                           parent_column->variant_max_sparse_column_statistics_size()) {
             TabletColumn subcolumn;
             subcolumn.set_name(column_name);
             subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
@@ -1107,7 +1114,8 @@ Status get_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,
 
 // Calculate statistics about variant data paths from the encoded sparse column
 void calculate_variant_stats(const IColumn& encoded_sparse_column,
-                             segment_v2::VariantStatisticsPB* stats, size_t row_pos,
+                             segment_v2::VariantStatisticsPB* stats,
+                             size_t max_sparse_column_statistics_size, size_t row_pos,
                              size_t num_rows) {
     // Cast input column to ColumnMap type since sparse column is stored as a map
     const auto& map_column = assert_cast<const ColumnMap&>(encoded_sparse_column);
@@ -1132,19 +1140,17 @@ void calculate_variant_stats(const IColumn& encoded_sparse_column,
             }
             // If path doesn't exist and we haven't hit the max statistics size limit,
             // add it with count 1
-            else if (count_map.size() < config::variant_max_sparse_column_statistics_size) {
+            else if (count_map.size() < max_sparse_column_statistics_size) {
                 count_map.emplace(sparse_path, 1);
             }
         }
     }
 
-    if (stats->sparse_column_non_null_size().size() >
-        config::variant_max_sparse_column_statistics_size) {
+    if (stats->sparse_column_non_null_size().size() > max_sparse_column_statistics_size) {
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "Sparse column non null size: {} is greater than max statistics size: {}",
-                stats->sparse_column_non_null_size().size(),
-                config::variant_max_sparse_column_statistics_size);
+                stats->sparse_column_non_null_size().size(), max_sparse_column_statistics_size);
     }
 }
 

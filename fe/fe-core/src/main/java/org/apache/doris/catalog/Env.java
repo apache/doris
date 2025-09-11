@@ -313,6 +313,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
@@ -755,7 +756,7 @@ public class Env {
         this.heartbeatMgr = new HeartbeatMgr(systemInfo, !isCheckpointCatalog);
         this.feSessionMgr = new FESessionMgr();
         this.temporaryTableMgr = new TemporaryTableMgr();
-        this.aliveSessionSet = new HashSet<>();
+        this.aliveSessionSet = Sets.newConcurrentHashSet();
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -4351,7 +4352,7 @@ public class Env {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         catalogIf.dropTable(stmt.getDbName(), stmt.getTableName(), stmt.isView(), stmt.isMaterializedView(),
-                stmt.isSetIfExists(), stmt.isForceDrop());
+                stmt.isSetIfExists(), stmt.isMustTemporary(), stmt.isForceDrop());
     }
 
     public void replayDropTable(Database db, long tableId, boolean isForceDrop,
@@ -6136,7 +6137,7 @@ public class Env {
         }
     }
 
-    public void setConfig(AdminSetConfigStmt stmt) throws Exception {
+    public void setConfig(AdminSetConfigStmt stmt, boolean isProxy) throws Exception {
         Map<String, String> configs = stmt.getConfigs();
         Preconditions.checkState(configs.size() == 1);
 
@@ -6148,7 +6149,8 @@ public class Env {
             }
         }
 
-        if (stmt.isApplyToAll()) {
+        // if this request already come from other Frontend, do not forward it again
+        if (!isProxy && stmt.isApplyToAll()) {
             for (Frontend fe : Env.getCurrentEnv().getFrontends(null /* all */)) {
                 if (!fe.isAlive() || fe.getHost().equals(Env.getCurrentEnv().getSelfNode().getHost())) {
                     continue;

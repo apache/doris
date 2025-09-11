@@ -477,6 +477,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; 
     fi
 fi
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
@@ -504,6 +508,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
 
 # Clean and build generated code
@@ -521,6 +526,9 @@ modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        modules+=("fe-${WITH_TDE_DIR}")
+    fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -607,6 +615,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
+        -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -740,6 +749,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+    fi
+
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # copy jindofs jars, only support for Linux x64 or arm

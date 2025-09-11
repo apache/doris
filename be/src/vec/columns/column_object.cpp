@@ -251,7 +251,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         // so we should set specified info to create correct types, and those predefined types are static and
         // no conflict, so we can set them directly.
         add_new_column_part(base_data_type);
-    } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
+    } else if ((least_common_type.get_base_type_id() != base_type.idx || value_dim != column_dim) &&
+               !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
             VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
@@ -262,7 +263,9 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
             if (!least_type->equals(*base_data_type)) {
                 type_changed = true;
             }
-            add_new_column_part(least_type);
+            if (!least_type->equals(*least_common_type.get())) {
+                add_new_column_part(least_type);
+            }
         }
     }
     // 1. type changed means encounter different type, we need to convert it to the least common type
@@ -1673,9 +1676,8 @@ struct Prefix {
 bool ColumnObject::Subcolumn::is_empty_nested(size_t row) const {
     TypeIndex base_type_id = least_common_type.get_base_type_id();
     const DataTypePtr& type = least_common_type.get();
-    // check if it is empty nested json array, then skip
-    if (base_type_id == TypeIndex::VARIANT) {
-        DCHECK(type->equals(*ColumnObject::NESTED_TYPE));
+    if (type->get_type_id() == TypeIndex::Array) {
+        // check if it is empty nested json array, then skip
         Field field;
         get(row, field);
         field = get_field_from_variant_field(field);
@@ -1707,8 +1709,10 @@ bool ColumnObject::is_visible_root_value(size_t nrow) const {
     if (root->data.is_null_at(nrow)) {
         return false;
     }
-    if (root->data.least_common_type.get_base_type_id() == TypeIndex::VARIANT) {
-        // nested field
+
+    // for top level array we should also use field to check if it is empty
+    if (root->data.least_common_type.get_type_id() == TypeIndex::Array) {
+        // nested field which field is Array
         return !root->data.is_empty_nested(nrow);
     }
     for (const auto& subcolumn : subcolumns) {

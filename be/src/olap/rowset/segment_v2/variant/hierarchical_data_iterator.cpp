@@ -36,7 +36,7 @@
 
 namespace doris::segment_v2 {
 
-Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid,
+Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
                                         vectorized::PathInData path,
                                         const SubcolumnColumnMetaInfo::Node* node,
                                         std::unique_ptr<SubstreamIterator>&& sparse_reader,
@@ -44,7 +44,7 @@ Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataIterator(path);
+    auto stream_iter = std::make_unique<HierarchicalDataIterator>(path);
     if (node != nullptr) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         vectorized::PathsInData leaves_paths;
@@ -62,7 +62,7 @@ Status HierarchicalDataIterator::create(ColumnIterator** reader, int32_t col_uid
     stream_iter->_root_reader = std::move(root_column_reader);
     // need read from sparse column if not null
     stream_iter->_sparse_column_reader = std::move(sparse_reader);
-    *reader = stream_iter;
+    *reader = std::move(stream_iter);
 
     return Status::OK();
 }
@@ -144,13 +144,11 @@ Status HierarchicalDataIterator::add_stream(int32_t col_uid,
         return Status::OK();
     }
     CHECK(node);
-    ColumnIterator* it;
+    ColumnIteratorUPtr it_ptr;
     std::shared_ptr<ColumnReader> column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(col_uid, node->path, &column_reader,
                                                                 stats, node));
-    RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
-    std::unique_ptr<ColumnIterator> it_ptr;
-    it_ptr.reset(it);
+    RETURN_IF_ERROR(column_reader->new_iterator(&it_ptr, nullptr));
     SubstreamIterator reader(node->data.file_column_type->create_column(), std::move(it_ptr),
                              node->data.file_column_type);
     bool added = _substream_reader.add(node->path, std::move(reader));
@@ -350,6 +348,13 @@ Status HierarchicalDataIterator::_process_sparse_column(vectorized::ColumnObject
                     container_variant.get_sparse_data_paths_and_values();
             StringRef prefix_ref(_path.get_path());
             std::string_view path_prefix(prefix_ref.data, prefix_ref.size);
+
+            // Collect subcolumns materialized from sparse data. We try to densify frequent
+            // subpaths into real subcolumns under the capacity constraint of the container.
+            std::unordered_map<std::string_view, ColumnObject::Subcolumn>
+                    subcolumns_from_sparse_column;
+            // How many more subcolumns we are allowed to add into the container.
+            size_t count = container_variant.can_add_subcolumns_count();
             for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
                 size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
                 size_t end = src_sparse_data_offsets[ssize_t(i)];
@@ -365,8 +370,29 @@ Status HierarchicalDataIterator::_process_sparse_column(vectorized::ColumnObject
                     // Don't include path that is equal to the prefix.
                     if (path.size() != path_prefix.size()) {
                         auto sub_path = get_sub_path(path, path_prefix);
-                        sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
-                        sparse_data_values->insert_from(src_sparse_data_values, lower_bound_index);
+                        // Case 1: subcolumn already created, append this row's value into it.
+                        if (auto it = subcolumns_from_sparse_column.find(sub_path);
+                            it != subcolumns_from_sparse_column.end()) {
+                            const auto& data = ColumnObject::deserialize_from_sparse_column(
+                                    &src_sparse_data_values, lower_bound_index);
+                            it->second.insert(data.first, data.second);
+                        }
+                        // Case 2: subcolumn not created yet and we still have quota → create it and insert.
+                        else if (subcolumns_from_sparse_column.size() < count) {
+                            // Initialize subcolumn with current logical row index i to align sizes.
+                            ColumnObject::Subcolumn subcolumn(/*size*/ i, /*is_nullable*/ true,
+                                                              false);
+                            const auto& data = ColumnObject::deserialize_from_sparse_column(
+                                    &src_sparse_data_values, lower_bound_index);
+                            subcolumn.insert(data.first, data.second);
+                            subcolumns_from_sparse_column.emplace(sub_path, std::move(subcolumn));
+                        }
+                        // Case 3: quota exhausted → keep the key/value in container's sparse column.
+                        else {
+                            sparse_data_paths->insert_data(sub_path.data(), sub_path.size());
+                            sparse_data_values->insert_from(src_sparse_data_values,
+                                                            lower_bound_index);
+                        }
                     } else {
                         // insert into root column, example:  access v['b'] and b is in sparse column
                         // data example:
@@ -393,6 +419,25 @@ Status HierarchicalDataIterator::_process_sparse_column(vectorized::ColumnObject
                     container_variant.get_subcolumn({})->insert_default();
                 }
                 sparse_data_offsets.push_back(sparse_data_paths->size());
+
+                // all subcolumns keep the same number of rows (i + 1 after this iteration).
+                for (auto& entry : subcolumns_from_sparse_column) {
+                    if (entry.second.size() == i) {
+                        entry.second.insert_default();
+                    }
+                }
+            }
+
+            // Finalize materialized subcolumns and attach them into the container variant.
+            for (auto& entry : subcolumns_from_sparse_column) {
+                entry.second.finalize();
+                if (!container_variant.add_sub_column(
+                            PathInData(entry.first),
+                            IColumn::mutate(entry.second.get_finalized_column_ptr()),
+                            entry.second.get_least_common_type())) {
+                    return Status::InternalError(
+                            "Failed to add subcolumn {}, which is from sparse column", entry.first);
+                }
             }
         }
     }

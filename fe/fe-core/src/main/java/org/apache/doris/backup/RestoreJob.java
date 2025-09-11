@@ -1425,7 +1425,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             objectPool,
                             localTbl.rowStorePageSize(),
                             localTbl.variantEnableFlattenNested(),
-                            localTbl.storagePageSize(),
+                            localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
@@ -2350,6 +2350,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         cleanMetaObjects(isReplay);
 
         if (!isReplay) {
+            restoredPartitions.clear();
+            restoredTbls.clear();
+            restoredResources.clear();
+
             // backupMeta is useless
             backupMeta = null;
 

@@ -162,8 +162,10 @@ public class MaterializedViewHandler extends AlterHandler {
             if (tableNotFinalStateJobIdset == null) {
                 // This could happen when this job is already removed before.
                 // return false, so that we will not set table's to NORMAL again.
-                LOG.warn("alter job is already removed before. tableId: {}, jobId: {}",
-                        tableId, jobId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("alter job is already removed before. tableId: {}, jobId: {}",
+                            tableId, jobId);
+                }
                 return false;
             }
             tableNotFinalStateJobIdset.remove(jobId);
@@ -1233,8 +1235,10 @@ public class MaterializedViewHandler extends AlterHandler {
             LOG.info("set table's state to NORMAL, table id: {}, job id: {}", alterJob.getTableId(),
                     alterJob.getJobId());
         } else {
-            LOG.warn("Failed to remove job from tableNotFinalStateJobMap, table id: {}, job id: {}",
-                    alterJob.getTableId(), alterJob.getJobId());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to remove job from tableNotFinalStateJobMap, table id: {}, job id: {}",
+                        alterJob.getTableId(), alterJob.getJobId());
+            }
         }
     }
 

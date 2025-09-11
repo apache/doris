@@ -18,14 +18,12 @@
 package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -39,12 +37,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+// The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonExternalCatalog.class);
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
     public static final String PAIMON_FILESYSTEM = "filesystem";
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
+    public static final String PAIMON_REST = "rest";
     protected String catalogType;
     protected Catalog catalog;
 
@@ -58,12 +58,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        try {
-            paimonProperties = (AbstractPaimonProperties) MetastoreProperties.create(catalogProperty.getProperties());
-        } catch (UserException e) {
-            throw new IllegalArgumentException("Failed to create Paimon properties from catalog properties,exception: "
-                    + ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        paimonProperties = (AbstractPaimonProperties) catalogProperty.getMetastoreProperties();
         catalogType = paimonProperties.getPaimonCatalogType();
         catalog = createCatalog();
         initPreExecutionAuthenticator();
@@ -126,17 +121,6 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
-        makeSureInitialized();
-        try {
-            return executionAuthenticator.execute(() -> catalog.getTable(Identifier.create(nameMapping
-                    .getRemoteDbName(), nameMapping.getRemoteTblName())));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon table:" + getName() + "." + nameMapping.getLocalDbName()
-                    + "." + nameMapping.getLocalTblName() + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
-        }
-    }
-
     public List<Partition> getPaimonPartitions(NameMapping nameMapping) {
         makeSureInitialized();
         try {
@@ -157,23 +141,34 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
     }
 
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping, String queryType) {
-        return getPaimonSystemTable(nameMapping, null, queryType);
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping) {
+        return getPaimonTable(nameMapping, null, null);
     }
 
-    public org.apache.paimon.table.Table getPaimonSystemTable(NameMapping nameMapping,
-                                                              String branch, String queryType) {
+    public org.apache.paimon.table.Table getPaimonTable(NameMapping nameMapping, String branch,
+            String queryType) {
         makeSureInitialized();
         try {
-            return executionAuthenticator.execute(() -> catalog.getTable(new Identifier(nameMapping.getRemoteDbName(),
-                    nameMapping.getRemoteTblName(), branch, queryType)));
+            Identifier identifier;
+            if (branch != null && queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch, queryType);
+            } else if (branch != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        branch);
+            } else if (queryType != null) {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                        "main", queryType);
+            } else {
+                identifier = new Identifier(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+            }
+            return executionAuthenticator.execute(() -> catalog.getTable(identifier));
         } catch (Exception e) {
-            throw new RuntimeException("Failed to get Paimon system table:" + getName() + "."
+            throw new RuntimeException("Failed to get Paimon table:" + getName() + "."
                     + nameMapping.getRemoteDbName() + "." + nameMapping.getRemoteTblName() + "$" + queryType
                     + ", because " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
-
 
     protected Catalog createCatalog() {
         try {
@@ -192,14 +187,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
 
     @Override
     public void checkProperties() throws DdlException {
-        if (null != paimonProperties) {
-            try {
-                this.paimonProperties = (AbstractPaimonProperties) MetastoreProperties
-                        .create(catalogProperty.getProperties());
-            } catch (UserException e) {
-                throw new DdlException("Failed to create Paimon properties from catalog properties, exception: "
-                        + ExceptionUtils.getRootCauseMessage(e), e);
-            }
-        }
+        super.checkProperties();
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 }

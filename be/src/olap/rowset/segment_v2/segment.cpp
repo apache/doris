@@ -105,15 +105,16 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
                       const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
                       InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
     io::FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
+    auto st = fs->open_file(path, &file_reader, &reader_options);
+    TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     std::shared_ptr<Segment> segment(
             new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
-    segment->_fs = fs;
-    segment->_file_reader = std::move(file_reader);
-    auto st = segment->_open(stats);
-    TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
-    if (st.is<ErrorCode::CORRUPTION>() &&
-        reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+    if (st) {
+        segment->_fs = fs;
+        segment->_file_reader = std::move(file_reader);
+        st = segment->_open(stats);
+    } else if (st.is<ErrorCode::CORRUPTION>() &&
+               reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
         LOG(WARNING) << "bad segment file may be read from file cache, try to read remote source "
                         "file directly, file path: "
                      << path << " cache_key: " << file_cache_key_str(path);
@@ -121,9 +122,11 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
         file_cache->remove_if_cached(file_key);
 
-        RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-        segment->_file_reader = std::move(file_reader);
-        st = segment->_open(stats);
+        st = fs->open_file(path, &file_reader, &reader_options);
+        if (st) {
+            segment->_file_reader = std::move(file_reader);
+            st = segment->_open(stats);
+        }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
             LOG(WARNING) << "failed to try to read remote source file again with cache support,"
@@ -259,14 +262,13 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             auto runtime_predicate = query_ctx->get_runtime_predicate(id).get_predicate(
                     read_options.topn_filter_target_node_id);
 
-            int32_t uid =
-                    read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
             AndBlockColumnPredicate and_predicate;
             and_predicate.add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(runtime_predicate.get()));
             std::shared_ptr<ColumnReader> reader;
-            RETURN_IF_ERROR(get_column_reader(read_options.tablet_schema->column(uid), &reader,
-                                              read_options.stats));
+            RETURN_IF_ERROR(get_column_reader(
+                    read_options.tablet_schema->column(runtime_predicate->column_id()), &reader,
+                    read_options.stats));
             if (reader &&
                 can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
@@ -708,16 +710,14 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     if (reader == nullptr) {
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
-    ColumnIterator* it;
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // use _column_reader_cache to get variant subcolumn(path column) reader
         RETURN_IF_ERROR(
                 assert_cast<VariantColumnReader*>(reader.get())
-                        ->new_iterator(&it, &tablet_column, opt, _column_reader_cache.get()));
+                        ->new_iterator(iter, &tablet_column, opt, _column_reader_cache.get()));
     } else {
-        RETURN_IF_ERROR(reader->new_iterator(&it, &tablet_column, opt));
+        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }
-    iter->reset(it);
 
     if (config::enable_column_type_check && !tablet_column.has_path_info() &&
         tablet_column.type() != reader->get_meta_type()) {
@@ -816,7 +816,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
 
     DCHECK(_pk_index_reader != nullptr);
     if (!_pk_index_reader->check_present(key_without_seq)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
@@ -826,7 +826,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
         return st;
     }
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>() || (!has_seq_col && !has_rowid && !exact_match)) {
-        return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
     }
     row_location->row_id = index_iterator->get_current_ordinal();
     row_location->segment_id = _segment_id;
@@ -853,7 +853,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     if (has_seq_col) {
         // compare key
         if (key_without_seq.compare(sought_key_without_seq) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
 
         if (with_seq_col && segment_has_seq_col) {
@@ -873,7 +873,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                 Slice(sought_key.get_data(), sought_key.get_size() - rowid_length);
         // compare key
         if (key_without_seq.compare(sought_key_without_rowid) != 0) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND>("Can't find key in the segment");
+            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
         }
     }
     // found the key, use rowid in pk index if necessary.

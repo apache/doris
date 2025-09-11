@@ -350,6 +350,12 @@ class Node(object):
                                      int(seq / IP_PART4_SIZE),
                                      seq % IP_PART4_SIZE)
 
+    def get_tde_ak(self):
+        return self.cluster.tde_ak
+
+    def get_tde_sk(self):
+        return self.cluster.tde_sk
+
     def get_default_named_ports(self):
         # port_name : default_port
         # the port_name come from fe.conf, be.conf, cloud.conf, etc
@@ -371,6 +377,14 @@ class Node(object):
         return utils.with_doris_prefix("{}-{}".format(self.cluster.name,
                                                       self.get_name()))
 
+    def get_system_core_pattern(self):
+        """Get system core pattern from /proc/sys/kernel/core_pattern"""
+        try:
+            with open("/proc/sys/kernel/core_pattern", "r") as f:
+                return f.read().strip()
+        except:
+            return "core"
+
     def docker_env(self):
         enable_coverage = self.cluster.coverage_dir
 
@@ -382,6 +396,8 @@ class Node(object):
             "STOP_GRACE": 1 if enable_coverage else 0,
             "IS_CLOUD": 1 if self.cluster.is_cloud else 0,
             "SQL_MODE_NODE_MGR": 1 if self.cluster.sql_mode_node_mgr else 0,
+            "TDE_AK": self.get_tde_ak(),
+            "TDE_SK": self.get_tde_sk(),
         }
 
         if self.cluster.is_cloud:
@@ -433,7 +449,19 @@ class Node(object):
         raise Exception("No implemented")
 
     def compose(self):
+        # Get system core pattern to determine core dump directory
+        core_pattern = self.get_system_core_pattern()
+
+        # Extract directory from core pattern if it's an absolute path
+        core_dump_dir = "/opt/apache-doris/core_dump"  # default
+        if core_pattern.startswith("/"):
+            # Extract directory part (everything before the filename)
+            core_dump_dir = os.path.dirname(core_pattern)
+
         volumes = [
+            "{}:{}".format(os.path.join(self.get_path(), "core_dump"),
+                           core_dump_dir)
+        ] + [
             "{}:{}/{}".format(os.path.join(self.get_path(), sub_dir),
                               self.docker_home_dir(), sub_dir)
             for sub_dir in self.expose_sub_dirs()
@@ -452,7 +480,8 @@ class Node(object):
                                                    DOCKER_DORIS_PATH))
 
         content = {
-            "cap_add": ["SYS_PTRACE"],
+            "cap_add": ["SYS_ADMIN"],
+            "privileged": "true",
             "container_name": self.service_name(),
             "environment": self.docker_env(),
             "image": self.get_image(),
@@ -789,7 +818,7 @@ class Cluster(object):
                  be_config, ms_config, recycle_config, remote_master_fe,
                  local_network_ip, fe_follower, be_disks, be_cluster, reg_be,
                  extra_hosts, coverage_dir, cloud_store_config,
-                 sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id):
+                 sql_mode_node_mgr, be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk):
         self.name = name
         self.subnet = subnet
         self.image = image
@@ -818,13 +847,15 @@ class Cluster(object):
         self.sql_mode_node_mgr = sql_mode_node_mgr
         self.be_metaservice_endpoint = be_metaservice_endpoint
         self.be_cluster_id = be_cluster_id
+        self.tde_ak = tde_ak
+        self.tde_sk = tde_sk
 
     @staticmethod
     def new(name, image, is_cloud, is_root_user, fe_config, be_config,
             ms_config, recycle_config, remote_master_fe, local_network_ip,
             fe_follower, be_disks, be_cluster, reg_be, extra_hosts,
             coverage_dir, cloud_store_config, sql_mode_node_mgr,
-            be_metaservice_endpoint, be_cluster_id):
+            be_metaservice_endpoint, be_cluster_id, tde_ak, tde_sk):
         if not os.path.exists(LOCAL_DORIS_PATH):
             os.makedirs(LOCAL_DORIS_PATH, exist_ok=True)
             os.chmod(LOCAL_DORIS_PATH, 0o777)
@@ -839,7 +870,7 @@ class Cluster(object):
                               be_disks, be_cluster, reg_be, extra_hosts,
                               coverage_dir, cloud_store_config,
                               sql_mode_node_mgr, be_metaservice_endpoint,
-                              be_cluster_id)
+                              be_cluster_id, tde_ak, tde_sk)
             os.makedirs(cluster.get_path(), exist_ok=True)
             os.makedirs(get_status_path(name), exist_ok=True)
             cluster._save_meta()

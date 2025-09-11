@@ -22,10 +22,11 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """ set enable_variant_flatten_nested = true """
+    def max_subcolumns_count = new Random().nextInt(10) + 1
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : array<int>, 'c' : double>
+            v variant<'a' : int, 'b' : array<int>, 'c' : double, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
@@ -51,7 +52,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v  variant<'a' : int, 'b' : array<int>, 'c' : double>,
+            v  variant<'a' : int, 'b' : array<int>, 'c' : double, properties("variant_max_subcolumns_count" = "${max_subcolumns_count}")>,
             vs string 
         )
         UNIQUE KEY(`k`)

@@ -149,6 +149,6 @@ suite("test_validate_restore_ngram_bloom_filter", "validate_restore") {
     }
 
     runValidateRestoreNgramBloomFilter("3.0")
-    //runValidateRestoreNgramBloomFilter("2.1")
+    runValidateRestoreNgramBloomFilter("2.1")
 }
 
