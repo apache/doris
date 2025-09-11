@@ -345,34 +345,6 @@ Status NewPlainTextLineReader::extend_output_buf() {
     return Status::OK();
 }
 
-bool NewPlainTextLineReader::has_multiple_json_objects(const uint8_t* cur_ptr, size_t offset) {
-    int brace_count = 0;
-    bool in_string = false;
-    char string_char = 0;
-
-    const uint8_t* end = cur_ptr + offset;
-    for (const uint8_t* ptr = cur_ptr; ptr < end; ++ptr) {
-        uint8_t c = *ptr;
-
-        if (c == '"' && (ptr == cur_ptr || *(ptr - 1) != '\\')) {
-            if (!in_string) {
-                in_string = true;
-                string_char = c;
-            } else if (string_char == c) {
-                in_string = false;
-            }
-        }
-
-        if (!in_string && c == '{') {
-            brace_count++;
-            if (brace_count > 1) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
                                          const io::IOContext* io_ctx) {
     if (_eof || update_eof()) {
@@ -442,12 +414,6 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                         return Status::InternalError(
                                 "Compressed file has been truncated, which is not allowed");
                     } else {
-                        if (offset = output_buf_read_remaining(); offset > 0) {
-                            if (has_multiple_json_objects(cur_ptr, offset)) {
-                                return Status::DataQualityError(
-                                        "Multiple JSON objects in a single line.");
-                            }
-                        }
                         // last loop we meet stream end,
                         // and now we finished reading file, so we are finished
                         // break this loop to see if there is data in buffer
@@ -526,10 +492,6 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // ready to return
             offset = pos - cur_ptr;
             found_line_delimiter = _line_reader_ctx->line_delimiter_length();
-            if (has_multiple_json_objects(cur_ptr, offset)) {
-                return Status::DataQualityError("Multiple JSON objects in a single line.");
-            }
-
             break;
         }
     } // while (!done())

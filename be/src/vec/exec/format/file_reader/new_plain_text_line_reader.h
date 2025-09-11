@@ -254,8 +254,7 @@ private:
     bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     void extend_input_buf();
-    // for read_json_by_line, check if there are multiple json objects in a line
-    bool has_multiple_json_objects(const uint8_t*, size_t);
+    
     Status extend_output_buf();
 
     RuntimeProfile* _profile = nullptr;
