@@ -242,6 +242,9 @@ TEST_F(ColumnDictionaryTest, filter) {
     EXPECT_THROW(column_dict_char->filter(filt, 10), Exception);
     EXPECT_THROW(column_dict_char->filter(filt), Exception);
 }
+TEST_F(ColumnDictionaryTest, clone) {
+    EXPECT_THROW(column_dict_char->clone(), Exception);
+}
 TEST_F(ColumnDictionaryTest, permute) {
     IColumn::Permutation perm;
     EXPECT_THROW(column_dict_char->permute(perm, 1), Exception);
