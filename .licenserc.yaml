@@ -82,6 +82,8 @@ header:
     - "regression-test/script/README"
     - "regression-test/suites/load_p0/stream_load/data"
     - "docker/thirdparties/docker-compose/hive/scripts/**"
+    - "docker/thirdparties/docker-compose/kerberos/paimon_data/**"
+    - "docker/thirdparties/docker-compose/kerberos/sql/**"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
     - "conf/mysql_ssl_default_certificate/*"
     - "conf/mysql_ssl_default_certificate/client_certificate/ca.pem"

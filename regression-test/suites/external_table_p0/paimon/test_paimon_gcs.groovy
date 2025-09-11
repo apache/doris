@@ -16,7 +16,7 @@ package paimon
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_gcs", "p2,external,doris,external_docker,external_docker_doris,new_catalog_property") {
+suite("test_paimon_gcs", "p0,external,doris,external_docker,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String gcs_warehouse = "s3://selectdb-qa-datalake-test/paimon_warehouse"
