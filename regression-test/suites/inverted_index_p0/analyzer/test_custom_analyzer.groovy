@@ -138,4 +138,27 @@ suite("test_custom_analyzer", "p0") {
             logger.info("used by index")
         }
     }
+
+
+
+    try {
+        sql "DROP TABLE IF EXISTS test_custom_analyzer_3"
+        sql """
+            CREATE TABLE test_custom_analyzer_3 (
+                `a` bigint NOT NULL AUTO_INCREMENT(1),
+                `ch` text NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`a`)
+            DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+
+        sql """ insert into test_custom_analyzer_3 values(1, "GET /french/images/nav_venue_off.gif HTTP/1.0"); """
+        sql """ alter table test_custom_analyzer_3 add index idx_ch(`ch`) using inverted properties("support_phrase" = "true", "analyzer" = "lowercase_delimited"); """
+
+        qt_sql """ select * from test_custom_analyzer_3 where ch match 'nav_venue_off.gif'; """
+    } catch (SQLException e) {
+    }
 }
