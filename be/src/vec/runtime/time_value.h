@@ -43,7 +43,7 @@ public:
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
     constexpr static int64_t MAX_TIME =
-            3024000LL * ONE_SECOND_MICROSECONDS - 1; // 840:00:00 - 1ms -> 838:59:59.999999
+            3024000LL * ONE_SECOND_MICROSECONDS - 1 - ONE_HOUR_MICROSECONDS; // 838:59:59.999999
 
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
