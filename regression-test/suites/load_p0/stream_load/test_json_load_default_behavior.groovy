@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_json_load_behavior_and_error_msg", "p0") {
+suite("test_json_load_default_behavior", "p0") {
 
-    // case1 test json-load's default behavior
+    // case1 test json-load's default behavior success
     try {
         sql """
             CREATE TABLE IF NOT EXISTS test_table1 (
@@ -30,7 +30,7 @@ suite("test_json_load_behavior_and_error_msg", "p0") {
                 "replication_allocation" = "tag.location.default: 1"
             );
             """
-        // re use case_sensitive_json to check
+
         streamLoad {
             table "test_table1"
             set 'label', "behavior_check" + UUID.randomUUID().toString()
@@ -53,30 +53,26 @@ suite("test_json_load_behavior_and_error_msg", "p0") {
         try_sql("DROP TABLE IF EXISTS test_table1")
     }
 
-    // case2 test multi jsons in a line load error
+    // case2 test strip_outer_array load success
     try {        
         sql """
             CREATE TABLE IF NOT EXISTS test_table2 (
-                user_id INT,
-                name VARCHAR(32),
-                age INT
+                id INT,
+                city VARCHAR(32),
+                code INT
             ) ENGINE=OLAP
-            DUPLICATE KEY(user_id)
+            DUPLICATE KEY(id)
             DISTRIBUTED BY RANDOM BUCKETS 10
             PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1"
             );
             """
         
-        // use multi_line_json2.json to test ERROR
         streamLoad {
             table "test_table2"
-            set 'label', "error_check_" + UUID.randomUUID().toString()
             set 'format', 'json'
-            set 'read_json_by_line', 'true'
-            set 'columns', 'user_id, name, age'
-            file 'multi_line_json2.json'
-            time 10000
+            set 'strip_outer_array', 'true'
+            file 'simple_json.json'
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
@@ -84,8 +80,8 @@ suite("test_json_load_behavior_and_error_msg", "p0") {
                 }
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]Multiple JSON objects in a single line"))
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(json.NumberLoadedRows, 10)
             }
         }
     } finally {
