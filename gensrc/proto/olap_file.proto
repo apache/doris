@@ -146,8 +146,6 @@ message RowsetMetaPB {
     optional bool enable_inverted_index_file_info = 1006;
     repeated InvertedIndexFileInfo inverted_index_file_info = 1007;
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
-    // the time when this rowset should become stale (for compaction input rowsets)
-    optional int64 stale_at = 56;
 
     optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
 }
@@ -225,8 +223,6 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
-    // the time when this rowset should become stale (for compaction input rowsets)
-    optional int64 stale_at = 56;
 
     // cloud
     // the field is a vector, rename it
@@ -358,7 +354,7 @@ message ColumnPB {
     optional bool variant_enable_typed_paths_to_sparse = 27 [default = false];
     // this field is only used during flexible partial update load
     optional bool is_on_update_current_timestamp = 28 [default = false];
-    // variant_max_sparse_column_statistics_size 
+    // variant_max_sparse_column_statistics_size
     optional int32 variant_max_sparse_column_statistics_size = 29 [default = 10000];
 }
 

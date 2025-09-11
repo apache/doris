@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -213,13 +214,13 @@ public:
     }
 
     int64_t stale_at() const {
-        return _rowset_meta_pb.has_stale_at() ? _rowset_meta_pb.stale_at()
-                                              : _rowset_meta_pb.creation_time();
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
     }
 
-    bool has_stale_at() const { return _rowset_meta_pb.has_stale_at(); }
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
 
-    void set_stale_at(int64_t stale_at) { _rowset_meta_pb.set_stale_at(stale_at); }
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
@@ -423,6 +424,7 @@ private:
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+    std::atomic<int64_t> _stale_at_s {0};
 };
 
 #include "common/compile_check_end.h"

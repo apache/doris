@@ -42,12 +42,12 @@ TEST_F(StaleAtTest, TestRowsetMetaStaleAt) {
 
     // Initially, stale_at should return creation_time since stale_at is not set
     EXPECT_EQ(rowset_meta.stale_at(), creation_time);
+    EXPECT_FALSE(rowset_meta.has_stale_at());
 
-    // Set stale_at time
     rowset_meta.set_stale_at(stale_at_time);
 
-    // Now stale_at should return stale_at time
     EXPECT_EQ(rowset_meta.stale_at(), stale_at_time);
+    EXPECT_TRUE(rowset_meta.has_stale_at());
 }
 
 TEST_F(StaleAtTest, TestTimestampedVersionWithStaleTime) {
