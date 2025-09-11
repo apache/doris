@@ -3409,7 +3409,7 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
     const std::string& rowset_id = rowset_meta.rowset_id_v2();
     AnnotateTag tablet_id_tag("tablet_id", tablet_id);
     AnnotateTag rowset_id_tag("rowset_id", rowset_id);
-    AnnotateTag rowset_key_tag("recycle_rowset_key", recycle_rowset_key);
+    AnnotateTag rowset_key_tag("recycle_rowset_key", hex(recycle_rowset_key));
     for (int i = 0; i < MAX_RETRY; ++i) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
