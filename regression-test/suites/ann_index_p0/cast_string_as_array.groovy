@@ -176,6 +176,7 @@ suite("cast_string_as_array") {
         exception "[INVALID_ARGUMENT]"
     }
     sql "set profile_level=2;"
+     fetchProfile("select id from ann_cast_rhs_l2 where l2_distance_approximate(embedding, cast('[1,2]' as array<float>)) <= 1.0 order by id;")
     // Inner product range search with >= threshold: expect ids 2 and 3
     qt_sql_rs_ip_ge "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3,0.4]' as array<float>)) >= 0.7 order by id;"
 
@@ -187,8 +188,6 @@ suite("cast_string_as_array") {
         sql "select id from ann_cast_rhs_ip where inner_product_approximate(embedding, cast('[0.1,0.2,0.3]' as array<float>)) >= 0.7 order by id;"
         exception "[INVALID_ARGUMENT]"
     }
-
-    fetchProfile("select id from ann_cast_rhs_l2 where l2_distance_approximate(embedding, cast('[1,2]' as array<float>)) <= 1.0 order by id;")
 
     // ----------------------
     // Non-constant RHS behavior
