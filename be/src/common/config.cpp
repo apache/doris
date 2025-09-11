@@ -1595,6 +1595,8 @@ DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
 DEFINE_mBool(print_stack_when_cache_miss, "true");
 
+DEFINE_mBool(read_cluster_cache_opt_verbose_log, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

@@ -78,6 +78,8 @@ public:
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
     double get_orphan_vertex_ratio();
 
+    std::string debug_string() const;
+
 private:
     /// Private method add a version to graph.
     void _add_vertex_to_graph(int64_t vertex_value);
@@ -231,6 +233,8 @@ public:
     // Return proportion of orphan vertex in VersionGraph's _version_graph.
     // If a vertex is no longer the starting point of any edge, then this vertex is defined as orphan vertex
     double get_orphan_vertex_ratio();
+
+    std::string debug_string() const;
 
 private:
     /// Construct rowsets version tracker with main path rowset meta.

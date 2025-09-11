@@ -435,6 +435,10 @@ double TimestampedVersionTracker::get_orphan_vertex_ratio() {
     return _version_graph.get_orphan_vertex_ratio();
 }
 
+std::string TimestampedVersionTracker::debug_string() const {
+    return _version_graph.debug_string();
+}
+
 void TimestampedVersionPathContainer::add_timestamped_version(TimestampedVersionSharedPtr version) {
     // Compare and refresh `_max_create_time`.
     if (version->get_create_time() > _max_create_time) {
@@ -832,6 +836,20 @@ double VersionGraph::get_orphan_vertex_ratio() {
         }
     }
     return static_cast<double>(orphan_vertex_num) / static_cast<double>(vertex_num);
+}
+
+std::string VersionGraph::debug_string() const {
+    std::stringstream ss;
+    ss << "VersionGraph: [";
+    for (size_t i = 0; i < _version_graph.size(); ++i) {
+        ss << "{value: " << _version_graph[i].value << ", edges: [";
+        for (const auto& edge : _version_graph[i].edges) {
+            ss << _version_graph[edge].value << ", ";
+        }
+        ss << "]}, ";
+    }
+    ss << "]";
+    return ss.str();
 }
 
 #include "common/compile_check_end.h"

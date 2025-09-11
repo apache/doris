@@ -330,6 +330,25 @@ public:
         _warmed_up_rowsets.erase(rowset_id);
     }
 
+    std::string rowset_warmup_digest() {
+        std::string res;
+        auto add_log = [&](const RowsetSharedPtr& rs) {
+            auto tmp = fmt::format("{}{}", rs->rowset_id().to_string(), rs->version().to_string());
+            if (_rowset_warm_up_states.contains(rs->rowset_id())) {
+                tmp += fmt::format(
+                        ", state={}, segments_warmed_up={}/{}, inverted_idx_warmed_up={}/{}",
+                        _rowset_warm_up_states.at(rs->rowset_id()).state,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_segments,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx_warmed_up,
+                        _rowset_warm_up_states.at(rs->rowset_id()).num_inverted_idx);
+            }
+            res += fmt::format("[{}],", tmp);
+        };
+        traverse_rowsets_unlocked(add_log, true);
+        return res;
+    }
+
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
     void update_base_size(const Rowset& rs);
