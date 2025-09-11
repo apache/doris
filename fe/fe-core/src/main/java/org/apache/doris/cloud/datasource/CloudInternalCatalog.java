@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.datasource;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
@@ -76,6 +77,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -190,7 +192,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
-                        tbl.storageDictPageSize(), true);
+                        tbl.storageDictPageSize(), true,
+                        tbl.getColumnSeqMapping());
                 requestBuilder.addTabletMetas(builder);
             }
             requestBuilder.setDbId(dbId);
@@ -224,7 +227,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
             boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
-            boolean createInitialRowset) throws DdlException {
+            boolean createInitialRowset, Map<String, List<String>> columnSeqMapping) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -371,6 +374,29 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
+        }
+        if (columnSeqMapping != null && !columnSeqMapping.isEmpty()) {
+            List<String> columnName = new ArrayList<>();
+            schemaColumns.forEach(x -> columnName.add(x.getName().toLowerCase()));
+
+            OlapFile.ColumnGroupsPB.Builder columnGroupsBuilder = OlapFile.ColumnGroupsPB.newBuilder();
+            for (Map.Entry<String, List<String>> entry : columnSeqMapping.entrySet()) {
+                int sequenceColumnIdx = columnName.indexOf(entry.getKey().toLowerCase());
+                List<Integer> columnIdx = new ArrayList<>();
+                List<String> columnInGroup = entry.getValue();
+                for (String column : columnInGroup) {
+                    Integer columnIndex = columnName.indexOf(column.toLowerCase());
+                    if (columnIndex == -1) {
+                        // column name will be changed on schema change
+                        columnIndex = columnName.indexOf(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.toLowerCase());
+                    }
+                    columnIdx.add(columnIndex);
+                }
+                OlapFile.ColumnGroupPB.Builder cgBuilder = columnGroupsBuilder.addCgBuilder();
+                cgBuilder.setSequenceColumn(sequenceColumnIdx);
+                cgBuilder.addAllColumnsInGroup(columnIdx);
+            }
+            schemaBuilder.setSeqMap(columnGroupsBuilder.build());
         }
 
         OlapFile.TabletSchemaCloudPB schema = schemaBuilder.build();
