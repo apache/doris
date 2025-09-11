@@ -142,6 +142,7 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable),
                 targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
+        // TODO llj tSink.setOutputPath(locationPath.getNormalizedLocation()); ?
         tSink.setOriginalOutputPath(locationPath.getPath().toString());
         TFileType fileType = locationPath.getTFileTypeForBE();
         tSink.setFileType(fileType);

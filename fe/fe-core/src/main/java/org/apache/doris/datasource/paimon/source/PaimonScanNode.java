@@ -212,10 +212,14 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setSchemaId(paimonSplit.getSchemaId());
         }
         fileDesc.setFileFormat(fileFormat);
-        fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
-        // The hadoop conf should be same with
-        // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_JNI) {
+            // TODO these params can be set in a common param.
+            fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
+            // The hadoop conf should be same with
+            // PaimonExternalCatalog.createCatalog()#getConfiguration()
+            fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
+        }
+
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
@@ -223,7 +227,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             // convert the deletion file uri to make sure FileReader can read it in be
             LocationPath locationPath = LocationPath.of(deletionFile.path(),
                     source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
-            String path = locationPath.toStorageLocation().toString();
+            String path = locationPath.getNormalizedLocation();
             tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
             tDeletionFile.setLength(deletionFile.length());
