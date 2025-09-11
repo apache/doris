@@ -59,7 +59,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public void updateProgress(Offset offset) {
+    public void updateOffset(Offset offset) {
         this.currentOffset = (S3Offset) offset;
     }
 

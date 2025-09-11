@@ -26,7 +26,6 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
-import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -59,7 +58,6 @@ public class StreamingInsertTask {
     private String currentDb;
     private UserIdentity userIdentity;
     private ConnectContext ctx;
-    private LoadStatistic loadStatistic;
     private Offset offset;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
@@ -67,14 +65,12 @@ public class StreamingInsertTask {
     public StreamingInsertTask(long jobId,
                                long taskId,
                                InsertIntoTableCommand command,
-                               LoadStatistic loadStatistic,
                                String currentDb,
                                Offset offset,
                                StreamingJobProperties jobProperties) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.command = command;
-        this.loadStatistic = loadStatistic;
         this.userIdentity = ctx.getCurrentUserIdentity();
         this.currentDb = currentDb;
         this.offset = offset;
@@ -127,7 +123,7 @@ public class StreamingInsertTask {
                     log.info("task has been canceled, task id is {}", getTaskId());
                     return;
                 }
-                command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
+                command.runWithUpdateInfo(ctx, stmtExecutor, null);
                 if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
                     return;
                 } else {
