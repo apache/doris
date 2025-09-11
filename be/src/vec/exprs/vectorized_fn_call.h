@@ -64,7 +64,11 @@ public:
     const std::string& expr_name() const override;
     std::string function_name() const;
     std::string debug_string() const override;
-    bool is_blockable() const override { return _function->is_blockable(); }
+    bool is_blockable() const override {
+        return _function->is_blockable() ||
+               std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column
