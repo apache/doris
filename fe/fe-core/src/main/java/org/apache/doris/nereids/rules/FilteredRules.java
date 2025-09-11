@@ -112,7 +112,7 @@ public class FilteredRules extends Rules {
         if (disableRules.isEmpty()) {
             return allRules;
         }
-        List<Rule> validRules = new ArrayList<>();
+        List<Rule> validRules = new ArrayList<>(allRules.size());
         for (Rule rule : allRules) {
             if (!disableRules.get(rule.getRuleType().type())) {
                 validRules.add(rule);
