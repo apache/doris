@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -394,14 +392,6 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
-    }
-
-    default R visitApproxTopK(ApproxTopK approxTopK, C context) {
-        return visitNullableAggregateFunction(approxTopK, context);
-    }
-
-    default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
-        return visitNullableAggregateFunction(approxTopSum, context);
     }
 
 }
