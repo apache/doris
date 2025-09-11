@@ -49,10 +49,10 @@ public interface SourceOffsetProvider {
     InsertIntoTableCommand rewriteTvfParams(String sql);
 
     /**
-     * Update the progress of the source.
+     * Update the offset of the source.
      * @param offset
      */
-    void updateProgress(Offset offset);
+    void updateOffset(Offset offset);
 
     /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
