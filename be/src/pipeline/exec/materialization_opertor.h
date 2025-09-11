@@ -1,3 +1,5 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
@@ -28,15 +30,51 @@ namespace pipeline {
 
 class MaterializationOperator;
 
+struct FetchRpcStruct {
+    std::shared_ptr<PBackendService_Stub> stub;
+    std::unique_ptr<brpc::Controller> cntl;
+    PMultiGetRequestV2 request;
+    PMultiGetResponseV2 response;
+};
+
+struct MaterializationSharedState {
+public:
+    MaterializationSharedState() = default;
+
+    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
+    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
+
+    Status merge_multi_response();
+    void get_block(vectorized::Block* block);
+
+private:
+    void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
+
+public:
+    bool rpc_struct_inited = false;
+
+    bool eos = false;
+    // empty materialization sink block not need to merge block
+    bool need_merge_block = true;
+    vectorized::Block origin_block;
+    // The rowid column of the origin block. should be replaced by the column of the result block.
+    std::vector<int> rowid_locs;
+    std::vector<vectorized::MutableBlock> response_blocks;
+    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
+    // Register each line in which block to ensure the order of the result.
+    // Zero means NULL value.
+    std::vector<std::vector<int64_t>> block_order_results;
+    // backend id => <rpc profile info string key, rpc profile info string value>.
+    std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
+};
+
 class MaterializationLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
     using Parent = MaterializationOperator;
     using Base = PipelineXLocalState<FakeSharedState>;
 
     ENABLE_FACTORY_CREATOR(MaterializationLocalState);
-    MaterializationLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {
-        _uniq_state = MaterializationSharedState::create_unique();
-    };
+    MaterializationLocalState(RuntimeState* state, OperatorXBase* parent) : Base(state, parent) {};
 
     Status init(RuntimeState* state, LocalStateInfo& info) override {
         RETURN_IF_ERROR(Base::init(state, info));
@@ -52,7 +90,7 @@ private:
 
     std::unique_ptr<vectorized::Block> _child_block = vectorized::Block::create_unique();
     bool _child_eos = false;
-    std::unique_ptr<MaterializationSharedState> _uniq_state;
+    MaterializationSharedState _materialization_state;
     RuntimeProfile::Counter* _max_rpc_timer = nullptr;
     RuntimeProfile::Counter* _merge_response_timer = nullptr;
 };

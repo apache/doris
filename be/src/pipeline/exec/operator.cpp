@@ -851,7 +851,6 @@ template class PipelineXSinkLocalState<HashJoinSharedState>;
 template class PipelineXSinkLocalState<PartitionedHashJoinSharedState>;
 template class PipelineXSinkLocalState<SortSharedState>;
 template class PipelineXSinkLocalState<SpillSortSharedState>;
-template class PipelineXSinkLocalState<MaterializationSharedState>;
 template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
