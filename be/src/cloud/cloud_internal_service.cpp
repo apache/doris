@@ -295,13 +295,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     .offset = 0,
                     .download_size = segment_size,
                     .file_system = storage_resource.value()->fs,
-                    .ctx =
-                            {
-                                    .is_index_data = false,
-                                    .expiration_time = expiration_time,
-                                    .is_dryrun =
-                                            config::enable_reader_dryrun_when_download_file_cache,
-                            },
+                    .ctx = {.is_index_data = false,
+                            .expiration_time = expiration_time,
+                            .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                            .is_warmup = true},
                     .download_done = std::move(download_done),
             };
             g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
@@ -368,13 +365,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         .path = io::Path(index_path),
                         .file_size = static_cast<int64_t>(idx_size),
                         .file_system = storage_resource.value()->fs,
-                        .ctx =
-                                {
-                                        .is_index_data = false, // DORIS-20877
-                                        .expiration_time = expiration_time,
-                                        .is_dryrun = config::
-                                                enable_reader_dryrun_when_download_file_cache,
-                                },
+                        .ctx = {.is_index_data = false, // DORIS-20877
+                                .expiration_time = expiration_time,
+                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                .is_warmup = true},
                         .download_done = std::move(download_done),
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;

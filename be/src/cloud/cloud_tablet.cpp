@@ -451,10 +451,10 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                     {
                                             .expiration_time = expiration_time,
                                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                            .is_warmup = true
                                     },
                             .download_done {[=](Status st) {
                                 DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_data.callback.block_compaction_rowset", {
-                                            // clang-format on
                                             if (rs->version().second > rs->version().first) {
                                                 auto sleep_time = dp->param<int>("sleep", 3);
                                                 LOG_INFO(
@@ -465,7 +465,6 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                                 std::this_thread::sleep_for(
                                                         std::chrono::seconds(sleep_time));
                                             }
-                                            // clang-format off
                                 });
                                 self->complete_rowset_segment_warmup(rowset_meta->rowset_id(), st, 1, 0);
                                 if (!st) {
@@ -483,6 +482,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                         {
                                                 .expiration_time = expiration_time,
                                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                                                .is_warmup = true
                                         },
                                 .download_done {[=](Status st) {
                                     DBUG_EXECUTE_IF("CloudTablet::add_rowsets.download_idx.callback.block", {

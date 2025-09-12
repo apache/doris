@@ -156,6 +156,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                 LOG_INFO("[verbose] {}", Status::InternalError<true>("not hit cache"));
             }
         }
+        if (!stats.hit_cache && config::read_cluster_cache_opt_verbose_log) {
+            LOG_INFO("[verbose] not hit cache, path: {}, offset: {}, size: {}", path().native(),
+                     offset, bytes_req);
+        }
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);

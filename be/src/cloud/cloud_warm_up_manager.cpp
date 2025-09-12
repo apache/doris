@@ -141,11 +141,9 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                 .offset = offset,
                 .download_size = current_chunk_size,
                 .file_system = file_system,
-                .ctx =
-                        {
-                                .expiration_time = expiration_time,
-                                .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                        },
+                .ctx = {.expiration_time = expiration_time,
+                        .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                        .is_warmup = true},
                 .download_done =
                         [&](Status st) {
                             if (done_cb) done_cb(st);
