@@ -55,7 +55,8 @@ public:
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
-
+    Status do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                           const IOContext* io_ctx);
     void _collect_profile_before_close() override;
 
 private:
