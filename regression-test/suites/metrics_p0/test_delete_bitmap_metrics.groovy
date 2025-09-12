@@ -210,16 +210,16 @@ suite("test_delete_bitmap_metrics", "p0") {
                 logger.info("ms_delete_bitmap_cardinality:" + ms_delete_bitmap_cardinality)
                 assertTrue(ms_delete_bitmap_count == 7)
                 assertTrue(ms_delete_bitmap_cardinality == 7)
-
-                def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-                logger.info("agg cache status: ${status}")
-                assert status.delete_bitmap_count == 8
-                assert status.cardinality == 7
-                assert status.size > 0
-
-                status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
-                logger.info("agg cache verbose status: ${status}")
             }
+
+            def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+            logger.info("agg cache status: ${status}")
+            assert status.delete_bitmap_count == 8
+            assert status.cardinality == 7
+            assert status.size > 0
+
+            status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
+            logger.info("agg cache verbose status: ${status}")
 
             def tablet_delete_bitmap_count = 0;
             def base_rowset_delete_bitmap_count = 0;

@@ -603,6 +603,8 @@ public:
 
     DeleteBitmap agg_cache_snapshot();
 
+    void set_tablet_id(int64_t tablet_id);
+
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;
 
