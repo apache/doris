@@ -47,6 +47,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public void init(String executeSql, StreamingJobProperties jobProperties) {
+        //todo: check is already init
         this.executeSql = executeSql;
         this.jobProperties = jobProperties;
         this.parser = new NereidsParser();
@@ -71,10 +72,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     public S3Offset getNextOffset() {
         S3Offset offset = new S3Offset();
         List<String> rfiles = new ArrayList<>();
+        String startFile = currentOffset == null ? null : currentOffset.endFile;
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
-            maxRemoteEndFile = fileSystem.globListWithLimit(filePath, rfiles, currentOffset.endFile,
+            maxRemoteEndFile = fileSystem.globListWithLimit(filePath, rfiles, startFile,
                     jobProperties.getS3BatchFiles(), jobProperties.getS3BatchSize());
-            offset.setStartFile(currentOffset.endFile);
+            offset.setStartFile(startFile);
             offset.setEndFile(rfiles.get(rfiles.size() - 1));
             offset.setFileLists(rfiles);
         } catch (Exception e) {
@@ -90,15 +92,14 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(Offset nextOffset) {
-        S3Offset offset = (S3Offset) nextOffset;
+    public InsertIntoTableCommand rewriteTvfParams(Offset runningOffset) {
+        S3Offset offset = (S3Offset) runningOffset;
         Map<String, String> props = new HashMap<>();
-        //todo: need to change file list to glob string
-        props.put("uri", offset.getFileLists().toString());
-
+        String finalUri = "{" + String.join(",", offset.getFileLists()) + "}";
+        props.put("uri", finalUri);
         InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(executeSql);
-
-        command.rewriteFirstTvfProperties(getSourceType(), props);
+        //todo: command query plan is immutable
+        //command.rewriteFirstTvfProperties(getSourceType(), props);
         return command;
     }
 
@@ -114,6 +115,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
+        if (currentOffset == null) {
+            return true;
+        }
         if (currentOffset.endFile.compareTo(maxRemoteEndFile) < 0) {
             return true;
         }
