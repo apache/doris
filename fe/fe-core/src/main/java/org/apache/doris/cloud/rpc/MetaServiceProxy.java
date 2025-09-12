@@ -432,4 +432,9 @@ public class MetaServiceProxy {
     public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
         return w.executeRequest((client) -> client.createInstance(request));
     }
+
+    public Cloud.GetStreamingTaskCommitAttachResponse getStreamingTaskCommitAttach(
+            Cloud.GetStreamingTaskCommitAttachRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.getStreamingTaskCommitAttach(request));
+    }
 }

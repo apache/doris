@@ -33,6 +33,16 @@ public class S3Offset implements Offset {
     List<String> fileLists;
 
     @Override
+    public void setEndOffset(String endOffset) {
+        this.endFile = endOffset;
+    }
+
+    @Override
+    public String endOffset() {
+        return endFile;
+    }
+
+    @Override
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
     }
