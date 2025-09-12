@@ -121,9 +121,8 @@ PhysicalResultSink
 -- !agg_1 --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(), outputExpr=(sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)) AS `sum(random(100) between 0.6 and 0.7)`)]
-----hashAgg[LOCAL, groupByExpr=(), outputExpr=(partial_sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)) AS `partial_sum(cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT))`)]
-------PhysicalProject[$_random_5_$, cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT) AS `cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)`]
---------PhysicalOneRowRelation[random(100) AS `$_random_5_$`]
+----PhysicalProject[$_random_5_$, cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT) AS `cast(AND[($_random_5_$ >= 0.6),($_random_5_$ <= 0.7)] as TINYINT)`]
+------PhysicalOneRowRelation[random(100) AS `$_random_5_$`]
 
 -- !agg_2 --
 PhysicalResultSink

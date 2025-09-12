@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/base_tablet.h"
@@ -356,7 +357,7 @@ public:
     std::tuple<int64_t, int64_t> get_visible_version_and_time() const;
 
     void set_visible_version(const std::shared_ptr<const VersionWithTime>& visible_version) {
-        std::atomic_store_explicit(&_visible_version, visible_version, std::memory_order_relaxed);
+        _visible_version.store(visible_version);
     }
 
     bool should_fetch_from_peer();
@@ -644,7 +645,7 @@ private:
     int64_t _io_error_times = 0;
 
     // partition's visible version. it sync from fe, but not real-time.
-    std::atomic<std::shared_ptr<const VersionWithTime>> _visible_version;
+    atomic_shared_ptr<const VersionWithTime> _visible_version;
 
     std::atomic_bool _is_full_compaction_running = false;
 

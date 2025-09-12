@@ -255,6 +255,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn_id;
 extern BvarLatencyRecorderWithTag g_bvar_ms_check_kv;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict;
+extern BvarLatencyRecorderWithTag g_bvar_ms_begin_snapshot;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
 
@@ -281,8 +282,8 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes;
 extern mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts;
-extern mBvarIntAdder g_bvar_recycler_instance_recycle_total_num_since_started;
-extern mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes_since_started;
+extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started;
+extern mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started;
 extern mBvarIntAdder g_bvar_recycler_instance_recycle_round;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_time_per_resource;
 extern mBvarStatus<double> g_bvar_recycler_instance_recycle_bytes_per_ms;
@@ -492,6 +493,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_counter;
 
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
@@ -604,6 +607,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes;
 
 // meta ranges
 extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;

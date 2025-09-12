@@ -145,7 +145,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     if (_function == nullptr) {
         return Status::InternalError("Could not find function {}, arg {} return {} ",
-                                     _fn.name.function_name, get_child_names(),
+                                     _fn.name.function_name, get_child_type_names(),
                                      _data_type->get_name());
     }
     VExpr::register_function_context(state, context);

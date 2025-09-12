@@ -38,3 +38,6 @@
 -- !sql --
 3	Wikipedia;Miscellaneous-Jj102786 / 3tle Born Oct 27th 1986 @ Blytheville, Arkansas @ 9:14pm 23 yrs of age male,white Cucassion American raised Religion:Pentocostal,Church of God
 
+-- !sql --
+1	GET /french/images/nav_venue_off.gif HTTP/1.0
+

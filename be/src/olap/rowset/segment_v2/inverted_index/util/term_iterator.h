@@ -34,21 +34,11 @@ struct IOContext;
 
 namespace doris::segment_v2 {
 
-struct CLuceneDeleter {
-    void operator()(TermDocs* p) const {
-        if (p) {
-            _CLDELETE(p);
-        }
-    }
-};
-
 class TermIterator;
 using TermIterPtr = std::shared_ptr<TermIterator>;
 
 class TermIterator {
 public:
-    using TermDocsPtr = std::unique_ptr<TermDocs, CLuceneDeleter>;
-
     TermIterator() = default;
     TermIterator(std::wstring term, TermDocsPtr term_docs)
             : term_(std::move(term)), term_docs_(std::move(term_docs)) {}
@@ -95,17 +85,12 @@ public:
     static TermIterPtr create(const io::IOContext* io_ctx, bool is_similarity,
                               lucene::index::IndexReader* reader, const std::wstring& field_name,
                               const std::wstring& ws_term) {
-        auto t = make_term(field_name, ws_term);
-        auto* term_pos = reader->termDocs(t.get(), is_similarity, io_ctx);
-        return std::make_shared<TermIterator>(ws_term, TermDocsPtr(term_pos, CLuceneDeleter {}));
+        auto t = make_term_ptr(field_name.c_str(), ws_term.c_str());
+        auto term_docs = make_term_doc_ptr(reader, t.get(), is_similarity, io_ctx);
+        return std::make_shared<TermIterator>(ws_term, std::move(term_docs));
     }
 
 protected:
-    static TermPtr make_term(const std::wstring& field_name, const std::wstring& ws_term) {
-        return TermPtr(new lucene::index::Term(field_name.c_str(), ws_term.c_str()),
-                       TermDeleter {});
-    }
-
     std::wstring term_;
     TermDocsPtr term_docs_;
 };
