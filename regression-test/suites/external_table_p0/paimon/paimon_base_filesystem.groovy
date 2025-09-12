@@ -29,6 +29,8 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
         String catalog_cosn = "paimon_base_filesystem_paimon_cosn"
         String aliYunAk = context.config.otherConfigs.get("aliYunAk")
         String aliYunSk = context.config.otherConfigs.get("aliYunSk")
+        String aliYunEndpoint = context.config.otherConfigs.get("aliYunEndpoint")
+        String bucket = context.config.otherConfigs.get("aliYunBucket")
         String hwYunAk = context.config.otherConfigs.get("hwYunAk")
         String hwYunSk = context.config.otherConfigs.get("hwYunSk")
         String txYunAk = context.config.otherConfigs.get("txYunAk")
@@ -68,10 +70,10 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
             create catalog if not exists ${catalog_oss} properties (
                 "type" = "paimon",
                 "paimon.catalog.type"="filesystem",
-                "warehouse" = "oss://doris-regression-bj/regression/paimon1",
+                "warehouse" = "oss://${bucket}/regression/paimon1",
                 "oss.access_key"="${aliYunAk}",
                 "oss.secret_key"="${aliYunSk}",
-                "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
+                "oss.endpoint"="${aliYunEndpoint}"
             );
         """
         sql """

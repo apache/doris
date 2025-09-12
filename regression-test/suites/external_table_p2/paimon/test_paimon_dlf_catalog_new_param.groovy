@@ -28,6 +28,7 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
         String access_key = context.config.otherConfigs.get("dlf_access_key")
         String secret_key = context.config.otherConfigs.get("dlf_secret_key")
+        String oss_endpoint = context.config.otherConfigs.get("s3Endpoint")
         String dlf_vpc_endpoint = context.config.otherConfigs.get("dlf_vpc_endpoint")
         String dlf_public_endpoint = context.config.otherConfigs.get("dlf_public_endpoint")
 
@@ -44,7 +45,7 @@ suite("test_paimon_dlf_catalog_new_param", "p2,external,paimon,external_remote,e
             "dlf.access_key" = "${access_key}",
             "dlf.secret_key" = "${secret_key}",
             "dlf.endpoint" = "${dlf_vpc_endpoint}",
-            "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+            "oss.endpoint"="${oss_endpoint}",
             "oss.access_key" = "${access_key}",
             "oss.secret_key" = "${secret_key}"
             );

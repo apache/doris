@@ -69,8 +69,9 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     /****************OSS*******************/
     String oss_ak = context.config.otherConfigs.get("aliYunAk")
     String oss_sk = context.config.otherConfigs.get("aliYunSk")
-    String oss_endpoint = "oss-cn-beijing.aliyuncs.com"
-    String oss_warehouse = "oss://doris-regression-bj/regression/paimon_warehouse"
+    String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
+    String oss_bucket = context.config.otherConfigs.get("aliYunBucket")
+    String oss_warehouse = "oss://${oss_bucket}/regression/paimon_warehouse"
     String oss_warehouse_properties = """
         'warehouse' = '${oss_warehouse}',
     """

@@ -28,6 +28,7 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
         String catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
         String access_key = context.config.otherConfigs.get("dlf_access_key")
         String secret_key = context.config.otherConfigs.get("dlf_secret_key")
+        String oss_endpoint = context.config.otherConfigs.get("s3Endpoint")
 
 
         sql """drop catalog if exists ${catalog};"""
@@ -42,7 +43,7 @@ suite("test_paimon_dlf_catalog_miss_dlf_param", "p2,external,paimon,external_rem
             "dlf.catalog.id" = "${catalog_id}",
             "dlf.access_key" = "${access_key}",
             "dlf.secret_key" = "${secret_key}",
-            "oss.endpoint"="oss-cn-beijing.aliyuncs.com",
+            "oss.endpoint"="${oss_endpoint}",
             "oss.access_key" = "${access_key}",
             "oss.secret_key" = "${secret_key}"
             );
