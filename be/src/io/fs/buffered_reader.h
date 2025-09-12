@@ -279,7 +279,7 @@ public:
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
                          const std::vector<PrefetchRange>& random_access_ranges,
-                         int64_t merge_read_slice_size)
+                         int64_t merge_read_slice_size = READ_SLICE_SIZE)
             : _profile(profile),
               _reader(std::move(reader)),
               _random_access_ranges(random_access_ranges) {
