@@ -551,10 +551,12 @@ Status NewJsonReader::_read_one_message_from_pipe(DorisUniqueBufferPtr<uint8_t>*
     *read_size += cur_size;
     return Status::OK();
 }
+
 // ---------SIMDJSON----------
 // simdjson, replace none simdjson function if it is ready
 Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
+    
     RETURN_IF_ERROR(_open_file_reader(false));
     if (_read_json_by_line) {
         RETURN_IF_ERROR(_open_line_reader());
