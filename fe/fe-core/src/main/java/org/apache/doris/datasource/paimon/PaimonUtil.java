@@ -29,9 +29,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HiveUtil;
-import org.apache.doris.datasource.paimon.source.PaimonSource;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -511,26 +509,6 @@ public class PaimonUtil {
         }
     }
 
-    /**
-     * Builds a branch-specific table for time travel queries.
-     *
-     * @param source the Paimon source containing catalog and table information
-     * @param baseTable the base Paimon table
-     * @param branchName the branch name
-     * @return a Table instance configured to read from the specified branch
-     * @throws UserException if branch does not exist
-     */
-    public static Table getTableByBranch(PaimonSource source, Table baseTable, String branchName) throws UserException {
-
-        if (!checkBranchExists(baseTable, branchName)) {
-            throw new UserException(String.format("Branch '%s' does not exist", branchName));
-        }
-
-        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
-        ExternalTable externalTable = (ExternalTable) source.getTargetTable();
-        return catalog.getPaimonTable(externalTable.getOrBuildNameMapping(), branchName, null);
-    }
-
     // get snapshot info from query like 'for version/time as of' or '@tag'
     public static Snapshot getPaimonSnapshot(Table table, Optional<TableSnapshot> querySnapshot,
             Optional<TableScanParams> scanParams) throws UserException {
@@ -608,20 +586,17 @@ public class PaimonUtil {
         return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
     }
 
-    /**
-     * Checks if a branch exists in the given table.
-     *
-     * @param baseTable the Paimon table
-     * @param branchName the branch name to check
-     * @return true if branch exists, false otherwise
-     * @throws UserException if table is not a FileStoreTable
-     */
-    public static boolean checkBranchExists(Table baseTable, String branchName) throws UserException {
+    public static String getPaimonBranch(TableScanParams tableScanParams, Table baseTable)
+            throws UserException {
+        String branchName = extractBranchOrTagName(tableScanParams);
         if (!(baseTable instanceof FileStoreTable)) {
             throw new UserException("Table type should be FileStoreTable but got: " + baseTable.getClass().getName());
         }
 
         final FileStoreTable fileStoreTable = (FileStoreTable) baseTable;
-        return fileStoreTable.branchManager().branchExists(branchName);
+        if (!fileStoreTable.branchManager().branchExists(branchName)) {
+            throw new UserException("can't find branch: " + branchName);
+        }
+        return branchName;
     }
 }

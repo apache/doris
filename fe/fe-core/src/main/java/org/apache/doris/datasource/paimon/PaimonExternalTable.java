@@ -118,6 +118,27 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                         "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
                         e);
             }
+        } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
+            try {
+                String branch = PaimonUtil.getPaimonBranch(scanParams.get(), paimonTable);
+                Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping(), branch, null);
+                Optional<Snapshot> latestSnapshot = table.latestSnapshot();
+                long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
+                if (latestSnapshot.isPresent()) {
+                    latestSnapshotId = latestSnapshot.get().id();
+                }
+                // Branches in Paimon can have independent schemas and snapshots.
+                // TODO: Add time travel support for paimon branch tables.
+                DataTable dataTable = (DataTable) table;
+                Long schemaId = dataTable.schemaManager().latest().map(TableSchema::id).orElse(0L);
+                return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(latestSnapshotId, schemaId, dataTable));
+            } catch (Exception e) {
+                LOG.warn("Failed to get Paimon branch for table {}", paimonTable.name(), e);
+                throw new RuntimeException(
+                        "Failed to get Paimon branch: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
+            }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
             return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()

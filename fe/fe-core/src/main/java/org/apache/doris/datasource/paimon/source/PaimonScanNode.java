@@ -465,7 +465,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             sb.append(prefix).append("PaimonSplitStats: \n");
             int size = splitStats.size();
             if (size <= 4) {
-                for (SplitStat splitStat : splitStats) {
+                for (PaimonScanNode.SplitStat splitStat : splitStats) {
                     sb.append(String.format("%s  %s\n", prefix, splitStat));
                 }
             } else {
@@ -673,18 +673,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private Table getProcessedTable() throws UserException {
         Table baseTable = source.getPaimonTable();
-        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+        TableScanParams theScanParams = getScanParams();
+        if (theScanParams != null && getQueryTableSnapshot() != null) {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
-        TableScanParams theScanParams = getScanParams();
-        if (theScanParams != null) {
-            if (theScanParams.incrementalRead()) {
-                return baseTable.copy(getIncrReadParams());
-            }
 
-            if (theScanParams.isBranch()) {
-                return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
+        if (theScanParams != null && theScanParams.incrementalRead()) {
+            return baseTable.copy(getIncrReadParams());
         }
         return baseTable;
     }
