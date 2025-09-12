@@ -26,6 +26,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.Offset;
+import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -35,6 +36,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 
 import java.util.Optional;
@@ -48,32 +50,36 @@ public class StreamingInsertTask {
     private long jobId;
     private long taskId;
     private String labelName;
+    @Setter
     private TaskStatus status;
     private String errMsg;
     private Long createTimeMs;
     private Long startTimeMs;
     private Long finishTimeMs;
-    private InsertIntoTableCommand command;
+    private String sql;
+    private SourceOffsetProvider offsetProvider;
     private StmtExecutor stmtExecutor;
+    private InsertIntoTableCommand command;
     private String currentDb;
     private UserIdentity userIdentity;
     private ConnectContext ctx;
-    private Offset offset;
+    private Offset runningOffset;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
 
     public StreamingInsertTask(long jobId,
                                long taskId,
-                               InsertIntoTableCommand command,
+                               String sql,
+                               SourceOffsetProvider offsetProvider,
                                String currentDb,
-                               Offset offset,
-                               StreamingJobProperties jobProperties) {
+                               StreamingJobProperties jobProperties,
+                                UserIdentity userIdentity) {
         this.jobId = jobId;
         this.taskId = taskId;
-        this.command = command;
-        this.userIdentity = ctx.getCurrentUserIdentity();
+        this.sql = sql;
+        this.offsetProvider = offsetProvider;
+        this.userIdentity = userIdentity;
         this.currentDb = currentDb;
-        this.offset = offset;
         this.jobProperties = jobProperties;
         this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
         this.createTimeMs = System.currentTimeMillis();
@@ -101,7 +107,9 @@ public class StreamingInsertTask {
     }
 
     private void before() throws JobException {
+        this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
+
         if (isCanceled.get()) {
             throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
         }
@@ -109,7 +117,10 @@ public class StreamingInsertTask {
         ctx.setSessionVariable(jobProperties.getSessionVariable());
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
-        this.command.setLabelName(Optional.of(this.labelName));
+        offsetProvider.init(sql, jobProperties);
+        this.runningOffset = offsetProvider.getNextOffset();
+        this.command = offsetProvider.rewriteTvfParams(runningOffset);
+        this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
         this.command.setJobId(getTaskId());
         stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
     }
@@ -123,7 +134,7 @@ public class StreamingInsertTask {
                     log.info("task has been canceled, task id is {}", getTaskId());
                     return;
                 }
-                command.runWithUpdateInfo(ctx, stmtExecutor, null);
+                command.run(ctx, stmtExecutor);
                 if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
                     return;
                 } else {
@@ -138,13 +149,13 @@ public class StreamingInsertTask {
                 }
             } catch (Exception e) {
                 log.warn("execute insert task error, label is {},offset is {}", command.getLabelName(),
-                         offset.toJson(), e);
+                         runningOffset.toJson(), e);
                 errMsg = Util.getRootCauseMessage(e);
             }
             retry++;
         }
         log.error("streaming insert task failed, job id is {}, task id is {}, offset is {}, errMsg is {}",
-                getJobId(), getTaskId(), offset.toJson(), errMsg);
+                getJobId(), getTaskId(), runningOffset.toJson(), errMsg);
         throw new JobException(errMsg);
     }
 

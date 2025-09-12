@@ -97,16 +97,17 @@ public class StreamingTaskScheduler extends MasterDaemon {
                         task.getTaskId(), task.getJobId());
             return;
         }
-        if (job.hasMoreDataToConsume()) {
+        if (!job.hasMoreDataToConsume()) {
             scheduleTaskWithDelay(task, 500);
             return;
         }
-        if (job.needDelayScheduleTask()) {
+        if (job.getLastScheduleTaskTimestamp() != -1 && job.needDelayScheduleTask()) {
             scheduleTaskWithDelay(task, 500);
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
         task.execute();
+        job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
