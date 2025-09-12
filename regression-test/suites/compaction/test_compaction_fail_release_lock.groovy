@@ -81,15 +81,12 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
         boolean running = true
         Thread.sleep(1000)
         StringBuilder sb = new StringBuilder();
-        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("http://${be_host}:${be_http_port}")
         sb.append("/api/compaction/show?tablet_id=")
         sb.append(tablet_id)
 
         String command = sb.toString()
-        logger.info(command)
-        def process = command.execute()
-        def code = process.waitFor()
-        def out = process.getText()
+        def (code, out, err) = curl('GET', command)
         logger.info("Get tablet status:  =" + code + ", out=" + out)
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
@@ -101,15 +98,12 @@ suite("test_compaction_fail_release_lock", "nonConcurrent") {
         do {
             Thread.sleep(1000)
             StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://${be_host}:${be_http_port}")
+            sb.append("http://${be_host}:${be_http_port}")
             sb.append("/api/compaction/run_status?tablet_id=")
             sb.append(tablet_id)
 
             String command = sb.toString()
-            logger.info(command)
-            def process = command.execute()
-            def code = process.waitFor()
-            def out = process.getText()
+            def (code, out, err) = curl('GET', command)
             logger.info("Get compaction status: code=" + code + ", out=" + out)
             assertEquals(code, 0)
             def compactionStatus = parseJson(out.trim())
