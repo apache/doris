@@ -58,7 +58,7 @@ suite('test_warmup_delay_sc_query_tolerance', 'docker') {
         }
 
         // clear file cache is async, wait it done
-        sleep(5000)
+        sleep(1000)
     }
 
     def getBrpcMetrics = {ip, port, name ->
@@ -219,19 +219,20 @@ suite('test_warmup_delay_sc_query_tolerance', 'docker') {
         sql """
             create table test (
                 col0 int not null,
-                col1 int NOT NULL
+                col1 int NULL
             ) UNIQUE KEY(`col0`)
             DISTRIBUTED BY HASH(col0) BUCKETS 1
-            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true");
+            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "false");
         """
 
         clearFileCacheOnAllBackends()
-        sleep(5000)
 
         sql """use @${clusterName1}"""
         // load data
-        sql """insert into test values (1, 1)"""
-        sleep(5100)
+        sql """insert into test values (1, 1),(2,2);"""
+        sql """insert into test(col0,__DORIS_DELETE_SIGN__) values (1, 1);"""
+        sleep(5000)
 
         def tablets = sql_return_maparray """ show tablets from test; """
         logger.info("tablets: " + tablets)
@@ -249,12 +250,17 @@ suite('test_warmup_delay_sc_query_tolerance', 'docker') {
         assert num_submitted >= 1
         assert num_finished == num_submitted
 
+        sql """use @${clusterName2}"""
+        // ensure that base rowsets' meta are loaded on target cluster
+        qt_cluster2_0 "select * from test order by col0, __DORIS_VERSION_COL__;"
+        sql """use @${clusterName1}"""
+
         // inject sleep when read cluster warm up rowset for compaction and load
         GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudInternalServiceImpl::warm_up_rowset.download_segment", [sleep:10])
 
         sql """insert into test values (9, 9)"""
 
-        do_cumu_compaction(src_be, "test", tablet_id, 2, 3)
+        do_cumu_compaction(src_be, "test", tablet_id, 2, 4)
 
         // trigger a heavy SC
         sql "alter table test modify column col1 varchar(1000);"
@@ -270,17 +276,22 @@ suite('test_warmup_delay_sc_query_tolerance', 'docker') {
         // assert num_finished == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
 
 
-        // trigger a query on read cluster, can't read the SC converted data and new load data
         sql """use @${clusterName2}"""
 
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
+        sql "set skip_delete_sign=true;"
+        sql "set show_hidden_columns=true;"
+        sql "set skip_storage_engine_merge=true;"
+
+        qt_cluster2_1 "select * from test order by col0, __DORIS_VERSION_COL__;"
+
         sql "set query_freshness_tolerance_ms = 5000"
         def t1 = System.currentTimeMillis()
         def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
         def fallbackCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count")
-        qt_cluster2 """select * from test"""
+        qt_cluster2_2 "select * from test order by col0, __DORIS_VERSION_COL__;"
         def t2 = System.currentTimeMillis()
         logger.info("query in cluster2 cost=${t2 - t1} ms")
         assert t2 - t1 < 3000

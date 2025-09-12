@@ -31,8 +31,9 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         'file_cache_background_monitor_interval_ms=1000',
         'warm_up_rowset_slow_log_ms=1',
         'enable_compaction_delay_commit_for_warm_up=true',
-        'warm_up_rowset_sync_wait_min_timeout_ms=5000',
-        'warm_up_rowset_sync_wait_max_timeout_ms=5000', // to cause timeout
+        'read_cluster_cache_opt_verbose_log=true',
+        'warm_up_rowset_sync_wait_min_timeout_ms=100',
+        'warm_up_rowset_sync_wait_max_timeout_ms=100', // to cause timeout
     ]
     options.enableDebugPoints()
     options.cloudMode = true
@@ -58,7 +59,7 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         }
 
         // clear file cache is async, wait it done
-        sleep(5000)
+        sleep(2000)
     }
 
     def getBrpcMetrics = {ip, port, name ->
@@ -222,21 +223,21 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
                 col1 int NOT NULL
             ) UNIQUE KEY(`col0`)
             DISTRIBUTED BY HASH(col0) BUCKETS 1
-            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true");
+            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "false");
         """
 
         clearFileCacheOnAllBackends()
-        sleep(5000)
 
         sql """use @${clusterName1}"""
         // load data
         sql """insert into test values (1, 1)"""
-        sql """insert into test values (2, 2)"""
+        sql """insert into test(col0,col1,__DORIS_DELETE_SIGN__) values (1, 2, 1)"""
         sql """insert into test values (3, 3)"""
         sql """insert into test values (4, 4)"""
         sql """insert into test values (5, 5)"""
         sql """insert into test values (6, 6)"""
-        sleep(3000)
+        sleep(5000)
 
         def tablets = sql_return_maparray """ show tablets from test; """
         logger.info("tablets: " + tablets)
@@ -254,6 +255,11 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         assert num_submitted >= 6
         assert num_finished == num_submitted
 
+        sql """use @${clusterName2}"""
+        // ensure that base rowsets' meta are loaded on target cluster
+        qt_cluster2_0 "select * from test order by col0, __DORIS_VERSION_COL__;"
+        sql """use @${clusterName1}"""
+
         // inject sleep when read cluster warm up rowset for compaction and load
         GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudInternalServiceImpl::warm_up_rowset.download_segment", [sleep:10])
 
@@ -266,37 +272,47 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         waitForBrpcMetricValue(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_num", 1, /*timeout*/10000)
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
-        assertEquals(num_submitted + 1, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num"))
-        assertEquals(num_finished, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num"))
+        assert num_submitted + 1 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
+        assert num_finished == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
 
 
         // a new insert will trigger the sync rowset operation in the following query
         sql """insert into test values (9, 9)"""
+        sleep(500)
+        assert num_submitted + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
 
 
-        // in this moment, compaction has completed, but not commited, it's waiting for warm up
-        // trigger a query on read cluster, can't read the compaction data
+        // trigger a query on read cluster without query tolerance, read the origin data
         sql """use @${clusterName2}"""
-        sql "select * from test"
+        sql "set skip_delete_sign=true;"
+        sql "set show_hidden_columns=true;"
+        sql "set skip_storage_engine_merge=true;"
+        qt_cluster2_1 "select * from test order by col0, __DORIS_VERSION_COL__;"
         def tablet_status = getTabletStatus(be.ip, be.http_port, tablet_id)
         def rowsets = tablet_status ["rowsets"]
-        assert rowsets[1].contains("[2-2]")
-        assert rowsets[2].contains("[3-3]")
-        assert rowsets[3].contains("[4-4]")
-        assert rowsets[4].contains("[5-5]")
-        assert rowsets[5].contains("[6-6]")
-        assert rowsets[6].contains("[7-7]")
-        assert rowsets[7].contains("[8-8]")
+        assert rowsets[1].contains("[2-5]")
+        assert rowsets[2].contains("[6-6]")
+        assert rowsets[3].contains("[7-7]")
+        assert rowsets[4].contains("[8-8]")
+
+        // this query will trigger sync_rowsets, due to compaction cnts changes, version_overlap will be true, so that compaction rowset
+        // and new load rowset's warmup task will be triggered. However, these rowsets' warmup tasks have been triggered in passive warmup
+        // we check that they will not be triggered again
+        assert num_submitted + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
         
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
+        // trigger a query on read cluster without query tolerance, read the compacted data
         sql "set query_freshness_tolerance_ms = 5000"
         def t1 = System.currentTimeMillis()
         def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
         def fallbackCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count")
         // should not contains (9,9)
-        qt_cluster2 """select * from test"""
+        sql "set skip_delete_sign=true;"
+        sql "set show_hidden_columns=true;"
+        sql "set skip_storage_engine_merge=true;"
+        qt_cluster2 "select * from test order by col0, __DORIS_VERSION_COL__;"
         def t2 = System.currentTimeMillis()
         logger.info("query in cluster2 cost=${t2 - t1} ms")
         assert t2 - t1 < 3000
