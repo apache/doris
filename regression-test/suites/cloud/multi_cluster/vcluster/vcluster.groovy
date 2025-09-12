@@ -18,6 +18,8 @@
 import groovy.json.JsonOutput
 
 suite("vcluster") {
+    if (isCloudMode()) return
+
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
     String tableName = "test_all_vcluster"
