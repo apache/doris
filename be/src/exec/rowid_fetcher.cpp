@@ -134,10 +134,6 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
     return mget_req;
 }
 
-static void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
 Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                                         const std::vector<PMultiGetResponse>& rsps,
                                         const std::vector<brpc::Controller>& cntls,
