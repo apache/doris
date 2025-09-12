@@ -20,6 +20,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -54,10 +55,8 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         }
 
         Plan root = rewrite(
-                null, -1, originPlan, jobContext, rules, false, new ProcessState(originPlan)
+                null, -1, originPlan, jobContext, relateRules.get(), false, new ProcessState(originPlan)
         );
-        jobContext.getCascadesContext().setRewritePlan(root);
-
         jobContext.getCascadesContext().setRewritePlan(root);
     }
 
@@ -142,6 +141,6 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         if (validRules.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(originRules);
+        return Optional.of(new FilteredRules(validRules));
     }
 }
