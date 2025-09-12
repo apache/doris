@@ -2567,8 +2567,7 @@ public class SessionVariable implements Serializable, Writable {
 
 
     @VariableMgr.VarAttr(name = MERGE_READ_SLICE_SIZE, description = {"调整READ_SLICE_SIZE大小，降低Merge IO读放大影响",
-        "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."},
-        checker = "checkAggPhase")
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
     public int mergeReadSliceSize = 8388608;
 
     public void setAggPhase(int phase) {
@@ -4689,7 +4688,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
         tResult.setMergeReadSliceSize(mergeReadSliceSize);
-        
         return tResult;
     }
 
