@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.mtmv.SyncMvMetrics;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -69,12 +70,16 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     private Expr whereClause;
     private Map<String, Column> nameToColumn;
     private Map<String, Column> definedNameToColumn;
+    private SyncMvMetrics syncMvMetrics;
 
     @SerializedName(value = "dbName")
     private String dbName;
 
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
+    public MaterializedIndexMeta() {
+        this.syncMvMetrics = new SyncMvMetrics();
+    }
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
@@ -100,6 +105,7 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         this.indexes = indexes != null ? indexes : Lists.newArrayList();
         initColumnNameMap();
         this.dbName = dbName;
+        this.syncMvMetrics = new SyncMvMetrics();
     }
 
     public void setWhereClause(Expr whereClause) {
@@ -234,6 +240,10 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     public OriginStatement getDefineStmt() {
         return defineStmt;
+    }
+
+    public SyncMvMetrics getSyncMvMetrics() {
+        return syncMvMetrics;
     }
 
     @Override

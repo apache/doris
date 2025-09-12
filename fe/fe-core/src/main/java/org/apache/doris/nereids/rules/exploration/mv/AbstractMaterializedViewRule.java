@@ -373,6 +373,8 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                         mtmv.getMvPartitionInfo().getPartitionCol()));
                         continue;
                     }
+                    AsyncMaterializationContext asyncMaterializationContext = (AsyncMaterializationContext) materializationContext;
+                    asyncMaterializationContext.setPartitionNeedUnion(true);
                     if (finalInvalidPartitions.value().isEmpty() || !planAndNeedAddFilterPair.value()) {
                         // if invalid base table filter is empty or doesn't need to add filter on base table,
                         // only need remove mv invalid partition

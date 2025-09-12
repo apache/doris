@@ -43,6 +43,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
+import org.apache.doris.mtmv.AsyncMvMetrics;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -80,6 +81,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -125,15 +127,35 @@ public class MTMVTask extends AbstractTask {
     }
 
     public enum MTMVTaskTriggerMode {
-        MANUAL,
-        COMMIT,
-        SYSTEM
+        MANUAL("MANUAL"),
+        COMMIT("COMMIT"),
+        SYSTEM("SCHEDULE");
+
+        private String displayName;
+
+        private MTMVTaskTriggerMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
     }
 
     public enum MTMVTaskRefreshMode {
-        COMPLETE,
-        PARTIAL,
-        NOT_REFRESH
+        COMPLETE("COMPLETE"),
+        PARTIAL("PARTITION"),
+        NOT_REFRESH("NOT_REFRESH");
+
+        private String displayName;
+
+        private MTMVTaskRefreshMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
     }
 
     @SerializedName(value = "di")
@@ -235,6 +257,7 @@ public class MTMVTask extends AbstractTask {
                 MetaLockUtils.readUnlockTables(tableIfs);
             }
             this.refreshMode = generateRefreshMode(needRefreshPartitions);
+            AsyncMvMetrics.recordRefreshMetrics(mtmv, refreshMode, taskContext);
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
@@ -639,6 +662,28 @@ public class MTMVTask extends AbstractTask {
 
     public MTMVTaskContext getTaskContext() {
         return taskContext;
+    }
+
+    public MTMVTaskRefreshMode getRefreshMode() {
+        return refreshMode;
+    }
+
+    public String getLastQueryId() {
+        return lastQueryId;
+    }
+
+    public List<String> getCompletedPartitions() {
+        if (completedPartitions == null) {
+            return Collections.emptyList();
+        }
+        return completedPartitions;
+    }
+
+    public List<String> getNeedRefreshPartitions() {
+        if (needRefreshPartitions == null) {
+            return Collections.emptyList();
+        }
+        return needRefreshPartitions;
     }
 
     @Override

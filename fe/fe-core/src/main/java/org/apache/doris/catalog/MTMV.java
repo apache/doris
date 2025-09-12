@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.AsyncMvMetrics;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -84,11 +85,13 @@ public class MTMV extends OlapTable {
     private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
     private MTMVCache cache;
+    private AsyncMvMetrics asyncMvMetrics;
 
     // For deserialization
     public MTMV() {
         type = TableType.MATERIALIZED_VIEW;
         mvRwLock = new ReentrantReadWriteLock(true);
+        asyncMvMetrics = new AsyncMvMetrics();
     }
 
     MTMV(MTMVParams params) {
@@ -111,6 +114,7 @@ public class MTMV extends OlapTable {
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
         mvRwLock = new ReentrantReadWriteLock(true);
+        asyncMvMetrics = new AsyncMvMetrics();
     }
 
     @Override
@@ -477,6 +481,10 @@ public class MTMV extends OlapTable {
 
     public boolean canBeCandidate() {
         return getStatus().canBeCandidate();
+    }
+
+    public AsyncMvMetrics getAsyncMvMetrics() {
+        return asyncMvMetrics;
     }
 
     public void readMvLock() {

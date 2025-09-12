@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -67,8 +68,12 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskRefreshMode;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.AsyncMvMetrics;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -135,6 +140,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -162,6 +168,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
     private static final ImmutableMap<String, Integer> ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
     private static final ImmutableMap<String, Integer> ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> MVIEW_TASKS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> SYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -246,6 +254,20 @@ public class MetadataGenerator {
             activityAsyncMviewBuilder.put(activityAsyncMviewBuilderColList.get(i).getName().toLowerCase(), i);
         }
         ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX = activityAsyncMviewBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> mviewTasksBuilder = new ImmutableMap.Builder();
+        List<Column> mviewTasksBuilderColList = SchemaTable.TABLE_MAP.get("mview_tasks").getFullSchema();
+        for (int i = 0; i < mviewTasksBuilderColList.size(); i++) {
+            mviewTasksBuilder.put(mviewTasksBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        MVIEW_TASKS_COLUMN_TO_INDEX = mviewTasksBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> syncMviewStatusBuilder = new ImmutableMap.Builder();
+        List<Column> syncMviewStatusBuilderColList = SchemaTable.TABLE_MAP.get("sync_mview_status").getFullSchema();
+        for (int i = 0; i < syncMviewStatusBuilderColList.size(); i++) {
+            syncMviewStatusBuilder.put(syncMviewStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        SYNC_MVIEW_STATUS_COLUMN_TO_INDEX = syncMviewStatusBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -362,6 +384,12 @@ public class MetadataGenerator {
             case VIEW_DEPENDENCY2:
                 result = activityAsyncMviewMetadataResult(schemaTableParams);
                 columnIndex = ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
+            case task:
+                result = mviewTasksMetadataResult(schemaTableParams);
+                columnIndex = MVIEW_TASKS_COLUMN_TO_INDEX;
+            case sync_view:
+                result = syncMviewStatusMetadataResult(schemaTableParams);
+                columnIndex = SYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -861,6 +889,7 @@ public class MetadataGenerator {
                         continue;
                     }
                     TRow trow = new TRow();
+                    AsyncMvMetrics asyncMvMetrics = mtmv.getAsyncMvMetrics();
                     // ASYNC_MVIEW_ID
                     trow.addToColumnValue(new TCell().setLongVal(tableId));
                     // ASYNC_MVIEW_CATALOG
@@ -869,8 +898,224 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(dbName));
                     // ASYNC_MVIEW_NAME
                     trow.addToColumnValue(new TCell().setStringVal(tableName));
-
+                    long rewriteFullSuccess = asyncMvMetrics.getRewriteFullSuccess().getValue();
+                    long rewritePartialSuccess = asyncMvMetrics.getRewritePartialSuccess().getValue();
+                    // REWRITE_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewriteFullSuccess + rewritePartialSuccess));
+                    // REWRITE_FULL_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewriteFullSuccess));
+                    // REWRITE_PARTIAL_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewritePartialSuccess));
+                    // REWRITE_SUCCESS_WITH_HINT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getRewriteSuccessWithHint().getValue()));
+                    long staleDate = asyncMvMetrics.getRewriteFailureStaleData().getValue();
+                    long cboRejected = asyncMvMetrics.getRewriteFailureCboRejected().getValue();
+                    long shapeMismatch = asyncMvMetrics.getRewriteFailureShapeMismatch().getValue();
+                    long withHint = asyncMvMetrics.getRewriteFailureWithHint().getValue();
+                    // REWRITE_FAILURE
+                    trow.addToColumnValue(new TCell().setLongVal(staleDate + cboRejected + shapeMismatch + withHint));
+                    // REWRITE_FAILURE_STALE_DATA
+                    trow.addToColumnValue(new TCell().setLongVal(staleDate));
+                    // REWRITE_FAILURE_SHAPE_MISMATCH
+                    trow.addToColumnValue(new TCell().setLongVal(shapeMismatch));
+                    // REWRITE_FAILURE_CBO_REJECTED
+                    trow.addToColumnValue(new TCell().setLongVal(cboRejected));
+                    // REWRITE_FAILURE_WITH_HINT
+                    trow.addToColumnValue(new TCell().setLongVal(withHint));
+                    // MANUAL_REFRESHES_ON_AUTO
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnAuto().getValue()));
+                    // MANUAL_REFRESHES_ON_PARTITIONS
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnPartitions().getValue()));
+                    // MANUAL_REFRESHES_ON_COMPLETE
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnComplete().getValue()));
+                    // AUTO_REFRESHES_ON_SCHEDULE
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getAutoRefreshesOnSchedule().getValue()));
+                    // AUTO_REFRESHES_ON_COMMIT
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getAutoRefreshesOnCommit().getValue()));
+                    // LAST_REWRITE_TIME
+                    // todo long type ==> date type
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getLastRewriteTime()));
+                    // LAST_QUERY_TIME
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getLastQueryTime()));
+                    // REFRESHES_SKIPPED
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesSkipped().getValue()));
+                    // REFRESHES_FAST
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesFast().getValue()));
+                    // REFRESHES_PCT
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesPct().getValue()));
+                    // REFRESHES_COMPLETE
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesComplete().getValue()));
                     dataBatch.add(trow);
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult mviewTasksMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
+        List<Expression> taskIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TASK_ID");
+
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
+                    // todo: check auth
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long mtmvId = mtmv.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", mtmvId)) {
+                        continue;
+                    }
+                    MTMVJob mtmvJob = MTMVJobManager.getJobByMTMV(mtmv);
+                    List<MTMVTask> mtmvTasks = mtmvJob.queryAllTasks();
+                    for (MTMVTask mtmvTask:mtmvTasks) {
+                        long taskId = mtmvTask.getTaskId();
+                        if (FrontendConjunctsUtils.isFiltered(taskIdConjuncts, "TASK_ID", taskId)) {
+                            continue;
+                        }
+                        TRow trow = new TRow();
+                        // TASK_ID
+                        trow.addToColumnValue(new TCell().setLongVal(taskId));
+                        // ASYNC_MVIEW_ID
+                        trow.addToColumnValue(new TCell().setLongVal(mtmvId));
+                        // ASYNC_MVIEW_CATALOG
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        // ASYNC_MVIEW_SCHEMA
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        // ASYNC_MVIEW_NAME
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        // TYPE
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getTaskContext().getTriggerMode().getDisplayName()));
+                        // METHOD
+                        MTMVTaskRefreshMode refreshMode = mtmvTask.getRefreshMode();
+                        trow.addToColumnValue(new TCell().setStringVal(refreshMode==null?"":refreshMode.getDisplayName()));
+                        // CREATE_TIME
+                        // todo long datetime
+                        trow.addToColumnValue(new TCell().setLongVal(mtmvTask.getCreateTimeMs()));
+                        // START_TIME
+                        Long startTimeMs = mtmvTask.getStartTimeMs();
+                        trow.addToColumnValue(new TCell().setLongVal(startTimeMs));
+                        // FINISHED_TIME
+                        long finishTimeMs = mtmvTask.getFinishTimeMs();
+                        trow.addToColumnValue(new TCell().setLongVal(finishTimeMs));
+                        // DURATION_MS
+                        trow.addToColumnValue(
+                                new TCell().setLongVal(finishTimeMs == 0 ? 0L : finishTimeMs - startTimeMs));
+                        // STATUS
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getStatus().name()));
+                        // IS_FORCE_REFRESH
+                        trow.addToColumnValue(new TCell().setBoolVal(mtmvTask.getTaskContext().isComplete()));
+                        // ERROR_CODE
+                        trow.addToColumnValue(new TCell().setIntVal(0));
+                        // ERROR_MESSAGE
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getErrMsg()));
+                        // MV_REFRESH_PARTITIONS
+                        // todo array
+                        List<String> needRefreshPartitions = mtmvTask.getNeedRefreshPartitions();
+                        List<String> completedPartitions = mtmvTask.getCompletedPartitions();
+                        trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(needRefreshPartitions)));
+                        // MV_COMPLETED_PARTITIONS
+                        trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(completedPartitions)));
+                        // PROGRESS
+                        trow.addToColumnValue(new TCell().setDoubleVal(
+                                completedPartitions.size() * 100 / needRefreshPartitions.size()));
+                        // LAST_QUERY_ID
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getLastQueryId()));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult syncMviewStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "SYNC_MVIEW_SCHEMA");
+        List<Expression> mviewTableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_TABLE");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_NAME");
+
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "SYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) table;
+                    // todo: check auth
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(mviewTableConjuncts, "SYNC_MVIEW_TABLE", tableName)) {
+                        continue;
+                    }
+                    Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
+                    Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+                    for (Entry<String,Long> entry : indexNameToId.entrySet()) {
+                        long mviewId = entry.getValue();
+                        String mviewName = entry.getKey();
+                        if (mviewId == olapTable.getBaseIndexId()) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "SYNC_MVIEW_ID", mviewId)) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "SYNC_MVIEW_NAME", mviewName)) {
+                            continue;
+                        }
+                        TRow trow = new TRow();
+                        // SYNC_MVIEW_ID
+                        trow.addToColumnValue(new TCell().setLongVal(mviewId));
+                        // SYNC_MVIEW_CATALOG
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        // SYNC_MVIEW_SCHEMA
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        // SYNC_MVIEW_TABLE
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        // SYNC_MVIEW_NAME
+                        trow.addToColumnValue(new TCell().setStringVal(mviewName));
+                        dataBatch.add(trow);
+                    }
                 }
             }
         }

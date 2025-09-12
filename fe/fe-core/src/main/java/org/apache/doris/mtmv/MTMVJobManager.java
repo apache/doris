@@ -212,7 +212,7 @@ public class MTMVJobManager implements MTMVHookService {
         return getJobByMTMV(mtmv);
     }
 
-    private MTMVJob getJobByMTMV(MTMV mtmv) {
+    public static MTMVJob getJobByMTMV(MTMV mtmv) {
         return (MTMVJob) Env.getCurrentEnv().getJobManager().getJob(mtmv.getId());
     }
 

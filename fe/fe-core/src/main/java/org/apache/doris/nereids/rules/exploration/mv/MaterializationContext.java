@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.MvMetrics;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
@@ -221,6 +222,11 @@ public abstract class MaterializationContext {
      * Get materialization unique identifier which identify it
      */
     public abstract List<String> generateMaterializationIdentifier();
+
+    /**
+     * Get materialization metrics
+     */
+    public abstract Optional<MvMetrics> getMaterializationMetrics();
 
     /**
      * Common method for generating materialization identifier by index name
@@ -422,6 +428,33 @@ public abstract class MaterializationContext {
             }
         }, null);
         return chosenMaterializationQualifiers;
+    }
+
+    /**
+     * get MaterializationContext for all mvs rewrite success and chosen by current query.
+     *
+     * @param materializationContexts all mv candidates context for current query
+     * @param physicalPlan the chosen plan for current query
+     * @return chosen mvs' MaterializationContext
+     */
+    public static Set<MaterializationContext> getChosenMvsContext(
+            List<MaterializationContext> materializationContexts, Plan physicalPlan) {
+        Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
+                .collect(Collectors.toSet());
+        Set<MaterializationContext> chosenContexts = new HashSet<>();
+        physicalPlan.accept(new DefaultPlanVisitor<Void, Void>() {
+            @Override
+            public Void visitPhysicalRelation(PhysicalRelation physicalRelation, Void context) {
+                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
+                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
+                        chosenContexts.add(rewrittenContext);
+                    }
+                }
+                return null;
+            }
+        }, null);
+        return chosenContexts;
     }
 
     /**
