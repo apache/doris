@@ -317,8 +317,8 @@ struct RadiansImpl {
     static constexpr PrimitiveType ResultType = ResultOfUnaryFunc<A>::ResultType;
 
     static inline typename PrimitiveTypeTraits<ResultType>::ColumnItemType apply(A a) {
-        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(
-                a * PiImpl::value / 180.0);
+        return static_cast<typename PrimitiveTypeTraits<ResultType>::ColumnItemType>(a / 180.0 *
+                                                                                     PiImpl::value);
     }
 };
 
