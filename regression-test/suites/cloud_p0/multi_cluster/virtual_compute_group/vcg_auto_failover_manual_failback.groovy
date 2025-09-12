@@ -21,12 +21,12 @@ import groovy.json.JsonOutput
 
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
 // 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
-// 3 set vcg as default cluster
+// 3 use vcg
 // 4 stop 2 bes of c1
 // 5 start 2 bes of c1
 // 6 long-term stop 2 bes of c1
 
-suite('default_vcg_auto_failover', 'multi_cluster,docker') {
+suite('vcg_auto_failover_manual_failback', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     String tableName = "test_all_vcluster"
     String tbl = "test_virtual_compute_group_tbl"
@@ -125,33 +125,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             }
             log.info("backends of cluster2: ${clusterName2} ${cluster2Ips}".toString())
 
-            sql """ SET PROPERTY 'default_cloud_cluster' = 'normalVirtualClusterName' """
-
-            def reconnectFe = {
-                sleep(10000)
-                logger.info("Reconnecting to a new frontend...")
-                def newFe
-                if (options.connectToFollower) {
-                    newFe = cluster.getOneFollowerFe()
-                } else {
-                    newFe = cluster.getMasterFe()
-                }
-
-                if (newFe) {
-                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
-                    def url = String.format(
-                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
-                            newFe.host, newFe.queryPort)
-                    url = context.config.buildUrlWithDb(url, context.dbName)
-                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
-                    logger.info("Successfully reconnected to the new frontend")
-                } else {
-                    logger.error("No new frontend found to reconnect")
-                }
-            }
-
-            reconnectFe()
-
+            sql """use @${normalVclusterName}"""
             sql """ drop table if exists ${tableName} """
 
             sql """
@@ -205,6 +179,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -288,6 +263,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -367,6 +343,7 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
                 table "${tableName}"
 
                 set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
@@ -425,6 +402,116 @@ suite('default_vcg_auto_failover', 'multi_cluster,docker') {
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
             assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
+
+            cluster.startBackends(4, 5)
+            // alter cluster info, change standbyComputeGroup to newcluster2, activeComputeGroup to newcluster1
+            clusterPolicy = [type: "ActiveStandby", active_cluster_name: "newcluster1", standby_cluster_names: ["newcluster2"]]
+            clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_policy:clusterPolicy]
+            normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
+            jsonOutput = new JsonOutput()
+            normalVcgBody = jsonOutput.toJson(normalInstance)
+            alter_cluster_info_api(msHttpPort, normalVcgBody) {
+                respCode, body ->
+                    log.info("alter virtual cluster result: ${body} ${respCode}".toString())
+                    def json = parseJson(body)
+                    assertTrue(json.code.equalsIgnoreCase("OK"))
+            }
+
+            before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            log.info("before_cluster1_be0_load_rows : ${before_cluster1_be0_load_rows}".toString())
+            before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            log.info("before_cluster1_be0_flush : ${before_cluster1_be0_flush}".toString())
+
+            before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            log.info("before_cluster1_be1_load_rows : ${before_cluster1_be1_load_rows}".toString())
+            before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            log.info("before_cluster1_be1_flush : ${before_cluster1_be1_flush}".toString())
+
+            before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
+            before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            log.info("before_cluster2_be0_flush : ${before_cluster2_be0_flush}".toString())
+
+            before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            log.info("before_cluster2_be1_load_rows : ${before_cluster2_be1_load_rows}".toString())
+            before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
+
+            txnId = -1;
+            streamLoad {
+                table "${tableName}"
+
+                set 'column_separator', ','
+                set 'cloud_cluster', 'normalVirtualClusterName'
+
+                file 'all_types.csv'
+                time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
+
+                check { loadResult, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${loadResult}".toString())
+                    def json = parseJson(loadResult)
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    txnId = json.TxnId
+                }
+            }
+
+            sql """
+                insert into ${tbl} (k1, k2) values (1, "10");
+            """
+
+            sql "sync"
+            order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
+            order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
+
+            after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
+            after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            log.info("after_cluster1_be0_flush : ${after_cluster1_be0_flush}".toString())
+
+            after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            log.info("after_cluster1_be1_load_rows : ${after_cluster1_be1_load_rows}".toString())
+            after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            log.info("after_cluster1_be1_flush : ${after_cluster1_be1_flush}".toString())
+
+            after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            log.info("after_cluster2_be0_load_rows : ${after_cluster2_be0_load_rows}".toString())
+            after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            log.info("after_cluster2_be0_flush : ${after_cluster2_be0_flush}".toString())
+
+            after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            log.info("after_cluster2_be1_load_rows : ${after_cluster2_be1_load_rows}".toString())
+            after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
+
+            assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
+            assertTrue(before_cluster1_be0_flush < after_cluster1_be0_flush || before_cluster1_be1_flush < after_cluster1_be1_flush)
+
+            assertTrue(before_cluster2_be0_load_rows == after_cluster2_be0_load_rows)
+            assertTrue(before_cluster2_be0_flush == after_cluster2_be0_flush)
+            assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
+            assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
+
+            addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
+
+
+            sleep(6000)
+            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            log.info("show compute group after alter {}", showComputeGroup)
+            vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
+            assertNotNull(vcgInShow)
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
         }
         // connect to follower, run again
         options.connectToFollower = true

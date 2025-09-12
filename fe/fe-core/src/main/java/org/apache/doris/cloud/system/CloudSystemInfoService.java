@@ -148,6 +148,16 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    public boolean isStandByComputeGroup(String clusterName) {
+        List<ComputeGroup> virtualGroups = getComputeGroups(true);
+        for (ComputeGroup vcg : virtualGroups) {
+            if (vcg.getPolicy().getStandbyComputeGroup().equals(clusterName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<ComputeGroup> getComputeGroups(boolean virtual) {
         LOG.debug("get virtual {} computeGroupIdToComputeGroup : {} ", virtual, computeGroupIdToComputeGroup);
         try {
@@ -840,7 +850,8 @@ public class CloudSystemInfoService extends SystemInfoService {
                     return acgName;
                 } else {
                     if (acg.getUnavailableSince() <= 0) {
-                        acg.setUnavailableSince(System.currentTimeMillis());
+                        acg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(acgName) * Config.heartbeat_interval_second * 1000);
                     }
                 }
             }
@@ -862,7 +873,10 @@ public class CloudSystemInfoService extends SystemInfoService {
                     }
                     return scgName;
                 } else {
-                    scg.setUnavailableSince(System.currentTimeMillis());
+                    if (scg.getUnavailableSince() <= 0) {
+                        scg.setUnavailableSince(System.currentTimeMillis()
+                                - computeGroupFailureCount(scgName) * Config.heartbeat_interval_second * 1000);
+                    }
                 }
             }
         }
@@ -891,6 +905,26 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
 
         return true;
+    }
+
+    public int computeGroupFailureCount(String cg) {
+        List<Backend> bes = getBackendsByClusterName(cg);
+        if (bes == null || bes.isEmpty()) {
+            return 0;
+        }
+
+        int failureCount = 0;
+        for (Backend be : bes) {
+            if (!be.isAlive()) {
+                if (failureCount == 0) {
+                    failureCount = be.getHeartbeatFailureCounter();
+                } else {
+                    failureCount = Math.min(be.getHeartbeatFailureCounter(), failureCount);
+                }
+            }
+        }
+
+        return failureCount;
     }
 
     public String getClusterNameByBeAddr(String beEndpoint) {
@@ -1132,9 +1166,10 @@ public class CloudSystemInfoService extends SystemInfoService {
     }
 
     public ImmutableMap<Long, Backend> getCloudIdToBackendNoLock(String clusterName) {
-        String clusterId = clusterNameToId.get(clusterName);
+        String physicalClusterName = getPhysicalCluster(clusterName);
+        String clusterId = clusterNameToId.get(physicalClusterName);
         if (Strings.isNullOrEmpty(clusterId)) {
-            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", clusterName);
+            LOG.warn("cant find clusterId, this cluster may be has been dropped, clusterName={}", physicalClusterName);
             return ImmutableMap.of();
         }
         List<Backend> backends = clusterIdToBackend.get(clusterId);
