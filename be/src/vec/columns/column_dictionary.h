@@ -47,9 +47,9 @@ class ColumnDictI32 final : public COWHelper<IColumn, ColumnDictI32> {
 private:
     friend class COWHelper<IColumn, ColumnDictI32>;
 
-    ColumnDictI32() {}
-    ColumnDictI32(const size_t n) : _codes(n) {}
-    ColumnDictI32(const ColumnDictI32& src) : _codes(src._codes.begin(), src._codes.end()) {}
+    ColumnDictI32(const ColumnDictI32& src) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "copy not supported in ColumnDictionary");
+    }
     ColumnDictI32(FieldType type) : _type(type) {}
 
 public:
@@ -62,11 +62,6 @@ public:
     bool is_column_dictionary() const override { return true; }
 
     size_t size() const override { return _codes.size(); }
-
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "get_data_at not supported in ColumnDictionary");
-    }
 
     void insert_from(const IColumn& src, size_t n) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
@@ -82,16 +77,6 @@ public:
                              const uint32_t* indices_end) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "insert_indices_from not supported in ColumnDictionary");
-    }
-
-    void update_hash_with_value(size_t n, SipHash& hash) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "update_hash_with_value not supported in ColumnDictionary");
-    }
-
-    void insert_data(const char* pos, size_t /*length*/) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "insert_data not supported in ColumnDictionary");
     }
 
     void insert_default() override { _codes.push_back(_dict.get_null_code()); }
@@ -123,7 +108,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
-        return this->create();
+        return create(_type);
     }
 
     void insert(const Field& x) override {
@@ -150,16 +135,6 @@ public:
         throw doris::Exception(
                 ErrorCode::INTERNAL_ERROR,
                 "deserialize_and_insert_from_arena not supported in ColumnDictionary");
-    }
-
-    [[noreturn]] StringRef get_raw_data() const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "get_raw_data not supported in ColumnDictionary");
-    }
-
-    [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "structure_equals not supported in ColumnDictionary");
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
@@ -293,8 +268,7 @@ public:
 
         auto res = create_column();
         res->reserve(_codes.capacity());
-        for (size_t i = 0; i < _codes.size(); ++i) {
-            auto& code = reinterpret_cast<Int32&>(_codes[i]);
+        for (int code : _codes) {
             auto value = _dict.get_value(code);
             res->insert_data(value.data, value.size);
         }
@@ -319,7 +293,7 @@ public:
 
     class Dictionary {
     public:
-        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {}
+        Dictionary() : _dict_data(new DictContainer()) {}
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 
@@ -440,13 +414,12 @@ public:
                 _perm[i] = i;
             }
 
-            std::sort(_perm.begin(), _perm.end(),
-                      [&dict_data = *_dict_data, &comparator = _comparator](const size_t a,
-                                                                            const size_t b) {
-                          return comparator(dict_data[a], dict_data[b]);
-                      });
+            std::ranges::sort(_perm, [&dict_data = *_dict_data, &comparator = _comparator](
+                                             const size_t a, const size_t b) {
+                return comparator(dict_data[a], dict_data[b]);
+            });
 
-            auto new_dict_data = new DictContainer(dict_size);
+            auto* new_dict_data = new DictContainer(dict_size);
             for (size_t i = 0; i < dict_size; ++i) {
                 _code_convert_table[_perm[i]] = (Int32)i;
                 (*new_dict_data)[i] = (*_dict_data)[_perm[i]];
@@ -501,7 +474,7 @@ public:
         mutable HashValueContainer _hash_values;
         mutable std::vector<uint8_t> _compute_hash_value_flags;
         IColumn::Permutation _perm;
-        size_t _total_str_len;
+        size_t _total_str_len = 0;
     };
 
     size_t serialize_size_at(size_t row) const override { return sizeof(value_type); }

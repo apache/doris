@@ -3219,7 +3219,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     int64_t txn_id_base = 114115;
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
-        // creare stats key
+        // create stats key
         create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
         for (int j = 0; j < 10; ++j) {
             auto rowset = create_rowset("recycle_tablet", tablet_id, index_id, 5, schemas[j % 5]);
@@ -3242,6 +3242,36 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
         check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+    }
+
+    {
+        // Create some snapshots
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string snapshot_key = versioned::snapshot_full_key(instance_id);
+        SnapshotPB snapshot;
+        versioned_put(txn.get(), snapshot_key, snapshot.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+
+    {
+        // No thing to recycle
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+
+        std::string start_meta_key = meta_key_prefix(instance_id);
+        std::string end_meta_key = meta_key_prefix(instance_id + '\x00');
+        ASSERT_EQ(txn->get(start_meta_key, end_meta_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_GT(it->size(), 0);
+
+        // Now remove the snapshot key
+        std::string snapshot_key = versioned::snapshot_full_key(instance_id);
+        versioned_remove_all(txn.get(), snapshot_key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
