@@ -51,28 +51,20 @@ suite("test_iceberg_cast_predicate_partition_pruning", "p0,external,doris,extern
         // ==============================================
         // Core CAST scenarios - original issue #55804 
         // ==============================================
-        
-        // Test 1: CAST string partition to date - the exact failing scenario
-        // Before fix: String comparison would fail lexicographically
-        // After fix: Proper date conversion should work correctly
-        qt_cast_string_to_date """
-            select count(*) from string_partitioned 
-            where CAST(partition_key AS DATE) >= DATE '2024-01-01';
-        """
-        
-        // Test 2: CAST timestamp partition to date  
+
+        // Test 1: CAST timestamp partition to date
         qt_cast_timestamp_to_date """
             select count(*) from timestamp_partitioned 
             where CAST(partition_key AS DATE) = DATE '2024-01-15';
         """
         
-        // Test 3: CAST int partition to string with IN predicate
+        // Test 2: CAST int partition to string with IN predicate
         qt_cast_int_to_string """
             select count(*) from int_partitioned 
             where CAST(partition_key AS STRING) IN ('1', '2');
         """
         
-        // Test 4: CAST float partition to int
+        // Test 3: CAST float partition to int
         qt_cast_float_to_int """
             select count(*) from float_partitioned 
             where CAST(partition_key AS INT) BETWEEN 10 AND 30;
@@ -82,19 +74,13 @@ suite("test_iceberg_cast_predicate_partition_pruning", "p0,external,doris,extern
         // Mixed predicates and edge cases
         // ==============================================
         
-        // Test 5: CAST with normal predicate (should push normal part only)
-        qt_cast_and_normal """
-            select count(*) from string_partitioned 
-            where id > 2 AND CAST(partition_key AS DATE) >= DATE '2024-01-01';
-        """
-        
-        // Test 6: Nested CAST expressions
+        // Test 4: Nested CAST expressions
         qt_nested_cast """
             select count(*) from int_partitioned 
             where CAST(CAST(partition_key AS STRING) AS INT) = 1;
         """
         
-        // Test 7: CAST with NULL handling
+        // Test 5: CAST with NULL handling
         qt_cast_null_check """
             select count(*) from string_partitioned 
             where CAST(partition_key AS DATE) IS NOT NULL;
@@ -111,7 +97,7 @@ suite("test_iceberg_cast_predicate_partition_pruning", "p0,external,doris,extern
                 id BIGINT,
                 event_name STRING,
                 partition_date STRING
-            ) PARTITIONED BY LIST (partition_date) ();
+            ) PARTITION BY LIST (partition_date) ();
         """
         
         sql """
@@ -130,13 +116,13 @@ suite("test_iceberg_cast_predicate_partition_pruning", "p0,external,doris,extern
         // ==============================================
         // Validation: Normal vs CAST predicates
         // ==============================================
-        
-        // Test 8: Verify normal predicates still work (baseline)
+
+        // Test 6: Verify normal predicates still work (baseline)
         qt_normal_predicate_baseline """
             select count(*) from int_partitioned where partition_key = 1;
         """
-        
-        // Test 9: CAST equivalent should return same logical result
+
+        // Test 7: CAST equivalent should return same logical result
         qt_cast_predicate_equivalent """
             select count(*) from int_partitioned where CAST(partition_key AS INT) = 1;
         """

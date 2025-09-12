@@ -28,18 +28,18 @@ suite("test_paimon_cast_predicate_partition_pruning", "p0,external,doris,externa
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     sql """drop catalog if exists ${catalog_name}"""
-    sql """
-    CREATE CATALOG ${catalog_name} PROPERTIES (
-        'type'='paimon',
-        'warehouse' = 's3://warehouse/paimon',
-        "s3.access_key" = "admin",
-        "s3.secret_key" = "password",
-        "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
-        "s3.region" = "us-east-1"
-    );"""
 
-    sql """switch ${catalog_name}"""
-    sql """use ${db_name}"""
+    sql """
+        CREATE CATALOG ${catalog_name} PROPERTIES (
+                'type' = 'paimon',
+                'warehouse' = 's3://warehouse/wh',
+                's3.endpoint' = 'http://${externalEnvIp}:${minio_port}',
+                's3.access_key' = 'admin',
+                's3.secret_key' = 'password',
+                's3.path.style.access' = 'true'
+        );
+    """
+    sql """use `${catalog_name}`.`${db_name}`;"""
 
     // Test CAST expression predicate correctness for Paimon partition pruning
     // This test ensures that CAST expressions are NOT pushed down to Paimon
@@ -77,7 +77,7 @@ suite("test_paimon_cast_predicate_partition_pruning", "p0,external,doris,externa
         // Test 5: CAST boolean partition to string (Paimon specific)
         qt_cast_boolean_to_string """
             select count(*) from boolean_partitioned 
-            where CAST(partition_key AS STRING) = 'true';
+            where CAST(partition_key AS STRING) = '1';
         """
         
         // ==============================================
