@@ -132,6 +132,7 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
     // will override in DateTime and Time
     virtual int get_scale() const { return 0; }
 

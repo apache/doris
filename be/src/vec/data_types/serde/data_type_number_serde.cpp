@@ -772,6 +772,21 @@ void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
     value_to_string<T>(data[row_num], bw, get_scale());
 }
 
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    const auto scale = get_scale();
+    for (size_t i = 0; i < size; ++i) {
+        value_to_string<T>(data[i], bw, scale);
+        bw.commit();
+    }
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;

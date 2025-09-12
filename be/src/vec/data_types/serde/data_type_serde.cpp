@@ -118,7 +118,7 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
 
 void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to) const {
     const auto size = column.size();
-    column_to.reserve(size * 2);
+    column_to.reserve(size);
     VectorBufferWriter write_buffer(column_to);
     for (size_t i = 0; i < size; ++i) {
         to_string(column, i, write_buffer);

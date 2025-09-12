@@ -130,6 +130,7 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
 
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const override;
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

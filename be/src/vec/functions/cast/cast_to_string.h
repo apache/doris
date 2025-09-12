@@ -86,6 +86,50 @@ struct CastToString {
 
     static inline void push_time(const TimeValue::TimeType& from, UInt32 scale, BufferWritable& bw);
 
+    template <PrimitiveType T>
+    static constexpr size_t string_length = 1;
+    template <>
+    constexpr size_t string_length<TYPE_BOOLEAN> = 1;
+    template <>
+    constexpr size_t string_length<TYPE_TINYINT> = 4;
+    template <>
+    constexpr size_t string_length<TYPE_SMALLINT> = 6;
+    template <>
+    constexpr size_t string_length<TYPE_INT> = 11;
+    template <>
+    constexpr size_t string_length<TYPE_BIGINT> = 20;
+    template <>
+    constexpr size_t string_length<TYPE_LARGEINT> = 40;
+    template <>
+    constexpr size_t string_length<TYPE_FLOAT> = MAX_FLOAT_STR_LENGTH;
+    template <>
+    constexpr size_t string_length<TYPE_DOUBLE> = MAX_DOUBLE_STR_LENGTH;
+    template <>
+    constexpr size_t string_length<TYPE_DECIMAL32> = 14;
+    template <>
+    constexpr size_t string_length<TYPE_DECIMAL64> = 24;
+    template <>
+    constexpr size_t string_length<TYPE_DECIMALV2> = 24;
+    template <>
+    constexpr size_t string_length<TYPE_DECIMAL128I> = 39;
+    template <>
+    constexpr size_t string_length<TYPE_DECIMAL256> = 78;
+    template <>
+    constexpr size_t string_length<TYPE_DATE> = sizeof("YYYY-MM-DD") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_DATETIME> = sizeof("YYYY-MM-DD HH:MM:SS") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_DATEV2> = sizeof("YYYY-MM-DD") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_DATETIMEV2> = sizeof("YYYY-MM-DD HH:MM:SS.ssssss") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_TIMEV2> = sizeof("-838:59:59.999999") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_IPV4> = sizeof("255.255 .255.255") - 1;
+    template <>
+    constexpr size_t string_length<TYPE_IPV6> =
+            sizeof("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") - 1;
+
 private:
     // refer to: https://en.cppreference.com/w/cpp/types/numeric_limits/max_digits10.html
     template <typename T>
