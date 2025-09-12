@@ -249,6 +249,12 @@ Status OperatorXBase::prepare(RuntimeState* state) {
     if (_child && !is_source()) {
         RETURN_IF_ERROR(_child->prepare(state));
     }
+
+    if (vectorized::VExpr::contains_blockable_function(_conjuncts) ||
+        vectorized::VExpr::contains_blockable_function(_projections)) {
+        _blockable = true;
+    }
+
     return Status::OK();
 }
 
