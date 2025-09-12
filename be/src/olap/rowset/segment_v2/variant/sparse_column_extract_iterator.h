@@ -110,7 +110,13 @@ public:
                     _read_opts->sparse_column_cache[_col.parent_unique_id()]->assume_mutable();
         } else {
             _sparse_column->clear();
-            RETURN_IF_ERROR(read_method());
+            {
+                SCOPED_RAW_TIMER(&_read_opts->stats->variant_scan_sparse_column_timer_ns);
+                int64_t before_size = _read_opts->stats->uncompressed_bytes_read;
+                RETURN_IF_ERROR(read_method());
+                _read_opts->stats->variant_scan_sparse_column_bytes +=
+                        _read_opts->stats->uncompressed_bytes_read - before_size;
+            }
 
             // cache the sparse column
             if (_read_opts) {
@@ -118,6 +124,7 @@ public:
                         _sparse_column->get_ptr();
             }
         }
+        SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
 
         const auto& offsets =
                 assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();

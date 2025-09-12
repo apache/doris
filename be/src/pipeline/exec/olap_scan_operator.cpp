@@ -324,6 +324,19 @@ Status OlapScanLocalState::_init_profile() {
     _ann_range_result_convert_costs =
             ADD_CHILD_TIMER(_segment_profile, "AnnIndexRangeResultConvertCosts",
                             "AnnIndexRangeResultPostProcessCosts");
+    _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
+    _variant_scan_sparse_column_bytes =
+            ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
+    _variant_fill_path_from_sparse_column_timer =
+            ADD_TIMER(_segment_profile, "VariantFillPathFromSparseColumnTimer");
+    _variant_subtree_default_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeDefaultIterCount", TUnit::UNIT);
+    _variant_subtree_leaf_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeLeafIterCount", TUnit::UNIT);
+    _variant_subtree_hierarchical_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeHierarchicalIterCount", TUnit::UNIT);
+    _variant_subtree_sparse_iter_count =
+            ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
 
     return Status::OK();
 }
