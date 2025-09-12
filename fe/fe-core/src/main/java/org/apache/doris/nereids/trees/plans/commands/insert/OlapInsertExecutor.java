@@ -62,6 +62,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -246,7 +247,8 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
         if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
-            sb.append(". first_error_msg: ").append(coordinator.getFirstErrorMsg());
+            sb.append(". first_error_msg: ").append(
+                    StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
         }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
