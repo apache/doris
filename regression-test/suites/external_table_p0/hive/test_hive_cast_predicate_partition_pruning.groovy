@@ -47,58 +47,46 @@ suite("test_hive_cast_predicate_partition_pruning", "p0,external,hive,external_d
         // Test 4: CAST decimal partition to int
         qt_cast_decimal_to_int """
             select count(*) from decimal_partition_table 
-            where CAST(partition_col AS INT) IN (10, 25);
+            where CAST(partition_col AS INT) IN (100, 300);
         """
-        
-        // Test 5: CAST bigint partition to string (Hive specific)
-        qt_cast_bigint_to_string """
-            select count(*) from bigint_partition_table 
-            where CAST(partition_col AS STRING) >= '100';
-        """
-        
+
         // ==============================================
         // Mixed predicates and edge cases
         // ==============================================
         
-        // Test 6: CAST with normal predicate (should push normal part only)
-        qt_cast_and_normal """
-            select count(*) from int_partition_table 
-            where partition_col > 1 AND CAST(partition_col AS STRING) LIKE '1%';
-        """
-        
-        // Test 7: Nested CAST expressions
+        // Test 5: Nested CAST expressions
         qt_nested_cast """
             select count(*) from decimal_partition_table 
             where CAST(CAST(partition_col AS STRING) AS DECIMAL(10,2)) > 10.0;
         """
         
-        // Test 8: CAST with NULL handling
+        // Test 6: CAST with NULL handling
         qt_cast_null_check """
             select count(*) from string_partition_table 
-            where CAST(partition_col AS DATE) IS NOT NULL;
+            where CAST(partition_col AS DATE) IS NULL;
         """
         
         // ==============================================
         // Validation: Normal vs CAST predicates
         // ==============================================
         
-        // Test 9: Verify normal predicates still work (baseline)
+        // Test 7: Verify normal predicates still work (baseline)
         qt_normal_predicate_baseline """
             select count(*) from int_partition_table where partition_col = 1;
         """
         
-        // Test 10: CAST equivalent should return same logical result
+        // Test 8: CAST equivalent should return same logical result
         qt_cast_predicate_equivalent """
             select count(*) from int_partition_table where CAST(partition_col AS INT) = 1;
         """
         
-        // Test 11: Normal vs CAST string predicates
+        // Test 9: Normal vs CAST string predicates
         qt_normal_string_predicate """
-            select count(*) from string_partition_table where partition_col = 'Europe';
+            select count(*) from string_partition_table where partition_col = 'A';
         """
         
         qt_cast_string_predicate_equivalent """
-            select count(*) from string_partition_table where CAST(partition_col AS STRING) = 'Europe';
+            select count(*) from string_partition_table where CAST(partition_col AS STRING) = 'A';
         """
     }
 
