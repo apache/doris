@@ -180,6 +180,13 @@ public class IcebergUtils {
             return null;
         }
 
+        // Check if expression contains non-constant CAST - if so, don't push down to
+        // avoid filtering issues
+        // Issue: https://github.com/apache/iceberg/issues/55804
+        if (containsNonConstantCast(expr)) {
+            return null;
+        }
+
         Expression expression = null;
         // BoolLiteral
         if (expr instanceof BoolLiteral) {
@@ -1393,4 +1400,36 @@ public class IcebergUtils {
                 icebergExternalTable.getViewText();
     }
 
+    /**
+     * Check if the expression contains non-constant CAST operations.
+     * Non-constant CAST means casting a column (not a literal).
+     * If it does, we should not push down this predicate to Iceberg API
+     * to avoid filtering and pruning issues.
+     */
+    private static boolean containsNonConstantCast(Expr expr) {
+        if (expr == null) {
+            return false;
+        }
+
+        // Check if this is a CAST expression
+        if (expr instanceof CastExpr) {
+            CastExpr castExpr = (CastExpr) expr;
+            Expr child = castExpr.getChild(0);
+
+            // If the child is not a constant (literal), it's a non-constant CAST
+            // This includes SlotRef (columns), function calls, etc.
+            if (!child.isConstant()) {
+                return true;
+            }
+        }
+
+        // Recursively check children
+        for (Expr child : expr.getChildren()) {
+            if (containsNonConstantCast(child)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
