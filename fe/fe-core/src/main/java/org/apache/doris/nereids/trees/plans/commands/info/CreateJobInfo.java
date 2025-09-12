@@ -130,6 +130,7 @@ public class CreateJobInfo {
             executeType = JobExecuteType.STREAMING;
             properties = new StreamingJobProperties(jobProperties);
             properties.validate();
+            jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setExecuteType(executeType);
 

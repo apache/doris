@@ -18,9 +18,8 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.base.JobExecuteType;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.JobUtils;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TimerJobEvent;
 import org.apache.doris.job.task.AbstractTask;
@@ -56,7 +55,7 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                 log.info("job is null,may be job is deleted, ignore");
                 return;
             }
-            if (event.getJob().isReadyForScheduling(null) && checkStatus(event)) {
+            if (event.getJob().isReadyForScheduling(null) && JobUtils.checkNeedSchedule(event.getJob())) {
                 List<? extends AbstractTask> tasks = event.getJob().commonCreateTasks(TaskType.SCHEDULED, null);
                 if (CollectionUtils.isEmpty(tasks)) {
                     log.warn("job is ready for scheduling, but create task is empty, skip scheduler,"
@@ -77,12 +76,5 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
         } catch (Exception e) {
             log.warn("dispatch timer job error, task id is {}", event.getJob().getJobId(), e);
         }
-    }
-
-    private boolean checkStatus(TimerJobEvent<T> event) {
-        if (event.getJob().getJobConfig().getExecuteType() == JobExecuteType.STREAMING) {
-            return !event.getJob().isFinalStatus();
-        }
-        return event.getJob().getJobStatus() == JobStatus.RUNNING;
     }
 }

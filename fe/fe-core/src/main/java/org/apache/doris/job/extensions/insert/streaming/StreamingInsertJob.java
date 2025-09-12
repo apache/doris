@@ -29,10 +29,10 @@ import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.PauseReason;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
-import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.task.AbstractTask;
@@ -42,6 +42,7 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -65,7 +66,7 @@ import java.util.List;
 import java.util.Map;
 
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
-        TxnStateChangeCallback {
+        TxnStateChangeCallback, GsonPostProcessable {
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @SerializedName("fm")
@@ -79,10 +80,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Setter
     protected long autoResumeCount;
     @Getter
+    @SerializedName("jp")
     private StreamingJobProperties jobProperties;
+    @Getter
+    @SerializedName("tt")
+    private String tvfType;
     @Getter
     StreamingInsertTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
+    @Setter
+    @Getter
     private long lastScheduleTaskTimestamp = -1L;
 
     public StreamingInsertJob(String jobName,
@@ -98,7 +105,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
         this.jobProperties = jobProperties;
-        String tvfType = parseTvfType();
+        this.tvfType = parseTvfType();
         this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
         this.offsetProvider.init(getExecuteSql(), jobProperties);
     }
@@ -140,11 +147,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected StreamingInsertTask createStreamingInsertTask() {
-        Offset nextOffset = offsetProvider.getNextOffset();
-        InsertIntoTableCommand command = offsetProvider.rewriteTvfParams(nextOffset);
-        this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), command,
-                getCurrentDbName(), offsetProvider.getCurrentOffset(), jobProperties);
-        return this.runningStreamTask;
+        this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), getExecuteSql(),
+                offsetProvider, getCurrentDbName(), jobProperties, getCreateUser());
+        Env.getCurrentEnv().getJobManager().getStreamingTaskScheduler().registerTask(runningStreamTask);
+        this.runningStreamTask.setStatus(TaskStatus.PENDING);
+        return runningStreamTask;
     }
 
     protected void fetchMeta() {
@@ -186,7 +193,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void onStreamTaskSuccess(StreamingInsertTask task) {
         StreamingInsertTask nextTask = createStreamingInsertTask();
         this.runningStreamTask = nextTask;
-        Env.getCurrentEnv().getJobManager().getStreamingTaskScheduler().registerTask(runningStreamTask);
     }
 
     private void updateJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
@@ -270,7 +276,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     loadStatistic.getLoadBytes(),
                     loadStatistic.getFileNumber(),
                     loadStatistic.getTotalFileSizeB(),
-                    runningStreamTask.getOffset()));
+                    runningStreamTask.getRunningOffset()));
     }
 
     @Override
@@ -314,5 +320,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void replayOnVisible(TransactionState txnState) {
 
 
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (offsetProvider == null && jobProperties != null && tvfType != null) {
+            this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+            // this.offsetProvider.init(getExecuteSql(), jobProperties);
+        }
     }
 }

@@ -565,9 +565,6 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     public void rewriteFirstTvfProperties(String functionName, Map<String, String> props) {
         AtomicBoolean found = new AtomicBoolean(false);
         rewriteFirstTvfInPlan(originLogicalQuery, functionName, props, found);
-        if (logicalQuery.isPresent() && !found.get()) {
-            rewriteFirstTvfInPlan(logicalQuery.get(), functionName, props, found);
-        }
     }
 
     private void rewriteFirstTvfInPlan(LogicalPlan plan,
