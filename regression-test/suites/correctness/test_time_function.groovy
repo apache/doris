@@ -80,4 +80,14 @@ suite("test_time_function") {
     qt_maxtime2 """
         select SEC_TO_TIME(-762021855) ;
     """
+
+    qt_select """SELECT sec_to_time(35211.7895)"""
+    qt_select """SELECT sec_to_time(35211.00)"""
+    qt_select """SELECT sec_to_time(-35211.7895)"""
+    
+    testFoldConst("SELECT sec_to_time(35211)")
+    testFoldConst("SELECT sec_to_time(-35211)")
+    testFoldConst("SELECT sec_to_time(35211.7895)")
+    testFoldConst("SELECT sec_to_time(-35211.7895)")
+    testFoldConst("SELECT sec_to_time(35211.00)")
 }

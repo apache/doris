@@ -126,6 +126,10 @@ public:
         return limit_with_bound((TimeType)sec * ONE_SECOND_MICROSECONDS);
     }
 
+    static TimeType from_double_with_limit(double sec) {
+        return limit_with_bound((TimeType)(sec * ONE_SECOND_MICROSECONDS));
+    }
+
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
     // the time value between '-838:59:59' and '838:59:59'
     static TimeType limit_with_bound(TimeType time) {

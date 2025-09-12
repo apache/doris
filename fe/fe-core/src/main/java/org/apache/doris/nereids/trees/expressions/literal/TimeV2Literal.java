@@ -73,6 +73,26 @@ public class TimeV2Literal extends Literal {
     }
 
     /**
+     * C'tor time literal with confirmed scale.
+     */
+    public TimeV2Literal(double value, int scale) throws AnalysisException {
+        super(TimeV2Type.of(scale));
+        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
+            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
+                + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
+        }
+        this.negative = value < 0;
+        long v = (long) Math.abs(value);
+        this.microsecond = (int) (v % 1000000);
+        v /= 1000000;
+        this.second = (int) (v % 60);
+        v /= 60;
+        this.minute = (int) (v % 60);
+        v /= 60;
+        this.hour = (int) v;
+    }
+
+    /**
      * C'tor for time type.
      */
     // for -00:... so we need explicite negative
