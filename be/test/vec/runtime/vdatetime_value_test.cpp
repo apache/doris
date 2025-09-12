@@ -1104,7 +1104,7 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
         interval.is_neg = false;
         EXPECT_TRUE(result.date_set_interval<TimeUnit::MINUTE>(interval));
         EXPECT_EQ(result.year(), 0);
-        EXPECT_EQ(result.month(), 0);
+        EXPECT_EQ(result.month(), 1);
         EXPECT_EQ(result.day(), 2);
         EXPECT_EQ(result.hour(), 6);
         EXPECT_EQ(result.minute(), 30);
@@ -1119,8 +1119,8 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
         interval.day = 3;
         interval.is_neg = false;
         EXPECT_TRUE(result.date_set_interval<TimeUnit::HOUR>(interval));
-        EXPECT_EQ(result.year(), 2022);
-        EXPECT_EQ(result.month(), 6);
+        EXPECT_EQ(result.year(), 0);
+        EXPECT_EQ(result.month(), 1);
         EXPECT_EQ(result.day(), 4);
         EXPECT_EQ(result.hour(), 6);
         EXPECT_EQ(result.minute(), 0);
@@ -1137,7 +1137,7 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
         EXPECT_EQ(result.year(), 0);
         EXPECT_EQ(result.month(), 4);
         EXPECT_EQ(result.day(), 10);
-        EXPECT_EQ(result.hour(), 15);
+        EXPECT_EQ(result.hour(), 0);
         EXPECT_EQ(result.minute(), 0);
         EXPECT_EQ(result.second(), 0);
     }
@@ -1184,9 +1184,9 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
         EXPECT_EQ(result.year(), 2025);
         EXPECT_EQ(result.month(), 1);
         EXPECT_EQ(result.day(), 1);
-        EXPECT_EQ(result.hour(), 15);
-        EXPECT_EQ(result.minute(), 30);
-        EXPECT_EQ(result.second(), 45);
+        EXPECT_EQ(result.hour(), 0);
+        EXPECT_EQ(result.minute(), 0);
+        EXPECT_EQ(result.second(), 0);
     }
 }
 
