@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -65,6 +66,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.ProtocolStringList;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -266,7 +268,8 @@ public class GroupCommitPlanner {
                 + ", query: " + DebugUtil.printId(ctx.queryId()) + ", backend: " + backendId
                 + ", status: " + response.getStatus();
         if (response.hasFirstErrorMsg()) {
-            errMsg += ", first_error_msg: " + response.getFirstErrorMsg();
+            errMsg += ", first_error_msg: "
+                + StringUtils.abbreviate(response.getFirstErrorMsg(), Config.first_error_msg_max_length);
         }
         if (response.hasErrorUrl()) {
             errMsg += ", error url: " + response.getErrorUrl();
@@ -295,7 +298,8 @@ public class GroupCommitPlanner {
             sb.append(", 'err':'").append(errMsg).append("'");
         }*/
         if (!Strings.isNullOrEmpty(firstErrorMsg)) {
-            sb.append(", 'first_error_msg':'").append(firstErrorMsg).append("'");
+            sb.append(", 'first_error_msg':'").append(
+                    StringUtils.abbreviate(firstErrorMsg, Config.first_error_msg_max_length)).append("'");
         }
         if (!Strings.isNullOrEmpty(errorUrl)) {
             sb.append(", 'err_url':'").append(errorUrl).append("'");

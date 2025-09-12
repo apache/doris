@@ -802,7 +802,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         // comment
         jobInfo.add(comment);
         // first error message
-        jobInfo.add(StringUtils.abbreviate(loadingStatus.getFirstErrorMsg(), 256));
+        jobInfo.add(StringUtils.abbreviate(loadingStatus.getFirstErrorMsg(), Config.first_error_msg_max_length));
         return jobInfo;
     }
 
