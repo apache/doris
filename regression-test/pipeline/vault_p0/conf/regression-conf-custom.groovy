@@ -18,8 +18,8 @@
 testDirectories = "vault_p0"
 max_failure_num = 10
 
-jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
-targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUrl = "jdbc:mysql://127.0.0.1:9034/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9034/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 
 // for vault case, consistent with the configuration in the create_warehouse_vault method in the doris-utils.sh file.
 instanceId="cloud_instance_0"

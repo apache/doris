@@ -105,7 +105,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // There are usually two usage scenarios:
 // 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
 // However, a reverse proxy (such as Nginx) can be added to all Doris BE nodes, and the external client will be
-// randomly routed to a Doris BE node when connecting to Nginx. set public_host to the host of Nginx.
+// randomly routed to a Doris BE node when connecting to Nginx.  set public_host to the host of Nginx.
 // 2. if priority_networks is an internal network IP, and BE node has its own independent external IP,
 // but Doris currently does not support modifying priority_networks, setting public_host to the real external IP.
 DECLARE_mString(public_host);

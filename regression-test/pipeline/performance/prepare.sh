@@ -70,22 +70,20 @@ fi
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 # shellcheck source=/dev/null
-# install_java
+# install_java, clear_coredump
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-if [[ "${target_branch}" == "master" || "${target_branch}" == "branch-3.1" ]]; then
-    echo "INFO: PR target branch ${target_branch}"
-    install_java
-    JAVA_HOME="${JAVA_HOME:-$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')}"
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export JAVA_HOME=\"${JAVA_HOME}\""
-elif [[ "${target_branch}" == "branch-2.0" ]]; then
-    echo "INFO: PR target branch ${target_branch}"
-else
-    echo "WARNING: PR target branch ${target_branch} is NOT in (master, branch-3.1, branch-3.0), skip pipeline."
-    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
-    exit 0
+
+echo "INFO: PR target branch ${target_branch}"
+if ! [[ "${target_branch}" == master || "${target_branch}" == branch-2.0 ]]; then
+    # if target branch is not master or branch-2.0, set target_branch to master to use the same doris meta and storage
+    bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export target_branch=master"
 fi
+install_java
+JAVA_HOME="${JAVA_HOME:-$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')}"
+bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export JAVA_HOME=\"${JAVA_HOME}\""
+
 # shellcheck source=/dev/null
 # _get_pr_changed_files file_changed_performance
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
@@ -98,10 +96,6 @@ if _get_pr_changed_files "${pr_num_from_trigger}"; then
         # if PR changed the doris meta file, the next PR deployment on the same mechine which built this PR will fail.
         # make a copy of the meta file for the meta changed PR.
         target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-        if [[ "${target_branch}" == "branch31" ]]; then
-            # branch-3.1 also use branch30 data
-            target_branch="branch30"
-        fi
         meta_changed_suffix="_2"
         rsync -a --delete "/data/doris-meta-${target_branch}/" "/data/doris-meta-${target_branch}${meta_changed_suffix}"
         rsync -a --delete "/data/doris-storage-${target_branch}/" "/data/doris-storage-${target_branch}${meta_changed_suffix}"
@@ -139,3 +133,4 @@ echo "#### 3. try to kill old doris process"
 # stop_doris
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 if stop_doris; then echo; fi
+clear_coredump

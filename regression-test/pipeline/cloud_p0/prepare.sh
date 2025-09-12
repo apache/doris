@@ -12,7 +12,7 @@ export teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
 export commit_id_from_checkout="%build.vcs.number%"
 export target_branch='%teamcity.pullRequest.target.branch%'
 export teamcity_buildType_id='%system.teamcity.buildType.id%'
-export skip_pipeline='%skip_pipline%'
+export skip_pipeline='%skip_pipeline%'
 export PATH=/usr/local/software/apache-maven-3.6.3/bin:${PATH}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/cloud_p0/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/
@@ -134,7 +134,7 @@ merge_pr_to_master_commit() {
         return 1
     fi
 }
-export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/compile_result"}"
+export OSS_DIR="${OSS_DIR:-"oss://opensource-pipeline/selectdb_compile_result"}"
 if ! check_oss_file_exist "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then return 1; fi
 if download_oss_file "${pr_num_from_trigger}_${commit_id_from_trigger}.tar.gz"; then
     rm -rf "${teamcity_build_checkoutDir}"/output

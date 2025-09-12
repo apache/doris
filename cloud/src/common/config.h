@@ -23,7 +23,7 @@ namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
 CONF_Int32(brpc_num_threads, "64");
-// connections without data transmission for so many seconds will be closed
+// connections without data transmission for so many seconds will be closed.
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");

@@ -68,16 +68,12 @@ exit_flag=0
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-    if [[ "${target_branch}" == "branch31" ]]; then
-        # branch-3.1 also use branch30 data
-        target_branch="branch30"
-    fi
     sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}${meta_changed_suffix:-}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
     sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}${meta_changed_suffix:-}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
 
     echo "#### 3. start Doris"
-    meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
-    storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf storage_root_path)
+    meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf meta_dir)
+    storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf storage_root_path)
     mkdir -p "${meta_dir}"
     mkdir -p "${storage_root_path}"
     if ! start_doris_fe; then echo "ERROR: Start doris fe failed." && exit 1; fi

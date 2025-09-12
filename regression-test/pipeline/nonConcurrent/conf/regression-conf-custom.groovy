@@ -1,0 +1,136 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+/* ******* Do not commit this file unless you know what you are doing ******* */
+
+// **Note**: default db will be create if not exist
+defaultDb = "regression_test"
+
+jdbcUrl = "jdbc:mysql://127.0.0.1:9032/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9032/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+jdbcUser = "root"
+jdbcPassword = ""
+
+feHttpAddress = "127.0.0.1:8032"
+feHttpUser = "root"
+feHttpPassword = ""
+
+// set DORIS_HOME by system properties
+// e.g. java -DDORIS_HOME=./
+suitePath = "${DORIS_HOME}/regression-test/suites"
+dataPath = "${DORIS_HOME}/regression-test/data"
+pluginPath = "${DORIS_HOME}/regression-test/plugins"
+realDataPath = "${DORIS_HOME}/regression-test/realdata"
+trinoPluginsPath = "/tmp/trino_connector"
+// sf1DataPath can be url like "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com" or local path like "/data"
+//sf1DataPath = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com"
+
+// will test <group>/<suite>.groovy
+// empty group will test all group
+testGroups = "nonConcurrent"
+// empty suite will test all suite
+testSuites = ""
+// empty directories will test all directories
+testDirectories = ""
+
+// this groups will not be executed
+excludeGroups = "p1,p2"
+// this suites will not be executed
+
+// this suites will not be executed
+excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
+
+// this directories will not be executed
+excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
+    "variant_github_events_nonConcurrent_p2," +
+    "variant_github_events_new_p2," +
+    "hdfs_vault_p2," +
+    "nereids_p0/hbo," +
+    "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
+
+// for test csv with header
+enableHdfs=false // set to true if hdfs is ready
+hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsUser = "doris-test"
+hdfsPasswd = ""
+brokerName = "broker_name"
+
+// broker load test config
+enableBrokerLoad=true
+
+// jdbc connector test config
+// To enable jdbc test, you need first start mysql/pg container.
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableJdbcTest=false
+mysql_57_port=7111
+pg_14_port=7121
+mariadb_10_port=3326
+// hive catalog test config
+// To enable jdbc test, you need first start hive container.
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableHiveTest=false
+enablePaimonTest=false
+
+// port of hive2 docker
+hive2HmsPort=9083
+hive2HdfsPort=8020
+hive2ServerPort=10000
+hive2PgPort=5432
+
+// port of hive3 docker
+hive3HmsPort=9383
+hive3HdfsPort=8320
+hive3ServerPort=13000
+hive3PgPort=5732
+
+// kafka test config
+// to enable kafka test, you need firstly to start kafka container
+// See `docker/thirdparties/start-thirdparties-docker.sh`
+enableKafkaTest=true
+kafka_port=19193
+
+// iceberg test config
+iceberg_rest_uri_port=18181
+iceberg_minio_port=19001
+
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
+
+enableEsTest=false
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
+
+cacheDataPath = "/data/regression/"
+
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
+
+//arrow flight sql test config
+extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlPort = 8081
+extArrowFlightSqlUser = "root"
+extArrowFlightSqlPassword= ""
+
+max_failure_num=50
+
+externalEnvIp="127.0.0.1"
+
+// trino-connector catalog test config
+enableTrinoConnectorTest = false

@@ -60,8 +60,8 @@ echo "#### Run tpch test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 data_home="/data/clickbench/"
-query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf http_port)
+query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
+http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf http_port)
 clt="mysql -h127.0.0.1 -P${query_port} -uroot "
 DB="load_test_db"
 exit_flag=0
@@ -649,10 +649,6 @@ exit_flag=0
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
     cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
     target_branch="$(echo "${target_branch}" | sed 's| ||g;s|\.||g;s|-||g')" # remove space、dot、hyphen from branch name
-    if [[ "${target_branch}" == "branch31" ]]; then
-        # branch-3.1 also use branch30 data
-        target_branch="branch30"
-    fi
     sed -i "s|^meta_dir=/data/doris-meta-\${branch_name}|meta_dir=/data/doris-meta-${target_branch}|g" "${DORIS_HOME}"/fe/conf/fe_custom.conf
     sed -i "s|^storage_root_path=/data/doris-storage-\${branch_name}|storage_root_path=/data/doris-storage-${target_branch}|g" "${DORIS_HOME}"/be/conf/be_custom.conf
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi

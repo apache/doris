@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-function get_doris_conf_value() {
+function _get_doris_conf_value() {
     local conf_file="$1"
     local conf_key="$2"
     if [[ -z "${conf_key}" ]]; then return 1; fi
@@ -28,7 +28,7 @@ function get_doris_conf_value() {
         echo "${conf_value}"
         return 0
     else
-        echo "ERROR: can not find ${conf_key} in ${conf_file}"
+        # echo "ERROR: can not find ${conf_key} in ${conf_file}"
         return 1
     fi
 }
@@ -50,6 +50,37 @@ function set_doris_conf_value() {
 # set -x
 # get_doris_conf_value "$1" "$2"
 # set_doris_conf_value "$1" "$2" "$3"
+
+function get_doris_conf_value() {
+    local conf_dir="$1"
+    local conf_key="$2"
+    if [[ -z "${conf_key}" ]]; then return 1; fi
+
+    if [[ -f "${conf_dir}"/fe_custom.conf ]] &&
+        _get_doris_conf_value "${conf_dir}"/fe_custom.conf "${conf_key}"; then
+        return 0
+    fi
+    if [[ -f "${conf_dir}"/fe.conf ]] &&
+        _get_doris_conf_value "${conf_dir}"/fe.conf "${conf_key}"; then
+        return 0
+    fi
+
+    if [[ -f "${conf_dir}"/be_custom.conf ]] &&
+        _get_doris_conf_value "${conf_dir}"/be_custom.conf "${conf_key}"; then
+        return 0
+    fi
+    if [[ -f "${conf_dir}"/be.conf ]] &&
+        _get_doris_conf_value "${conf_dir}"/be.conf "${conf_key}"; then
+        return 0
+    fi
+
+    if [[ -f "${conf_dir}"/doris_cloud.conf ]] &&
+        _get_doris_conf_value "${conf_dir}"/doris_cloud.conf "${conf_key}"; then
+        return 0
+    fi
+
+    return 1
+}
 
 function start_doris_ms() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
@@ -127,11 +158,17 @@ function start_doris_fe() {
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
-    # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
+    if [[ ! -f /usr/local/jacoco/lib/jacocoagent.jar ]]; then
+        rm -rf /usr/local/jacoco/ && mkdir -p /usr/local/jacoco/
+        wget -c -t3 -q "${JACOCO_DOWNLOAD_URL:-https://qa-build-hk.oss-cn-hongkong.aliyuncs.com/tools/jacoco-0.8.13.zip}"
+        if ! command -v unzip >/dev/null; then sudo apt update && sudo apt install -y unzip; fi
+        unzip -o jacoco-0.8.13.zip -d /usr/local/jacoco/ >/dev/null
+    fi
+    export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     local i=1
     while [[ $((i++)) -lt 60 ]]; do
@@ -182,8 +219,8 @@ function start_doris_be() {
 function add_doris_be_to_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if ! mysql --version >/dev/null; then sudo sudo apt update && apt install -y mysql-client; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf heartbeat_service_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
+    heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf heartbeat_service_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     # try to add be, maybe Same backend already exists[127.0.0.1:9050], it's ok
     if ${cl} -e "ALTER SYSTEM ADD BACKEND '127.0.0.1:${heartbeat_service_port}';"; then echo; else echo; fi
@@ -223,7 +260,7 @@ function stop_doris() {
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local ret=0
-    local keywords="detected memory leak|undefined-behavior"
+    local keywords="detected memory leak|undefined-behavior|AddressSanitizer: CHECK failed"
     sudo mkdir -p /tmp/be/bin && cp -rf "${DORIS_HOME}"/be/bin/be.pid /tmp/be/bin/be.pid
     if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
         echo "INFO: doris be stopped gracefully."
@@ -372,7 +409,7 @@ deploy_doris_sql_converter() {
     fi
 }
 
-function restart_doris() {
+function _restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
@@ -392,13 +429,18 @@ function restart_doris() {
     sleep 10s
 }
 
+function restart_doris() {
+    # restart BE may block on JVM_MonitorWait() for a long time, here try twice
+    _restart_doris || _restart_doris
+}
+
 function check_tpch_table_rows() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     db_name="$1"
     scale_factor="$2"
     if [[ -z "${scale_factor}" ]]; then return 1; fi
 
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
     if [[ "${scale_factor}" == "1" ]]; then
@@ -423,7 +465,7 @@ function check_tpcds_table_rows() {
     scale_factor="$2"
     if [[ -z "${scale_factor}" ]]; then return 1; fi
 
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
     if [[ "${scale_factor}" == "1" ]]; then
@@ -450,7 +492,7 @@ function check_clickbench_table_rows() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     db_name="$1"
     if [[ -z "${db_name}" ]]; then return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
     table_rows=(['hits']=99997497)
@@ -529,7 +571,7 @@ get_session_variable() {
     "
     if [[ -z "$1" ]]; then echo "${usage}" && return 1; else sv="$1"; fi
 
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
 
     if ret=$(${cl} -e"show variables like '${sv}'\G" | grep " Value: "); then
@@ -541,7 +583,7 @@ get_session_variable() {
 
 show_session_variables() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"show session variables;"; then
         return
     else
@@ -554,7 +596,7 @@ set_session_variable() {
     k="$1"
     v="$2"
     if [[ -z "${v}" ]]; then return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     if ${cl} -e"set global ${k}='${v}';"; then
         if [[ "$(get_session_variable "${k}" | tr '[:upper:]' '[:lower:]')" == "${v}" ]]; then
@@ -568,7 +610,7 @@ set_session_variable() {
 }
 
 set_default_storage_vault() {
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     if ${cl} -e"set built_in_storage_vault as default storage vault;"; then
         echo "INFO:      set built_in_storage_vault as default storage vault;"
@@ -580,7 +622,7 @@ set_default_storage_vault() {
 function reset_doris_session_variables() {
     # reset all session variables to default
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     # Variable_name    Value    Default_Value    Changed
     # "\x27" means single quote in awk
@@ -602,7 +644,7 @@ function set_doris_session_variables_from_file() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     session_variables_file="$1"
     if [[ -z ${session_variables_file} ]]; then echo "ERROR: session_variables_file required" && return 1; fi
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
     if mysql -h127.0.0.1 -P"${query_port}" -uroot -e"source ${session_variables_file};"; then
         echo "INFO: set session variables from file ${session_variables_file}, succeed"
     else
@@ -622,7 +664,7 @@ _monitor_regression_log() {
     local KEYWORD="Reach limit of connections"
 
     local query_port
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf query_port)
 
     echo "INFO: start monitoring the log files in ${LOG_DIR} for the keyword '${KEYWORD}'"
 
@@ -878,6 +920,8 @@ function create_warehouse_vault() {
 
 function warehouse_add_fe() {
     local ret
+    local edit_log_port
+    edit_log_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf edit_log_port)
     if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"cluster\":{
@@ -888,7 +932,7 @@ function warehouse_add_fe() {
                 {
                     \"cloud_unique_id\":\"cloud_unique_id_sql_server00\",
                     \"ip\":\"127.0.0.1\",
-                    \"edit_log_port\":\"9010\",
+                    \"edit_log_port\":\"${edit_log_port}\",
                     \"node_type\":\"FE_MASTER\"
                 }
             ]
@@ -911,6 +955,8 @@ function warehouse_add_fe() {
 
 function warehouse_add_be() {
     local ret
+    local heartbeat_service_port
+    heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf heartbeat_service_port)
     if curl "127.0.0.1:5000/MetaService/http/add_cluster?token=greedisgood9999" -d "{
         \"instance_id\": \"cloud_instance_0\",
         \"cluster\":{
@@ -921,7 +967,7 @@ function warehouse_add_be() {
                 {
                     \"cloud_unique_id\":\"cloud_unique_id_compute_node0\",
                     \"ip\":\"127.0.0.1\",
-                    \"heartbeat_port\":\"9050\"
+                    \"heartbeat_port\":\"${heartbeat_service_port}\"
                 }
             ]
         }
@@ -981,7 +1027,7 @@ prepare_java_udf() {
 }
 
 function print_running_pipeline_tasks() {
-    webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf webserver_port)
+    webserver_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf webserver_port)
     mkdir -p "${DORIS_HOME}"/be/log/
     echo "------------------------${FUNCNAME[0]}--------------------------"
     echo "curl -m 10 http://127.0.0.1:${webserver_port}/api/running_pipeline_tasks/30"

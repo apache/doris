@@ -4,11 +4,11 @@
 : <<EOF
 #!/bin/bash
 export PATH=/usr/local/software/jdk1.8.0_131/bin:/usr/local/software/apache-maven-3.6.3/bin:${PATH}
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/vault_p0/run.sh ]]; then
-    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/p0/run.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/p0/
     bash -x run.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/vault_p0/run.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/p0/run.sh" && exit 1
 fi
 EOF
 ############################# run.sh content ########################################
@@ -41,7 +41,7 @@ if [[ -z "${txYunAk}" || -z "${txYunSk}" ]]; then echo "WARNING: env txYunAk or 
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
-echo "#### Run vault_p0 test on Doris ####"
+echo "#### Run p0 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 exit_flag=0
@@ -64,65 +64,23 @@ run() {
         echo "hwYunSk='${hwYunSk:-}'"
         echo "txYunAk='${txYunAk:-}'"
         echo "txYunSk='${txYunSk:-}'"
-    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/vault_p0/conf/regression-conf-custom.groovy \
+    } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/p0/conf/regression-conf-custom.groovy
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/p0/conf/regression-conf-custom.groovy \
         "${teamcity_build_checkoutDir}"/regression-test/conf/
-
-    # start minio docker to run case test_rountine_load
+    # start kafka docker to run case test_rountine_load
     sed -i "s/^CONTAINER_UID=\"doris--\"/CONTAINER_UID=\"doris-external--\"/" "${teamcity_build_checkoutDir}"/docker/thirdparties/custom_settings.env
-    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio ||
-        bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c minio; then
-        echo "INFO: start minio docker success"
-    else
-        echo "ERROR: start minio docker twice failed" && return 1
-    fi
-
-    # used to set up HDFS docker
-    docker_compose_hdfs_yaml='
-version: "3"
-
-services:
- namenode:
-  image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
-  environment:
-   - CLUSTER_NAME=test
-  container_name: hadoop3-namenode
-  ports:
-   - "9870:9870"
-  expose:
-   - "9870"
-  healthcheck:
-   test: [ "CMD", "curl", "http://localhost:9870/" ]
-   interval: 5s
-   timeout: 120s
-   retries: 120
-  network_mode: "host"
-
- datanode:
-  image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
-  ports:
-   - "9864:9864"
-  container_name: hadoop3-datanode
-  expose:
-   - "9864"
-  healthcheck:
-   test: [ "CMD", "curl", "http://localhost:9864" ]
-   interval: 5s
-   timeout: 60s
-   retries: 120
-  network_mode: "host"
-'
-    if echo "${docker_compose_hdfs_yaml}" >docker-compose.yaml && docker-compose up -d; then echo; else echo "ERROR: start hdfs docker failed"; fi
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh --stop; then echo; fi
+    if bash "${teamcity_build_checkoutDir}"/docker/thirdparties/run-thirdparties-docker.sh -c kafka; then echo; else echo "ERROR: start kafka docker failed"; fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
         --teamcity \
         --run \
         --times "${repeat_times_from_trigger:-1}" \
-        -parallel 10 \
-        -suiteParallel 10 \
+        -parallel 18 \
+        -suiteParallel 18 \
         -actionParallel 10 \
-        -runNonConcurrent true; then
+        -runNonConcurrent false; then
         echo
     else
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export need_collect_log=true"

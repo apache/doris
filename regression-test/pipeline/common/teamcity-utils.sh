@@ -18,6 +18,17 @@
 
 #!/bin/bash
 
+# PR的目标分支
+# 到
+# 可以跑的流水线
+# 的映射
+# 控制哪些分支可以跑哪些流水线
+declare -A targetBranch_to_pipelines
+targetBranch_to_pipelines=(
+    ['branch-selectdb-doris-3.0']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+    ['branch-selectdb-doris-3.1']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+)
+
 # github中评论的要触发的流水线名字
 # 到
 # teamcity流水线实际的名称
@@ -25,18 +36,20 @@
 # 新加流水线需要修改这里
 declare -A comment_to_pipeline
 comment_to_pipeline=(
-    ['feut']='Doris_Doris_FeUt'
-    ['beut']='Doris_DorisBeUt_BeUt'
-    ['cloudut']='Doris_DorisCloudUt_CloudUt'
-    ['compile']='Doris_DorisCompile_Compile'
-    ['p0']='Doris_DorisRegression_P0Regression'
-    ['p1']='Doris_DorisRegression_P1Regression'
-    ['external']='Doris_External_Regression'
-    ['arm']='Doris_ArmPipeline_P0Regression'
-    ['performance']='Doris_DorisPerformance_Performance'
-    ['cloud_p0']='Doris_DorisRegression_CloudP0'
-    ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
-    ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
+    ['feut']='SelectdbCore_Feut'
+    ['beut']='SelectdbCore_Beut'
+    ['cloudut']='SelectdbCore_Cloudut'
+    ['compile']='SelectdbCore_Compile'
+    ['p0']='SelectdbCore_Regression_P0'
+    ['p1']='SelectdbCore_Regression_P1'
+    ['cloud_p0']='SelectdbCore_Regression_CloudP0'
+    ['cloud_p1']='SelectdbCore_Regression_CloudP1'
+    ['external']='SelectdbCore_Regression_External'
+    ['vault_p0']='SelectdbCore_Regression_VaultP0'
+    ['nonConcurrent']='SelectdbCore_Regression_NonConcurrent'
+    ['performance']='SelectdbCore_Performance'
+    ['check_coverage']='SelectdbCore_Check_Coverage'
+    ['arm']='SelectdbCore_Arm'
 )
 
 # github中评论的要触发的流水线名字
@@ -46,18 +59,20 @@ comment_to_pipeline=(
 # 新加流水线需要修改这里
 declare -A conment_to_context
 conment_to_context=(
-    ['compile']='COMPILE (DORIS_COMPILE)'
-    ['feut']='FE UT (Doris FE UT)'
-    ['beut']='BE UT (Doris BE UT)'
-    ['cloudut']='Cloud UT (Doris Cloud UT)'
-    ['p0']='P0 Regression (Doris Regression)'
-    ['p1']='P1 Regression (Doris Regression)'
-    ['external']='External Regression (Doris External Regression)'
-    ['arm']='P0 Regression (ARM pipeline)'
-    ['performance']='performance (Doris Performance)'
-    ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
-    ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
-    ['vault_p0']='vault_p0 (Doris Cloud Regression)'
+    ['compile']='compile (Selectdb Core)'
+    ['feut']='feut (Selectdb Core)'
+    ['beut']='beut (Selectdb Core)'
+    ['cloudut']='cloudut (Selectdb Core)'
+    ['p0']='p0 (Regression)'
+    ['p1']='p1 (Regression)'
+    ['external']='external (Regression)'
+    ['cloud_p0']='cloud_p0 (Regression)'
+    ['cloud_p1']='cloud_p1 (Regression)'
+    ['vault_p0']='vault_p0 (Regression)'
+    ['nonConcurrent']='nonConcurrent (Regression)'
+    ['arm']='arm (ARM)'
+    ['performance']='performance (Performance)'
+    ['check_coverage']='check_coverage (Coverage)'
 )
 
 get_commit_id_of_build() {
@@ -72,7 +87,7 @@ get_commit_id_of_build() {
             -u OneMoreChance:OneMoreChance \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds/${build_id}"
+            "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/app/rest/builds/${build_id}"
     ); then
         set +x
         commit_id=$(echo "${ret}" | jq -r '.revisions.revision[0].version')
@@ -100,7 +115,7 @@ get_running_build_of_pr() {
             -u OneMoreChance:OneMoreChance \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds?locator=buildType:${PIPELINE},branch:pull/${PULL_REQUEST_NUM},running:true"
+            "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/app/rest/builds?locator=buildType:${PIPELINE},branch:pull/${PULL_REQUEST_NUM},running:true"
     ); then
         set +x
         running_builds_list=$(echo "${ret}" | jq -r '.build[].id')
@@ -129,7 +144,7 @@ get_queue_build_of_pr() {
             -u OneMoreChance:OneMoreChance \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/buildQueue?locator=buildType:${PIPELINE}"
+            "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/app/rest/buildQueue?locator=buildType:${PIPELINE}"
     ); then
         set +x
         queue_builds_list=$(echo "${ret}" | jq ".build[] | select(.branchName == \"pull/${PULL_REQUEST_NUM}\") | .id")
@@ -157,7 +172,7 @@ cancel_running_build() {
             -u OneMoreChance:OneMoreChance \
             -H "Content-Type:application/json" \
             -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/builds/id:${id}" \
+            "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/app/rest/builds/id:${id}" \
             -d '{ "comment": "Canceling this running build before triggering a new one", "readdIntoQueue": false }'; then
             set +x
             echo -e "\nINFO: canceled running build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
@@ -185,7 +200,7 @@ cancel_queue_build() {
             -u OneMoreChance:OneMoreChance \
             -H "Content-Type:application/json" \
             -H "Accept: application/json" \
-            "http://43.132.222.7:8111/app/rest/buildQueue/id:${id}" \
+            "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/app/rest/buildQueue/id:${id}" \
             -d '{ "comment": "Canceling this queued build before triggering a new one", "readdIntoQueue": false }'; then
             set +x
             echo -e "\nINFO: canceled queue build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
@@ -245,7 +260,7 @@ trigger_build() {
         -u OneMoreChance:OneMoreChance \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
+        "http://${TEAMCITY_SERVER_HOST:-47.243.177.214}:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
         set +x
         echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
     else
@@ -259,9 +274,10 @@ trigger_or_skip_build() {
     # 根据相关文件是否修改，来触发or跳过跑流水线
     local FILE_CHANGED="$1" # 默认为"true"
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
-    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$4}"
-    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$5}"
+    local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
+    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
+    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$5}"
+    local COMMENT_REPEAT_TIMES="${COMMENT_REPEAT_TIMES:-$6}"
     if [[ -z "${PULL_REQUEST_NUM}" ||
         -z "${COMMIT_ID_FROM_TRIGGER}" ||
         -z "${COMMENT_TRIGGER_TYPE}" ]]; then
@@ -269,20 +285,38 @@ trigger_or_skip_build() {
         return 1
     fi
 
+    # 有些分支不需要某些跑流水线，在targetBranch_to_pipelines中的分支，需要判断
+    if [[ "${!targetBranch_to_pipelines[*]}" =~ ${PULL_REQUEST_TARGET_BRANCH} ]]; then
+        if [[ "${targetBranch_to_pipelines[${PULL_REQUEST_TARGET_BRANCH}]}" =~ ${COMMENT_TRIGGER_TYPE} ]]; then
+            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} need to run ${COMMENT_TRIGGER_TYPE}"
+        else
+            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} not need to run ${COMMENT_TRIGGER_TYPE}"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
+            return 0
+        fi
+    fi
+
     if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
         cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
     else
+        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
+        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
         if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 都 skip 了
+            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage 都 skip 了
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
             skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
+        elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
+            # skip beut 的时候，也把 check_coverage skip 了
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
         fi
     fi
 }
