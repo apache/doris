@@ -101,6 +101,12 @@ protected:
                                            (file_cache_ptr->approximate_available_cache_size() >
                                             opts->approximate_bytes_to_write);
 
+        VLOG_DEBUG << "path:" << path.filename().native()
+                   << ", write_file_cache:" << opts->write_file_cache
+                   << ", has_enough_file_cache_space:" << has_enough_file_cache_space
+                   << ", approximate_bytes_to_write:" << opts->approximate_bytes_to_write
+                   << ", file_cache_available_size:"
+                   << file_cache_ptr->approximate_available_cache_size();
         if (opts->write_file_cache || has_enough_file_cache_space) {
             _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
                     opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
