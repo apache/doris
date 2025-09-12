@@ -79,11 +79,10 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -540,51 +539,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     // todo: add ut
-    public UnboundTVFRelation getFirstTVF() {
-        return getFirstTvfInPlan(getLogicalQuery());
+    public List<UnboundTVFRelation> getAllTVFRelation() {
+        List<UnboundTVFRelation> tvfs = new ArrayList<>();
+        findAllTVFInPlan(getLogicalQuery(), tvfs);
+        return tvfs;
     }
 
-    private UnboundTVFRelation getFirstTvfInPlan(LogicalPlan plan) {
+    private void findAllTVFInPlan(LogicalPlan plan, List<UnboundTVFRelation> tvfs) {
         if (plan instanceof UnboundTVFRelation) {
             UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
-            return tvfRelation;
+            tvfs.add(tvfRelation);
         }
 
         for (Plan child : plan.children()) {
             if (child instanceof LogicalPlan) {
-                UnboundTVFRelation result = getFirstTvfInPlan((LogicalPlan) child);
-                if (result != null) {
-                    return result;
-                }
-            }
-        }
-        return null;
-    }
-
-    // todo: add ut
-    public void rewriteFirstTvfProperties(String functionName, Map<String, String> props) {
-        AtomicBoolean found = new AtomicBoolean(false);
-        rewriteFirstTvfInPlan(originLogicalQuery, functionName, props, found);
-    }
-
-    private void rewriteFirstTvfInPlan(LogicalPlan plan,
-            String functionName, Map<String, String> props, AtomicBoolean found) {
-        if (found.get()) {
-            return;
-        }
-
-        if (plan instanceof UnboundTVFRelation) {
-            UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
-            if (functionName.equalsIgnoreCase(tvfRelation.getFunctionName())) {
-                tvfRelation.getProperties().getMap().putAll(props);
-                found.set(true);
-                return;
-            }
-        }
-
-        for (Plan child : plan.children()) {
-            if (child instanceof LogicalPlan) {
-                rewriteFirstTvfInPlan((LogicalPlan) child, functionName, props, found);
+                findAllTVFInPlan((LogicalPlan) child, tvfs);
             }
         }
     }

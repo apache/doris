@@ -20,15 +20,12 @@ package org.apache.doris.job.offset;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 
+import java.util.Map;
+
 /**
  * Interface for managing offsets and metadata of a data source.
  */
 public interface SourceOffsetProvider {
-
-    /**
-     * init
-     */
-    void init(String executeSql, StreamingJobProperties jobProperties);
 
     /**
      * Get source type, e.g. s3, kafka
@@ -40,7 +37,7 @@ public interface SourceOffsetProvider {
      * Get next offset to consume
      * @return
      */
-    Offset getNextOffset();
+    Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties);
 
     /**
      * Get current offset
@@ -49,11 +46,23 @@ public interface SourceOffsetProvider {
     Offset getCurrentOffset();
 
     /**
+     * Get sync offset to show
+     * @return
+     */
+    String getSyncOffset();
+
+    /**
+     * Get remote offset
+     * @return
+     */
+    String getRemoteOffset();
+
+    /**
      * Rewrite the TVF parameters in the SQL based on the current offset.
      * @param nextOffset
      * @return rewritten InsertIntoTableCommand
      */
-    InsertIntoTableCommand rewriteTvfParams(Offset nextOffset);
+    InsertIntoTableCommand rewriteTvfParams(String executeSql, Offset nextOffset) throws Exception;
 
     /**
      * Update the offset of the source.
@@ -64,7 +73,7 @@ public interface SourceOffsetProvider {
     /**
      * Fetch remote meta information, such as listing files in S3 or getting latest offsets in Kafka.
      */
-    void fetchRemoteMeta();
+    void fetchRemoteMeta(Map<String, String> properties) throws Exception;
 
     /**
      * Whether there is more data to consume
