@@ -18,6 +18,7 @@ import java.sql.SQLException
 
 suite("too_many_versions_detection") {
     sql """ DROP TABLE IF EXISTS t """
+
     sql """
         create table t(a int)
         DUPLICATE KEY(a)
@@ -29,7 +30,6 @@ suite("too_many_versions_detection") {
         sql """ INSERT INTO t VALUES (${i}) """
     }
 
-    // check the TOO_MANY_VERSION error
     try {
         sql """ INSERT INTO t VALUES (2001) """
         assertTrue(false, "Expected TOO_MANY_VERSION error but none occurred")
@@ -39,4 +39,6 @@ suite("too_many_versions_detection") {
         assertTrue(e.getMessage().contains(expectedError),
             "Expected TOO_MANY_VERSION error with message containing '${expectedError}', but got: ${e.getMessage()}")
     }
+
+    sql """ DROP TABLE IF EXISTS t """
 }
