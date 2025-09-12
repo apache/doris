@@ -20,12 +20,10 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hive.HiveCatalog;
 
@@ -74,13 +72,16 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
             for (Map.Entry<String, String> entry : sp.getHadoopStorageConfig()) {
                 catalogProps.put(entry.getKey(), entry.getValue());
             }
-            if (sp instanceof HdfsProperties) {
+            // NOTE: Custom FileIO implementation (KerberizedHadoopFileIO) is commented out by default.
+            // Using FileIO for Kerberos authentication may cause serialization issues when accessing
+            // Iceberg system tables (e.g., history, snapshots, manifests).
+            /*if (sp instanceof HdfsProperties) {
                 HdfsProperties hdfsProps = (HdfsProperties) sp;
                 if (hdfsProps.isKerberos()) {
                     catalogProps.put(CatalogProperties.FILE_IO_IMPL,
                             "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO");
                 }
-            }
+            }*/
         });
         buildCatalogProperties(catalogProps);
         try {
