@@ -582,6 +582,10 @@ void ColumnNullable::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                         last_column);
 }
 
+bool ColumnNullable::only_null() const {
+    return !simd::contain_byte(get_null_map_data().data(), size(), 0);
+}
+
 bool ColumnNullable::has_null(size_t begin, size_t end) const {
     return simd::contain_byte(get_null_map_data().data() + begin, end - begin, 1);
 }

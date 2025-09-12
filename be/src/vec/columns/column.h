@@ -599,12 +599,7 @@ public:
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
-        return StringRef {};
     }
-
-    /// Returns ratio of values in column, that are equal to default value of column.
-    /// Checks only @sample_ratio ratio of rows.
-    virtual double get_ratio_of_default_rows(double sample_ratio = 1.0) const { return 0.0; }
 
     // Column is ColumnString/ColumnArray/ColumnMap or other variable length column at every row
     virtual bool is_variable_length() const { return false; }
@@ -651,6 +646,10 @@ public:
     // usage: nested_column.replace_column_null_data(nested_null_map.data())
     // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+
+    // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
+    // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
+    virtual void replace_float_special_values() {}
 
 protected:
     template <typename Derived>

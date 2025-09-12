@@ -105,7 +105,8 @@ protected:
         return Status::OK();
     }
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override {
+    Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
+                    size_t num_values) override {
         if (num_values * _type_length != length) {
             return Status::Corruption("Wrong dictionary data for fixed length type");
         }

@@ -480,7 +480,8 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
     bool eof = false;
     while (!eof) {
         Block block = {dictionary_coded
-                               ? ColumnWithTypeAndName {ColumnDictI32::create(),
+                               ? ColumnWithTypeAndName {ColumnDictI32::create(
+                                                                FieldType::OLAP_FIELD_TYPE_VARCHAR),
                                                         data_type_file_path, ICEBERG_FILE_PATH}
                                : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
 

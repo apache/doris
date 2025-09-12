@@ -38,6 +38,8 @@ public:
     MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max()) {}
+    MetaReader(std::string_view instance_id, Versionstamp snapshot_version)
+            : MetaReader(instance_id, nullptr, snapshot_version) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
             : instance_id_(instance_id),
               snapshot_version_(snapshot_version),
@@ -223,6 +225,11 @@ public:
     // Returns TXN_OK if the partition exists, or TXN_KEY_NOT_FOUND if it does not.
     TxnErrorCode is_partition_exists(int64_t partition_id, bool snapshot = false);
     TxnErrorCode is_partition_exists(Transaction* txn, int64_t partition_id, bool snapshot = false);
+
+    // Get the snapshots.
+    TxnErrorCode get_snapshots(Transaction* txn,
+                               std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+    TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
 
 private:
     const std::string_view instance_id_;

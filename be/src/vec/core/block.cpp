@@ -257,16 +257,24 @@ void Block::erase(size_t position) {
 }
 
 void Block::erase_impl(size_t position) {
+    bool need_maintain_index_by_name = true;
+    if (position + 1 == data.size()) {
+        index_by_name.erase(data.back().name);
+        need_maintain_index_by_name = false;
+    }
+
     data.erase(data.begin() + position);
 
-    for (auto it = index_by_name.begin(); it != index_by_name.end();) {
-        if (it->second == position) {
-            index_by_name.erase(it++);
-        } else {
-            if (it->second > position) {
-                --it->second;
+    if (need_maintain_index_by_name) {
+        for (auto it = index_by_name.begin(); it != index_by_name.end();) {
+            if (it->second == position) {
+                index_by_name.erase(it++);
+            } else {
+                if (it->second > position) {
+                    --it->second;
+                }
+                ++it;
             }
-            ++it;
         }
     }
     if (position < row_same_bit.size()) {

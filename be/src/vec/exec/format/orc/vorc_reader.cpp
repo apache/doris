@@ -1784,13 +1784,15 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
+
         RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
 
                 orc_key_type, orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<false>(
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
-                orc_value_type, orc_map->elements.get(), element_size);
+                orc_value_type, orc_map->elements.get(), element_size));
+        return doris_map.deduplicate_keys();
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {

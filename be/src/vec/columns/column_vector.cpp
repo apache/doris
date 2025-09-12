@@ -442,6 +442,27 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
     }
 }
 
+template <PrimitiveType T>
+void ColumnVector<T>::replace_float_special_values() {
+    if constexpr (is_float_or_double(T)) {
+        static constexpr float f_neg_zero = -0.0F;
+        static constexpr double d_neg_zero = -0.0;
+        static constexpr size_t byte_size = sizeof(value_type);
+        static const void* p_neg_zero = (byte_size == 4 ? static_cast<const void*>(&f_neg_zero)
+                                                        : static_cast<const void*>(&d_neg_zero));
+        auto s = size();
+        auto* data_ptr = data.data();
+        for (size_t i = 0; i < s; ++i) {
+            // replace negative zero with positive zero
+            if (0 == std::memcmp(data_ptr + i, p_neg_zero, byte_size)) {
+                data[i] = 0.0;
+            } else if (is_nan(data[i])) {
+                data[i] = std::numeric_limits<value_type>::quiet_NaN();
+            }
+        }
+    }
+}
+
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<TYPE_BOOLEAN>;
 template class ColumnVector<TYPE_TINYINT>;

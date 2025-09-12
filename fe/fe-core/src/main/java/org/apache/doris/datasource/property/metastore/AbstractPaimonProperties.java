@@ -53,7 +53,7 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     private static final String USER_PROPERTY_PREFIX = "paimon.";
 
     protected AbstractPaimonProperties(Map<String, String> props) {
-        super(props);
+        super(Type.PAIMON, props);
     }
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);

@@ -310,6 +310,8 @@ public:
         ++s;
         return data->deserialize_impl(pos);
     }
+
+    void replace_float_special_values() override;
 };
 
 // For example, DataType may not correspond to a type and const,

@@ -458,4 +458,10 @@ size_t ColumnStruct::get_max_row_byte_size() const {
     return max_row_byte_sz;
 }
 
+void ColumnStruct::replace_float_special_values() {
+    for (auto& col : columns) {
+        col->replace_float_special_values();
+    }
+}
+
 } // namespace doris::vectorized
