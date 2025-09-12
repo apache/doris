@@ -744,6 +744,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
+        _delete_bitmap->set_tablet_id(_tablet_id);
     }
 
     // init _rs_metas
@@ -1616,6 +1617,10 @@ DeleteBitmap::Version DeleteBitmap::_get_rowset_cache_version(const BitmapKey& b
 
 DeleteBitmap DeleteBitmap::agg_cache_snapshot() {
     return DeleteBitmapAggCache::instance()->snapshot(_tablet_id);
+}
+
+void DeleteBitmap::set_tablet_id(int64_t tablet_id) {
+    _tablet_id = tablet_id;
 }
 
 std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) const {
