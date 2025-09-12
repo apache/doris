@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_backup_restore_colocate", "backup_restore") {
+suite("test_backup_restore_colocate", "backup_restore,external") {
     String suiteName = "test_backup_restore_colocate"
     String repoName = "${suiteName}_repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "${suiteName}_db"

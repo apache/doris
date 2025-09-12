@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_spark_load", "p0") {
+suite("test_spark_load", "p0,external") {
     // Need spark cluster, upload data file to hdfs
     def testTable = "tbl_test_spark_load"
     def testTable2 = "tbl_test_spark_load2"
