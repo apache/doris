@@ -6,17 +6,17 @@
 -990000.0
 
 -- !regr_intercept_int --
-1000001.0
+-9.999E9
 
 -- !regr_intercept_bigint --
 \N
 
 -- !regr_intercept_largeint --
-9.999999999999989E19
+1.0E20
 
 -- !regr_intercept_float --
-13.241664047161644
+13.24166404716167
 
 -- !regr_intercept_double --
-58.05515207632899
+58.05515207633332
 
