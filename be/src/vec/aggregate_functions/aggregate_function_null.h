@@ -173,7 +173,7 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena& arena) const override {
         if (result_is_nullable && get_flag(rhs)) {
             set_flag(place);
@@ -182,7 +182,7 @@ public:
         nested_function->merge(nested_place(place), nested_place(rhs), arena);
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         bool flag = get_flag(place);
         if (result_is_nullable) {
             buf.write_binary(flag);
@@ -218,7 +218,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         if constexpr (result_is_nullable) {
             auto& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {

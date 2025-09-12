@@ -149,12 +149,11 @@ public:
         this->data(place).add(columns, _arguments.size(), row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).serialize(_state, buf);
     }
 
@@ -163,24 +162,23 @@ public:
         this->data(place).deserialize(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
-        auto* place = const_cast<AggregateDataPtr>(targetplace);
+    void insert_result_into(AggregateDataPtr targetplace, IColumn& to) const override {
         Arena arena;
-        if (!this->data(place).block.is_empty_column()) {
-            this->data(place).sort();
+        if (!this->data(targetplace).block.is_empty_column()) {
+            this->data(targetplace).sort();
 
             ColumnRawPtrs arguments_nested;
             for (int i = 0; i < _arguments.size() - _sort_desc.size(); i++) {
                 arguments_nested.emplace_back(
-                        this->data(place).block.get_by_position(i).column.get());
+                        this->data(targetplace).block.get_by_position(i).column.get());
             }
 
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),
-                                                 get_nested_place(place), arguments_nested.data(),
-                                                 arena);
+                                                 get_nested_place(targetplace),
+                                                 arguments_nested.data(), arena);
         }
 
-        _nested_func->insert_result_into(get_nested_place(place), to);
+        _nested_func->insert_result_into(get_nested_place(targetplace), to);
     }
 
     size_t size_of_data() const override { return prefix_size + _nested_func->size_of_data(); }

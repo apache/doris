@@ -162,13 +162,13 @@ public:
         return std::is_trivially_destructible_v<Data> && nested_function->has_trivial_destructor();
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena& arena) const override {
-        const AggregateFunctionForEachData& rhs_state = data(rhs);
+        AggregateFunctionForEachData& rhs_state = data(rhs);
         AggregateFunctionForEachData& state =
                 ensure_aggregate_data(place, rhs_state.dynamic_array_size, arena);
 
-        const char* rhs_nested_state = rhs_state.array_of_aggregate_datas;
+        char* rhs_nested_state = rhs_state.array_of_aggregate_datas;
         char* nested_state = state.array_of_aggregate_datas;
 
         for (size_t i = 0; i < state.dynamic_array_size && i < rhs_state.dynamic_array_size; ++i) {
@@ -179,10 +179,10 @@ public:
         }
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        const AggregateFunctionForEachData& state = data(place);
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        AggregateFunctionForEachData& state = data(place);
         buf.write_binary(state.dynamic_array_size);
-        const char* nested_state = state.array_of_aggregate_datas;
+        char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < state.dynamic_array_size; ++i) {
             nested_function->serialize(nested_state, buf);
             nested_state += nested_size_of_data;
@@ -205,7 +205,7 @@ public:
         }
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         const AggregateFunctionForEachData& state = data(place);
 
         auto& arr_to = assert_cast<ColumnArray&>(to);

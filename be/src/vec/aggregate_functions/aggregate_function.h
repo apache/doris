@@ -131,19 +131,17 @@ public:
                           std::vector<int>& rows, Arena&) const {}
 
     /// Merges state (on which place points to) with other state of current aggregation function.
-    virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-                       Arena&) const = 0;
+    virtual void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const = 0;
 
-    virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
+    virtual void merge_vec(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
                            Arena&, const size_t num_rows) const = 0;
 
     // same as merge_vec, but only call "merge" function when place is not nullptr
     virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                    ConstAggregateDataPtr rhs, Arena&,
-                                    const size_t num_rows) const = 0;
+                                    AggregateDataPtr rhs, Arena&, const size_t num_rows) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
-    virtual void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
+    virtual void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const = 0;
 
     virtual void serialize_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
                                BufferWritable& buf, const size_t num_rows) const = 0;
@@ -151,7 +149,7 @@ public:
     virtual void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
                                      MutableColumnPtr& dst, const size_t num_rows) const = 0;
 
-    virtual void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    virtual void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                                  IColumn& to) const = 0;
 
     /// Deserializes state. This function is called only for empty (just created) states.
@@ -185,7 +183,7 @@ public:
                                                    const IColumn& column, Arena&) const = 0;
 
     /// Inserts results into a column.
-    virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
+    virtual void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
                                         const size_t offset, IColumn& to,
@@ -243,7 +241,7 @@ public:
     // need template specialization agg for the string type in insert_result_into_range
     virtual bool result_column_could_resize() const { return false; }
 
-    virtual void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
+    virtual void insert_result_into_range(AggregateDataPtr __restrict place, IColumn& to,
                                           const size_t start, const size_t end) const {
         for (size_t i = start; i < end; ++i) {
             insert_result_into(place, to);
@@ -435,7 +433,7 @@ public:
         streaming_agg_serialize(columns, writer, num_rows, arena);
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         VectorBufferWriter writter(assert_cast<ColumnString&>(to));
         assert_cast<const Derived*>(this)->serialize(place, writter);
@@ -518,7 +516,7 @@ public:
         deserialize_vec(places, assert_cast<const ColumnString*>(&column), arena, num_rows);
     }
 
-    void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
+    void merge_vec(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
                    Arena& arena, const size_t num_rows) const override {
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
@@ -527,9 +525,8 @@ public:
         }
     }
 
-    void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                            ConstAggregateDataPtr rhs, Arena& arena,
-                            const size_t num_rows) const override {
+    void merge_vec_selected(const AggregateDataPtr* places, size_t offset, AggregateDataPtr rhs,
+                            Arena& arena, const size_t num_rows) const override {
         const auto* derived = assert_cast<const Derived*>(this);
         const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {

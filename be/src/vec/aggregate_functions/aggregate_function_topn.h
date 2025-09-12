@@ -315,12 +315,11 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -343,7 +342,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = this->data(place).get();
         assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }
@@ -365,7 +364,7 @@ public:
         return std::make_shared<DataTypeArray>(make_nullable(_argument_type));
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         if (to_nested_col.is_nullable()) {

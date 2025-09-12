@@ -150,12 +150,11 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -164,7 +163,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         const auto result = this->data(place).get();
         assert_cast<ColumnString&>(to).insert_data(result.data, result.size);
     }

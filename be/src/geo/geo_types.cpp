@@ -779,8 +779,8 @@ int GeoLine::numPoint() const {
     return _polyline->num_vertices();
 }
 
-S2Point* GeoLine::getPoint(int i) const {
-    return const_cast<S2Point*>(&(_polyline->vertex(i)));
+const S2Point* GeoLine::getPoint(int i) const {
+    return &(_polyline->vertex(i));
 }
 
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
@@ -1102,7 +1102,7 @@ int GeoPolygon::numLoops() const {
 }
 
 S2Loop* GeoPolygon::getLoop(int i) const {
-    return const_cast<S2Loop*>(_polygon->loop(i));
+    return _polygon->loop(i);
 }
 
 GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListList>& list) {
