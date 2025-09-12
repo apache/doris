@@ -357,6 +357,10 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override;
 
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
     void clone_instance(::google::protobuf::RpcController* controller,
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
