@@ -62,4 +62,9 @@ public class SmallIntType extends IntegralType implements Int16OrLessType {
     public int width() {
         return WIDTH;
     }
+
+    @Override
+    public int range() {
+        return RANGE;
+    }
 }

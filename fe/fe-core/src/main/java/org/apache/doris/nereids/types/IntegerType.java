@@ -62,4 +62,9 @@ public class IntegerType extends IntegralType implements Int32OrLessType {
     public int width() {
         return WIDTH;
     }
+
+    @Override
+    public int range() {
+        return RANGE;
+    }
 }

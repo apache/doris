@@ -71,4 +71,9 @@ public class LargeIntType extends IntegralType {
     public int width() {
         return WIDTH;
     }
+
+    @Override
+    public int range() {
+        return RANGE;
+    }
 }

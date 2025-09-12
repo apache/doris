@@ -24,22 +24,17 @@ suite('test_simplify_comparison_predicate_int_vs_double') {
 
         drop table if exists tbl1_test_simplify_comparison_predicate_int_vs_double force;
         drop table if exists tbl2_test_simplify_comparison_predicate_int_vs_double force;
-        drop table if exists tbl3_test_simplify_comparison_predicate_int_vs_double force;
 
         create table tbl1_test_simplify_comparison_predicate_int_vs_double
                 (k1 int,  c_s varchar(100)) properties('replication_num' = '1');
         create table tbl2_test_simplify_comparison_predicate_int_vs_double
-                (k2 int,  c_bigint bigint) properties('replication_num' = '1');
-        create table tbl3_test_simplify_comparison_predicate_int_vs_double
-                (k3 int,  c_bigint bigint) properties('replication_num' = '1');
+                (k2 int,  c_bigint bigint, c_decimal decimal(6, 3)) properties('replication_num' = '1');
 
         insert into tbl1_test_simplify_comparison_predicate_int_vs_double values
             (100, "870479087484055553"),
             (101,"870479087484055554");
         insert into tbl2_test_simplify_comparison_predicate_int_vs_double values
-            (200, 870479087484055553);
-        insert into tbl3_test_simplify_comparison_predicate_int_vs_double values
-            (300, 870479087484055553);
+            (200, 870479087484055553, 999.999);
     """
 
 
@@ -53,11 +48,11 @@ suite('test_simplify_comparison_predicate_int_vs_double') {
 
     for (def delimit : [-(1L<<24), 1L<<24]) {
         for (def diff : [-10, 0, 10]) {
-            def tag = "tbl3_float_${delimit}_${diff}".replace('-', 'neg')
+            def tag = "float_${delimit}_${diff}".replace('-', 'neg')
             "qt_${tag}" """
                 explain shape plan
                 select c_bigint
-                from tbl3_test_simplify_comparison_predicate_int_vs_double
+                from tbl2_test_simplify_comparison_predicate_int_vs_double
                 where cast(c_bigint as float) = cast('${delimit + diff}' as float)
             """
         }
@@ -65,27 +60,102 @@ suite('test_simplify_comparison_predicate_int_vs_double') {
 
     for (def delimit : [-(1L<<53), 1L<<53]) {
         for (def diff : [-10, 0, 10]) {
-            def tag = "tbl3_double_${delimit}_${diff}".replace('-', 'neg')
+            def tag = "double_${delimit}_${diff}".replace('-', 'neg')
             "qt_${tag}" """
                 explain shape plan
                 select c_bigint
-                from tbl3_test_simplify_comparison_predicate_int_vs_double
+                from tbl2_test_simplify_comparison_predicate_int_vs_double
                 where cast(c_bigint as double) = cast('${delimit + diff}' as double)
             """
 
-            tag = "tbl3_float_${delimit}_${diff}".replace('-', 'neg')
+            tag = "float_${delimit}_${diff}".replace('-', 'neg')
             "qt_${tag}" """
                 explain shape plan
                 select c_bigint
-                from tbl3_test_simplify_comparison_predicate_int_vs_double
+                from tbl2_test_simplify_comparison_predicate_int_vs_double
                 where cast(c_bigint as float) = cast('${delimit + diff}' as float)
             """
         }
     }
 
+    sql "set enable_strict_cast=false"
+
+    explainAndOrderResult 'int_vs_double_1', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where c_bigint > 123.456
+    """
+
+    explainAndOrderResult 'int_vs_double_2', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where cast(c_bigint as decimal(7, 3)) > 123.456
+    """
+
+    explainAndOrderResult 'decimal_vs_decimal_1', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where c_decimal > 123.4567
+    """
+
+    explainAndOrderResult 'decimal_vs_decimal_2', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where cast(c_decimal as decimal(3,1)) > cast(12.3 as decimal(5, 1))
+    """
+
+    explainAndOrderResult 'decimal_vs_decimal_3', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where cast(c_decimal as decimal(5,2)) > cast(123.45 as decimal(5, 2))
+    """
+
+    sql "set enable_strict_cast=true"
+
+    explainAndOrderResult 'int_vs_double_3', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where c_bigint > 123.456
+    """
+
+    explainAndOrderResult 'decimal_vs_decimal_4', """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where c_decimal > 123.4567
+    """
+
+    test {
+        sql """
+            select *
+            from tbl2_test_simplify_comparison_predicate_int_vs_double
+            where cast(c_bigint as decimal(7, 3)) > 123.456
+            """
+
+        exception 'Arithmetic overflow when converting value'
+    }
+
+    test {
+        sql """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where cast(c_decimal as decimal(3,1)) > cast(12.3 as decimal(5, 1))
+            """
+
+        exception 'Arithmetic overflow when converting value'
+    }
+
+    test {
+        sql """
+        select *
+        from tbl2_test_simplify_comparison_predicate_int_vs_double
+        where cast(c_decimal as decimal(5,2)) > cast(123.45 as decimal(5, 2))
+            """
+
+        exception 'Arithmetic overflow when converting value'
+    }
+
     sql """
         drop table if exists tbl1_test_simplify_comparison_predicate_int_vs_double force;
         drop table if exists tbl2_test_simplify_comparison_predicate_int_vs_double force;
-        drop table if exists tbl3_test_simplify_comparison_predicate_int_vs_double force;
     """
 }

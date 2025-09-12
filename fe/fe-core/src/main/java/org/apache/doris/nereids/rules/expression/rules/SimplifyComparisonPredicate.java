@@ -60,6 +60,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -405,19 +406,25 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         if (left instanceof Cast && right instanceof DecimalV3Literal) {
             Cast cast = (Cast) left;
             left = cast.child();
+            DecimalV3Type castDataType = (DecimalV3Type) cast.getDataType();
             DecimalV3Literal literal = (DecimalV3Literal) right;
             if (left.getDataType().isDecimalV3Type()) {
+                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
+                if (castDataType.getRange() < leftType.getRange()
+                        || (castDataType.getRange() == leftType.getRange()
+                                && castDataType.getScale() < leftType.getScale())) {
+                    // for cast(col as decimal(m2, n2)) cmp literal,
+                    // if cast-to can not hold col's integer part, the cast result maybe null, don't process it.
+                    return comparisonPredicate;
+                }
                 Optional<Expression> toSmallerDecimalDataTypeExpr = convertDecimalToSmallerDecimalV3Type(
                         comparisonPredicate, cast, literal);
                 if (toSmallerDecimalDataTypeExpr.isPresent()) {
                     return toSmallerDecimalDataTypeExpr.get();
                 }
 
-                DecimalV3Type leftType = (DecimalV3Type) left.getDataType();
                 DecimalV3Type literalType = (DecimalV3Type) literal.getDataType();
-                if (cast.getDataType().isDecimalV3Type()
-                        && ((DecimalV3Type) cast.getDataType()).getScale() >= leftType.getScale()
-                        && leftType.getScale() < literalType.getScale()) {
+                if (castDataType.getScale() >= leftType.getScale() && leftType.getScale() < literalType.getScale()) {
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
@@ -462,6 +469,13 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
     private static Expression processIntegerDecimalLiteralComparison(
             ComparisonPredicate comparisonPredicate, Expression left, BigDecimal literal) {
         // we only process isIntegerLikeType, which are tinyint, smallint, int, bigint
+        // for `cast(c_int as decimal(m, n)) cmp literal`,
+        // if c_int's range is wider than decimal's range, cast result maybe null, don't process it.
+        DataType castDataType = comparisonPredicate.left().getDataType();
+        if (castDataType.isDecimalV3Type()
+                && ((DecimalV3Type) castDataType).getRange() < ((IntegralType) left.getDataType()).range()) {
+            return comparisonPredicate;
+        }
         if (literal.compareTo(new BigDecimal(Long.MIN_VALUE)) >= 0
                 && literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
             literal = literal.stripTrailingZeros();
@@ -488,7 +502,6 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                 roundLiteralOpt = Optional.of(literal);
             }
             if (roundLiteralOpt.isPresent()) {
-                DataType castDataType = comparisonPredicate.left().getDataType();
                 Optional<IntegerLikeLiteral> integerLikeLiteralOpt
                         = convertDecimalToIntegerLikeLiteral(roundLiteralOpt.get(), castDataType);
                 if (integerLikeLiteralOpt.isPresent()) {

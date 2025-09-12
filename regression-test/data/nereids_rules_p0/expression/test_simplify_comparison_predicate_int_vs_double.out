@@ -8,113 +8,166 @@ PhysicalResultSink
 ------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
 -- !cast_bigint_as_double_result --
-100	870479087484055553	200	870479087484055553
+100	870479087484055553	200	870479087484055553	999.999
 
--- !tbl3_float_neg16777216_neg10 --
+-- !float_neg16777216_neg10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = -1.6777226E7))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_neg16777216_0 --
+-- !float_neg16777216_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = -1.6777216E7))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_neg16777216_10 --
+-- !float_neg16777216_10 --
 PhysicalResultSink
 --PhysicalProject
-----filter((tbl3_test_simplify_comparison_predicate_int_vs_double.c_bigint = -16777206))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+----filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint = -16777206))
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_16777216_neg10 --
+-- !float_16777216_neg10 --
 PhysicalResultSink
 --PhysicalProject
-----filter((tbl3_test_simplify_comparison_predicate_int_vs_double.c_bigint = 16777206))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+----filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint = 16777206))
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_16777216_0 --
+-- !float_16777216_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = 1.6777216E7))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_16777216_10 --
+-- !float_16777216_10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = 1.6777226E7))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_neg9007199254740992_neg10 --
+-- !double_neg9007199254740992_neg10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as DOUBLE) = -9.007199254741002E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_neg9007199254740992_neg10 --
+-- !float_neg9007199254740992_neg10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = -9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_neg9007199254740992_0 --
+-- !double_neg9007199254740992_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as DOUBLE) = -9.007199254740992E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_neg9007199254740992_0 --
+-- !float_neg9007199254740992_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = -9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_neg9007199254740992_10 --
+-- !double_neg9007199254740992_10 --
 PhysicalResultSink
 --PhysicalProject
-----filter((tbl3_test_simplify_comparison_predicate_int_vs_double.c_bigint = -9007199254740982))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+----filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint = -9007199254740982))
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_neg9007199254740992_10 --
+-- !float_neg9007199254740992_10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = -9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_9007199254740992_neg10 --
+-- !double_9007199254740992_neg10 --
 PhysicalResultSink
 --PhysicalProject
-----filter((tbl3_test_simplify_comparison_predicate_int_vs_double.c_bigint = 9007199254740982))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+----filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint = 9007199254740982))
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_9007199254740992_neg10 --
+-- !float_9007199254740992_neg10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = 9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_9007199254740992_0 --
+-- !double_9007199254740992_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as DOUBLE) = 9.007199254740992E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_9007199254740992_0 --
+-- !float_9007199254740992_0 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = 9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_double_9007199254740992_10 --
+-- !double_9007199254740992_10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as DOUBLE) = 9.007199254741002E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
--- !tbl3_float_9007199254740992_10 --
+-- !float_9007199254740992_10 --
 PhysicalResultSink
 --PhysicalProject
 ----filter((cast(c_bigint as FLOAT) = 9.0071993E15))
-------PhysicalOlapScan[tbl3_test_simplify_comparison_predicate_int_vs_double]
+------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !int_vs_double_1_shape --
+PhysicalResultSink
+--filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint > 123))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !int_vs_double_1_result --
+200	870479087484055553	999.999
+
+-- !int_vs_double_2_shape --
+PhysicalResultSink
+--filter((cast(c_bigint as DECIMALV3(7, 3)) > 123.456))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !int_vs_double_2_result --
+
+-- !decimal_vs_decimal_1_shape --
+PhysicalResultSink
+--filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_decimal > 123.456))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !decimal_vs_decimal_1_result --
+200	870479087484055553	999.999
+
+-- !decimal_vs_decimal_2_shape --
+PhysicalResultSink
+--filter((cast(c_decimal as DECIMALV3(3, 1)) > 12.3))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !decimal_vs_decimal_2_result --
+
+-- !decimal_vs_decimal_3_shape --
+PhysicalResultSink
+--filter((cast(c_decimal as DECIMALV3(5, 2)) > 123.45))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !decimal_vs_decimal_3_result --
+
+-- !int_vs_double_3_shape --
+PhysicalResultSink
+--filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_bigint > 123))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !int_vs_double_3_result --
+200	870479087484055553	999.999
+
+-- !decimal_vs_decimal_4_shape --
+PhysicalResultSink
+--filter((tbl2_test_simplify_comparison_predicate_int_vs_double.c_decimal > 123.456))
+----PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
+
+-- !decimal_vs_decimal_4_result --
+200	870479087484055553	999.999
 
