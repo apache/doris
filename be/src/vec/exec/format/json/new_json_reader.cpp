@@ -363,7 +363,7 @@ Status NewJsonReader::_get_range_params() {
     if (_params.file_attributes.__isset.json_root) {
         _json_root = _params.file_attributes.json_root;
     }
-    
+
     // (TODO Refrain) The default behavior of json load is unified to read_json_by_line,
     // and this reading method configuration option will be removed in the future,
     // being unified to read_json_by_line.
