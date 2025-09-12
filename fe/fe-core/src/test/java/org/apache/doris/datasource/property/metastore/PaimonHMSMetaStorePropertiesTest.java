@@ -33,12 +33,12 @@ public class PaimonHMSMetaStorePropertiesTest {
     public void testKerberosCatalog() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
-        props.put("fs.defaultFS", "hdfs://mycluster");
+        props.put("fs.defaultFS", "hdfs://mycluster_test");
         props.put("hadoop.security.authentication", "kerberos");
         props.put("hadoop.kerberos.principal", "myprincipal");
         props.put("hadoop.kerberos.keytab", "mykeytab");
         props.put("type", "paimon");
-        props.put("hive.metastore.uris", "thrift://localhost:9083");
+        props.put("hive.metastore.uris", "thrift://localhost:12345");
         props.put("paimon.catalog.type", "hms");
         props.put("warehouse", "hdfs://mycluster/paimon");
         PaimonHMSMetaStoreProperties paimonProps = (PaimonHMSMetaStoreProperties) MetastoreProperties.create(props);
