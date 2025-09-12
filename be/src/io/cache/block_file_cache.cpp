@@ -1491,6 +1491,11 @@ bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, 
     size_t cur_queue_max_size = cur_queue.get_max_size();
     // Hit the soft limit by self, cannot remove from other queues
     if (_cur_cache_size + size > _capacity && cur_queue_size + size > cur_queue_max_size) {
+        if (config::enable_normal_queue_cold_hot_separation && cur_cache_type == FileCacheType::NORMAL) {
+            return try_reserve_from_other_queue_by_size(FileCacheType::NORMAL,
+                                                 {FileCacheType::COLD_NORMAL}, size, cache_lock,
+                                                 evict_in_advance);
+        }
         return false;
     }
     return try_reserve_from_other_queue_by_size(cur_cache_type, other_cache_types, size, cache_lock,
