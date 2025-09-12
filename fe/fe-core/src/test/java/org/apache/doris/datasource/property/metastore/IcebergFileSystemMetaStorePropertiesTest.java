@@ -43,8 +43,8 @@ public class IcebergFileSystemMetaStorePropertiesTest {
         props.put("warehouse", "hdfs://mycluster_test/ice");
         IcebergFileSystemMetaStoreProperties icebergProps = (IcebergFileSystemMetaStoreProperties) MetastoreProperties.create(props);
         List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
-        RuntimeException e = Assertions.assertThrows(RuntimeException.class, () -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
-        Assertions.assertTrue(e.getMessage().contains("LoginException: Unable to obtain password from user"));
+        //We expect a Kerberos-related exception, but because the messages vary by environment, we’re only doing a simple check.
+        Assertions.assertThrows(RuntimeException.class, () -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
     }
 
     @Test
