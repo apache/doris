@@ -34,13 +34,13 @@ public class IcebergFileSystemMetaStorePropertiesTest {
     public void testKerberosCatalog() throws Exception {
         Map<String, String> props = new HashMap<>();
         props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
-        props.put("fs.defaultFS", "hdfs://mycluster");
+        props.put("fs.defaultFS", "hdfs://mycluster_test");
         props.put("hadoop.security.authentication", "kerberos");
         props.put("hadoop.kerberos.principal", "myprincipal");
         props.put("hadoop.kerberos.keytab", "mykeytab");
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "hadoop");
-        props.put("warehouse", "hdfs://mycluster/ice");
+        props.put("warehouse", "hdfs://mycluster_test/ice");
         IcebergFileSystemMetaStoreProperties icebergProps = (IcebergFileSystemMetaStoreProperties) MetastoreProperties.create(props);
         List<StorageProperties> storagePropertiesList = Collections.singletonList(StorageProperties.createPrimary(props));
         RuntimeException e = Assertions.assertThrows(RuntimeException.class, () -> icebergProps.initializeCatalog("iceberg", storagePropertiesList));
