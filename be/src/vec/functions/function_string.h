@@ -3291,9 +3291,10 @@ struct FormatRoundDoubleImpl {
         // when scale is above 38, we will go here
         for (size_t i = 0; i < input_rows_count; i++) {
             int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-            if (decimal_places < 0) {
+            if (decimal_places < 0 || decimal_places > 1024) {
                 return Status::InvalidArgument(
-                        "The second argument is {}, it can not be less than 0.", decimal_places);
+                        "The second argument is {}, it should be in range [0, 1024].",
+                        decimal_places);
             }
             // round to `decimal_places` decimal places
             double value = MathFunctions::my_double_round(data_column->get_element(i),
@@ -3325,9 +3326,10 @@ struct FormatRoundInt64Impl {
                 assert_cast<const ColumnInt32*>(decimal_places_col_ptr.get())->get_data();
         for (size_t i = 0; i < input_rows_count; i++) {
             int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-            if (decimal_places < 0) {
+            if (decimal_places < 0 || decimal_places > 1024) {
                 return Status::InvalidArgument(
-                        "The second argument is {}, it can not be less than 0.", decimal_places);
+                        "The second argument is {}, it should be in range [0, 1024].",
+                        decimal_places);
             }
             Int64 value = data_column->get_element(i);
             StringRef str =
@@ -3356,9 +3358,10 @@ struct FormatRoundInt128Impl {
         // see https://github.com/apache/doris/blob/788abf2d7c3c7c2d57487a9608e889e7662d5fb2/be/src/vec/data_types/data_type_number_base.cpp#L124
         for (size_t i = 0; i < input_rows_count; i++) {
             int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-            if (decimal_places < 0) {
+            if (decimal_places < 0 || decimal_places > 1024) {
                 return Status::InvalidArgument(
-                        "The second argument is {}, it can not be less than 0.", decimal_places);
+                        "The second argument is {}, it should be in range [0, 1024].",
+                        decimal_places);
             }
             Int128 value = data_column->get_element(i);
             StringRef str =
@@ -3385,9 +3388,9 @@ struct FormatRoundDecimalImpl {
         if (auto* decimalv2_column = check_and_get_column<ColumnDecimal128V2>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-                if (decimal_places < 0) {
+                if (decimal_places < 0 || decimal_places > 1024) {
                     return Status::InvalidArgument(
-                            "The second argument is {}, it can not be less than 0.",
+                            "The second argument is {}, it should be in range [0, 1024].",
                             decimal_places);
                 }
                 const Decimal128V2& dec128 = decimalv2_column->get_element(i);
@@ -3405,9 +3408,9 @@ struct FormatRoundDecimalImpl {
             const UInt32 scale = decimal32_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-                if (decimal_places < 0) {
+                if (decimal_places < 0 || decimal_places > 1024) {
                     return Status::InvalidArgument(
-                            "The second argument is {}, it can not be less than 0.",
+                            "The second argument is {}, it should be in range [0, 1024].",
                             decimal_places);
                 }
                 const Int32& frac_part = decimal32_column->get_fractional_part(i);
@@ -3423,9 +3426,9 @@ struct FormatRoundDecimalImpl {
             const UInt32 scale = decimal64_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-                if (decimal_places < 0) {
+                if (decimal_places < 0 || decimal_places > 1024) {
                     return Status::InvalidArgument(
-                            "The second argument is {}, it can not be less than 0.",
+                            "The second argument is {}, it should be in range [0, 1024].",
                             decimal_places);
                 }
                 const Int64& frac_part = decimal64_column->get_fractional_part(i);
@@ -3441,9 +3444,9 @@ struct FormatRoundDecimalImpl {
             const UInt32 scale = decimal128_column->get_scale();
             for (size_t i = 0; i < input_rows_count; i++) {
                 int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
-                if (decimal_places < 0) {
+                if (decimal_places < 0 || decimal_places > 1024) {
                     return Status::InvalidArgument(
-                            "The second argument is {}, it can not be less than 0.",
+                            "The second argument is {}, it should be in range [0, 1024].",
                             decimal_places);
                 }
                 const Int128& frac_part = decimal128_column->get_fractional_part(i);
