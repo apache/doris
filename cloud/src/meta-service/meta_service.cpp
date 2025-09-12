@@ -2461,7 +2461,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     LOG(WARNING) << msg;
                     return;
                 }
-
+                response->set_partition_max_version(version_pb.partition_version);
                 if (version_pb.pending_txn_ids_size() > 0) {
                     DCHECK(version_pb.pending_txn_ids_size() == 1);
                     stats.get_bytes += txn->get_bytes();

@@ -189,6 +189,8 @@ public:
 
     int64_t initiator() const;
 
+    int64_t num_input_rowsets() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 

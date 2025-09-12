@@ -235,7 +235,7 @@ Status CloudFullCompaction::modify_rowsets() {
     })
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
-    compaction_job->set_num_input_rowsets(_input_rowsets.size());
+    compaction_job->set_num_input_rowsets(num_input_rowsets());
     compaction_job->set_num_output_rowsets(1);
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
