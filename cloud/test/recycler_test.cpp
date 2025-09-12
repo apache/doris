@@ -2149,7 +2149,8 @@ TEST(RecyclerTest, advance_pending_txn) {
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 666;
@@ -2191,7 +2192,8 @@ TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 888;
@@ -2254,7 +2256,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 88812123;
@@ -4329,7 +4332,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service() {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 

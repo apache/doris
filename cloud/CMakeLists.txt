@@ -327,6 +327,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ResourceManager
     Recycler
     RateLimiter
+    Snapshot
     ${WL_END_GROUP}
     CommonCPP
     ${DORIS_DEPENDENCIES}
@@ -487,6 +488,7 @@ add_subdirectory(${SRC_DIR}/meta-store)
 add_subdirectory(${SRC_DIR}/recycler)
 add_subdirectory(${SRC_DIR}/rate-limiter)
 add_subdirectory(${SRC_DIR}/resource-manager)
+add_subdirectory(${SRC_DIR}/snapshot)
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
