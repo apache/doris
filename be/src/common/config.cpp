@@ -1115,7 +1115,7 @@ DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
-DEFINE_Bool(enable_file_cache_query_limit, "false");
+DEFINE_mBool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
@@ -1127,6 +1127,11 @@ DEFINE_mInt64(file_cache_evict_in_advance_recycle_keys_num_threshold, "1000");
 
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
+// control whether to allow evicting from other queue when enable_file_cache_query_limit
+// Default to true to maintain backward compatibility
+DEFINE_mBool(file_cache_query_limit_enable_evict_from_other_queue, "true");
+// limit the max size of query cache on disk, 0 means no limit
+DEFINE_mInt64(file_cache_query_limit_bytes, "0");
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
