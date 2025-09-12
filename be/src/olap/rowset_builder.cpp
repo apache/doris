@@ -157,6 +157,7 @@ Status RowsetBuilder::check_tablet_version_count() {
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
                     { version_count = INT_MAX; });
 
+    // Trigger TOO MANY VERSION error first
     if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
@@ -166,6 +167,7 @@ Status RowsetBuilder::check_tablet_version_count() {
                 version_count, max_version_config, _tablet->tablet_id());
     }
 
+    // Do not return if injection is true for test
     if (!(injection || (!config::disable_auto_compaction &&
                         !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()))) {
         return Status::OK();
