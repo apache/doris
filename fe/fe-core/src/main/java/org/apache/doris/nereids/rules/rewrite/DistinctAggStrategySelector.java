@@ -151,8 +151,11 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
                 }
             }
         } else {
-            if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
+            if (agg.hasSkewHint()) {
                 return false;
+            }
+            if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), childStats)) {
+                return true;
             }
             // The joint ndv of Group by key is high, so multi_distinct is not selected;
             if (aggStats.getRowCount() >= row * AggregateUtils.LOW_CARDINALITY_THRESHOLD) {
