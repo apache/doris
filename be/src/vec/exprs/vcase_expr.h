@@ -229,10 +229,22 @@ private:
         IndexType* __restrict then_idx_ptr = then_idx.data();
         for (IndexType i = 0; i < when_columns.size(); i++) {
             IndexType column_idx = i + 1;
-            if (when_columns[i]->is_nullable()) {
+            auto [raw_when_column, is_consts] = unpack_if_const(when_columns[i]);
+
+            if (is_consts) {
+                if (raw_when_column->get_bool(0)) {
+                    for (int row_idx = 0; row_idx < rows_count; row_idx++) {
+                        then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx]) * column_idx;
+                    }
+                    break;
+                }
+                continue;
+            }
+
+            if (raw_when_column->is_nullable()) {
                 const auto* column_nullable_ptr =
                         assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
-                                when_columns[i].get());
+                                raw_when_column.get());
                 const auto* __restrict cond_raw_data =
                         assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
                                 column_nullable_ptr->get_nested_column_ptr().get())
@@ -258,7 +270,7 @@ private:
             } else {
                 const auto* __restrict cond_raw_data =
                         assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(
-                                when_columns[i].get())
+                                raw_when_column.get())
                                 ->get_data()
                                 .data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
