@@ -152,7 +152,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     stats.bytes_read += bytes_req;
     auto defer_func = [&](int*) {
         if (config::print_stack_when_cache_miss) {
-            if (io_ctx->file_cache_stats == nullptr && !stats.hit_cache) {
+            if (io_ctx->file_cache_stats == nullptr && !stats.hit_cache && !io_ctx->is_warmup) {
                 LOG_INFO("[verbose] {}", Status::InternalError<true>("not hit cache"));
             }
         }
