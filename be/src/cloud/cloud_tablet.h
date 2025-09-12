@@ -313,22 +313,9 @@ public:
     WarmUpState complete_rowset_segment_warmup(RowsetId rowset_id, Status status,
                                                int64_t segment_num, int64_t inverted_idx_num);
 
-    bool is_rowset_warmed_up(const RowsetId& rowset_id) const {
-        std::shared_lock rlock(_warmed_up_rowsets_mutex);
-        return _warmed_up_rowsets.contains(rowset_id);
-    }
+    bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
 
-    // mark a rowset that it has been warmed up
-    // must be called when file cache donwload task on this rowset is done
-    void add_warmed_up_rowset(const RowsetId& rowset_id) {
-        std::unique_lock wlock(_warmed_up_rowsets_mutex);
-        _warmed_up_rowsets.insert(rowset_id);
-    }
-
-    void remove_warmed_up_rowset(const RowsetId& rowset_id) {
-        std::unique_lock wlock(_warmed_up_rowsets_mutex);
-        _warmed_up_rowsets.erase(rowset_id);
-    }
+    void add_warmed_up_rowset(const RowsetId& rowset_id);
 
     std::string rowset_warmup_digest() {
         std::string res;

@@ -19,7 +19,7 @@ import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 import groovy.json.JsonSlurper
 
-suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
+suite('test_warmup_download_fail', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
@@ -121,32 +121,6 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         }
     }
 
-    def waitForBrpcMetricValue = { ip, port, metricName, targetValue, timeoutMs ->
-        def delta_time = 100
-        def useTime = 0
-
-        for(int t = delta_time; t <= timeoutMs; t += delta_time){
-            try {
-                def currentValue = getBrpcMetrics(ip, port, metricName)
-
-                if (currentValue == targetValue) {
-                    logger.info("BE ${ip}:${port} metric ${metricName} reached target value: ${targetValue}")
-                    return true
-                }
-
-                logger.info("BE ${ip}:${port} metric ${metricName} current value: ${currentValue}, target: ${targetValue}")
-
-            } catch (Exception e) {
-                logger.warn("Failed to get metric ${metricName} from BE ${ip}:${port}: ${e.message}")
-            }
-
-            useTime = t
-            sleep(delta_time)
-        }
-
-        assertTrue(useTime <= timeoutMs, "waitForBrpcMetricValue timeout")
-    }
-
     def getTabletStatus = { ip, port, tablet_id ->
         StringBuilder sb = new StringBuilder();
         sb.append("curl -X GET http://${ip}:${port}")
@@ -162,12 +136,6 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         assertEquals(code, 0)
         def tabletStatus = parseJson(out.trim())
         return tabletStatus
-    }
-
-    def do_cumu_compaction = { def be, def tbl, def tablet_id, int start, int end ->
-        GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets", [tablet_id: "${tablet_id}", start_version: "${start}", end_version: "${end}"])
-        trigger_and_wait_compaction(tbl, "cumulative")
-        GetDebugPoint().disableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets.set_input_rowsets")
     }
 
     def getBrpcMetricsByCluster = {cluster, name->
@@ -226,7 +194,7 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         """
 
         clearFileCacheOnAllBackends()
-        sleep(5000)
+        sleep(1000)
 
         sql """use @${clusterName1}"""
         // load data
@@ -236,7 +204,7 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         sql """insert into test values (4, 4)"""
         sql """insert into test values (5, 5)"""
         sql """insert into test values (6, 6)"""
-        sleep(3000)
+        sleep(5000)
 
         def tablets = sql_return_maparray """ show tablets from test; """
         logger.info("tablets: " + tablets)
@@ -251,63 +219,33 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         logWarmUpRowsetMetrics(clusterName2)
         def num_submitted = getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
         def num_finished = getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+        def num_failed = getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_failed_segment_num")
         assert num_submitted >= 6
         assert num_finished == num_submitted
+        assert num_failed == 0
 
-        // inject sleep when read cluster warm up rowset for compaction and load
-        GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudInternalServiceImpl::warm_up_rowset.download_segment", [sleep:10])
-
-        // trigger and wait compaction async
-        def future = thread {
-            sql """use @${clusterName1}"""
-            do_cumu_compaction(src_be, "test", tablet_id, 2, 5)
-        }
-        // wait until the warmup for compaction started
-        waitForBrpcMetricValue(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_num", 1, /*timeout*/10000)
-        logFileCacheDownloadMetrics(clusterName2)
-        logWarmUpRowsetMetrics(clusterName2)
-        assertEquals(num_submitted + 1, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num"))
-        assertEquals(num_finished, getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num"))
-
+        GetDebugPoint().enableDebugPoint(be.ip, be.http_port as int, NodeType.BE, "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_error")
 
         // a new insert will trigger the sync rowset operation in the following query
         sql """insert into test values (9, 9)"""
+        sleep(1000)
 
-
-        // in this moment, compaction has completed, but not commited, it's waiting for warm up
-        // trigger a query on read cluster, can't read the compaction data
-        sql """use @${clusterName2}"""
-        sql "select * from test"
-        def tablet_status = getTabletStatus(be.ip, be.http_port, tablet_id)
-        def rowsets = tablet_status ["rowsets"]
-        assert rowsets[1].contains("[2-2]")
-        assert rowsets[2].contains("[3-3]")
-        assert rowsets[3].contains("[4-4]")
-        assert rowsets[4].contains("[5-5]")
-        assert rowsets[5].contains("[6-6]")
-        assert rowsets[6].contains("[7-7]")
-        assert rowsets[7].contains("[8-8]")
+        assert num_failed + 1 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_failed_segment_num")
         
+
+        sql """use @${clusterName2}"""
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
+        // although download failed, the query should still read the newly inserted data
         sql "set query_freshness_tolerance_ms = 5000"
-        def t1 = System.currentTimeMillis()
         def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
         def fallbackCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count")
-        // should not contains (9,9)
         qt_cluster2 """select * from test"""
-        def t2 = System.currentTimeMillis()
-        logger.info("query in cluster2 cost=${t2 - t1} ms")
-        assert t2 - t1 < 3000
         assert getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count") == queryFreshnessToleranceCount + 1
         assert getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count") == fallbackCount
 
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
-
-        future.get()
-        assert num_finished + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
-        assert 0 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
     }
 }

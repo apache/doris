@@ -42,11 +42,12 @@ public:
     TestFreshnessTolerance() : _engine(CloudStorageEngine(EngineOptions {})) {}
 
     void SetUp() override {
+        config::read_cluster_cache_opt_verbose_log = true;
         _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
                                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
                                           TCompressionType::LZ4F));
     }
-    void TearDown() override {}
+    void TearDown() override { config::read_cluster_cache_opt_verbose_log = false; }
 
     RowsetSharedPtr create_rowset_without_visible_time(Version version) {
         auto rs_meta = std::make_shared<RowsetMeta>();

@@ -243,6 +243,12 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                              rowset_id.to_string(), version.to_string(), sleep_time);
                     std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
                 });
+                DBUG_EXECUTE_IF(
+                        "CloudInternalServiceImpl::warm_up_rowset.download_segment.inject_error", {
+                            st = Status::InternalError("injected error");
+                            LOG_INFO("[verbose] inject error, tablet={}, rowset={}, st={}",
+                                     tablet_id, rowset_id.to_string(), st.to_string());
+                        });
                 if (st.ok()) {
                     g_file_cache_event_driven_warm_up_finished_segment_num << 1;
                     g_file_cache_event_driven_warm_up_finished_segment_size << segment_size;

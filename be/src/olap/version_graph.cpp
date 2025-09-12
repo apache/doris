@@ -844,7 +844,9 @@ std::string VersionGraph::debug_string() const {
     for (size_t i = 0; i < _version_graph.size(); ++i) {
         ss << "{value: " << _version_graph[i].value << ", edges: [";
         for (const auto& edge : _version_graph[i].edges) {
-            ss << _version_graph[edge].value << ", ";
+            if (_version_graph[edge].value > _version_graph[i].value) {
+                ss << _version_graph[edge].value << ", ";
+            }
         }
         ss << "]}, ";
     }
