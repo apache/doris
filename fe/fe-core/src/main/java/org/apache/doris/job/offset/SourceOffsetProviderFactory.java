@@ -35,7 +35,7 @@ public class SourceOffsetProviderFactory {
 
     public static SourceOffsetProvider createSourceOffsetProvider(String sourceType) {
         try {
-            Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toUpperCase());
+            Class<? extends SourceOffsetProvider> cla = map.get(sourceType.toLowerCase());
             if (cla == null) {
                 throw new JobException("Unsupported source type: " + sourceType);
             }

@@ -32,12 +32,14 @@ import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -64,8 +66,6 @@ import java.util.Map;
 
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback {
-
-    @SerializedName("did")
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @SerializedName("fm")
@@ -79,7 +79,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Setter
     protected long autoResumeCount;
     @Getter
-    @SerializedName("jp")
     private StreamingJobProperties jobProperties;
     @Getter
     StreamingInsertTask runningStreamTask;
@@ -101,12 +100,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobProperties = jobProperties;
         String tvfType = parseTvfType();
         this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+        this.offsetProvider.init(getExecuteSql(), jobProperties);
     }
 
     private String parseTvfType() {
         NereidsParser parser = new NereidsParser();
         InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(getExecuteSql());
-        return command.getFirstTvfName();
+        UnboundTVFRelation firstTVF = command.getFirstTVF();
+        Preconditions.checkNotNull(firstTVF, "Only support insert sql with tvf");
+        return firstTVF.getFunctionName();
     }
 
     @Override
@@ -138,7 +140,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected StreamingInsertTask createStreamingInsertTask() {
-        InsertIntoTableCommand command = offsetProvider.rewriteTvfParams(getExecuteSql());
+        Offset nextOffset = offsetProvider.getNextOffset();
+        InsertIntoTableCommand command = offsetProvider.rewriteTvfParams(nextOffset);
         this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), command,
                 getCurrentDbName(), offsetProvider.getCurrentOffset(), jobProperties);
         return this.runningStreamTask;
@@ -221,7 +224,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        trow.addToColumnValue(new TCell().setStringVal(jobStatistic.toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(
+                jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
         return trow;
     }

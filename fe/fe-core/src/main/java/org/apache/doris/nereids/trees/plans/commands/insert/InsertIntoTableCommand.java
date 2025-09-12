@@ -83,6 +83,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -539,46 +540,54 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     }
 
     // todo: add ut
-    public String getFirstTvfName() {
+    public UnboundTVFRelation getFirstTVF() {
         return getFirstTvfInPlan(getLogicalQuery());
     }
 
-    private String getFirstTvfInPlan(LogicalPlan plan) {
+    private UnboundTVFRelation getFirstTvfInPlan(LogicalPlan plan) {
         if (plan instanceof UnboundTVFRelation) {
             UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
-            return tvfRelation.getFunctionName();
+            return tvfRelation;
         }
 
         for (Plan child : plan.children()) {
             if (child instanceof LogicalPlan) {
-                String result = getFirstTvfInPlan((LogicalPlan) child);
-                if (!result.isEmpty()) {
+                UnboundTVFRelation result = getFirstTvfInPlan((LogicalPlan) child);
+                if (result != null) {
                     return result;
                 }
             }
         }
-        return "";
+        return null;
     }
 
     // todo: add ut
-    public void rewriteTvfProperties(String functionName, Map<String, String> props) {
-        rewriteTvfInPlan(originLogicalQuery, functionName, props);
-        if (logicalQuery.isPresent()) {
-            rewriteTvfInPlan(logicalQuery.get(), functionName, props);
+    public void rewriteFirstTvfProperties(String functionName, Map<String, String> props) {
+        AtomicBoolean found = new AtomicBoolean(false);
+        rewriteFirstTvfInPlan(originLogicalQuery, functionName, props, found);
+        if (logicalQuery.isPresent() && !found.get()) {
+            rewriteFirstTvfInPlan(logicalQuery.get(), functionName, props, found);
         }
     }
 
-    private void rewriteTvfInPlan(LogicalPlan plan, String functionName, Map<String, String> props) {
+    private void rewriteFirstTvfInPlan(LogicalPlan plan,
+            String functionName, Map<String, String> props, AtomicBoolean found) {
+        if (found.get()) {
+            return;
+        }
+
         if (plan instanceof UnboundTVFRelation) {
             UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
             if (functionName.equalsIgnoreCase(tvfRelation.getFunctionName())) {
                 tvfRelation.getProperties().getMap().putAll(props);
+                found.set(true);
+                return;
             }
         }
 
         for (Plan child : plan.children()) {
             if (child instanceof LogicalPlan) {
-                rewriteTvfInPlan((LogicalPlan) child, functionName, props);
+                rewriteFirstTvfInPlan((LogicalPlan) child, functionName, props, found);
             }
         }
     }
