@@ -41,12 +41,6 @@ suite("test_tvf_error_data", "p0") {
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");
     """
 
-       // "uri" = "http://doris-regression-bj.oss-cn-beijing-internal.aliyuncs.com/select_tvf/no_exists_file_test/no_exist_file1.csv",
-       // "ACCESS_KEY"= "LTAI5tCmdUgNEmaT2svTHWpk",
-       // "SECRET_KEY" = "aitXx8HxiWlBMNq5xl1CeJUiAZEOIL",
-       // "format" = "csv",
-       // "region" = "oss-cn-beijing"
-
     // date with quotatio 
     qt_sql """       
               INSERT INTO ${tableName}
