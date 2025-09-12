@@ -124,17 +124,17 @@ suite('test_query_freshness_tolerance', 'docker') {
         sql """
             create table test (
                 col0 int not null,
-                col1 variant NOT NULL
-            ) DUPLICATE KEY(`col0`)
+                col1 variant NULL
+            ) UNIQUE KEY(`col0`)
             DISTRIBUTED BY HASH(col0) BUCKETS 1
-            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true");
+            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "false");
         """
 
         clearFileCacheOnAllBackends()
-        sleep(2000)
 
         sql """insert into test values (1, '{"a" : 1.0}')"""
-        sql """insert into test values (2, '{"a" : 111.1111}')"""
+        sql """insert into test(col0,__DORIS_DELETE_SIGN__) values (1, 1);"""
         sql """insert into test values (3, '{"a" : "11111"}')"""
         sql """insert into test values (4, '{"a" : 1111111111}')"""
         sql """insert into test values (5, '{"a" : 1111.11111}')"""
@@ -144,7 +144,7 @@ suite('test_query_freshness_tolerance', 'docker') {
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
-        qt_cluster2 """select * from test"""
+        qt_cluster2_0 """select * from test"""
 
         // sleep for 5s to let these rowsets meet the requirement of query freshness tolerance
         sleep(5000)
@@ -163,11 +163,16 @@ suite('test_query_freshness_tolerance', 'docker') {
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
+        sql "set skip_delete_sign=true;"
+        sql "set show_hidden_columns=true;"
+        sql "set skip_storage_engine_merge=true;"
+
         sql "set query_freshness_tolerance_ms = 5000"
         def t1 = System.currentTimeMillis()
         def queryFreshnessToleranceCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_count")
         def fallbackCount = getBrpcMetricsByCluster(clusterName2, "capture_with_freshness_tolerance_fallback_count")
-        qt_cluster2 """select * from test"""
+        // when query_freshness_tolerance_ms is set, newly load data and compaction rowsets data will be skipped
+        qt_cluster2_1 "select * from test order by col0, __DORIS_VERSION_COL__;"
         def t2 = System.currentTimeMillis()
         logger.info("query in cluster2 cost=${t2 - t1} ms")
         assert t2 - t1 < 3000

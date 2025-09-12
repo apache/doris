@@ -122,17 +122,17 @@ suite('test_enable_prefer_cached_rowset', 'docker') {
         sql """
             create table test (
                 col0 int not null,
-                col1 variant NOT NULL
-            ) DUPLICATE KEY(`col0`)
+                col1 variant NULL
+            ) UNIQUE KEY(`col0`)
             DISTRIBUTED BY HASH(col0) BUCKETS 1
-            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true");
+            PROPERTIES ("file_cache_ttl_seconds" = "3600", "disable_auto_compaction" = "true",
+            "enable_unique_key_merge_on_write" = "false");
         """
 
         clearFileCacheOnAllBackends()
-        sleep(2000)
 
         sql """insert into test values (1, '{"a" : 1.0}')"""
-        sql """insert into test values (2, '{"a" : 111.1111}')"""
+        sql """insert into test(col0,__DORIS_DELETE_SIGN__) values (1, 1);"""
         sql """insert into test values (3, '{"a" : "11111"}')"""
         sql """insert into test values (4, '{"a" : 1111111111}')"""
         sql """insert into test values (5, '{"a" : 1111.11111}')"""
@@ -142,7 +142,7 @@ suite('test_enable_prefer_cached_rowset', 'docker') {
 
         // switch to read cluster, trigger a sync rowset
         sql """use @${clusterName2}"""
-        qt_cluster2 """select * from test"""
+        qt_cluster2_0 """select * from test"""
 
         // switch to source cluster and trigger compaction
         sql """use @${clusterName1}"""
@@ -158,11 +158,18 @@ suite('test_enable_prefer_cached_rowset', 'docker') {
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
 
+        sql "set skip_delete_sign=true;"
+        sql "set show_hidden_columns=true;"
+        sql "set skip_storage_engine_merge=true;"
+
+        // when enable_prefer_cached_rowset = false, need to read all data including compaction rowsets
+        qt_cluster2_1 "select * from test order by col0, __DORIS_VERSION_COL__;"
+
         sql "set enable_prefer_cached_rowset = true"
         // when enable_prefer_cached_rowset = true, only need to read newly load data, compaction rowsets data will be skipped
         def t1 = System.currentTimeMillis()
         def capturePreferCacheCount = getBrpcMetricsByCluster(clusterName2, "capture_prefer_cache_count")
-        qt_cluster2 """select * from test"""
+        qt_cluster2_2 "select * from test order by col0, __DORIS_VERSION_COL__;"
         def t2 = System.currentTimeMillis()
         logger.info("query in cluster2 cost=${t2 - t1} ms")
         assert t2 - t1 < 2000
