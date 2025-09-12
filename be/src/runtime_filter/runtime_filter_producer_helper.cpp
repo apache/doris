@@ -122,19 +122,6 @@ Status RuntimeFilterProducerHelper::build(
     return Status::OK();
 }
 
-Status RuntimeFilterProducerHelper::terminate(RuntimeState* state) {
-    if (_skip_runtime_filters_process) {
-        return Status::OK();
-    }
-
-    for (const auto& filter : _producers) {
-        filter->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
-    }
-
-    RETURN_IF_ERROR(_publish(state));
-    return Status::OK();
-}
-
 Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
