@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveUtil;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -222,6 +223,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Pair<Double, Long> sampleInfo = getSampleInfo();
         params.put("scaleFactor", String.valueOf(sampleInfo.first));
+        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }

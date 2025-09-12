@@ -78,8 +78,9 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                                       io::IOContext* io_ctx)
-        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx),
+                                       io::IOContext* io_ctx, FileMetaCache* meta_cache)
+        : TableFormatReader(std::move(file_format_reader), state, profile, params, range, io_ctx,
+                            meta_cache),
           _kv_cache(kv_cache) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
@@ -455,7 +456,7 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
                                                          DeleteFile* position_delete) {
     ParquetReader parquet_delete_reader(
             _profile, _params, *delete_range, READ_DELETE_FILE_BATCH_SIZE,
-            const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
+            const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state, _meta_cache);
     RETURN_IF_ERROR(parquet_delete_reader.init_reader(
             delete_file_col_names, nullptr, {}, nullptr, nullptr, nullptr, nullptr, nullptr,
             TableSchemaChangeHelper::ConstNode::get_instance(), false));
@@ -479,7 +480,8 @@ Status IcebergParquetReader ::_read_position_delete_file(const TFileRangeDesc* d
     bool eof = false;
     while (!eof) {
         Block block = {dictionary_coded
-                               ? ColumnWithTypeAndName {ColumnDictI32::create(),
+                               ? ColumnWithTypeAndName {ColumnDictI32::create(
+                                                                FieldType::OLAP_FIELD_TYPE_VARCHAR),
                                                         data_type_file_path, ICEBERG_FILE_PATH}
                                : ColumnWithTypeAndName {data_type_file_path, ICEBERG_FILE_PATH},
 
@@ -535,7 +537,8 @@ Status IcebergOrcReader::init_reader(
 Status IcebergOrcReader::_read_position_delete_file(const TFileRangeDesc* delete_range,
                                                     DeleteFile* position_delete) {
     OrcReader orc_delete_reader(_profile, _state, _params, *delete_range,
-                                READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx);
+                                READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
+                                _meta_cache);
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     RETURN_IF_ERROR(orc_delete_reader.init_reader(&delete_file_col_names, &colname_to_value_range,
                                                   {}, false, {}, {}, nullptr, nullptr));

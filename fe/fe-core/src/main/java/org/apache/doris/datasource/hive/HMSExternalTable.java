@@ -1125,8 +1125,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
             }
         }
-        return cache.getFilesByPartitionsWithoutCache(hivePartitions,
-                new FileSystemDirectoryLister(), null);
+        return cache.getFilesByPartitions(hivePartitions, false, true, new FileSystemDirectoryLister(), null);
     }
 
     @Override

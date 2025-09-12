@@ -301,19 +301,8 @@ public abstract class ConnectProcessor {
         }
 
         if (stmts == null) {
-            try {
-                stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-            } catch (NotSupportedException e) {
-                // Parse sql failed, audit it and return
-                handleQueryException(e, convertedStmt, null, null);
-                return;
-            } catch (Exception e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                            e.getMessage(), convertedStmt, e);
-                }
-                Throwable exception = new AnalysisException(e.getMessage(), e);
-                handleQueryException(exception, originStmt, null, null);
+            stmts = parseWithFallback(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
                 return;
             }
         }
@@ -347,6 +336,16 @@ public abstract class ConnectProcessor {
                 executor = new StmtExecutor(ctx, parsedStmt);
                 executor.getProfile().getSummaryProfile().setParseSqlStartTime(parseSqlStartTime);
                 executor.getProfile().getSummaryProfile().setParseSqlFinishTime(parseSqlFinishTime);
+                executor.getProfile().getSummaryProfile().parsedByConnectionProcess = true;
+                // Here we set the MoreStmtExists flag without considering CLIENT_MULTI_STATEMENTS.
+                // So the master will always set SERVER_MORE_RESULTS_EXISTS when the statement is not the last one.
+                // When the Follower/Observer received the return result of Master, the Follower/Observer
+                // will check CLIENT_MULTI_STATEMENTS is set or not. It sends SERVER_MORE_RESULTS_EXISTS back to client
+                // only when CLIENT_MULTI_STATEMENTS is set.
+                // See the code below : if (getConnectContext().getMysqlChannel().clientMultiStatements())
+                if (i != stmts.size() - 1 && connectType.equals(ConnectType.MYSQL)) {
+                    executor.setMoreStmtExists(true);
+                }
                 ctx.setExecutor(executor);
 
                 if (cacheKeyType != null) {
@@ -459,6 +458,61 @@ public abstract class ConnectProcessor {
         return null;
     }
 
+    /**
+     * Parse converted SQL statement with fallback to original SQL
+     */
+    protected List<StatementBase> parseWithFallback(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) throws ConnectionException {
+        try {
+            return new NereidsParser().parseSQL(convertedStmt, sessionVariable);
+        } catch (NotSupportedException e) {
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(e, convertedStmt, null, null);
+                return null;
+            }
+            return stmts;
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                        e.getMessage(), convertedStmt, e);
+            }
+            Throwable exception = new AnalysisException(e.getMessage(), e);
+            List<StatementBase> stmts = tryRetryOriginalSql(originStmt, convertedStmt, sessionVariable);
+            if (stmts == null) {
+                handleQueryException(exception, originStmt, null, null);
+                return null;
+            }
+            return stmts;
+        }
+    }
+
+    /**
+     * Try to retry SQL parsing with original SQL when conversion fails
+     */
+    protected List<StatementBase> tryRetryOriginalSql(String originStmt, String convertedStmt,
+            SessionVariable sessionVariable) {
+        // Try to retry with original SQL if enabled and convertedStmt is different from originStmt
+        if (sessionVariable.isRetryOriginSqlOnConvertFail()
+                && !convertedStmt.equals(originStmt)) {
+            try {
+                List<StatementBase> stmts = new NereidsParser().parseSQL(originStmt, sessionVariable);
+                // Update sqlHash to use original statement hash when retry succeeds
+                String originalSqlHash = DigestUtils.md5Hex(originStmt);
+                ctx.setSqlHash(originalSqlHash);
+                return stmts;
+            } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Retry with original SQL failed. "
+                                    + "Reason: {}. Original Statement: \"{}\". Converted Statement: \"{}\".",
+                            e.getMessage(), originStmt, convertedStmt, e);
+                }
+                // Retry failed, return null
+                return null;
+            }
+        }
+        return null;
+    }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand
     protected void handleQueryException(Throwable throwable, String origStmt,
@@ -705,6 +759,9 @@ public abstract class ConnectProcessor {
             result.setQueryId(ctx.queryId());
         }
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
+        if (request.moreResultExists) {
+            ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+        }
         result.setPacket(getResultPacket());
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {

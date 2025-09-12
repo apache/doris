@@ -7,7 +7,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[INNER_JOIN](cast(value as DOUBLE) > cast(sum(ps_supplycost * ps_availqty) * 0.000002 as DOUBLE))
 ------------PhysicalProject
---------------hashAgg[LOCAL]
+--------------hashAgg[GLOBAL]
 ----------------PhysicalProject
 ------------------hashJoin[INNER_JOIN broadcast] hashCondition=((partsupp.ps_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF3 s_suppkey->[ps_suppkey]
 --------------------PhysicalProject

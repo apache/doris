@@ -125,7 +125,6 @@ public:
         if (_spill_gc_thread) {
             _spill_gc_thread->join();
         }
-        _spill_io_thread_pool->shutdown();
     }
 
     // 创建SpillStream并登记
@@ -137,11 +136,7 @@ public:
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
-    void async_cleanup_query(TUniqueId query_id);
-
     void gc(int32_t max_work_time_ms);
-
-    ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
 
     void update_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
 
@@ -156,7 +151,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
-    std::unique_ptr<ThreadPool> _spill_io_thread_pool;
     std::shared_ptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;

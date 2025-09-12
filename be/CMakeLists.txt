@@ -324,9 +324,8 @@ if (COMPILER_CLANG)
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-shorten-64-to-32)
+                        )
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -724,6 +723,12 @@ if (MAKE_TEST)
     add_definitions(-DBE_TEST)
     if (ARCH_ARM)
         add_compile_options(-ffp-contract=off)
+    endif()
+    if (COMPILER_CLANG)
+        add_compile_options(
+        -Wno-implicit-int-conversion
+        -Wno-shorten-64-to-32
+        )
     endif()
 endif ()
 

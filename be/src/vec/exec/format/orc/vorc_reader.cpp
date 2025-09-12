@@ -174,7 +174,7 @@ void StripeStreamInputStream::read(void* buf, uint64_t length, uint64_t offset) 
 OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      size_t batch_size, const std::string& ctz, io::IOContext* io_ctx,
-                     bool enable_lazy_mat)
+                     FileMetaCache* meta_cache, bool enable_lazy_mat)
         : _profile(profile),
           _state(state),
           _scan_params(params),
@@ -192,13 +192,15 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
     VecDateTimeValue t;
     t.from_unixtime(0, ctz);
     _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
+    _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
     _init_file_description();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::string& ctz, io::IOContext* io_ctx, bool enable_lazy_mat)
+                     const std::string& ctz, io::IOContext* io_ctx, FileMetaCache* meta_cache,
+                     bool enable_lazy_mat)
         : _profile(nullptr),
           _scan_params(params),
           _scan_range(range),
@@ -208,6 +210,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
 }
@@ -230,7 +233,8 @@ void OrcReader::_collect_profile_before_close() {
         COUNTER_UPDATE(_orc_profile.predicate_filter_time, _statistics.predicate_filter_time);
         COUNTER_UPDATE(_orc_profile.dict_filter_rewrite_time, _statistics.dict_filter_rewrite_time);
         COUNTER_UPDATE(_orc_profile.lazy_read_filtered_rows, _statistics.lazy_read_filtered_rows);
-
+        COUNTER_UPDATE(_orc_profile.file_footer_read_calls, _statistics.file_footer_read_calls);
+        COUNTER_UPDATE(_orc_profile.file_footer_hit_cache, _statistics.file_footer_hit_cache);
         if (_file_input_stream != nullptr) {
             _file_input_stream->collect_profile_before_close();
         }
@@ -269,10 +273,15 @@ void OrcReader::_init_profile() {
                 ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
         _orc_profile.evaluated_row_group_count =
                 ADD_COUNTER_WITH_LEVEL(_profile, "EvaluatedRowGroupCount", TUnit::UNIT, 1);
+        _orc_profile.file_footer_read_calls =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterReadCalls", TUnit::UNIT, 1);
+        _orc_profile.file_footer_hit_cache =
+                ADD_COUNTER_WITH_LEVEL(_profile, "FileFooterHitCache", TUnit::UNIT, 1);
     }
 }
 
 Status OrcReader::_create_file_reader() {
+    SCOPED_RAW_TIMER(&_statistics.create_reader_time);
     if (_reader != nullptr) {
         return Status::OK();
     }
@@ -292,27 +301,56 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
     }
+
     // create orc reader
-    try {
-        orc::ReaderOptions options;
-        options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
-        options.setReaderMetrics(&_reader_metrics);
-        _reader = orc::createReader(
-                std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
-    } catch (std::exception& e) {
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        std::string _err_msg = e.what();
-        if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
-            return Status::EndOfFile("stop");
+    orc::ReaderOptions options;
+    options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+    options.setReaderMetrics(&_reader_metrics);
+
+    auto create_orc_reader = [&]() {
+        try {
+            _reader = orc::createReader(
+                    std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
+        } catch (std::exception& e) {
+            // invoker maybe just skip Status.NotFound and continue
+            // so we need distinguish between it and other kinds of errors
+            std::string _err_msg = e.what();
+            if (_io_ctx && _io_ctx->should_stop && _err_msg == "stop") {
+                return Status::EndOfFile("stop");
+            }
+            // one for fs, the other is for oss.
+            if (_err_msg.find("No such file or directory") != std::string::npos ||
+                _err_msg.find("NoSuchKey") != std::string::npos) {
+                return Status::NotFound(_err_msg);
+            }
+            return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
         }
-        // one for fs, the other is for oss.
-        if (_err_msg.find("No such file or directory") != std::string::npos ||
-            _err_msg.find("NoSuchKey") != std::string::npos) {
-            return Status::NotFound(_err_msg);
+        return Status::OK();
+    };
+
+    if (_meta_cache == nullptr) {
+        _statistics.file_footer_read_calls++;
+        RETURN_IF_ERROR(create_orc_reader());
+    } else {
+        auto inner_file_reader = _file_input_stream->get_inner_reader();
+        const auto& file_meta_cache_key =
+                FileMetaCache::get_key(inner_file_reader, _file_description);
+
+        // Local variables can be required because setSerializedFileTail is an assignment operation, not a reference.
+        ObjLRUCache::CacheHandle _meta_cache_handle;
+        if (_meta_cache->lookup(file_meta_cache_key, &_meta_cache_handle)) {
+            const std::string* footer_ptr = _meta_cache_handle.data<String>();
+            options.setSerializedFileTail(*footer_ptr);
+            RETURN_IF_ERROR(create_orc_reader());
+            _statistics.file_footer_hit_cache++;
+        } else {
+            _statistics.file_footer_read_calls++;
+            RETURN_IF_ERROR(create_orc_reader());
+            std::string* footer_ptr = new std::string {_reader->getSerializedFileTail()};
+            _meta_cache->insert(file_meta_cache_key, footer_ptr, &_meta_cache_handle);
         }
-        return Status::InternalError("Init OrcReader failed. reason = {}", _err_msg);
     }
+
     return Status::OK();
 }
 
@@ -346,14 +384,8 @@ Status OrcReader::init_reader(
         _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
     }
 
-    {
-        SCOPED_RAW_TIMER(&_statistics.create_reader_time);
-        RETURN_IF_ERROR(_create_file_reader());
-    }
-    {
-        SCOPED_RAW_TIMER(&_statistics.init_column_time);
-        RETURN_IF_ERROR(_init_read_columns());
-    }
+    RETURN_IF_ERROR(_create_file_reader());
+    RETURN_IF_ERROR(_init_read_columns());
     return Status::OK();
 }
 
@@ -373,6 +405,7 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status OrcReader::_init_read_columns() {
+    SCOPED_RAW_TIMER(&_statistics.init_column_time);
     const auto& root_type = _reader->getType();
     if (_is_acid) {
         for (uint64_t i = 0; i < root_type.getSubtypeCount(); ++i) {
@@ -1747,13 +1780,15 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
+
         RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
 
                 orc_key_type, orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<false>(
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
-                orc_value_type, orc_map->elements.get(), element_size);
+                orc_value_type, orc_map->elements.get(), element_size));
+        return doris_map.deduplicate_keys();
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {

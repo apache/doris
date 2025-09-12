@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -35,13 +35,11 @@ import java.util.List;
 /**
  * ScalarFunction 'MilliSeconds_add'.
  */
-public class MilliSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args,
-        DateAddSubMonotonic {
+public class MilliSecondsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.MAX)
-                    .args(DateTimeV2Type.MAX, IntegerType.INSTANCE));
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList
+            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE));
 
     public MilliSecondsAdd(Expression arg0, Expression arg1) {
         super("milliseconds_add", arg0, arg1);

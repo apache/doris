@@ -156,7 +156,13 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
         for (int i = 0; i < childOutputSize; ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            DataType compatibleType;
+            try {
+                compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
+            }
             Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {

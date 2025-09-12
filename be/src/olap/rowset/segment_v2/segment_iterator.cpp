@@ -301,7 +301,8 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _col_predicates.clear();
 
     for (const auto& predicate : opts.column_predicates) {
-        if (!_segment->can_apply_predicate_safely(predicate->column_id(), predicate, *_schema,
+        if (!_segment->can_apply_predicate_safely(predicate->column_id(), *_schema,
+                                                  _opts.target_cast_type_for_variants,
                                                   _opts.io_ctx.reader_type)) {
             continue;
         }
@@ -715,9 +716,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         if (_opts.io_ctx.reader_type == ReaderType::READER_QUERY) {
             RowRanges dict_row_ranges = RowRanges::create_single(num_rows());
             for (auto cid : cids) {
-                if (!_segment->can_apply_predicate_safely(cid,
-                                                          _opts.col_id_to_predicates.at(cid).get(),
-                                                          *_schema, _opts.io_ctx.reader_type)) {
+                if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                          _opts.target_cast_type_for_variants,
+                                                          _opts.io_ctx.reader_type)) {
                     continue;
                 }
                 DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
@@ -747,8 +748,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges bf_row_ranges = RowRanges::create_single(num_rows());
         for (auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+            if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                      _opts.target_cast_type_for_variants,
+                                                      _opts.io_ctx.reader_type)) {
                 continue;
             }
             // get row ranges by bf index of this column,
@@ -776,8 +778,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         // second filter data by zone map
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
-            if (!_segment->can_apply_predicate_safely(cid, _opts.col_id_to_predicates.at(cid).get(),
-                                                      *_schema, _opts.io_ctx.reader_type)) {
+            if (!_segment->can_apply_predicate_safely(cid, *_schema,
+                                                      _opts.target_cast_type_for_variants,
+                                                      _opts.io_ctx.reader_type)) {
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -808,8 +811,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 std::shared_ptr<doris::ColumnPredicate> runtime_predicate =
                         query_ctx->get_runtime_predicate(id).get_predicate(
                                 _opts.topn_filter_target_node_id);
-                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(),
-                                                         runtime_predicate.get(), *_schema,
+                if (_segment->can_apply_predicate_safely(runtime_predicate->column_id(), *_schema,
+                                                         _opts.target_cast_type_for_variants,
                                                          _opts.io_ctx.reader_type)) {
                     AndBlockColumnPredicate and_predicate;
                     and_predicate.add_column_predicate(
@@ -2152,7 +2155,9 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
             }
         } else {
             simd::iterate_through_bits_mask(
-                    [&](const uint16_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    [&](const int bit_pos) {
+                        sel_rowid_idx[new_size++] = sel_pos + (uint16_t)bit_pos;
+                    },
                     mask);
         }
         sel_pos += SIMD_BYTES;
@@ -2320,20 +2325,13 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
                                                      vectorized::MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
                                                      size_t batch_size) {
-    output_col->reserve(batch_size);
-
-    // adapt for outer join change column to nullable
-    if (output_col->is_nullable() && !input_col_ptr->is_nullable()) {
-        auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
-        col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
-        output_col = col_ptr_nullable->get_nested_column_ptr();
-    } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
+    if (output_col->is_nullable() != input_col_ptr->is_nullable()) {
         LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
                      << " select_size: " << select_size;
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
-
+    output_col->reserve(select_size);
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 
@@ -2890,19 +2888,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    // seek_schema is set when get_row_ranges_by_keys, it is null when there is no primary key range
-    // in this case, we need to read data
-    if (!_seek_schema) {
-        return false;
-    }
-    // check if the column is in the seek_schema
-    if (std::none_of(_seek_schema->columns().begin(), _seek_schema->columns().end(),
-                     [&](const Field* col) {
-                         return (col && _opts.tablet_schema->field_index(col->unique_id()) == cid);
-                     })) {
-        return false;
-    }
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
         return false;
     }
 

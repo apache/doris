@@ -35,6 +35,8 @@ namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
+bvar::Adder<uint64_t> base_input_cached_size("base_compaction", "input_cached_size");
+bvar::Adder<uint64_t> base_input_size("base_compaction", "input_size");
 bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
         "base_compaction_hold_delete_bitmap_lock_time_ms");
 
@@ -82,6 +84,8 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_rowsets_data_size += rs->data_disk_size();
         _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
+        _input_rowsets_cached_data_size += rs->approximate_cached_data_size();
+        _input_rowsets_cached_index_size += rs->approximate_cache_index_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
              _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
@@ -91,7 +95,11 @@ Status CloudBaseCompaction::prepare_compact() {
             .tag("input_segments", _input_segments)
             .tag("input_rowsets_data_size", _input_rowsets_data_size)
             .tag("input_rowsets_index_size", _input_rowsets_index_size)
-            .tag("input_rowsets_total_size", _input_rowsets_total_size);
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("input_rowsets_cached_data_size", _input_rowsets_cached_data_size)
+            .tag("input_rowsets_cached_index_size", _input_rowsets_cached_index_size);
+    base_input_cached_size << (_input_rowsets_cached_data_size + _input_rowsets_cached_index_size);
+    base_input_size << _input_rowsets_total_size;
     return Status::OK();
 }
 
@@ -435,6 +443,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 

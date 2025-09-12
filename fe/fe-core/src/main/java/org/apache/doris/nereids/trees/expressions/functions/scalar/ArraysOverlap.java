@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -62,6 +64,16 @@ public class ArraysOverlap extends ScalarFunction implements ExplicitlyCastableS
     public ArraysOverlap withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new ArraysOverlap(getFunctionParams(children));
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                    || ((ArrayType) argType).getItemType().isVariantType()
+                    || ((ArrayType) argType).getItemType().isJsonType())) {
+            throw new AnalysisException("arrays_overlap does not support types: " + argType.toSql());
+        }
     }
 
     @Override

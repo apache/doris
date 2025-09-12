@@ -54,6 +54,7 @@
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/slice.h"
+#include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/columns/column.h"
 #include "vec/common/schema_util.h"
@@ -331,7 +332,8 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
-        specified_rowsets = _context.tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
+        specified_rowsets =
+                _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
     }
     OlapStopWatch watch;
     auto finish_callback = [this](segment_v2::SegmentSharedPtr segment, Status st) {
@@ -346,7 +348,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
             segments.begin(), segments.end(), 0,
             [](size_t sum, const segment_v2::SegmentSharedPtr& s) { return sum += s->num_rows(); });
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
-              << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
+              << ", rowset_ids: " << _context.mow_context->rowset_ids->size()
               << ", cur max_version: " << _context.mow_context->max_version
               << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
               << _context.mow_context->delete_bitmap->get_delete_bitmap_count()
@@ -1088,7 +1090,18 @@ Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStati
         // ensure that the segment file writing is complete
         auto* file_writer = _seg_files.get(segment_id);
         if (file_writer && file_writer->state() != io::FileWriter::State::CLOSED) {
+            MonotonicStopWatch close_timer;
+            close_timer.start();
             RETURN_IF_ERROR(file_writer->close());
+            close_timer.stop();
+
+            auto close_time_ms = close_timer.elapsed_time_milliseconds();
+            if (close_time_ms > 1000) {
+                LOG(INFO) << "file_writer->close() took " << close_time_ms
+                          << "ms for segment_id=" << segment_id
+                          << ", tablet_id=" << _context.tablet_id
+                          << ", rowset_id=" << _context.rowset_id;
+            }
         }
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }

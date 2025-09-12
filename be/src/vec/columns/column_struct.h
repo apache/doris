@@ -194,6 +194,7 @@ public:
     void deserialize_vec(StringRef* keys, const size_t num_rows) override;
     void serialize_vec(StringRef* keys, size_t num_rows) const override;
     size_t get_max_row_byte_size() const override;
+    void replace_float_special_values() override;
     template <bool positive>
     struct less;
 };

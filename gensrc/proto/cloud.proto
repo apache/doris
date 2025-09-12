@@ -816,7 +816,7 @@ message TabletStatsPB {
     optional int64 cumulative_point = 9;
     optional int64 last_base_compaction_time_ms = 10;
     optional int64 last_cumu_compaction_time_ms = 11;
-    optional int64 full_compaction_cnt = 12;
+    optional int64 full_compaction_cnt = 12; // used by calc_sync_versions() only
     optional int64 last_full_compaction_time_ms = 13;
     optional int64 index_size = 14;
     optional int64 segment_size = 15;
@@ -1243,6 +1243,7 @@ message GetRowsetRequest {
     // for compability reason we use FILL_WITH_DICT as default
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
+    optional int64 full_compaction_cnt = 10;
 }
 
 message GetRowsetResponse {
@@ -1354,18 +1355,13 @@ message AlterInstanceRequest {
         DISABLE_SSE                 = 5;
         SET_OVERDUE                 = 6;
         SET_NORMAL                  = 7;
-        SNAPSHOT_SWITCH_ON          = 8;
-        SNAPSHOT_SWITCH_OFF         = 9;
-        WRITE_MULTI_VERSION_KEYS    = 10;
-        READ_MULTI_VERSION_KEYS     = 11;
-        DISABLE_SINGLE_VERSION_KEYS = 12;
-        SET_SNAPSHOT_PROPERTY       = 13;
+        SET_SNAPSHOT_PROPERTY       = 8;
     }
     optional string instance_id = 1;
     optional Operation op = 2;
     optional string name = 3;
-    optional string value = 4;
-    optional string request_ip = 5;
+    optional string request_ip = 4;
+    map<string, string> properties = 5;
 }
 
 message AlterInstanceResponse {
@@ -1752,12 +1748,12 @@ message UpdateDeleteBitmapRequest {
     optional int64 txn_id = 13;
     // for load txn only
     optional int64 next_visible_version = 14;
+    optional string request_ip = 15;
     // remove delete_bitmap of pre rowsets since it is agged when compaction
-    optional int64 pre_rowset_agg_start_version = 15;
-    optional int64 pre_rowset_agg_end_version = 16;
+    optional int64 pre_rowset_agg_start_version = 16;
+    optional int64 pre_rowset_agg_end_version = 17;
     // when update delete_bitmap of pre rowsets, check the rowset exists
-    repeated int64 pre_rowset_versions = 17;
-    optional string request_ip = 18;
+    repeated int64 pre_rowset_versions = 18;
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;

@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
-#include <atomic>
+#include <cstdint>
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
@@ -57,6 +55,8 @@ public:
     MOCK_FUNCTION void update_profile_from_inner();
 
     Dependency* finishdependency() override;
+
+    bool is_blockable() const override;
 
 protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)

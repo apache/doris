@@ -28,6 +28,7 @@
 #include "olap/iterators.h"
 #include "util/coding.h"
 #include "util/thrift_util.h"
+#include "vec/common/custom_allocator.h"
 #include "vparquet_file_metadata.h"
 
 namespace doris::vectorized {
@@ -36,8 +37,9 @@ constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
 constexpr size_t INIT_META_SIZE = 48 * 1024; // 48k
 
-static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_metadata,
-                                  size_t* meta_size, io::IOContext* io_ctx) {
+static Status parse_thrift_footer(io::FileReaderSPtr file,
+                                  std::unique_ptr<FileMetaData>* file_metadata, size_t* meta_size,
+                                  io::IOContext* io_ctx) {
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, INIT_META_SIZE);
     std::vector<uint8_t> footer(bytes_read);
@@ -61,10 +63,10 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
         return Status::Corruption("Parquet footer size({}) is large than file size({})",
                                   metadata_size, file_size);
     }
-    std::unique_ptr<uint8_t[]> new_buff;
+    DorisUniqueBufferPtr<uint8_t> new_buff;
     uint8_t* meta_ptr;
     if (metadata_size > bytes_read - PARQUET_FOOTER_SIZE) {
-        new_buff.reset(new uint8_t[metadata_size]);
+        new_buff = make_unique_buffer<uint8_t>(metadata_size);
         RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size,
                                       Slice(new_buff.get(), metadata_size), &bytes_read, io_ctx));
         meta_ptr = new_buff.get();
@@ -75,7 +77,7 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
     tparquet::FileMetaData t_metadata;
     // deserialize footer
     RETURN_IF_ERROR(deserialize_thrift_msg(meta_ptr, &metadata_size, true, &t_metadata));
-    *file_metadata = new FileMetaData(t_metadata, metadata_size);
+    *file_metadata = std::make_unique<FileMetaData>(t_metadata, metadata_size);
     RETURN_IF_ERROR((*file_metadata)->init_schema());
     *meta_size = PARQUET_FOOTER_SIZE + metadata_size;
     return Status::OK();

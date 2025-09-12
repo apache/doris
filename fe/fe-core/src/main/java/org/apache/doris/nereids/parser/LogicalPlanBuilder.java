@@ -1060,12 +1060,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -3397,7 +3399,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 values.add(items.get(i));
             }
         }
-        return new MapLiteral(typeCoercionItems(keys), typeCoercionItems(values));
+        List<Literal> castKeys = typeCoercionItems(keys);
+        List<Literal> castValues = typeCoercionItems(values);
+        Map<Literal, Literal> map = new LinkedHashMap<>();
+        AtomicInteger pos = new AtomicInteger(0);
+        castKeys.forEach(k -> map.put(k, castValues.get(pos.getAndIncrement())));
+        return new MapLiteral(map);
     }
 
     @Override
@@ -3621,7 +3628,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         if (ctx.columnDefs() != null) {
-            if (ctx.AS() != null) {
+            if (ctx.query() != null) {
                 throw new AnalysisException("Should not define the entire column in CTAS");
             }
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
@@ -3643,7 +3650,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     properties,
                     extProperties,
                     ctx.clusterKeys != null ? visitIdentifierList(ctx.clusterKeys) : ImmutableList.of()));
-        } else if (ctx.AS() != null) {
+        } else if (ctx.query() != null) {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
@@ -4680,12 +4687,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
         boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
                 ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
+        int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
 
         try {
             variantMaxSubcolumnsCount = PropertyAnalyzer
                                         .analyzeVariantMaxSubcolumnsCount(properties, variantMaxSubcolumnsCount);
             enableTypedPathsToSparse = PropertyAnalyzer
                                         .analyzeEnableTypedPathsToSparse(properties, enableTypedPathsToSparse);
+            variantMaxSparseColumnStatisticsSize = PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(
+                                        properties, variantMaxSparseColumnStatisticsSize);
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new NotSupportedException(e.getMessage());
         }
@@ -4693,10 +4704,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (!properties.isEmpty()) {
             throw new NotSupportedException("only support for "
                     + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
         }
 
-        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse);
+        return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                    variantMaxSparseColumnStatisticsSize);
     }
 
     @Override
@@ -5656,7 +5669,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public Command visitBuildIndex(BuildIndexContext ctx) {
-        String name = ctx.name.getText();
+        String name = ctx.name == null ? "" : ctx.name.getText();
         TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.tableName));
         PartitionNamesInfo partitionNamesInfo = null;
         if (ctx.partitionSpec() != null) {
@@ -6564,7 +6577,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         boolean ifExists = ctx.EXISTS() != null;
         boolean forceDrop = ctx.FORCE() != null;
         TableNameInfo tblNameInfo = new TableNameInfo(ctlName, dbName, tableName);
-        return new DropTableCommand(ifExists, tblNameInfo, forceDrop);
+        return new DropTableCommand(ifExists, ctx.TEMPORARY() != null, tblNameInfo, forceDrop);
     }
 
     @Override
