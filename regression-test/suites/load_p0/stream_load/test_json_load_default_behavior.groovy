@@ -126,4 +126,19 @@ suite("test_json_load_default_behavior", "p0") {
             """
         exception "JSON data is array-object, `strip_outer_array` must be TRUE"
     }
+
+    // set strip_outer_array = true
+    def res2 = sql """
+                    SELECT * FROM S3
+                    (
+                        "uri" = "s3://${s3BucketName}/outer_array.json",
+                        "s3.access_key" = "${ak}",
+                        "s3.secret_key" = "${sk}",
+                        "s3.endpoint" = "${s3Endpoint}",
+                        "s3.region" = "${s3Region}",
+                        "format" = "json"
+                    );
+                    """
+    log.info("select frm s3 result: ${res2}".toString())
+    assertTrue(res2[0].size() == 3)
 }

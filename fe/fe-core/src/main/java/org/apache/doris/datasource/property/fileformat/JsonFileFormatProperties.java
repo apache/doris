@@ -77,7 +77,10 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
-
+            // (TODO Refrain) if both are set to true, read_json_by_line will be ignored
+            if (stripOuterArray) {
+                readJsonByLine = false;
+            }
             String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
                     "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
