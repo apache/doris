@@ -491,12 +491,23 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
         } finally {
             if (!isView) {
-                Optional<SqlCacheContext> sqlCacheContext = cascadesContext.getStatementContext().getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    if (table instanceof OlapTable) {
-                        sqlCacheContext.get().addUsedTable(table);
-                    } else {
-                        sqlCacheContext.get().setHasUnsupportedTables(true);
+                Optional<SqlCacheContext> sqlCacheContextOpt
+                        = cascadesContext.getStatementContext().getSqlCacheContext();
+                if (sqlCacheContextOpt.isPresent()) {
+                    SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+                    try {
+                        if (table.isTemporary()) {
+                            sqlCacheContext.setHasUnsupportedTables(true);
+                        } else if (table instanceof OlapTable) {
+                            sqlCacheContext.addUsedTable(table);
+                        } else if (table instanceof HMSExternalTable
+                                && cascadesContext.getConnectContext().getSessionVariable().enableHiveSqlCache) {
+                            sqlCacheContext.addUsedTable(table);
+                        } else {
+                            sqlCacheContext.setHasUnsupportedTables(true);
+                        }
+                    } catch (Throwable t) {
+                        sqlCacheContext.setHasUnsupportedTables(true);
                     }
                 }
             }
@@ -537,9 +548,22 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {
         parentContext.getStatementContext().addViewDdlSql(ddlSql);
-        Optional<SqlCacheContext> sqlCacheContext = parentContext.getStatementContext().getSqlCacheContext();
-        if (sqlCacheContext.isPresent()) {
-            sqlCacheContext.get().addUsedView(view, ddlSql);
+        Optional<SqlCacheContext> sqlCacheContextOpt = parentContext.getStatementContext().getSqlCacheContext();
+        if (sqlCacheContextOpt.isPresent()) {
+            SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+            try {
+                if (view.isTemporary()) {
+                    sqlCacheContext.setHasUnsupportedTables(true);
+                } else {
+                    try {
+                        sqlCacheContext.addUsedView(view, ddlSql);
+                    } catch (Throwable t) {
+                        sqlCacheContext.setHasUnsupportedTables(true);
+                    }
+                }
+            } catch (Throwable t) {
+                sqlCacheContext.setHasUnsupportedTables(true);
+            }
         }
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(ddlSql);
         // TODO: use a good to do this, such as eliminate UnboundResultSink

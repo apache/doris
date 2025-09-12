@@ -69,6 +69,10 @@ public class NereidsSortedPartitionsCacheManager {
         );
     }
 
+    public void invalidateAll() {
+        this.partitionCaches.invalidateAll();
+    }
+
     public Optional<SortedPartitionRanges<?>> get(
             SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
         ConnectContext connectContext = ConnectContext.get();
