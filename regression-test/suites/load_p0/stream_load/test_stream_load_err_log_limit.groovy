@@ -45,7 +45,7 @@ suite("test_stream_load_err_log_limit", "p0, nonConcurrent") {
     }
 
     try {
-        set_be_param.call("load_error_log_limit_bytes", "100")
+        set_be_param.call("load_error_log_limit_bytes", "50")
 
         streamLoad {
             table "${tableName}"

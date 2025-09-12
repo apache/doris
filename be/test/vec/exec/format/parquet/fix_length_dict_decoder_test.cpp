@@ -210,7 +210,7 @@ TEST_F(FixLengthDictDecoderTest, test_empty_dict) {
 // Test decoding with ColumnDictI32
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -253,7 +253,7 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32) {
 // Test decoding with ColumnDictI32 and filter
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -294,7 +294,7 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
 // Test decoding with ColumnDictI32 with filter and null
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter_and_null) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 2, padded to 8 values, [0 0 0 0 2]

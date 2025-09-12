@@ -33,6 +33,7 @@ add_executable(meta_service_test
    meta_service_job_test.cpp
    meta_service_http_test.cpp
    meta_service_operation_log_test.cpp
+   meta_service_snapshot_test.cpp
    meta_service_tablet_stats_test.cpp
    meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
