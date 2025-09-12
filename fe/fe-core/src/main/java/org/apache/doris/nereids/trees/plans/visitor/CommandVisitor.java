@@ -263,6 +263,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWorkloadGroupsCommand;
 import org.apache.doris.nereids.trees.plans.commands.StartTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
+import org.apache.doris.nereids.trees.plans.commands.SyncTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionBeginCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommitCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionRollbackCommand;
@@ -973,6 +974,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSyncCommand(SyncCommand syncCommand, C context) {
         return visitCommand(syncCommand, context);
+    }
+
+    default R visitSyncTableCommand(SyncTableCommand syncTableCommand, C context) {
+        return visitCommand(syncTableCommand, context);
     }
 
     default R visitShowEventsCommand(ShowEventsCommand showEventsCommand, C context) {
