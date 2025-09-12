@@ -644,7 +644,6 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     _timestamped_version_tracker.add_stale_path_version(rs_metas);
     for (auto&& rs : to_delete) {
         _rs_version_map.erase(rs->version());
-        _rowset_warm_up_states.erase(rs->rowset_id());
     }
 
     _tablet_meta->modify_rs_metas({}, rs_metas, false);
@@ -712,10 +711,6 @@ uint64_t CloudTablet::delete_expired_stale_rowsets() {
         auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
         manager.recycle_cache(tablet_id(), recycled_rowsets);
     }
-    // these rowsets will not be choosen for query any more, so don't need to maintain if they are warmed up
-    for (const auto& rs : expired_rowsets) {
-        remove_warmed_up_rowset(rs->rowset_id());
-    }
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
@@ -777,6 +772,7 @@ void CloudTablet::remove_unused_rowsets() {
                 continue;
             }
             tablet_meta()->remove_rowset_delete_bitmap(rs->rowset_id(), rs->version());
+            _rowset_warm_up_states.erase(rs->rowset_id());
             rs->clear_cache();
             g_unused_rowsets_count << -1;
             g_unused_rowsets_bytes << -rs->total_disk_size();
@@ -1703,7 +1699,6 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Stat
     _rowset_warm_up_states[rowset_id].done(segment_num, inverted_idx_num);
     if (_rowset_warm_up_states[rowset_id].has_finished()) {
         g_file_cache_warm_up_rowset_complete_num << 1;
-        add_warmed_up_rowset(rowset_id);
         auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
                             std::chrono::steady_clock::now() -
                             _rowset_warm_up_states[rowset_id].start_tp)
@@ -1712,6 +1707,20 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(RowsetId rowset_id, Stat
         _rowset_warm_up_states[rowset_id].state = WarmUpState::DONE;
     }
     return _rowset_warm_up_states[rowset_id].state;
+}
+
+bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
+    auto it = _rowset_warm_up_states.find(rowset_id);
+    if (it == _rowset_warm_up_states.end()) {
+        return false;
+    }
+    return it->second.state == WarmUpState::DONE;
+}
+
+void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
+    _rowset_warm_up_states[rowset_id] = {.state = WarmUpState::DONE,
+                                         .num_segments = 1,
+                                         .start_tp = std::chrono::steady_clock::now()};
 }
 
 #include "common/compile_check_end.h"
