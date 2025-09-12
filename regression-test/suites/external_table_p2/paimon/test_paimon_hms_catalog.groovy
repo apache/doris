@@ -155,7 +155,7 @@ suite("test_paimon_hms_catalog", "p2,external,paimon,new_catalog_property") {
     /**************** GCS *******************/
     String gcs_warehouse = "gs://selectdb-qa-datalake-test/paimon_warehouse"
     String gcs_ak = context.config.otherConfigs.get("GCSAk")
-    String gcs_sk = context.config.otherConfigs.get("CCSSk")
+    String gcs_sk = context.config.otherConfigs.get("GCSSk")
     String gcs_endpoint = context.config.otherConfigs.get("GCSEndpoint")
     String gcs_warehouse_properties = """
         'warehouse' = '${gcs_warehouse}',

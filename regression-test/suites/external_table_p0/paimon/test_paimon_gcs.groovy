@@ -21,7 +21,7 @@ suite("test_paimon_gcs", "p0,external,doris,new_catalog_property") {
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String gcs_warehouse = "s3://selectdb-qa-datalake-test/paimon_warehouse"
         String gcs_ak = context.config.otherConfigs.get("GCSAk")
-        String gcs_sk = context.config.otherConfigs.get("CCSSk")
+        String gcs_sk = context.config.otherConfigs.get("GCSSk")
         String gcs_endpoint = context.config.otherConfigs.get("GCSEndpoint")
         String gcs_region = context.config.otherConfigs.get("GCSRegion")
 
