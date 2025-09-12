@@ -721,8 +721,9 @@ Status RowIdStorageReader::read_batch_external_row(
     }
 
     // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
+    // std::multimap<segment_v2::rowid_t, size_t> : The reason for using multimap is: may need the same row of data multiple times.
     std::map<std::string,
-             std::pair<std::map<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
+             std::pair<std::multimap<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
             scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
@@ -761,7 +762,7 @@ Status RowIdStorageReader::read_batch_external_row(
         if (scan_rows.contains(scan_range_hash)) {
             scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
         } else {
-            std::map<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
+            std::multimap<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
             scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
         }
     }
@@ -805,18 +806,18 @@ Status RowIdStorageReader::read_batch_external_row(
                                                         ->rowid_storage_reader_tracker());
                                         signal::set_signal_task_id(query_id);
 
-                                        scan_blocks[idx] =
-                                                vectorized::Block(slots, scan_info.first.size());
-
-                                        size_t j = 0;
                                         std::list<int64_t> read_ids;
                                         //Generate an ordered list with the help of the orderliness of the map.
                                         for (const auto& [row_id, result_block_idx] : row_ids) {
-                                            read_ids.emplace_back(row_id);
+                                            if (read_ids.empty() || read_ids.back() != row_id) {
+                                                read_ids.emplace_back(row_id);
+                                            }
                                             row_id_block_idx[result_block_idx] =
-                                                    std::make_pair(idx, j);
-                                            j++;
+                                                    std::make_pair(idx, read_ids.size() - 1);
                                         }
+
+                                        scan_blocks[idx] =
+                                                vectorized::Block(slots, read_ids.size());
 
                                         auto& external_info =
                                                 file_mapping->get_external_file_info();
