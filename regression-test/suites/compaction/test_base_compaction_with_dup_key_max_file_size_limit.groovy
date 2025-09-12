@@ -97,7 +97,7 @@ suite("test_base_compaction_with_dup_key_max_file_size_limit", "p2") {
 
             String command = sb.toString()
             logger.info(command)
-            process = command.execute()
+            def process = command.execute()
             code = process.waitFor()
             err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
             out = process.getText()
