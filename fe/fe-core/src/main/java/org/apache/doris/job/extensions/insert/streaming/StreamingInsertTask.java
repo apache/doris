@@ -57,15 +57,15 @@ public class StreamingInsertTask {
     private Long startTimeMs;
     private Long finishTimeMs;
     private String sql;
-    private SourceOffsetProvider offsetProvider;
     private StmtExecutor stmtExecutor;
-    private InsertIntoTableCommand command;
+    private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private UserIdentity userIdentity;
     private ConnectContext ctx;
     private Offset runningOffset;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
+    SourceOffsetProvider offsetProvider;
 
     public StreamingInsertTask(long jobId,
                                long taskId,
@@ -73,13 +73,13 @@ public class StreamingInsertTask {
                                SourceOffsetProvider offsetProvider,
                                String currentDb,
                                StreamingJobProperties jobProperties,
-                                UserIdentity userIdentity) {
+                               UserIdentity userIdentity) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.sql = sql;
-        this.offsetProvider = offsetProvider;
         this.userIdentity = userIdentity;
         this.currentDb = currentDb;
+        this.offsetProvider = offsetProvider;
         this.jobProperties = jobProperties;
         this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
         this.createTimeMs = System.currentTimeMillis();
@@ -106,7 +106,7 @@ public class StreamingInsertTask {
         }
     }
 
-    private void before() throws JobException {
+    private void before() throws Exception {
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
 
@@ -117,12 +117,12 @@ public class StreamingInsertTask {
         ctx.setSessionVariable(jobProperties.getSessionVariable());
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
-        offsetProvider.init(sql, jobProperties);
-        this.runningOffset = offsetProvider.getNextOffset();
-        this.command = offsetProvider.rewriteTvfParams(runningOffset);
-        this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-        this.command.setJobId(getTaskId());
-        stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+
+        this.runningOffset = offsetProvider.getNextOffset(jobProperties, jobProperties.getProperties());
+        this.taskCommand = offsetProvider.rewriteTvfParams(sql, runningOffset);
+        this.taskCommand.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+        this.taskCommand.setJobId(getTaskId());
+        this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));
     }
 
     private void run() throws JobException {
@@ -134,7 +134,7 @@ public class StreamingInsertTask {
                     log.info("task has been canceled, task id is {}", getTaskId());
                     return;
                 }
-                command.run(ctx, stmtExecutor);
+                taskCommand.run(ctx, stmtExecutor);
                 if (ctx.getState().getStateType() == QueryState.MysqlStateType.OK) {
                     return;
                 } else {
@@ -142,13 +142,13 @@ public class StreamingInsertTask {
                 }
                 log.error(
                         "streaming insert failed with {}, reason {}, to retry",
-                        command.getLabelName(),
+                        taskCommand.getLabelName(),
                         errMsg);
                 if (retry == MAX_RETRY) {
                     errMsg = "reached max retry times, failed with" + errMsg;
                 }
             } catch (Exception e) {
-                log.warn("execute insert task error, label is {},offset is {}", command.getLabelName(),
+                log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
                          runningOffset.toJson(), e);
                 errMsg = Util.getRootCauseMessage(e);
             }
@@ -209,8 +209,8 @@ public class StreamingInsertTask {
         if (null != stmtExecutor) {
             stmtExecutor = null;
         }
-        if (null != command) {
-            command = null;
+        if (null != taskCommand) {
+            taskCommand = null;
         }
         if (null != ctx) {
             ctx = null;

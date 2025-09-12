@@ -56,6 +56,7 @@ import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.io.DataOutput;
@@ -65,6 +66,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+@Log4j2
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
     private final long dbId;
@@ -83,14 +85,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @SerializedName("jp")
     private StreamingJobProperties jobProperties;
     @Getter
-    @SerializedName("tt")
+    @SerializedName("tvf")
     private String tvfType;
+    private Map<String, String> originTvfProps;
     @Getter
     StreamingInsertTask runningStreamTask;
     SourceOffsetProvider offsetProvider;
     @Setter
     @Getter
     private long lastScheduleTaskTimestamp = -1L;
+    private InsertIntoTableCommand baseCommand;
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -105,17 +109,28 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
         this.jobProperties = jobProperties;
-        this.tvfType = parseTvfType();
-        this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
-        this.offsetProvider.init(getExecuteSql(), jobProperties);
+        init();
     }
 
-    private String parseTvfType() {
-        NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(getExecuteSql());
-        UnboundTVFRelation firstTVF = command.getFirstTVF();
-        Preconditions.checkNotNull(firstTVF, "Only support insert sql with tvf");
-        return firstTVF.getFunctionName();
+    private void init() {
+        try {
+            UnboundTVFRelation currentTvf = getCurrentTvf();
+            this.originTvfProps = currentTvf.getProperties().getMap();
+            this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
+        } catch (Exception ex) {
+            log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
+            throw new RuntimeException("init streaming insert job failed, sql: " + getExecuteSql(), ex);
+        }
+    }
+
+    private UnboundTVFRelation getCurrentTvf() throws Exception {
+        if (baseCommand == null) {
+            this.baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(getExecuteSql());
+        }
+        List<UnboundTVFRelation> allTVFRelation = baseCommand.getAllTVFRelation();
+        Preconditions.checkArgument(allTVFRelation.size() == 1, "Only support one source in insert streaming job");
+        UnboundTVFRelation unboundTVFRelation = allTVFRelation.get(0);
+        return unboundTVFRelation;
     }
 
     @Override
@@ -155,7 +170,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected void fetchMeta() {
-        offsetProvider.fetchRemoteMeta();
+        try {
+            if (originTvfProps == null) {
+                this.originTvfProps = getCurrentTvf().getProperties().getMap();
+            }
+            offsetProvider.fetchRemoteMeta(originTvfProps);
+        } catch (Exception ex) {
+            log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
+        }
     }
 
     public boolean needScheduleTask() {
@@ -228,8 +250,19 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+
+        if (offsetProvider != null && offsetProvider.getSyncOffset() != null) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getSyncOffset()));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        }
+        if (offsetProvider != null && offsetProvider.getRemoteOffset() != null) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getRemoteOffset()));
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        }
+
+        trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getRemoteOffset()));
         trow.addToColumnValue(new TCell().setStringVal(
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
         trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
@@ -324,9 +357,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (offsetProvider == null && jobProperties != null && tvfType != null) {
-            this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
-            // this.offsetProvider.init(getExecuteSql(), jobProperties);
+        if (offsetProvider == null) {
+            offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
         }
     }
 }
