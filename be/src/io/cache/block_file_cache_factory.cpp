@@ -133,6 +133,19 @@ std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128W
     return ret;
 }
 
+int64_t FileCacheFactory::get_cache_file_size_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    if (blocks.empty()) {
+        return 0;
+    }
+    int64_t cache_size = 0;
+    for (auto& [_, fb] : blocks) {
+        cache_size += fb->range().size();
+    }
+    return cache_size;
+}
+
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
     // dont need lock mutex because _caches is immutable after create_file_cache
     return _caches[KeyHash()(key) % _caches.size()].get();
