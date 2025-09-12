@@ -101,7 +101,7 @@ TEST_F(RuntimeFilterProducerHelperTest, wake_up_eraly) {
     block.insert({std::move(column), std::make_shared<vectorized::DataTypeInt32>(), "col1"});
 
     _tasks[0]->set_wake_up_early();
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.terminate(_runtime_states[0].get()));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(helper.skip_process(_runtime_states[0].get()));
 }
 
 TEST_F(RuntimeFilterProducerHelperTest, skip_process) {
