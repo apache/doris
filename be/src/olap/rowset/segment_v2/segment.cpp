@@ -603,16 +603,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
 
     // Case 1: Node not found for the given path within the variant reader.
     // If relative_path is empty, it means the original path pointed to the root
-    // of the variant column itself. We should return the Variant type.
+    // of the variant column itself. We should return the type from read schema.
     if (node == nullptr || relative_path.empty()) {
-        if (column.is_nested_subcolumn()) {
-            return vectorized::DataTypeFactory::instance().create_data_type(column);
-        }
-        return column.is_nullable()
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count()))
-                       : std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count());
+        return vectorized::DataTypeFactory::instance().create_data_type(column);
     }
 
     bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
@@ -630,11 +623,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                              !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
-    return column.is_nullable()
-                   ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
-                             column.variant_max_subcolumns_count()))
-                   : std::make_shared<vectorized::DataTypeObject>(
-                             column.variant_max_subcolumns_count());
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
