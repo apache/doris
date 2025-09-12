@@ -17,12 +17,8 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-
+#include "olap/rowset/segment_v2/inverted_index/query_v2/composite_reader.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
-
-CL_NS_USE(index)
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -31,7 +27,7 @@ public:
     Weight() = default;
     virtual ~Weight() = default;
 
-    virtual ScorerPtr scorer(lucene::index::IndexReader* reader) = 0;
+    virtual ScorerPtr scorer(const CompositeReaderPtr& composite_reader) = 0;
 };
 using WeightPtr = std::shared_ptr<Weight>;
 
