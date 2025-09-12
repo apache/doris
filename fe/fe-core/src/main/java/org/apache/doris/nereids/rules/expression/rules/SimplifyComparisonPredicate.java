@@ -80,10 +80,10 @@ import java.util.Optional;
 public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory {
     public static SimplifyComparisonPredicate INSTANCE = new SimplifyComparisonPredicate();
 
-    private static final int MAX_INT_TO_FLOAT_NO_LOSS = 1 << 24;
-    private static final int MIN_INT_TO_FLOAT_NO_LOSS = -MAX_INT_TO_FLOAT_NO_LOSS;
-    private static final long MAX_LONG_TO_DOUBLE_NO_LOSS = 1L << 53;
-    private static final long MIN_LONG_TO_DOUBLE_NO_LOSS = -MAX_LONG_TO_DOUBLE_NO_LOSS;
+    public static final int MAX_INT_TO_FLOAT_NO_LOSS = 1 << 24;
+    public static final int MIN_INT_TO_FLOAT_NO_LOSS = -MAX_INT_TO_FLOAT_NO_LOSS;
+    public static final long MAX_LONG_TO_DOUBLE_NO_LOSS = 1L << 53;
+    public static final long MIN_LONG_TO_DOUBLE_NO_LOSS = -MAX_LONG_TO_DOUBLE_NO_LOSS;
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {

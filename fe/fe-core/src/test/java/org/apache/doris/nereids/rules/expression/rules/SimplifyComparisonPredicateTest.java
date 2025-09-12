@@ -621,6 +621,27 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testFloatNoLossBound() {
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MIN_INT_TO_FLOAT_NO_LOSS, true);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MAX_INT_TO_FLOAT_NO_LOSS, true);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MIN_LONG_TO_DOUBLE_NO_LOSS, false);
+        checkIntConvertFloatLikeLossBound(SimplifyComparisonPredicate.MAX_LONG_TO_DOUBLE_NO_LOSS, false);
+    }
+
+    private void checkIntConvertFloatLikeLossBound(long bound, boolean isFloat) {
+        for (int i = 0; i < 100000; i++) {
+            long v = (Math.abs(bound) - i) * Long.signum(bound);
+            long vCast = isFloat ? (long) ((float) v) : (long) ((double) v);
+            Assertions.assertEquals(v, vCast);
+        }
+
+        long firstOutBound = (Math.abs(bound) + 1) * Long.signum(bound);
+        long firstOutBoundCast = isFloat ? (long) ((float) firstOutBound) : (long) ((double) firstOutBound);
+        Assertions.assertNotEquals(firstOutBound, firstOutBoundCast);
+        Assertions.assertEquals(bound, firstOutBoundCast);
+    }
+
+    @Test
     void testIntCmpDecimalV3Literal() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyComparisonPredicate.INSTANCE)
