@@ -34,6 +34,7 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external,kerberos,external_doc
             'type'='iceberg',
             'iceberg.catalog.type' = 'hadoop',
             'warehouse' = 'hdfs://${externalEnvIp}:8520/tmp/iceberg/catalog',
+            "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",
             "hadoop.security.authentication" = "kerberos",
             "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
                                                RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
