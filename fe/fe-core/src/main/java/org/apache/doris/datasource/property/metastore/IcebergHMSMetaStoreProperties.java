@@ -23,7 +23,7 @@ import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Catalog;
@@ -82,12 +82,13 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
                 }
             }
         });
+        buildCatalogProperties(catalogProps);
         try {
             this.executionAuthenticator.execute(() -> hiveCatalog.initialize(catalogName, catalogProps));
             return hiveCatalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize HiveCatalog for Iceberg. "
-                    + "CatalogName=" + catalogName + ", warehouse=" + warehouse, e);
+                    + "CatalogName=" + catalogName + ", msg :" + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 
@@ -108,17 +109,10 @@ public class IcebergHMSMetaStoreProperties extends AbstractIcebergProperties {
     /**
      * Constructs HiveCatalog's property map.
      */
-    private Map<String, String> buildCatalogProperties() {
+    private void buildCatalogProperties(Map<String, String> catalogProps) {
         Map<String, String> props = new HashMap<>();
-        props.put(HiveCatalog.LIST_ALL_TABLES, String.valueOf(listAllTables));
-
-        if (StringUtils.isNotBlank(warehouse)) {
-            props.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        }
-
+        catalogProps.put(HiveCatalog.LIST_ALL_TABLES, String.valueOf(listAllTables));
         props.put("uri", hmsBaseProperties.getHiveMetastoreUri());
-        props.putAll(origProps); // Keep at end to allow override, but risky if overlaps exist
-        return props;
     }
 
     private void checkInitialized() {
