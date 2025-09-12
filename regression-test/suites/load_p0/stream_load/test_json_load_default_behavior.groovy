@@ -17,7 +17,7 @@
 
 suite("test_json_load_default_behavior", "p0") {
 
-    // case1 test json-load's default behavior success
+    // case1 test streamload with default config
     try {
         sql """
             CREATE TABLE IF NOT EXISTS test_table1 (
@@ -53,7 +53,7 @@ suite("test_json_load_default_behavior", "p0") {
         try_sql("DROP TABLE IF EXISTS test_table1")
     }
 
-    // case2 test strip_outer_array load success
+    // case2 test streamload with strip_outer_array config
     try {        
         sql """
             CREATE TABLE IF NOT EXISTS test_table2 (
@@ -86,5 +86,44 @@ suite("test_json_load_default_behavior", "p0") {
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS test_table2")
+    }
+
+    // case3 test tvf s3 load with default config
+    // we just need to test SELECT * FROM S3
+    def s3BucketName = getS3BucketName()
+    def s3Endpoint = getS3Endpoint()
+    def s3Region = getS3Region()
+    def ak = getS3AK()
+    def sk = getS3SK()
+
+    // default is read_json_by_line
+    def res1 = sql """
+                    SELECT * FROM S3
+                    (
+                        "uri" = "s3://${s3BucketName}/read_by_line.json",
+                        "s3.access_key" = "${ak}",
+                        "s3.secret_key" = "${sk}",
+                        "s3.endpoint" = "${s3Endpoint}",
+                        "s3.region" = "${s3Region}",
+                        "format" = "json"
+                    );
+                    """
+    log.info("select frm s3 result: ${res1}".toString())
+    assertTrue(res1[0].size() == 3)
+
+    // [DATA_QUALITY_ERROR]JSON data is array-object, `strip_outer_array` must be TRUE
+    test {
+        sql """
+            SELECT * FROM S3
+            (
+                "uri" = "s3://${s3BucketName}/outer_array.json",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}",
+                "s3.endpoint" = "${s3Endpoint}",
+                "s3.region" = "${s3Region}",
+                "format" = "json"
+            );
+            """
+        exception "JSON data is array-object, `strip_outer_array` must be TRUE"
     }
 }
