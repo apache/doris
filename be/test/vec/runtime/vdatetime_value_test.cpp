@@ -1263,6 +1263,17 @@ TEST(VDateTimeValueTest, date_set_interval_negative_test) {
 
         EXPECT_THROW(result.date_set_interval<TimeUnit::YEAR>(interval), Exception);
     }
+
+    {
+        VecDateTimeValue data;
+        dt.from_date_str("2022-06-15 15:30:45", 19);
+        VecDateTimeValue result = data;
+        TimeInterval interval;
+        interval.year = 1;
+        interval.is_neg = true;
+
+        EXPECT_THROW(result.date_set_interval<TimeUnit::YEAR>(interval), Exception);
+    }
 }
 
 TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
