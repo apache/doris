@@ -913,14 +913,14 @@ struct SecToTimeImpl {
 
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res_col->get_data();
-        if (const auto* int_column_data = check_and_get_column<ColumnInt32>(arg_col.get())) {
+        if (const auto* int_column_ptr = check_and_get_column<ColumnInt32>(arg_col.get())) {
             for (int i = 0; i < input_rows_count; ++i) {
-                res_data[i] = TimeValue::from_seconds_with_limit(int_column_data->get_element(i));
+                res_data[i] = TimeValue::from_seconds_with_limit(int_column_ptr->get_element(i));
             }
         } else {
-            const auto* double_column_data = assert_cast<const ColumnFloat64*>(arg_col.get());
+            const auto* double_column_ptr = assert_cast<const ColumnFloat64*>(arg_col.get());
             for (int i = 0; i < input_rows_count; ++i) {
-                res_data[i] = TimeValue::from_double_with_limit(double_column_data->get_element(i));
+                res_data[i] = TimeValue::from_double_with_limit(double_column_ptr->get_element(i));
             }
         }
 
