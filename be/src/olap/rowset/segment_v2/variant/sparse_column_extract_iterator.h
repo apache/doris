@@ -59,7 +59,7 @@ protected:
     vectorized::MutableColumnPtr _sparse_column;
     StorageReadOptions* _read_opts; // Shared cache pointer
     std::unique_ptr<ColumnIterator> _sparse_column_reader;
-    const TabletColumn& _col;
+    int32_t _col_uid;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
@@ -71,7 +71,9 @@ protected:
 public:
     BaseSparseColumnProcessor(std::unique_ptr<ColumnIterator>&& reader, StorageReadOptions* opts,
                               const TabletColumn& col)
-            : _read_opts(opts), _sparse_column_reader(std::move(reader)), _col(col) {
+            : _read_opts(opts),
+              _sparse_column_reader(std::move(reader)),
+              _col_uid(col.parent_unique_id()) {
         _sparse_column = vectorized::ColumnVariant::create_sparse_column_fn();
     }
 
@@ -85,7 +87,7 @@ public:
     // So we need to cache the sparse column and reuse it.
     // The cache is only used when the compaction reader is used.
     bool has_sparse_column_cache() const {
-        return _read_opts && _read_opts->sparse_column_cache[_col.parent_unique_id()] &&
+        return _read_opts && _read_opts->sparse_column_cache[_col_uid] &&
                ColumnReader::is_compaction_reader_type(_read_opts->io_ctx.reader_type);
     }
 
@@ -106,8 +108,7 @@ public:
                           vectorized::MutableColumnPtr& dst) {
         // Cache check and population logic
         if (has_sparse_column_cache()) {
-            _sparse_column =
-                    _read_opts->sparse_column_cache[_col.parent_unique_id()]->assume_mutable();
+            _sparse_column = _read_opts->sparse_column_cache[_col_uid]->assume_mutable();
         } else {
             _sparse_column->clear();
             {
@@ -120,8 +121,7 @@ public:
 
             // cache the sparse column
             if (_read_opts) {
-                _read_opts->sparse_column_cache[_col.parent_unique_id()] =
-                        _sparse_column->get_ptr();
+                _read_opts->sparse_column_cache[_col_uid] = _sparse_column->get_ptr();
             }
         }
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
