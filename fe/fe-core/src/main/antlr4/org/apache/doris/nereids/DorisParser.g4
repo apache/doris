@@ -606,6 +606,7 @@ supportedAdminStatement
     | ADMIN SHOW CLUSTER SNAPSHOT PROPERTIES                                        #adminShowClusterSnapshotProperties
     | ADMIN SHOW FULL? CLUSTER SNAPSHOT                                             #adminShowClusterSnapshot
     | ADMIN DROP CLUSTER SNAPSHOT WHERE (key=identifier) EQ (value=STRING_LITERAL)  #adminDropClusterSnapshot
+    | ADMIN ROTATE TDE ROOT KEY properties=propertyClause?                          #adminRotateTdeRootKey
     ;
 
 supportedRecoverStatement
@@ -2133,6 +2134,7 @@ nonReserved
     | ROLLBACK
     | ROLLUP
     | ROOT
+    | ROTATE
     | ROUTINE
     | S3
     | SAMPLE
@@ -2169,6 +2171,7 @@ nonReserved
     | TAG
     | TASK
     | TASKS
+    | TDE
     | TEMPORARY
     | TEXT
     | THAN
