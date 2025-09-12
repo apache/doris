@@ -111,6 +111,8 @@ public:
 
     int do_restore_job_check();
 
+    int do_txn_key_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -171,6 +173,13 @@ private:
     // Return 1 if key leak is identified.
     // Return negative if a temporary error occurred during the check process.
     int check_stats_tablet_key_leaked(std::string_view key, std::string_view value);
+    int check_txn_info_key(std::string_view key, std::string_view value);
+
+    int check_txn_label_key(std::string_view key, std::string_view value);
+
+    int check_txn_index_key(std::string_view key, std::string_view value);
+
+    int check_txn_running_key(std::string_view key, std::string_view value);
 
     /**
      * It is used to scan the key in the range from start_key to end_key 

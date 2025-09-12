@@ -20,9 +20,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "olap/collection_similarity.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
-#include "olap/rowset/segment_v2/inverted_index/util/term_iterator.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -37,7 +35,7 @@ public:
 
     virtual float score(float freq, int64_t encoded_norm) = 0;
 };
-using SimilarityPtr = std::unique_ptr<Similarity>;
+using SimilarityPtr = std::shared_ptr<Similarity>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

@@ -47,6 +47,8 @@ public:
     static Status rpc(const std::string& ip, const int32_t port,
                       std::function<void(ClientConnection<T>&)> callback, int timeout_ms);
 
+    ExecEnv* get_exec_env() { return _s_exec_env; }
+
 private:
     static ExecEnv* _s_exec_env;
 };

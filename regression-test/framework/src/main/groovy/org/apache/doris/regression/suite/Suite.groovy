@@ -2620,7 +2620,7 @@ class Suite implements GroovyInterceptable {
 
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
-    def get_be_metric = { ip, port, field ->
+    def get_be_metric = { ip, port, field, type="" ->
         def metric_api = { request_body, check_func ->
             httpTest {
                 endpoint ip + ":" + port
@@ -2642,7 +2642,8 @@ class Suite implements GroovyInterceptable {
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
                 for (item : json) {
-                    if (item.tags.metric == field) {
+                    if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
+                        log.info("get be metric resp: ${item}".toString())
                         ret = item.value
                     }
                 }
@@ -2966,11 +2967,13 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def checkProfileNew = { addrSet  ->
+    def checkProfileNew = { fe, addrSet, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
@@ -2979,65 +2982,66 @@ class Suite implements GroovyInterceptable {
 
         query_profile_api.call() {
             respCode, body ->
-                log.info("query profile resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.msg.equalsIgnoreCase("success"))
-                log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+                log.info("lw query profile resp json : ${json}".toString())
                 log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
-                checkProfileNew1.call(addrSet, json.data.rows[0]['Profile ID'])
+                checkProfileByQueryId.call(fe, addrSet, json.data.rows[0]['Profile ID'], shouldContain)
         }
     }
 
-    def checkProfileNew1 = {addrSet, query_id  ->
+    def checkProfileByQueryId = { fe, addrSet, query_id, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
             }
         }
 
-        query_profile_api.call() {
-            respCode, body ->
-                //log.info("query profile resp: ${body} ${respCode}".toString())
-                def json = parseJson(body)
-                assertTrue(json.msg.equalsIgnoreCase("success"))
-                //log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+        query_profile_api.call() { respCode, body ->
+            def json = parseJson(body)
+            assertTrue(json.msg.equalsIgnoreCase("success"))
 
-                def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
-                if (instanceLineMatcher.find()) {
-                    // 提取出IP等信息的部分
-                    def instancesStr = instanceLineMatcher.group(1).trim()
+            def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+            if (instanceLineMatcher.find()) {
+                // Extract the instance string section
+                def instancesStr = instanceLineMatcher.group(1).trim()
+                def instanceEntries = instancesStr.split(/\s*,\s*/)
+                def result = []
 
-                    // 拆分各个实例，实例格式类似 "10.16.10.11:9713:4"
-                    def instanceEntries = instancesStr.split(/\s*,\s*/)
-
-                    // 定义存储解析结果的列表
-                    def result = []
-
-                    // 每个实例使用正则表达式解析IP和端口（忽略最后一个数字）
-                    instanceEntries.each { entry ->
-                        def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
-                        if(matcher.matches()){
-                            def ip = matcher.group(1)
-                            def port = matcher.group(2)
-                            //result << [ip: ip, port: port]
-                            //result << [ip:port]
-                            result.add(ip+":"+port)
-                        }
+                // Parse each instance entry (format like "10.1.1.1:9000:4") and extract IP:port
+                instanceEntries.each { entry ->
+                    def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                    if (matcher.matches()) {
+                        def ip = matcher.group(1)
+                        def port = matcher.group(2)
+                        result.add(ip + ":" + port)
                     }
- 
-                    // 输出解析结果
-                    println "提取的IP和端口："
-                    result.each { println it }
-                    addrSet.each { println it }
-                    //result.each { assertTrue(addrSet.contains(it)) }
-                    assertTrue(addrSet.containsAll(result))
-                } else {
-                    println "未找到实例信息。"
                 }
+
+                if (shouldContain) {
+                    // All items in result should exist in addrSet
+                    assertTrue(addrSet.containsAll(result),
+                        "Check failed: Some result addresses are missing in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Missing: ${result.findAll { !addrSet.contains(it) }}")
+                } else {
+                    // No item in result should exist in addrSet
+                    assertTrue(addrSet.intersect(result).isEmpty(),
+                        "Check failed: Some result addresses unexpectedly exist in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Overlap: ${addrSet.intersect(result)}")
+                }
+            } else {
+                log.info("Instance info not found in profile")
+            }
         }
     }
 

@@ -27,6 +27,7 @@
 #include <thread>
 #include <type_traits>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/compiler_util.h"
 #include "common/config.h"
 #include "fmt/format.h"
@@ -189,7 +190,7 @@ private:
     void update(std::function<void(DebugPointMap&)>&& handler);
 
 private:
-    std::atomic<std::shared_ptr<const DebugPointMap>> _debug_points;
+    atomic_shared_ptr<const DebugPointMap> _debug_points;
 };
 
 } // namespace doris

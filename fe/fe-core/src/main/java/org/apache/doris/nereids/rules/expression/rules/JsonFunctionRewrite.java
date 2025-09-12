@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
@@ -60,8 +61,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesType(JsonArray.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
+        return ImmutableList.of(matchesType(JsonArray.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY),
                 matchesType(JsonArrayIgnoreNull.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY_IGNORE_NULL),
@@ -73,6 +73,8 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_SET),
                 matchesType(JsonReplace.class).then(JsonFunctionRewrite::rewriteJsonModifyArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_REPLACE),
+                matchesType(JsonRemove.class).then(JsonFunctionRewrite::rewriteJsonRemoveArguments)
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_REMOVE),
                 matchesType(JsonbExtractInt.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_INT),
                 matchesType(JsonbExtractBigint.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
@@ -84,8 +86,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                 matchesType(JsonbExtractDouble.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_DOUBLE),
                 matchesType(JsonbExtractString.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
-                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_STRING)
-        );
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_STRING));
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonArrayArguments(T function) {
@@ -135,6 +136,20 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                 } else {
                     convectedChildren.add(new ToJson(child));
                 }
+            }
+            return function.withChildren(convectedChildren);
+        });
+    }
+
+    private static <T extends ScalarFunction> Expression rewriteJsonRemoveArguments(T function) {
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<>();
+            List<Expression> children = function.children();
+
+            convectedChildren.add(children.get(0));
+
+            for (int i = 1; i < children.size(); i++) {
+                convectedChildren.add(children.get(i));
             }
             return function.withChildren(convectedChildren);
         });

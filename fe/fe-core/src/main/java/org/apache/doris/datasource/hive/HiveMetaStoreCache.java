@@ -438,18 +438,6 @@ public class HiveMetaStoreCache {
         return partitionValuesCache.get(key);
     }
 
-    public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
-                                                              DirectoryLister directoryLister,
-                                                              TableIf table) {
-        return getFilesByPartitions(partitions, true, true, directoryLister, table);
-    }
-
-    public List<FileCacheValue> getFilesByPartitionsWithoutCache(List<HivePartition> partitions,
-                                                                 DirectoryLister directoryLister,
-                                                                 TableIf table) {
-        return getFilesByPartitions(partitions, false, true, directoryLister, table);
-    }
-
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,
                                                      boolean withCache,
                                                      boolean concurrent,

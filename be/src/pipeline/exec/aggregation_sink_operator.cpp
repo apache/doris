@@ -225,6 +225,13 @@ size_t AggSinkLocalState::_memory_usage() const {
     return usage;
 }
 
+bool AggSinkLocalState::is_blockable() const {
+    return std::any_of(
+            Base::_shared_state->aggregate_evaluators.begin(),
+            Base::_shared_state->aggregate_evaluators.end(),
+            [](const vectorized::AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
+
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
