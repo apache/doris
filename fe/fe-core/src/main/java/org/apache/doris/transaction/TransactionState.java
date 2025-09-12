@@ -75,7 +75,8 @@ public class TransactionState implements Writable {
         BACKEND_STREAMING(2),         // streaming load use this type
         INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
-        BATCH_LOAD_JOB(5); // load job v2 for broker load
+        BATCH_LOAD_JOB(5), // load job v2 for broker load
+        STREAMING_JOB(6); // streaming job use this type
 
         @SerializedName("f")
         private final int flag;
@@ -100,6 +101,8 @@ public class TransactionState implements Writable {
                     return ROUTINE_LOAD_TASK;
                 case 5:
                     return BATCH_LOAD_JOB;
+                case 6:
+                    return STREAMING_JOB;
                 default:
                     return null;
             }

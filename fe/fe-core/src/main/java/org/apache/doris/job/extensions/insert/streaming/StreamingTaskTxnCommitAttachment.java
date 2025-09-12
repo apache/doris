@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
@@ -26,9 +27,11 @@ import lombok.Getter;
 
 public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
 
-    public StreamingTaskTxnCommitAttachment(long scannedRows, long loadBytes,
-                long fileNumber, long fileSize, Offset offset) {
-        super(TransactionState.LoadJobSourceType.BACKEND_STREAMING);
+    public StreamingTaskTxnCommitAttachment(long jobId, long taskId,
+                long scannedRows, long loadBytes, long fileNumber, long fileSize, Offset offset) {
+        super(TransactionState.LoadJobSourceType.STREAMING_JOB);
+        this.jobId = jobId;
+        this.taskId = taskId;
         this.scannedRows = scannedRows;
         this.loadBytes = loadBytes;
         this.fileNumber = fileNumber;
@@ -36,6 +39,19 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.offset = offset;
     }
 
+    public StreamingTaskTxnCommitAttachment(StreamingTaskCommitAttachmentPB pb) {
+        super(TransactionState.LoadJobSourceType.STREAMING_JOB);
+        this.scannedRows = pb.getScannedRows();
+        this.loadBytes = pb.getLoadBytes();
+        this.fileNumber = pb.getFileNumber();
+        this.fileSize = pb.getFileSize();
+        this.offset.setEndOffset(pb.getOffset());
+    }
+
+    @Getter
+    private long jobId;
+    @Getter
+    private long taskId;
     @SerializedName(value = "sr")
     @Getter
     private long scannedRows;
