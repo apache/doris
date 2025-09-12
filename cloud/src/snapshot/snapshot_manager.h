@@ -52,8 +52,8 @@ public:
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
     virtual int recycle_snapshot_meta_and_data(StorageVaultAccessor* accessor,
-                                               Versionstamp* snapshot_version,
-                                               const SnapshotPB* snapshot_pb);
+                                               Versionstamp snapshot_version,
+                                               const SnapshotPB& snapshot_pb);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;
