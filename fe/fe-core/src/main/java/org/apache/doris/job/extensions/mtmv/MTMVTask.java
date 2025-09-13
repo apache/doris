@@ -41,6 +41,7 @@ import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -393,6 +394,9 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         after();
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM.increase(1L);
+        }
         return true;
     }
 
@@ -406,6 +410,11 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         after();
+        if (MetricRepo.isInit) {
+            MetricRepo.HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION.update(
+                    super.getFinishTimeMs() - super.getStartTimeMs());
+            MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM.increase(1L);
+        }
         return true;
     }
 

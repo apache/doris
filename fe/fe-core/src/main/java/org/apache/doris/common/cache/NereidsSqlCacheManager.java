@@ -233,15 +233,32 @@ public class NereidsSqlCacheManager {
                     .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
 
             if (sqlCacheContextWithVariable != null) {
-                return tryParseSql(
+                return tryParseSqlAndRecordMetrics(
                         connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity, true
                 );
             } else {
                 return Optional.empty();
             }
         } else {
-            return tryParseSql(connectContext, key, sqlCacheContext, currentUserIdentity, false);
+            return tryParseSqlAndRecordMetrics(connectContext, key, sqlCacheContext, currentUserIdentity, false);
         }
+    }
+
+    private Optional<LogicalSqlCache> tryParseSqlAndRecordMetrics(
+            ConnectContext connectContext, String key, SqlCacheContext sqlCacheContext,
+            UserIdentity currentUserIdentity, boolean checkUserVariable) {
+        Optional<LogicalSqlCache> logicalSqlCache = tryParseSql(connectContext, key, sqlCacheContext,
+                currentUserIdentity, checkUserVariable);
+        if (logicalSqlCache.isPresent()) {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+            }
+        } else {
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
+            }
+        }
+        return logicalSqlCache;
     }
 
     private String generateCacheKey(ConnectContext connectContext, String sqlOrMd5) {
@@ -299,8 +316,6 @@ public class NereidsSqlCacheManager {
             boolean usedVariablesChanged
                     = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext);
             if (resultSetInFe.isPresent() && !usedVariablesChanged) {
-                MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
-
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
                         sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
@@ -330,9 +345,6 @@ public class NereidsSqlCacheManager {
                 List<InternalService.PCacheValue> cacheValues = cacheData.getValuesList();
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
                 String backendAddress = SqlCache.findCacheBe(cacheKeyMd5).getAddress();
-
-                MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
-
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
                         sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
                         sqlCacheContext.getResultExprs(), Optional.empty(),
@@ -573,5 +585,9 @@ public class NereidsSqlCacheManager {
             super.handle(field, confVal);
             NereidsSqlCacheManager.updateConfig();
         }
+    }
+
+    public long getSqlCacheNum() {
+        return sqlCaches.estimatedSize();
     }
 }

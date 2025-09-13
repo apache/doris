@@ -346,6 +346,10 @@ public abstract class ConnectProcessor {
                 if (i != stmts.size() - 1 && connectType.equals(ConnectType.MYSQL)) {
                     executor.setMoreStmtExists(true);
                 }
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
+                            executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
+                }
                 ctx.setExecutor(executor);
 
                 if (cacheKeyType != null) {
