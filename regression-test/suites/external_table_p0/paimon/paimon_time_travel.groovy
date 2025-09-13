@@ -16,6 +16,8 @@
 // under the License.
 
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.temporal.ChronoField
 import java.time.LocalDateTime
 import java.time.ZoneId
 
@@ -29,12 +31,23 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
         return
     }
     // Create date time formatter
-
+    DateTimeFormatter unifiedFormatter = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd")
+            .optionalStart()
+            .appendLiteral('T')
+            .optionalEnd()
+            .optionalStart()
+            .appendLiteral(' ')
+            .optionalEnd()
+            .appendPattern("HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.MILLI_OF_SECOND, 0, 3, true)
+            .optionalEnd()
+            .toFormatter()
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String catalog_name = "test_paimon_time_travel_catalog"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-    DateTimeFormatter iso_formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")
-    DateTimeFormatter standard_formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+    DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
     String db_name = "test_paimon_time_travel_db"
     String tableName = "tbl_time_travel"
     try {
@@ -54,8 +67,8 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
         sql """switch `${catalog_name}`"""
         logger.info("switched to catalog " + catalog_name)
         sql """use ${db_name}"""
-        //system table snapshots to get create time.
-        List<List<Object>> snapshotRes = sql """ select snapshot_id,commit_time from ${tableName}\$snapshots order by snapshot_id;"""
+        // Query system table snapshots to get creation time. Get the first four snapshots before schema change (snapshot IDs 1-4)
+        List<List<Object>> snapshotRes = sql """ select snapshot_id,commit_time from ${tableName}\$snapshots order by snapshot_id limit 4;"""
         logger.info("Query result from ${tableName}\$snapshots: ${snapshotRes}")
         assertTrue(snapshotRes.size()==4)
         assertTrue(snapshotRes[0].size()==2)
@@ -68,14 +81,8 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
             logger.info("Processing snapshot ${index + 1}: ID=${snapshotId}, commit_time=${commitTime}")
 
             try {
-                LocalDateTime dateTime;
-                if (commitTime.contains("T")){
-                    dateTime = LocalDateTime.parse(commitTime, iso_formatter)
-                }else {
-                    dateTime = LocalDateTime.parse(commitTime, standard_formatter)
-                }
-
-                String snapshotTime = dateTime.atZone(ZoneId.systemDefault()).format(standard_formatter);
+                LocalDateTime dateTime = LocalDateTime.parse(commitTime, unifiedFormatter)
+                String snapshotTime = dateTime.atZone(ZoneId.systemDefault()).format(outputFormatter);
                 long timestamp = dateTime.atZone(ZoneId.systemDefault())
                         .toInstant()
                         .toEpochMilli()
@@ -191,8 +198,8 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
             }
         }
 
-
-        List<List<Object>> tagsResult = sql """ select snapshot_id,tag_name from ${tableName}\$tags order by snapshot_id;"""
+        // Get the previous 4 snapshot IDs and their corresponding tags
+        List<List<Object>> tagsResult = sql """ select snapshot_id,tag_name from ${tableName}\$tags order by snapshot_id limit 4;"""
         logger.info("Query result from ${tableName}\$tags: ${tagsResult}")
         assertTrue(tagsResult.size()==4)
         assertTrue(tagsResult[0].size()==2)
@@ -239,13 +246,87 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
             }
         }
 
+        /**
+         * Test time travel queries on snapshots created after schema changes.
+         *
+         * Background: run09.sql adds a new column, creating a schema evolution
+         * at snapshot ID 4. This test verifies that time travel works correctly
+         * with snapshots (ID > 4) that use the updated schema.
+         */
+        List<List<Object>> snapshotSchemaChangeAfterRes = sql """ select snapshot_id,commit_time from ${tableName}\$snapshots where snapshot_id > 4  order by snapshot_id limit 2;"""
+        logger.info("Query result from ${tableName}\$snapshots after schema change: ${snapshotSchemaChangeAfterRes}")
+
+        snapshotSchemaChangeAfterRes.eachWithIndex { snapshotRow, index ->
+            int snapshotId = snapshotRow[0] as int
+            try {
+                String baseQueryName = "qt_schema_change_snapshot_${snapshotId}"
+
+                // Time travel by snapshot ID after schema change
+                "${baseQueryName}_version_count" """select count(*) from ${tableName} FOR VERSION AS OF ${snapshotId} ;"""
+                "${baseQueryName}_version" """select * from ${tableName} FOR VERSION AS OF ${snapshotId} order by order_id;"""
+                logger.info("Completed schema change queries for snapshot ${snapshotId}")
+
+            } catch (Exception e) {
+                logger.error("Failed to process schema change snapshot ${snapshotId}: ${e.message}")
+                throw e
+            }
+        }
+
+
+        // Test time zone behavior with time travel queries
+        List<List<Object>> timeTravelZone = sql """ select snapshot_id,commit_time from ${tableName}\$snapshots order by snapshot_id limit 1;"""
+        logger.info("Query result from ${tableName}\$snapshots: ${timeTravelZone}")
+
+        String commitTime = timeTravelZone[0][1] as String
+
+        LocalDateTime dateTime = LocalDateTime.parse(commitTime, unifiedFormatter)
+        String snapshotTime = dateTime.atZone(ZoneId.systemDefault()).format(outputFormatter)
+
+        try {
+            // Basic time string query
+            qt_time_zone_time_travel_basic """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+
+            // Test with +08:00 timezone
+            sql """set force_jni_scanner=true; set time_zone='+08:00';"""
+            qt_time_zone_time_travel_plus08_jni_true """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+
+            sql """set force_jni_scanner=false;"""
+            qt_time_zone_time_travel_plus08_jni_false """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+
+            // Test with +06:00 timezone
+            sql """set force_jni_scanner=true; set time_zone='+06:00';"""
+            qt_time_zone_time_travel_plus06_jni_true """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+
+            sql """set force_jni_scanner=false;"""
+            qt_time_zone_time_travel_plus06_jni_false """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+
+            // Test with +10:00 timezone - these should throw exceptions
+            sql """set force_jni_scanner=true; set time_zone='+10:00';"""
+            test {
+                sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+                exception ("There is currently no snapshot earlier than or equal to timestamp")
+            }
+
+            sql """set force_jni_scanner=false;"""
+            test {
+                sql """select * from ${tableName} FOR TIME AS OF \"${snapshotTime}\" order by order_id"""
+                exception ("There is currently no snapshot earlier than or equal to timestamp")
+            }
+
+        } finally {
+            sql """ unset variable time_zone; """
+            sql """ set force_jni_scanner = false; """
+        }
+
+
+        // Error handling tests
         test {
             sql """ select * from ${tableName}@branch('name'='not_exists_branch'); """
-            exception "Branch 'not_exists_branch' does not exist"
+            exception "can't find branch: not_exists_branch"
         }
         test {
             sql """ select * from ${tableName}@branch(not_exists_branch); """
-            exception "Branch 'not_exists_branch' does not exist"
+            exception "can't find branch: not_exists_branch"
         }
         test {
             sql """ select * from ${tableName}@tag('name'='not_exists_tag'); """
@@ -279,5 +360,3 @@ suite("paimon_time_travel", "p0,external,doris,external_docker,external_docker_d
          // sql """drop catalog if exists ${catalog_name}"""
     }
 }
-
-
