@@ -80,4 +80,32 @@ suite("test_time_function") {
     qt_maxtime2 """
         select SEC_TO_TIME(-762021855) ;
     """
+
+    qt_select """SELECT sec_to_time(35211.7895)"""
+    qt_select """SELECT sec_to_time(35211.00)"""
+    qt_select """SELECT sec_to_time(-35211.7895)"""
+
+    qt_select """SELECT sec_to_time(3020399);"""
+    qt_select """SELECT sec_to_time(3020398.999999);"""
+    qt_select """SELECT sec_to_time(3020400);"""
+    qt_select """SELECT sec_to_time(3020399.0);"""
+    qt_select """SELECT sec_to_time(3020499.000001);"""
+    qt_select """SELECT sec_to_time(-3020398);"""
+    qt_select """SELECT sec_to_time(-3020398.999999);"""
+    qt_select """SELECT sec_to_time(-3020400);"""
+    qt_select """SELECT sec_to_time(-3020399.000001);"""
+
+    testFoldConst("SELECT sec_to_time(35211)")
+    testFoldConst("SELECT sec_to_time(-35211)")
+    testFoldConst("SELECT sec_to_time(35211.7895)")
+    testFoldConst("SELECT sec_to_time(-35211.7895)")
+    testFoldConst("SELECT sec_to_time(35211.00)")
+    testFoldConst("SELECT sec_to_time(3020399)")
+    testFoldConst("SELECT sec_to_time(3020398.999999)")
+    testFoldConst("SELECT sec_to_time(3020400)")
+    testFoldConst("SELECT sec_to_time(3020399.000001)")
+    testFoldConst("SELECT sec_to_time(-3020398)")
+    testFoldConst("SELECT sec_to_time(-3020398.999999)")
+    testFoldConst("SELECT sec_to_time(-3020400)")
+    testFoldConst("SELECT sec_to_time(3020399.0)")
 }
