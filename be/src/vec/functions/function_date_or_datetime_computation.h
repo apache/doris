@@ -74,7 +74,7 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
 
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = binary_cast<NativeType, ValueType>(t);
-    TimeInterval interval(unit, delta, false);
+    TimeInterval interval(unit, std::abs(delta), delta < 0);
     is_null = !(ts_value.template date_add_interval<unit>(interval));
     // here DateValueType = ResultDateValueType
     return binary_cast<ValueType, NativeType>(ts_value);

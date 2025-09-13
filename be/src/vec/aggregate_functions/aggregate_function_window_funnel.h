@@ -32,6 +32,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -160,6 +161,12 @@ struct WindowFunnelState {
         int matched_count = 0;
         DateValueType start_timestamp;
         DateValueType end_timestamp;
+
+        if (window < 0) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the sliding time window must be a positive integer, but got: {}",
+                            window);
+        }
         TimeInterval interval(SECOND, window, false);
         int column_idx = 0;
         const auto& timestamp_data = events_list.dt;
