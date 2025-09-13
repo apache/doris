@@ -138,7 +138,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon branch for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
-                        "Failed to get Paimon branch: ", e);
+                        "Failed to get Paimon branch: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
             }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.
