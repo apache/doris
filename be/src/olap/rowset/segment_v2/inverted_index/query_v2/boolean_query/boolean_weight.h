@@ -36,8 +36,8 @@ public:
               _score_combiner(std::move(score_combiner)) {}
     ~BooleanWeight() override = default;
 
-    ScorerPtr scorer(lucene::index::IndexReader* reader) override {
-        std::vector<ScorerPtr> sub_scorers = per_scorers(reader);
+    ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
+        std::vector<ScorerPtr> sub_scorers = per_scorers(composite_reader);
         if (_type == OperatorType::OP_AND) {
             return intersection_scorer_build(sub_scorers);
         } else if (_type == OperatorType::OP_OR) {
@@ -47,10 +47,10 @@ public:
     }
 
 private:
-    std::vector<ScorerPtr> per_scorers(lucene::index::IndexReader* reader) {
+    std::vector<ScorerPtr> per_scorers(const CompositeReaderPtr& composite_reader) {
         std::vector<ScorerPtr> sub_scorers;
         for (const auto& sub_weight : _sub_weights) {
-            sub_scorers.emplace_back(sub_weight->scorer(reader));
+            sub_scorers.emplace_back(sub_weight->scorer(composite_reader));
         }
         return sub_scorers;
     }
