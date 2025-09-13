@@ -68,7 +68,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
             {.enable_decimal256 = state->enable_decimal256()});
 
     if (_function == nullptr) {
-        return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
+        return Status::NotSupported("Function {} from {} to is not implemented", function_name,
+                                    child->data_type()->get_name(), _target_data_type_name);
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
