@@ -62,6 +62,7 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+// !FIXME: Here we should consider using MutableBlock, due to potential data reorganization
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
         std::shared_ptr<vectorized::Block>& block, vectorized::VExprContextSPtrs output_vexpr_ctxs,
@@ -400,6 +401,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
     }
     case TYPE_MAP: {
         const auto* column_map = assert_cast<const vectorized::ColumnMap*>(real_column_ptr.get());
+        // column_map utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
         RETURN_IF_ERROR((const_cast<ColumnMap*>(column_map))->deduplicate_keys(true));
 
         const auto* type_map =

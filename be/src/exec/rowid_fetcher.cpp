@@ -346,10 +346,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
     int64_t lookup_row_data_ms = 0;
 
     // init desc
-    std::vector<SlotDescriptor> slots;
+    std::vector<SlotDescriptor*> slots;
     slots.reserve(request.slots().size());
     for (const auto& pslot : request.slots()) {
-        slots.push_back(SlotDescriptor(pslot));
+        auto temp_slot = SlotDescriptor(pslot);
+        slots.push_back(&temp_slot);
     }
 
     // init read schema
@@ -441,14 +442,14 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
-                                      .slot_id = slots[x].id()};
+                                      .slot_id = slots[x]->id()};
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 // hold the reference
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, slots[x], row_id,
                                                             column, stats, iterator_item.iterator));
         }
     }
@@ -484,6 +485,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                                           PMultiGetResponseV2* response) {
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
+        // todo: use mutableBlock instead of block
         std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
@@ -526,16 +528,17 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
                 // prepare slots to build block
-                std::vector<SlotDescriptor> slots;
+                std::vector<SlotDescriptor*> slots;
                 slots.reserve(request_block_desc.slots_size());
                 for (const auto& pslot : request_block_desc.slots()) {
-                    slots.push_back(SlotDescriptor(pslot));
+                    auto temp_slot = SlotDescriptor(pslot);
+                    slots.push_back(&temp_slot);
                 }
                 // prepare block char vector shrink for char type
                 std::vector<size_t> char_type_idx;
                 for (int j = 0; j < slots.size(); ++j) {
                     auto slot = slots[j];
-                    if (_has_char_type(slot.type())) {
+                    if (_has_char_type(slot->type())) {
                         char_type_idx.push_back(j);
                     }
                 }
@@ -606,7 +609,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
 Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+        std::vector<SlotDescriptor*>& slots, const TUniqueId& query_id,
         vectorized::Block& result_block, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
         int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
     if (result_block.is_empty_column()) [[likely]] {
@@ -622,9 +625,9 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
         for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
-            row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
-            row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
+            row_store_read_struct.serdes.emplace_back(slots[i]->get_data_type_ptr()->get_serde());
+            row_store_read_struct.col_uid_to_idx[slots[i]->col_unique_id()] = i;
+            row_store_read_struct.default_values.emplace_back(slots[i]->col_default_value());
         }
     }
 
@@ -652,7 +655,7 @@ const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
 
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
-        std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
+        std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor*>& slots,
         std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
         vectorized::Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
         int64_t* get_block_avg_ms, size_t* scan_range_cnt) {
@@ -682,22 +685,22 @@ Status RowIdStorageReader::read_batch_external_row(
         std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
                                     first_scan_range_desc.columns_from_path_keys.end());
         for (auto slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-            auto& slot = slots[slot_idx];
-            tuple_desc.add_slot(&slot);
-            colname_to_slot_id.emplace(slot.col_name(), slot.id());
+            auto slot = slots[slot_idx];
+            tuple_desc.add_slot(slot);
+            colname_to_slot_id.emplace(slot->col_name(), slot->id());
             TFileScanSlotInfo slot_info;
-            slot_info.slot_id = slot.id();
+            slot_info.slot_id = slot->id();
             auto column_idx = request_block_desc.column_idxs(slot_idx);
-            if (partition_name_set.contains(slot.col_name())) {
+            if (partition_name_set.contains(slot->col_name())) {
                 //This is partition column.
                 slot_info.is_file_slot = false;
             } else {
                 rpc_scan_params.column_idxs.emplace_back(column_idx);
                 slot_info.is_file_slot = true;
             }
-            rpc_scan_params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
+            rpc_scan_params.default_value_of_src_slot.emplace(slot->id(), TExpr {});
             rpc_scan_params.required_slots.emplace_back(slot_info);
-            rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+            rpc_scan_params.slot_name_to_schema_pos.emplace(slot->col_name(), column_idx);
         }
 
         const auto& query_options = id_file_map->get_query_options();
@@ -966,7 +969,7 @@ Status RowIdStorageReader::read_batch_external_row(
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
         const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
-        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        std::vector<SlotDescriptor*>& slots, const TabletSchema& full_read_schema,
         RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms,
@@ -1043,13 +1046,13 @@ Status RowIdStorageReader::read_doris_format_row(
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
-                                      .slot_id = slots[x].id()};
+                                      .slot_id = slots[x]->id()};
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 iterator_map[iterator_key].segment = segment;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x],
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, slots[x],
                                                             cast_set<uint32_t>(row_id), column,
                                                             stats, iterator_item.iterator));
         }

@@ -582,7 +582,7 @@ int FieldDescriptor::get_column_index(const std::string& column) const {
     return -1;
 }
 
-const FieldSchema* FieldDescriptor::get_column(const std::string& name) const {
+FieldSchema* FieldDescriptor::get_column(const std::string& name) const {
     auto it = _name_to_field.find(name);
     if (it != _name_to_field.end()) {
         return it->second;

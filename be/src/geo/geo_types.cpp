@@ -779,10 +779,8 @@ int GeoLine::numPoint() const {
     return _polyline->num_vertices();
 }
 
-S2Point* GeoLine::getPoint(int i) const {
-    // A third-party dependency is used that returns a const S2Point&,
-    // but it's not itself a const, so it's OK to use a const_cast
-    return const_cast<S2Point*>(&(_polyline->vertex(i)));
+const S2Point* GeoLine::getPoint(int i) const {
+    return &(_polyline->vertex(i));
 }
 
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {

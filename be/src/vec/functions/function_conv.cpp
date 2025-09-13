@@ -179,7 +179,7 @@ struct ConvInt64Impl {
             }
         }
         Slice str = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-        result_column->insert_data(reinterpret_cast<const char*>(str.data), str.size);
+        result_column->insert_data(str.data, str.size);
     }
 };
 
@@ -215,7 +215,7 @@ struct ConvStringImpl {
             result_column->insert_data("0", 1);
         } else {
             Slice str_base = MathFunctions::decimal_to_base(context, decimal_num, dst_base);
-            result_column->insert_data(reinterpret_cast<const char*>(str_base.data), str_base.size);
+            result_column->insert_data(str_base.data, str_base.size);
         }
     }
 };

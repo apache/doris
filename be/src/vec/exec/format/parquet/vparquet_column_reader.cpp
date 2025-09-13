@@ -596,6 +596,7 @@ Status ScalarColumnReader::read_column_data(
                     _field_schema->data_type->get_name(), type->get_name());
         }
     }
+    // !FIXME: We should verify whether the get_physical_column logic is correct, why do we return a doris_column?
     ColumnPtr resolved_column =
             _converter->get_physical_column(_field_schema->physical_type, _field_schema->data_type,
                                             doris_column, type, is_dict_filter);

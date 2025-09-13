@@ -321,6 +321,7 @@ public:
     /// Returns pointer to the position after the read data.
     virtual const char* deserialize_and_insert_from_arena(const char* pos) = 0;
 
+    // todo: Consider replacing stringref with slice.
     virtual void serialize_vec(StringRef* keys, size_t num_rows) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method serialize_vec is not supported for " + get_name());
@@ -595,7 +596,7 @@ public:
       *
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
-
+    // todo: We should support a non-const version of get_raw_data that returns a Slice.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
@@ -708,8 +709,18 @@ const Type* check_and_get_column(const IColumn& column) {
 }
 
 template <typename Type>
+Type* check_and_get_column(IColumn& column) {
+    return typeid_cast<Type*>(&column);
+}
+
+template <typename Type>
 const Type* check_and_get_column(const IColumn* column) {
     return typeid_cast<const Type*>(column);
+}
+
+template <typename Type>
+Type* check_and_get_column(IColumn* column) {
+    return typeid_cast<Type*>(column);
 }
 
 template <typename Type>

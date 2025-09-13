@@ -124,7 +124,7 @@ public:
      * @param name Column name
      * @return FieldSchema or nullptr if not exists
      */
-    const FieldSchema* get_column(const std::string& name) const;
+    FieldSchema* get_column(const std::string& name) const;
 
     void get_column_names(std::unordered_set<std::string>* names) const;
 

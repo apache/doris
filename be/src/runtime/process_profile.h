@@ -43,10 +43,8 @@ public:
     std::string print_process_profile_no_root() const {
         std::stringstream ss;
         std::vector<RuntimeProfile*> profiles;
-        // The `process_profile` is generated via `make_unique` and stored in `MultiVersion`.
-        // Since it uses `const T` internally, using `const_cast` is valid.
         auto version_ptr = _process_profile.get();
-        auto* process_profile = const_cast<doris::RuntimeProfile*>(version_ptr.get());
+        auto* process_profile = version_ptr.get();
         process_profile->get_children(&profiles);
         for (auto* profile : profiles) {
             profile->pretty_print(&ss);

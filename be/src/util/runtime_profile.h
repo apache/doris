@@ -600,7 +600,7 @@ public:
 
     RuntimeProfile* get_child(std::string name);
 
-    void get_children(std::vector<RuntimeProfile*>* children);
+    void get_children(std::vector<RuntimeProfile*>* children) const;
 
     // Gets all profiles in tree, including this one.
     void get_all_children(std::vector<RuntimeProfile*>* children);

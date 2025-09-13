@@ -3734,8 +3734,7 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             std::string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
-                                            StringRef((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len), &dst);
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }

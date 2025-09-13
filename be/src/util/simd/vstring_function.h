@@ -211,22 +211,20 @@ public:
         return validate_ascii_fast(str.data, str.size);
     }
 
-    static void reverse(const StringRef& str, StringRef dst) {
+    static void reverse(const StringRef& str, std::string* dst) {
         if (is_ascii(str)) {
             int64_t begin = 0;
             int64_t end = str.size;
-            int64_t result_end = dst.size - 1;
+            int64_t result_end = dst->size() - 1;
 
             // auto SIMD here
-            // dst is a modifiable std::String. Since StringRef is used for passing, const_cast must be used.
-            auto* __restrict l = const_cast<char*>(dst.data);
+            auto* __restrict l = dst->data();
             auto* __restrict r = str.data;
             for (; begin < end; ++begin, --result_end) {
                 l[result_end] = r[begin];
             }
         } else {
-            // dst is a modifiable std::String. Since StringRef is used for passing, const_cast must be used.
-            char* dst_data = const_cast<char*>(dst.data);
+            char* dst_data = dst->data();
             for (size_t i = 0, char_size = 0; i < str.size; i += char_size) {
                 char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
                 // there exists occasion where the last character is an illegal UTF-8 one which returns

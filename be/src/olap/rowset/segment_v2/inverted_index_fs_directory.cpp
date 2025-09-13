@@ -738,12 +738,12 @@ bool DorisRAMFSDirectory::list(std::vector<std::string>* names) const {
 
 bool DorisRAMFSDirectory::fileExists(const char* name) const {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    return filesMap->exists((char*)name);
+    return filesMap->exists(name);
 }
 
 int64_t DorisRAMFSDirectory::fileModified(const char* name) const {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    auto* f = filesMap->get((char*)name);
+    auto* f = filesMap->get(name);
     DBUG_EXECUTE_IF("DorisRAMFSDirectory::fileModified_file_not_found", { f = nullptr; })
     if (f == nullptr) {
         _CLTHROWA(CL_ERR_IO, fmt::format("NOT FOUND File {}.", name).c_str());
@@ -755,7 +755,7 @@ void DorisRAMFSDirectory::touchFile(const char* name) {
     lucene::store::RAMFile* file = nullptr;
     {
         std::lock_guard<std::mutex> wlock(_this_lock);
-        file = filesMap->get((char*)name);
+        file = filesMap->get(name);
         DBUG_EXECUTE_IF("DorisRAMFSDirectory::touchFile_file_not_found", { file = nullptr; })
         if (file == nullptr) {
             _CLTHROWA(CL_ERR_IO, fmt::format("NOT FOUND File {}.", name).c_str());
@@ -775,7 +775,7 @@ void DorisRAMFSDirectory::touchFile(const char* name) {
 
 int64_t DorisRAMFSDirectory::fileLength(const char* name) const {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    auto* f = filesMap->get((char*)name);
+    auto* f = filesMap->get(name);
     DBUG_EXECUTE_IF("DorisRAMFSDirectory::fileLength_file_not_found", { f = nullptr; })
     if (f == nullptr) {
         _CLTHROWA(CL_ERR_IO, fmt::format("NOT FOUND File {}.", name).c_str());
@@ -786,7 +786,7 @@ int64_t DorisRAMFSDirectory::fileLength(const char* name) const {
 bool DorisRAMFSDirectory::openInput(const char* name, lucene::store::IndexInput*& ret,
                                     CLuceneError& error, int32_t bufferSize) {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    auto* file = filesMap->get((char*)name);
+    auto* file = filesMap->get(name);
     DBUG_EXECUTE_IF("DorisRAMFSDirectory::openInput_file_not_found", { file = nullptr; })
     if (file == nullptr) {
         error.set(CL_ERR_IO,
@@ -805,7 +805,7 @@ void DorisRAMFSDirectory::close() {
 
 bool DorisRAMFSDirectory::doDeleteFile(const char* name) {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    auto itr = filesMap->find((char*)name);
+    auto itr = filesMap->find(name);
     if (itr != filesMap->end()) {
         SCOPED_LOCK_MUTEX(this->THIS_LOCK);
         sizeInBytes -= itr->second->sizeInBytes;
@@ -821,15 +821,15 @@ bool DorisRAMFSDirectory::deleteDirectory() {
 
 void DorisRAMFSDirectory::renameFile(const char* from, const char* to) {
     std::lock_guard<std::mutex> wlock(_this_lock);
-    auto itr = filesMap->find((char*)from);
+    auto itr = filesMap->find(from);
 
     /* DSR:CL_BUG_LEAK:
     ** If a file named $to already existed, its old value was leaked.
     ** My inclination would be to prevent this implicit deletion with an
     ** exception, but it happens routinely in CLucene's internals (e.g., during
     ** IndexWriter.addIndexes with the file named 'segments'). */
-    if (filesMap->exists((char*)to)) {
-        auto itr1 = filesMap->find((char*)to);
+    if (filesMap->exists(to)) {
+        auto itr1 = filesMap->find(to);
         SCOPED_LOCK_MUTEX(this->THIS_LOCK);
         sizeInBytes -= itr1->second->sizeInBytes;
         filesMap->removeitr(itr1);
@@ -855,10 +855,8 @@ lucene::store::IndexOutput* DorisRAMFSDirectory::createOutput(const char* name) 
     std::lock_guard<std::mutex> wlock(_this_lock);
 
     // get the actual pointer to the output name
-    char* n = nullptr;
-    // The `name` variable remains unmodified;
-    // `const_cast` is used to adapt to third-party functions.
-    auto itr = filesMap->find(const_cast<char*>(name));
+    const char* n = nullptr;
+    auto itr = filesMap->find(name);
     DBUG_EXECUTE_IF("DorisRAMFSDirectory::createOutput_itr_filesMap_end",
                     { itr = filesMap->end(); })
     if (itr != filesMap->end()) {

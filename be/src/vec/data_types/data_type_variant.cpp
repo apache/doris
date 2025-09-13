@@ -68,6 +68,7 @@ int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
         // Icolumn originates from MutablePtr or block, and therefore can be modified.
+        // todo: We should reconsider the logic here, why are we using finalize() in this context?
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 
@@ -107,6 +108,7 @@ char* DataTypeVariant::serialize(const IColumn& column, char* buf, int be_exec_v
     const auto& column_variant = assert_cast<const ColumnVariant&>(column);
     if (!column_variant.is_finalized()) {
         // Icolumn originates from block, and therefore can be modified.
+        // todo: We should reconsider the logic here, why are we using finalize() in this context?
         const_cast<ColumnVariant&>(column_variant).finalize();
     }
 #ifndef NDEBUG

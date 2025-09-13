@@ -111,4 +111,45 @@ TEST_F(UidUtilTest, Hash) {
     }
 }
 
+TEST_F(UidUtilTest, ValidHexId) {
+    std::string s = "abcd-1234";
+    TUniqueId id {};
+    bool ok = parse_id(s, &id);
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(id.hi, 0xabcdu);
+    EXPECT_EQ(id.lo, 0x1234u);
+    EXPECT_EQ(s, "abcd:1234");
+}
+
+TEST_F(UidUtilTest, ValidLargeHexId) {
+    std::string s = "deadbeef-100";
+    TUniqueId id {};
+    bool ok = parse_id(s, &id);
+    EXPECT_TRUE(ok);
+    EXPECT_EQ(id.hi, 0xdeadbeefu);
+    EXPECT_EQ(id.lo, 0x100u);
+    EXPECT_EQ(s, "deadbeef:100");
+}
+
+TEST_F(UidUtilTest, InvalidHexHiPart) {
+    std::string s = "xyz-123";
+    TUniqueId id {};
+    bool ok = parse_id(s, &id);
+    EXPECT_FALSE(ok);
+}
+
+TEST_F(UidUtilTest, InvalidHexLoPart) {
+    std::string s = "1234-gggg";
+    TUniqueId id {};
+    bool ok = parse_id(s, &id);
+    EXPECT_FALSE(ok);
+}
+
+TEST_F(UidUtilTest, MissingDash) {
+    std::string s = "12345678";
+    TUniqueId id {};
+    bool ok = parse_id(s, &id);
+    EXPECT_FALSE(ok);
+}
+
 } // namespace doris

@@ -1364,13 +1364,10 @@ Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& d
                     DCHECK_EQ(this_run, num_rows);
                 } else {
                     *has_null = true;
-                    const auto* null_col =
+                    auto* null_col =
                             vectorized::check_and_get_column<vectorized::ColumnNullable>(dst.get());
                     if (null_col != nullptr) {
-                        // check_and_get_column returns const T*, dst is an object that can be modified,
-                        // using const_cast is ok
-                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
-                                this_run);
+                        null_col->insert_many_defaults(this_run);
                     } else {
                         return Status::InternalError("unexpected column type in column reader");
                     }
@@ -1428,17 +1425,14 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 auto origin_index = _page.data_decoder->current_index();
                 if (this_read_count > 0) {
                     if (is_null) {
-                        const auto* null_col =
+                        auto* null_col =
                                 vectorized::check_and_get_column<vectorized::ColumnNullable>(
                                         dst.get());
                         if (UNLIKELY(null_col == nullptr)) {
                             return Status::InternalError("unexpected column type in column reader");
                         }
 
-                        // check_and_get_column returns const T*, dst is an object that can be modified,
-                        // using const_cast is ok
-                        const_cast<vectorized::ColumnNullable*>(null_col)->insert_many_defaults(
-                                this_read_count);
+                        null_col->insert_many_defaults(this_read_count);
                     } else {
                         size_t read_count = this_read_count;
 

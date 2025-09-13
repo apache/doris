@@ -115,8 +115,8 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     // serialize the content of string
     auto size = bitmap_value.getSizeInBytes();
     // serialize the content of string
-    void* ptr = arena.alloc(size);
-    bitmap_value.write_to(reinterpret_cast<char*>(ptr));
+    char* ptr = arena.alloc(size);
+    bitmap_value.write_to(ptr);
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), size);
     result.writeEndBinary();

@@ -301,6 +301,7 @@ Status CsvReader::init_reader(bool is_load) {
     return Status::OK();
 }
 
+// !FIXME: Here we should use MutableBlock
 Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_line_reader_eof) {
         *eof = true;

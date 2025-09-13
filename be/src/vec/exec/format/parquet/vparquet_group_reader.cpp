@@ -123,8 +123,7 @@ Status RowGroupReader::init(
     for (const auto& read_table_col : _read_table_columns) {
         auto read_file_col = _table_info_node_ptr->children_file_column_name(read_table_col);
 
-        // The schema is obtained from vparquet_reader, whose value is derived from parse_thrift_footer, which is a mutable object.
-        auto* field = const_cast<FieldSchema*>(schema.get_column(read_file_col));
+        auto* field = schema.get_column(read_file_col);
         auto physical_index = field->physical_column_index;
         std::unique_ptr<ParquetColumnReader> reader;
         // TODO : support rested column types
@@ -158,8 +157,7 @@ Status RowGroupReader::init(
             int slot_id = predicate_col_slot_ids[i];
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
-            // The schema is obtained from vparquet_reader, whose value is derived from parse_thrift_footer, which is a mutable object.
-            auto field = const_cast<FieldSchema*>(schema.get_column(predicate_file_col_name));
+            auto field = schema.get_column(predicate_file_col_name);
             if (!disable_dict_filter && !_lazy_read_ctx.has_complex_type &&
                 _can_filter_by_dict(
                         slot_id, _row_group_meta.columns[field->physical_column_index].meta_data)) {

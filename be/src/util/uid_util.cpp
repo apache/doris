@@ -70,13 +70,13 @@ bool parse_id(std::string& s, TUniqueId* id) {
     std::string hi_part = s.substr(0, pos);
     std::string lo_part = s.substr(pos + 1);
 
-    std::size_t idx_hi = 0;
-    std::size_t idx_lo = 0;
-    id->hi = std::stoul(hi_part, &idx_hi, 16);
-    id->lo = std::stoul(lo_part, &idx_lo, 16);
+    char* error_hi = nullptr;
+    char* error_lo = nullptr;
+    id->hi = strtoul(hi_part.c_str(), &error_hi, 16);
+    id->lo = strtoul(lo_part.c_str(), &error_lo, 16);
 
-    bool valid = (idx_hi == hi_part.size()) && (idx_lo == lo_part.size());
     s[pos] = ':';
+    bool valid = *error_hi == '\0' && *error_lo == '\0';
     return valid;
 }
 #include "common/compile_check_end.h"

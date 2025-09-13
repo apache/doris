@@ -889,6 +889,7 @@ public:
         DCHECK(res);
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
         switch (other._type) {
@@ -913,6 +914,7 @@ public:
         }
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
         switch (other._type) {
@@ -934,6 +936,7 @@ public:
         other._is_shared = false;
     }
 
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator=(const BitmapValue& other) {
         if (this == &other) {
             return *this;
@@ -1219,6 +1222,7 @@ public:
     // EMPTY  -> SINGLE
     // EMPTY  -> BITMAP
     // SINGLE -> BITMAP
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator|=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1529,6 +1533,7 @@ public:
     // SINGLE -> EMPTY
     // BITMAP -> EMPTY
     // BITMAP -> SINGLE
+    // !FIXME: We should rethink the logic here
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1870,6 +1875,7 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
+    // !FIXME: We should rethink the logic here
     size_t getSizeInBytes() const {
         size_t res = 0;
         switch (_type) {
@@ -2433,6 +2439,7 @@ private:
         SET = 3     // elements count less or equal than 32
     };
     uint64_t _sv = 0; // store the single value when _type == SINGLE
+    // !FIXME: We should rethink the logic about _bitmap and _is_shared
     mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
     SetContainer<uint64_t> _set;
     BitmapDataType _type {EMPTY};
