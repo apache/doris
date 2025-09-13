@@ -417,6 +417,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_compress_type(ctx->compress_type);
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
+    request.__set_read_json_by_line(true);
     if (ctx->use_streaming) {
         std::shared_ptr<io::StreamLoadPipe> pipe;
         if (ctx->is_chunked_transfer) {
@@ -519,9 +520,20 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_JSONROOT).empty()) {
         request.__set_json_root(http_req->header(HTTP_JSONROOT));
     }
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            request.__set_read_json_by_line(true);
+        } else {
+            request.__set_read_json_by_line(false);
+        }
+    } else {
+        // Default behavior
+        request.__set_read_json_by_line(true);
+    }
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
         if (iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
             request.__set_strip_outer_array(true);
+            request.__set_read_json_by_line(false);
         } else {
             request.__set_strip_outer_array(false);
         }
@@ -545,16 +557,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     } else {
         request.__set_fuzzy_parse(false);
-    }
-
-    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
-            request.__set_read_json_by_line(true);
-        } else {
-            request.__set_read_json_by_line(false);
-        }
-    } else {
-        request.__set_read_json_by_line(false);
     }
 
     if (!http_req->header(HTTP_FUNCTION_COLUMN + "." + HTTP_SEQUENCE_COL).empty()) {
