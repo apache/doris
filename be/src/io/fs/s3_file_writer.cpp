@@ -294,7 +294,7 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));
         return;
     }
-    auto resp = client->upload_part(_obj_storage_path_opts, buf.get_string_view_data(), part_num);
+    auto resp = client->upload_part(_obj_storage_path_opts, buf.get_slice_data(), part_num);
     if (resp.resp.status.code != ErrorCode::OK) {
         LOG_WARNING("failed to upload part, key={}, part_num={}, status={}",
                     _obj_storage_path_opts.key, part_num, resp.resp.status.msg);
@@ -458,7 +458,7 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         return;
     }
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
-    auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
+    auto resp = client->put_object(_obj_storage_path_opts, buf.get_slice_data());
     timer.stop();
 
     if (resp.status.code != ErrorCode::OK) {

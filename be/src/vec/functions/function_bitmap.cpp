@@ -646,7 +646,7 @@ struct BitmapAndNotCount {
             mid_data.reset();
         }
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData* res) {
+    static void scalar_vector(BitmapValue lval, const TData& rvec, ResTData* res) {
         size_t size = rvec.size();
         BitmapValue mid_data;
         for (size_t i = 0; i < size; ++i) {
@@ -902,31 +902,25 @@ struct BitmapHasAny {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnUInt8::Container;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static void vector_vector(TData lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            lvec[i] &= rvec[i];
+            res[i] = lvec[i].cardinality() != 0;
         }
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+    static void vector_scalar(TData lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
-            bitmap &= rval;
-            res[i] = bitmap.cardinality() != 0;
+            lvec[i] &= rval;
+            res[i] = lvec[i].cardinality() != 0;
         }
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+    static void scalar_vector(BitmapValue lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lval);
-            bitmap &= rvec[i];
-            res[i] = bitmap.cardinality() != 0;
+            lval &= rvec[i];
+            res[i] = lval.cardinality() != 0;
         }
     }
 };
@@ -943,34 +937,28 @@ struct BitmapHasAll {
     using TData = std::vector<BitmapValue>;
     using ResTData = typename ColumnUInt8::Container;
 
-    static void vector_vector(const TData& lvec, const TData& rvec, ResTData& res) {
+    static void vector_vector(TData lvec, const TData& rvec, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            lvec[i] |= rvec[i];
+            res[i] = lvec[i].cardinality() == lhs_cardinality;
         }
     }
-    static void vector_scalar(const TData& lvec, const BitmapValue& rval, ResTData& res) {
+    static void vector_scalar(TData lvec, const BitmapValue& rval, ResTData& res) {
         size_t size = lvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lvec[i].cardinality();
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lvec[i]);
-            bitmap |= rval;
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            lvec[i] |= rval;
+            res[i] = lvec[i].cardinality() == lhs_cardinality;
         }
     }
-    static void scalar_vector(const BitmapValue& lval, const TData& rvec, ResTData& res) {
+    static void scalar_vector(BitmapValue lval, const TData& rvec, ResTData& res) {
         size_t size = rvec.size();
         for (size_t i = 0; i < size; ++i) {
             uint64_t lhs_cardinality = lval.cardinality();
-            // lvec originates from block; modification is permissible.
-            auto bitmap = const_cast<BitmapValue&>(lval);
-            bitmap |= rvec[i];
-            res[i] = bitmap.cardinality() == lhs_cardinality;
+            lval |= rvec[i];
+            res[i] = lval.cardinality() == lhs_cardinality;
         }
     }
 };

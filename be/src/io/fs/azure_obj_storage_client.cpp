@@ -182,26 +182,24 @@ ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
 }
 
 ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathOptions& opts,
-                                                        std::string_view stream) {
+                                                        Slice stream) {
     auto client = _client->GetBlockBlobClient(opts.key);
     return do_azure_client_call(
             [&]() {
                 s3_put_rate_limit([&]() {
                     SCOPED_BVAR_LATENCY(s3_bvar::s3_put_latency);
-                    client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()),
-                                      stream.size());
+                    client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data), stream.size);
                 });
             },
             opts);
 }
 
 ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStoragePathOptions& opts,
-                                                               std::string_view stream,
-                                                               int part_num) {
+                                                               Slice stream, int part_num) {
     auto client = _client->GetBlockBlobClient(opts.key);
     try {
-        Azure::Core::IO::MemoryBodyStream memory_body(
-                reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
+        Azure::Core::IO::MemoryBodyStream memory_body(reinterpret_cast<const uint8_t*>(stream.data),
+                                                      stream.size);
         // The blockId must be base64 encoded
         s3_put_rate_limit([&]() {
             SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);

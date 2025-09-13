@@ -78,7 +78,8 @@ TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
     LOG(INFO) << "AzureObjStorageClientTest::put_list_delete_object";
 
     auto response = AzureObjStorageClientTest::obj_storage_client->put_object(
-            {.key = "AzureObjStorageClientTest/put_list_delete_object"}, std::string("aaaa"));
+            {.key = "AzureObjStorageClientTest/put_list_delete_object"},
+            Slice(std::string("aaaa")));
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     std::vector<io::FileInfo> files;
@@ -110,7 +111,7 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
                 "AzureObjStorageClientTest/delete_objects_recursively" + std::to_string(i);
 
         auto response = AzureObjStorageClientTest::obj_storage_client->put_object(
-                {.key = key}, std::string("aaaa"));
+                {.key = key}, Slice(std::string("aaaa")));
         EXPECT_EQ(response.status.code, ErrorCode::OK);
         LOG(INFO) << "put " << key << " OK";
     }
