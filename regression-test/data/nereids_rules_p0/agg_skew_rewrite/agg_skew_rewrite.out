@@ -353,8 +353,7 @@ PhysicalResultSink
 -- !shape_hint_other_agg_func --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[GLOBAL]
-------PhysicalOlapScan[test_skew_hint]
+----PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_other_agg_func_expr --
 PhysicalResultSink
@@ -367,9 +366,8 @@ PhysicalResultSink
 -- !shape_hint_same_column_with_group_by --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalOlapScan[test_skew_hint]
+----hashAgg[LOCAL]
+------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_same_column_with_group_by_expr --
 PhysicalResultSink
@@ -391,10 +389,9 @@ PhysicalResultSink
 -- !shape_hint_other_agg_func_grouping --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalRepeat
-----------PhysicalOlapScan[test_skew_hint]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_other_agg_func_expr_grouping --
 PhysicalResultSink
@@ -567,12 +564,10 @@ PhysicalResultSink
 PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
-------hashAgg[GLOBAL]
---------PhysicalOlapScan[test_skew_hint]
+------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_not_rewrite --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[GLOBAL]
-------PhysicalOlapScan[test_skew_hint]
+----PhysicalOlapScan[test_skew_hint]
 

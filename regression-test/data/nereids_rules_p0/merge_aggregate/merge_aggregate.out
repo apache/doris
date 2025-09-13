@@ -126,8 +126,7 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------hashAgg[GLOBAL]
---------------PhysicalOlapScan[mal_test1]
+------------PhysicalOlapScan[mal_test1]
 
 -- !middle_project_has_expression_cannot_merge_shape1 --
 PhysicalResultSink
@@ -196,12 +195,11 @@ PhysicalResultSink
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------hashAgg[GLOBAL]
-----------------------PhysicalOlapScan[mal_test1]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashAgg[GLOBAL]
+--------------------PhysicalOlapScan[mal_test1]
 
 -- !inner_agg_has_distinct_cannot_merge_shape --
 PhysicalResultSink
@@ -214,8 +212,7 @@ PhysicalResultSink
 --------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
---------------------hashAgg[GLOBAL]
-----------------------PhysicalOlapScan[mal_test1]
+--------------------PhysicalOlapScan[mal_test1]
 
 -- !agg_with_expr_cannot_merge_shape1 --
 PhysicalResultSink
@@ -255,11 +252,10 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashAgg[GLOBAL]
-------------hashAgg[GLOBAL]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------PhysicalOlapScan[mal_test_merge_agg]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[mal_test_merge_agg]
 
 -- !test_distinct_expr_transform --
 -1
@@ -282,11 +278,10 @@ PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
 ------hashAgg[GLOBAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[mal_test_merge_agg]
+--------PhysicalDistribute[DistributionSpecHash]
+----------hashAgg[LOCAL]
+------------PhysicalProject
+--------------PhysicalOlapScan[mal_test_merge_agg]
 
 -- !test_sum_empty_table --
 \N	\N	\N
