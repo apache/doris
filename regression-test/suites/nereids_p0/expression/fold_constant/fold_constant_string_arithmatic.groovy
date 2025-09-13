@@ -740,73 +740,73 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select PARSE_URL('http://user:pwd@www.test.com:8080/path/to/file?query=string#fragment', 'QUERY')")
 
     // position
-    testFoldConst("select position('北京' in '上海天津北京杭州')")
-    testFoldConst("select position('上海天津北京杭州' in '北京')")
-    testFoldConst("select position('bar' in 'foobarbar')")
-    testFoldConst("select position(cast('北京' as string) in cast('上海天津北京杭州' as string))")
-    testFoldConst("select position(cast('' as string) in cast('foobar' as string))")
-    testFoldConst("select position(cast('bar' as string) in cast('foobarbar' as string))")
-    testFoldConst("select position(cast('World' as string) in cast('Hello' as string))")
-    testFoldConst("select position(cast('World' as string) in cast('Hello World' as string))")
-    testFoldConst("select position(cast('xbar' as string) in cast('foobar' as string))")
-    testFoldConst("select position('' in 'foobar')")
-    testFoldConst("select position('World' in 'Hello')")
-    testFoldConst("select position('World' in 'Hello World')")
-    testFoldConst("select position('xbar' in 'foobar')")
-    testFoldConst("select position('北京' in '上海天津北京杭州')")
-    testFoldConst("select position('2' in '   123  ')")
-    testFoldConst("select position('bc' in 'abcbcbc')")
-    testFoldConst("select position('a' in 'a')")
-    testFoldConst("select position('' in '')")
-    testFoldConst("select position('abc' in 'abcd')")
-    testFoldConst("select position('' in 'hello')")
-    testFoldConst("select position('' in '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('🤣🤣' in '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('🤣🤣🤣' in '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('🤣' in '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('😅' in '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('안녕' in '哈哈こんにち안녕하세')")
-    testFoldConst("select position('하세' in '哈哈こんにち안녕하세')")
-    testFoldConst("select position('세' in '哈哈こんにち안녕하세')")
-    testFoldConst("select position('' in '你好世界')")
-    testFoldConst("select position('北京', '上海天津北京杭州')")
-    testFoldConst("select position('上海天津北京杭州', '北京')")
-    testFoldConst("select position('bar', 'foobarbar')")
-    testFoldConst("select position(cast('北京' as string), cast('上海天津北京杭州' as string))")
-    testFoldConst("select position(cast('' as string), cast('foobar' as string))")
-    testFoldConst("select position(cast('bar' as string), cast('foobarbar' as string))")
-    testFoldConst("select position(cast('World' as string), cast('Hello' as string))")
-    testFoldConst("select position(cast('World' as string), cast('Hello World' as string))")
-    testFoldConst("select position(cast('xbar' as string), cast('foobar' as string))")
-    testFoldConst("select position('', 'foobar')")
-    testFoldConst("select position('World', 'Hello')")
-    testFoldConst("select position('World', 'Hello World')")
-    testFoldConst("select position('xbar', 'foobar')")
-    testFoldConst("select position('北京', '上海天津北京杭州', 4)")
-    testFoldConst("select position('北京', '上海天津北京杭州', 5)")
-    testFoldConst("select position('北京', '上海天津北京杭州', -4)")
-    testFoldConst("select position('北京', '上海天津北京杭州', -5)")
-    testFoldConst("select position('2', '   123  ', 1)")
-    testFoldConst("select position('bc', 'abcbcbc', 4)")
-    testFoldConst("select position('a', 'a')")
-    testFoldConst("select position('', '')")
-    testFoldConst("select position('', '', 2)")
-    testFoldConst("select position('abc', 'abcd')")
-    testFoldConst("select position('', 'hello', 5)")
-    testFoldConst("select position('', 'hello', 6)")
-    testFoldConst("select position('', '哈哈😊😂🤣🤣😄')")
-    testFoldConst("select position('', '哈哈😊😂🤣🤣😄', 26)")
-    testFoldConst("select position('', '哈哈😊😂🤣🤣😄', 27)")
-    testFoldConst("select position('🤣🤣', '哈哈😊😂🤣🤣😄', 5)")
-    testFoldConst("select position('🤣🤣🤣', '哈哈😊😂🤣🤣😄', 5)")
-    testFoldConst("select position('🤣', '哈哈😊😂🤣🤣😄', 6)")
-    testFoldConst("select position('😅', '哈哈😊😂🤣🤣😄', 6)")
-    testFoldConst("select position('안녕', '哈哈こんにち안녕하세', 6)")
-    testFoldConst("select position('하세', '哈哈こんにち안녕하세', 9)")
-    testFoldConst("select position('세', '哈哈こんにち안녕하세', 11)")
-    testFoldConst("select position('', '', 1)")
-    testFoldConst("select position('', '你好世界', 1)")
-    testFoldConst("select position('', '你好世界', 5)")
+    qt_sql "select position('北京' in '上海天津北京杭州')"
+    qt_sql "select position('上海天津北京杭州' in '北京')"
+    qt_sql "select position('bar' in 'foobarbar')"
+    qt_sql "select position(cast('北京' as string) in cast('上海天津北京杭州' as string))"
+    qt_sql "select position(cast('' as string) in cast('foobar' as string))"
+    qt_sql "select position(cast('bar' as string) in cast('foobarbar' as string))"
+    qt_sql "select position(cast('World' as string) in cast('Hello' as string))"
+    qt_sql "select position(cast('World' as string) in cast('Hello World' as string))"
+    qt_sql "select position(cast('xbar' as string) in cast('foobar' as string))"
+    qt_sql "select position('' in 'foobar')"
+    qt_sql "select position('World' in 'Hello')"
+    qt_sql "select position('World' in 'Hello World')"
+    qt_sql "select position('xbar' in 'foobar')"
+    qt_sql "select position('北京' in '上海天津北京杭州')"
+    qt_sql "select position('2' in '   123  ')"
+    qt_sql "select position('bc' in 'abcbcbc')"
+    qt_sql "select position('a' in 'a')"
+    qt_sql "select position('' in '')"
+    qt_sql "select position('abc' in 'abcd')"
+    qt_sql "select position('' in 'hello')"
+    qt_sql "select position('' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣🤣🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('🤣' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('😅' in '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('안녕' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('하세' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('세' in '哈哈こんにち안녕하세')"
+    qt_sql "select position('' in '你好世界')"
+    qt_sql "select position('北京', '上海天津北京杭州')"
+    qt_sql "select position('上海天津北京杭州', '北京')"
+    qt_sql "select position('bar', 'foobarbar')"
+    qt_sql "select position(cast('北京' as string), cast('上海天津北京杭州' as string))"
+    qt_sql "select position(cast('' as string), cast('foobar' as string))"
+    qt_sql "select position(cast('bar' as string), cast('foobarbar' as string))"
+    qt_sql "select position(cast('World' as string), cast('Hello' as string))"
+    qt_sql "select position(cast('World' as string), cast('Hello World' as string))"
+    qt_sql "select position(cast('xbar' as string), cast('foobar' as string))"
+    qt_sql "select position('', 'foobar')"
+    qt_sql "select position('World', 'Hello')"
+    qt_sql "select position('World', 'Hello World')"
+    qt_sql "select position('xbar', 'foobar')"
+    qt_sql "select position('北京', '上海天津北京杭州', 4)"
+    qt_sql "select position('北京', '上海天津北京杭州', 5)"
+    qt_sql "select position('北京', '上海天津北京杭州', -4)"
+    qt_sql "select position('北京', '上海天津北京杭州', -5)"
+    qt_sql "select position('2', '   123  ', 1)"
+    qt_sql "select position('bc', 'abcbcbc', 4)"
+    qt_sql "select position('a', 'a')"
+    qt_sql "select position('', '')"
+    qt_sql "select position('', '', 2)"
+    qt_sql "select position('abc', 'abcd')"
+    qt_sql "select position('', 'hello', 5)"
+    qt_sql "select position('', 'hello', 6)"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄')"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄', 26)"
+    qt_sql "select position('', '哈哈😊😂🤣🤣😄', 27)"
+    qt_sql "select position('🤣🤣', '哈哈😊😂🤣🤣😄', 5)"
+    qt_sql "select position('🤣🤣🤣', '哈哈😊😂🤣🤣😄', 5)"
+    qt_sql "select position('🤣', '哈哈😊😂🤣🤣😄', 6)"
+    qt_sql "select position('😅', '哈哈😊😂🤣🤣😄', 6)"
+    qt_sql "select position('안녕', '哈哈こんにち안녕하세', 6)"
+    qt_sql "select position('하세', '哈哈こんにち안녕하세', 9)"
+    qt_sql "select position('세', '哈哈こんにち안녕하세', 11)"
+    qt_sql "select position('', '', 1)"
+    qt_sql "select position('', '你好世界', 1)"
+    qt_sql "select position('', '你好世界', 5)"
 
     // repeat
     testFoldConst("select repeat('a', 0)")
