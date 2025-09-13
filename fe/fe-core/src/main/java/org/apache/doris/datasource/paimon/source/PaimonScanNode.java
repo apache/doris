@@ -465,7 +465,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             sb.append(prefix).append("PaimonSplitStats: \n");
             int size = splitStats.size();
             if (size <= 4) {
-                for (PaimonScanNode.SplitStat splitStat : splitStats) {
+                for (SplitStat splitStat : splitStats) {
                     sb.append(String.format("%s  %s\n", prefix, splitStat));
                 }
             } else {
