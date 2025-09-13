@@ -130,12 +130,15 @@ public:
         tm time_tm;
         int value = *reinterpret_cast<const uint24_t*>(data);
         memset(&time_tm, 0, sizeof(time_tm));
-        time_tm.tm_mday = static_cast<int>(value & 31);
-        time_tm.tm_mon = static_cast<int>(value >> 5 & 15) - 1;
-        time_tm.tm_year = static_cast<int>(value >> 9) - 1900;
-        char buf[20] = {'\0'};
-        strftime(buf, sizeof(buf), "%Y-%m-%d", &time_tm);
-        return std::string(buf);
+        time_tm.tm_mday = value & 31;
+        time_tm.tm_mon = value >> 5 & 15;
+        time_tm.tm_year = value >> 9;
+
+        std::string s;
+        s.resize(10);
+        std::snprintf(s.data(), s.size() + 1, "%04d-%02d-%02d", time_tm.tm_year, time_tm.tm_mon,
+                      time_tm.tm_mday);
+        return s;
     }
 
     const uint8_t* get_data() const { return data; }
@@ -144,7 +147,7 @@ private:
     uint8_t data[3];
 } __attribute__((packed));
 
-static_assert(std::is_trivial<uint24_t>::value, "uint24_t should be a POD type");
+static_assert(std::is_trivial_v<uint24_t>, "uint24_t should be a POD type");
 
 inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
     os << val.to_string();
