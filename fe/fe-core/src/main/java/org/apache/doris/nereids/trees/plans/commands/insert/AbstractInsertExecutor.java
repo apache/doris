@@ -176,6 +176,7 @@ public abstract class AbstractInsertExecutor {
     }
 
     private void checkStrictModeAndFilterRatio() throws Exception {
+        LOG.info("load test, checkStrictModeAndFilterRatio");
         // if in strict mode, insert will fail if there are filtered rows
         if (ctx.getSessionVariable().getEnableInsertStrict()) {
             if (filteredRows > 0) {

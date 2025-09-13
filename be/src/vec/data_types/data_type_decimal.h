@@ -208,6 +208,7 @@ public:
         }
         // decimal
         FieldType val;
+        // use Cast
         if (!parse_from_string(node.decimal_literal.value, &val)) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type {}", node.decimal_literal.value,
