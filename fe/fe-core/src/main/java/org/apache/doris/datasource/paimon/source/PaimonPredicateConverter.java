@@ -180,9 +180,12 @@ public class PaimonPredicateConverter {
         if (expr instanceof SlotRef) {
             slotRef = (SlotRef) expr;
         } else if (expr instanceof CastExpr) {
-            if (expr.getChild(0) instanceof SlotRef) {
-                slotRef = (SlotRef) expr.getChild(0);
-            }
+            // If CastExpr still exists after SimplifyCastRule optimization,
+            // it means this is a genuine type conversion that should not be pushed down.
+            // All redundant CASTs like CAST(int_column AS int) have been removed by
+            // SimplifyCastRule.
+            // @see org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule
+            return null;
         }
         return slotRef;
     }
