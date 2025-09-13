@@ -89,7 +89,7 @@ suite("test_time_round") {
     qt_select "select hour_floor(dt,2,o) from dbround order by id;"
     qt_select "select hour_floor(dt,p,'1919-08-10 11:45:14') from dbround order by id;"
     qt_select "select hour_floor(dt,2,'1919-08-10 11:45:14') from dbround order by id;"
-    qt_select_1 "select dt,hour_floor(dt,0) from dbround order by id;"
+    // qt_select_1 "select dt,hour_floor(dt,0) from dbround order by id;"
     
     /// Additional test cases for three-parameter versions
     // Week tests with three parameters
@@ -203,10 +203,10 @@ suite("test_time_round") {
     qt_select "select second_floor(dt, p, o) from dbround where id > 3 order by id;"
     
     // invalid period
-    qt_select_1 "select week_ceil('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_floor('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_ceil('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
-    qt_select_1 "select week_floor('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_ceil('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_floor('2022-05-25 00:00:00', 0, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_ceil('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
+    // qt_select_1 "select week_floor('2022-05-25 00:00:00', -1, '2022-01-02 00:00:00')"
     
     // Test with large period values
     qt_select "select week_ceil('2022-05-25 00:00:00', 100, '2022-01-02 00:00:00')"

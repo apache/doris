@@ -110,6 +110,28 @@ public:
 
     bool is_variadic() const override { return true; }
 
+    static void throw_if_illegal_period(NativeType date, Int32 period) {
+        auto date_value = binary_cast<NativeType, DateValueType>(date);
+        char buf[40];
+        char* end = date_value.to_string(buf);
+        if (period < 1) [[unlikely]] {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Operation {} of {}, {} input wrong parameters, period can`t be "
+                            "negative or zero",
+                            name, std::string_view {buf, end - 1}, period);
+        }
+    }
+
+    static void throw_out_of_date_range(NativeType date, bool in_range, Int32 period = 1) {
+        auto date_value = binary_cast<NativeType, DateValueType>(date);
+        char buf[40];
+        char* end = date_value.to_string(buf);
+        if (UNLIKELY(!in_range)) {
+            throw Exception(Status::InternalError("Operation {} of {}, {} out of range", name,
+                                                  std::string_view {buf, end - 1}, period));
+        }
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         // for V1 our argument is datetime. exactly equal to the return type we want.
         return make_nullable(std::make_shared<DateType>());
@@ -216,8 +238,7 @@ public:
                 }
             }
 
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(col_to), std::move(null_map));
+            block.get_by_position(result).column = std::move(col_to);
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),
@@ -231,7 +252,7 @@ private:
                        NullMap& null_map) {
         // time_round(datetime)
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_one_arg(dates[i], res[i])));
+            throw_out_of_date_range(dates[i], time_round_reinterpret_one_arg(dates[i], res[i]));
         }
     }
 
@@ -239,26 +260,23 @@ private:
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, const(origin))
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i])));
+            throw_out_of_date_range(
+                    dates[i], time_round_reinterpret_three_args(dates[i], 1, origin_date, res[i]));
         }
     }
 
     static void vector_const_period(const PaddedPODArray<NativeType>& dates, Int32 period,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
-        // time_round(datetime,const(period))
-        if (period < 1) [[unlikely]] {
-            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
-            return;
-        }
-
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                            \
-    case X: {                                                                                     \
-        for (int i = 0; i < dates.size(); ++i) {                                                  \
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args<X>(dates[i], period, res[i]))); \
-        }                                                                                         \
-        return;                                                                                   \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                        \
+    case X: {                                                                                 \
+        for (int i = 0; i < dates.size(); ++i) {                                              \
+            throw_if_illegal_period(dates[i], period);                                        \
+            throw_out_of_date_range(                                                          \
+                    dates[i], (time_round_reinterpret_two_args<X>(dates[i], period, res[i])), \
+                    period);                                                                  \
+        }                                                                                     \
+        return;                                                                               \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -266,7 +284,10 @@ private:
             BOOST_PP_REPEAT(12, EXPANDER, ~)
         default:
             for (int i = 0; i < dates.size(); ++i) {
-                SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], period, res[i])));
+                throw_if_illegal_period(dates[i], period);
+                throw_out_of_date_range(dates[i],
+                                        (time_round_reinterpret_two_args(dates[i], period, res[i])),
+                                        period);
             }
         }
 #undef EXPAND_CODE_FOR_CONST_INPUT
@@ -281,23 +302,18 @@ private:
             vector_const_period(dates, period, res, null_map);
             return;
         }
-
-        if (period < 1) {
-            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
-            return;
-        }
-
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                   \
-    case X: {                                                            \
-        for (int i = 0; i < dates.size(); ++i) {                         \
-            /* expand time_round_reinterpret_three_args*/                \
-            res[i] = origin_date;                                        \
-            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]); \
-            auto& ts1 = (DateValueType&)(res[i]);                        \
-            SET_NULLMAP_IF_FALSE(time_round_two_args<X>(ts2, X, ts1))    \
-        }                                                                \
-        return;                                                          \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                      \
+    case X: {                                                                               \
+        for (int i = 0; i < dates.size(); ++i) {                                            \
+            /* expand time_round_reinterpret_three_args*/                                   \
+            res[i] = origin_date;                                                           \
+            auto ts2 = binary_cast<NativeType, DateValueType>(dates[i]);                    \
+            auto& ts1 = (DateValueType&)(res[i]);                                           \
+            throw_if_illegal_period(dates[i], period);                                      \
+            throw_out_of_date_range(dates[i], time_round_two_args<X>(ts2, X, ts1), period); \
+        }                                                                                   \
+        return;                                                                             \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -305,9 +321,12 @@ private:
             BOOST_PP_REPEAT(12, EXPANDER, ~)
         default:
             for (int i = 0; i < dates.size(); ++i) {
+                throw_if_illegal_period(dates[i], period);
                 // always inline here
-                SET_NULLMAP_IF_FALSE(
-                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])))
+                throw_out_of_date_range(
+                        dates[i],
+                        (time_round_reinterpret_three_args(dates[i], period, origin_date, res[i])),
+                        period);
             }
         }
 #undef EXPAND_CODE_FOR_CONST_INPUT
@@ -317,13 +336,12 @@ private:
     static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                     const PaddedPODArray<NativeType>& origin_dates,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
-        if (period < 1) {
-            memset(null_map.data(), 1, sizeof(UInt8) * dates.size());
-            return;
-        }
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])));
+            throw_if_illegal_period(dates[i], period);
+            throw_out_of_date_range(
+                    dates[i],
+                    (time_round_reinterpret_three_args(dates[i], period, origin_dates[i], res[i])),
+                    period);
         }
     }
 
@@ -331,12 +349,11 @@ private:
                                     const PaddedPODArray<Int32>& periods, NativeType origin_date,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) [[unlikely]] {
-                null_map[i] = true;
-                continue;
-            }
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])));
+            throw_if_illegal_period(dates[i], periods[i]);
+            throw_out_of_date_range(
+                    dates[i],
+                    (time_round_reinterpret_three_args(dates[i], periods[i], origin_date, res[i])),
+                    periods[i]);
         }
     }
 
@@ -345,8 +362,8 @@ private:
                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            SET_NULLMAP_IF_FALSE(
-                    (time_round_reinterpret_three_args(dates[i], 1, origin_dates[i], res[i])));
+            throw_out_of_date_range(dates[i], (time_round_reinterpret_three_args(
+                                                      dates[i], 1, origin_dates[i], res[i])));
         }
     }
 
@@ -355,11 +372,10 @@ private:
                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, period)
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) [[unlikely]] {
-                null_map[i] = true;
-                continue;
-            }
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_two_args(dates[i], periods[i], res[i])));
+            throw_if_illegal_period(dates[i], periods[i]);
+            throw_out_of_date_range(dates[i],
+                                    (time_round_reinterpret_two_args(dates[i], periods[i], res[i])),
+                                    periods[i]);
         }
     }
 
@@ -369,12 +385,11 @@ private:
                                      PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, period, origin)
         for (int i = 0; i < dates.size(); ++i) {
-            if (periods[i] < 1) [[unlikely]] {
-                null_map[i] = true;
-                continue;
-            }
-            SET_NULLMAP_IF_FALSE((time_round_reinterpret_three_args(dates[i], periods[i],
-                                                                    origin_dates[i], res[i])));
+            throw_if_illegal_period(dates[i], periods[i]);
+            throw_out_of_date_range(dates[i],
+                                    (time_round_reinterpret_three_args(dates[i], periods[i],
+                                                                       origin_dates[i], res[i])),
+                                    periods[i]);
         }
     }
 
