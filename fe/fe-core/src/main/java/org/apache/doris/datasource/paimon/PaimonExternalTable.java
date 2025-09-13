@@ -102,6 +102,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         makeSureInitialized();
+
+        // Current limitation: cannot specify both table snapshot and scan parameters simultaneously.
         if (tableSnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag())) {
             // If a snapshot is specified,
             // use the specified snapshot and the corresponding schema(not the latest
@@ -120,7 +122,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             }
         } else if (scanParams.isPresent() && scanParams.get().isBranch()) {
             try {
-                String branch = PaimonUtil.getPaimonBranch(scanParams.get(), paimonTable);
+                String branch = PaimonUtil.resolvePaimonBranch(scanParams.get(), paimonTable);
                 Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(getOrBuildNameMapping(), branch, null);
                 Optional<Snapshot> latestSnapshot = table.latestSnapshot();
                 long latestSnapshotId = PaimonSnapshot.INVALID_SNAPSHOT_ID;
@@ -136,8 +138,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             } catch (Exception e) {
                 LOG.warn("Failed to get Paimon branch for table {}", paimonTable.name(), e);
                 throw new RuntimeException(
-                        "Failed to get Paimon branch: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
-                        e);
+                        "Failed to get Paimon branch: ", e);
             }
         } else {
             // Otherwise, use the latest snapshot and the latest schema.

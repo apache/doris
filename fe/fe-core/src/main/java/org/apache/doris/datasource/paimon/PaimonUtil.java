@@ -586,7 +586,7 @@ public class PaimonUtil {
         return tag.orElseThrow(() -> new UserException("can't find snapshot by tag: " + tagName));
     }
 
-    public static String getPaimonBranch(TableScanParams tableScanParams, Table baseTable)
+    public static String resolvePaimonBranch(TableScanParams tableScanParams, Table baseTable)
             throws UserException {
         String branchName = extractBranchOrTagName(tableScanParams);
         if (!(baseTable instanceof FileStoreTable)) {
