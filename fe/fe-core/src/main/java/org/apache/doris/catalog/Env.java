@@ -3571,7 +3571,7 @@ public class Env {
         try {
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addMTMVCols(mtmv, sb);
+            addColNameAndComment(mtmv, sb);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
             addMTMVKeyInfo(mtmv, sb);
@@ -3620,9 +3620,9 @@ public class Env {
         sb.append(")");
     }
 
-    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
         sb.append("\n(");
-        List<Column> columns = mtmv.getBaseSchema();
+        List<Column> columns = tableIf.getBaseSchema();
         for (int i = 0; i < columns.size(); i++) {
             if (i != 0) {
                 sb.append(",");
@@ -4340,6 +4340,8 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            addColNameAndComment(view, sb);
+            sb.append("\n");
             if (StringUtils.isNotBlank(table.getComment())) {
                 sb.append(" COMMENT '").append(table.getComment()).append("'");
             }
