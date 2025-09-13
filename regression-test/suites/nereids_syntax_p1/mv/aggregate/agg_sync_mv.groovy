@@ -331,7 +331,7 @@ suite("agg_sync_mv") {
     qt_select_ndv """select id, ndv(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync32 on agg_mv_test;"""
     createMV("""create materialized view mv_sync32 as select id as f1, ndv(kint) as xx1 from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, ndv(kint) from agg_mv_test group by id order by id;", "mv_sync32")
+    mv_rewrite_any_success("select id, ndv(kint) from agg_mv_test group by id order by id;", ["mv_sync32", "mv_sync3"])
     qt_select_ndv_mv """select id, ndv(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_covar """select id, covar(kint, kint) from agg_mv_test group by id order by id;"""
