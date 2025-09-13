@@ -598,11 +598,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
-
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("rollup job finished: {}", jobId);
+
+        this.jobState = JobState.FINISHED;
+        this.finishedTimeMs = System.currentTimeMillis();
     }
 
     private void onFinished(OlapTable tbl) {
