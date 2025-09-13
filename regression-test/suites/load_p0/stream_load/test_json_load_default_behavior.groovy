@@ -136,7 +136,8 @@ suite("test_json_load_default_behavior", "p0") {
                         "s3.secret_key" = "${sk}",
                         "s3.endpoint" = "${s3Endpoint}",
                         "s3.region" = "${s3Region}",
-                        "format" = "json"
+                        "format" = "json",
+                        "strip_outer_array" = "true"
                     );
                     """
     log.info("select frm s3 result: ${res2}".toString())
