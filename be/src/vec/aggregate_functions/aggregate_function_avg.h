@@ -143,8 +143,8 @@ public:
     }
 
     template <bool is_add>
-    void update_value(AggregateDataPtr __restrict place, const IColumn** columns,
-                      ssize_t row_num) const {
+    NO_SANITIZE_UNDEFINED void update_value(AggregateDataPtr __restrict place,
+                                            const IColumn** columns, ssize_t row_num) const {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -177,8 +177,8 @@ public:
         this->data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    NO_SANITIZE_UNDEFINED void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+                                     Arena&) const override {
         if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {
@@ -235,8 +235,9 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column(AggregateDataPtr __restrict place, const IColumn& column,
-                                           Arena&) const override {
+    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
+                                                                 const IColumn& column,
+                                                                 Arena&) const override {
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
         const size_t num_rows = column.size();
         DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
@@ -248,9 +249,9 @@ public:
         }
     }
 
-    void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
-                                                 const IColumn& column, size_t begin, size_t end,
-                                                 Arena&) const override {
+    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
+            AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
+            Arena&) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
         auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
