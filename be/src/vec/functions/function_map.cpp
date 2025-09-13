@@ -505,7 +505,7 @@ public:
         if (datatype->is_nullable()) {
             datatype = assert_cast<const DataTypeNullable*>(datatype.get())->get_nested_type();
         }
-        DCHECK(datatype->get_primitive_type() == TYPE_MAP)
+        DCHECK_EQ(datatype->get_primitive_type(), PrimitiveType::TYPE_MAP)
                 << "first argument for function: " << name << " should be DataTypeMap";
 
         if (arguments[0]->is_nullable()) {
@@ -754,19 +754,24 @@ private:
         auto search_key_type = remove_nullable(block.get_by_position(arguments[1]).type);
         auto search_value_type = remove_nullable(block.get_by_position(arguments[2]).type);
 
-        bool key_types_comparable = type_comparable(map_key_type->get_primitive_type(),
-                                                    search_key_type->get_primitive_type());
-        bool value_types_comparable = type_comparable(map_value_type->get_primitive_type(),
-                                                      search_value_type->get_primitive_type());
+        PrimitiveType key_primitive_type = map_key_type->get_primitive_type();
+        PrimitiveType value_primitive_type = map_value_type->get_primitive_type();
 
-        // if types are not comparable, return error
-        if (!key_types_comparable || !value_types_comparable) {
+        // FE should have unified column types
+        DCHECK_EQ(key_primitive_type, search_key_type->get_primitive_type());
+        DCHECK_EQ(value_primitive_type, search_value_type->get_primitive_type());
+
+        // check whether this function supports equality comparison for the types
+        if (!is_equality_comparison_supported(key_primitive_type) ||
+            !is_equality_comparison_supported(value_primitive_type)) {
             return Status::RuntimeError(
-                    "Type mismatch for function {}. "
+                    "Trying to do equality comparison on unsupported types for function {}. "
                     "Map key type: {}, search key type: {}. "
-                    "Map value type: {}, search value type: {}.",
+                    "Map value type: {}, search value type: {}. "
+                    "Key primitive type: {}, value primitive type: {}.",
                     get_name(), map_key_type->get_name(), search_key_type->get_name(),
-                    map_value_type->get_name(), search_value_type->get_name());
+                    map_value_type->get_name(), search_value_type->get_name(),
+                    type_to_string(key_primitive_type), type_to_string(value_primitive_type));
         }
 
         // type check passed, extract columns and execute
@@ -816,10 +821,10 @@ private:
             value_column = value_column_ptr.get();
         }
 
-        ColumnPtr return_column = _execute_all_rows(
-                map_column, map_row_nullmap_col, *key_column, key_nullmap, *value_column,
-                value_nullmap, map_key_type->get_primitive_type(),
-                map_value_type->get_primitive_type(), key_is_const, value_is_const);
+        ColumnPtr return_column =
+                _execute_all_rows(map_column, map_row_nullmap_col, *key_column, key_nullmap,
+                                  *value_column, value_nullmap, key_primitive_type,
+                                  value_primitive_type, key_is_const, value_is_const);
 
         if (return_column) {
             block.replace_by_position(result, std::move(return_column));
@@ -856,32 +861,10 @@ private:
                                          /*nan_direction_hint=*/1) == 0;
     }
 
-    // type compatibility check
-    bool type_comparable(PrimitiveType left_type, PrimitiveType right_type) const {
-        // all string types use ColumnString, so they are comparable
-        if (is_string_type(left_type) && is_string_type(right_type)) {
-            return true;
-        }
-
-        // other types must be the same, and in the supported list
-        if (left_type != right_type) {
-            return false;
-        }
-
-        if (is_number(left_type)) {
-            return true;
-        }
-        if (is_date_type(left_type)) {
-            return true;
-        }
-        if (is_time_type(left_type)) {
-            return true;
-        }
-        if (is_ip(left_type)) {
-            return true;
-        }
-
-        return false;
+    // whether this function supports equality comparison for the given primitive type
+    bool is_equality_comparison_supported(PrimitiveType type) const {
+        return is_string_type(type) || is_number(type) || is_date_type(type) ||
+               is_time_type(type) || is_ip(type);
     }
 };
 
