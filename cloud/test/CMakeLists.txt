@@ -77,6 +77,8 @@ add_executable(versionstamp_test versionstamp_test.cpp)
 
 add_executable(versioned_value_test versioned_value_test.cpp)
 
+add_executable(bvars_test bvars_test.cpp)
+
 message("Meta-service test dependencies: ${TEST_LINK_LIBS}")
 #target_link_libraries(sync_point_test ${TEST_LINK_LIBS})
 
@@ -155,6 +157,10 @@ target_link_libraries(fdb_injection_test
     ${TEST_LINK_LIBS})
 
 target_link_libraries(versioned_value_test
+    ${FDB_LINKER_FLAGS}
+    ${TEST_LINK_LIBS})
+
+target_link_libraries(bvars_test
     ${FDB_LINKER_FLAGS}
     ${TEST_LINK_LIBS})
 
