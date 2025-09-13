@@ -199,4 +199,12 @@ void MetaServiceImpl::clone_instance(::google::protobuf::RpcController* controll
     controller->SetFailed("Method clone_instance() not implemented.");
 }
 
+void MetaServiceImpl::drop_snapshot(::google::protobuf::RpcController* controller,
+                                    const DropSnapshotRequest* request,
+                                    DropSnapshotResponse* response,
+                                    ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    controller->SetFailed("Method drop_snapshot() not implemented.");
+}
+
 } // namespace doris::cloud
