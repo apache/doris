@@ -207,7 +207,7 @@ suite("test_map_load_and_function", "p0") {
     qt_select_map_contains_entry116 "SELECT id, m, map_contains_entry(m, NULL, NULL) FROM ${testTable} ORDER BY id"
     qt_select_map_contains_entry_var2 "SELECT id, m, map_keys(m)[1], map_values(m)[1], map_contains_entry(m, map_keys(m)[1], map_values(m)[1]) FROM ${testTable} ORDER BY id"
 
-    // map_contains_entry: tests with duplicate keys
+    // map_contains_entry: tests with duplicate keys (only last key-value pair of same key will be retained)
     qt_select_map_contains_entry_dup1 "SELECT map_contains_entry(map('k1', 100, 'k1', 200), 'k1', 100)"
     qt_select_map_contains_entry_dup2 "SELECT map_contains_entry(map('k1', 100, 'k1', 200), 'k1', 200)"
     qt_select_map_contains_entry_dup3 "SELECT map_contains_entry(map('k1', 100, 'k1', 200), 'k1', 300)"
@@ -308,7 +308,7 @@ suite("test_map_load_and_function", "p0") {
     // map_entries: tests with actual data from first table
     qt_select_map_entries_table1 "SELECT id, m, map_entries(m) FROM ${testTable} ORDER BY id"
 
-    // map_entries: tests with duplicate keys
+    // map_entries: tests with duplicate keys (only last key-value pair of same key will be retained)
     qt_select_map_entries_dup1 "SELECT map_entries(map('k1', 100, 'k1', 200))"
     qt_select_map_entries_dup2 "SELECT map_entries(map('k1', 100, 'k2', 200, 'k1', 300))"
     qt_select_map_entries_dup3 "SELECT map_entries(map(1, 'a', 2, 'b', 1, 'c'))"

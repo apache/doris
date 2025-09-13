@@ -1434,7 +1434,7 @@ true
 18	{"k1":100, "k2":130}	k1	100	true
 
 -- !select_map_contains_entry_dup1 --
-true
+false
 
 -- !select_map_contains_entry_dup2 --
 true
@@ -1443,7 +1443,7 @@ true
 false
 
 -- !select_map_contains_entry_dup4 --
-true
+false
 
 -- !select_map_contains_entry_dup5 --
 true
@@ -1452,7 +1452,7 @@ true
 true
 
 -- !select_map_contains_entry_dup7 --
-true
+false
 
 -- !select_map_contains_entry_dup8 --
 true
@@ -1461,22 +1461,22 @@ true
 false
 
 -- !select_map_contains_entry_dup10 --
-true
+false
 
 -- !select_map_contains_entry_dup11 --
 true
 
 -- !select_map_contains_entry_dup12 --
-true
+false
 
 -- !select_map_contains_entry_dup13 --
 true
 
 -- !select_map_contains_entry_dup14 --
-true
+false
 
 -- !select_map_contains_entry_dup15 --
-true
+false
 
 -- !select_map_contains_entry_dup16 --
 true
@@ -1576,31 +1576,31 @@ false
 18	{"k1":100, "k2":130}	[{"key":"k1", "value":100}, {"key":"k2", "value":130}]
 
 -- !select_map_entries_dup1 --
-[{"key":"k1", "value":100}, {"key":"k1", "value":200}]
+[{"key":"k1", "value":200}]
 
 -- !select_map_entries_dup2 --
-[{"key":"k1", "value":100}, {"key":"k2", "value":200}, {"key":"k1", "value":300}]
+[{"key":"k2", "value":200}, {"key":"k1", "value":300}]
 
 -- !select_map_entries_dup3 --
-[{"key":1, "value":"a"}, {"key":2, "value":"b"}, {"key":1, "value":"c"}]
+[{"key":2, "value":"b"}, {"key":1, "value":"c"}]
 
 -- !select_map_entries_dup4 --
-[{"key":"k1", "value":null}, {"key":"k1", "value":100}]
+[{"key":"k1", "value":100}]
 
 -- !select_map_entries_dup5 --
-[{"key":null, "value":100}, {"key":null, "value":200}]
+[{"key":null, "value":200}]
 
 -- !select_map_entries_dup6 --
-[{"key":"k1", "value":100}, {"key":"k2", "value":200}, {"key":"k2", "value":300}, {"key":"k1", "value":400}]
+[{"key":"k2", "value":300}, {"key":"k1", "value":400}]
 
 -- !select_map_entries_dup7 --
-[{"key":"", "value":100}, {"key":"", "value":200}]
+[{"key":"", "value":200}]
 
 -- !select_map_entries_dup8 --
-[{"key":"k1", "value":"v1"}, {"key":"k1", "value":"v2"}, {"key":"k1", "value":"v3"}]
+[{"key":"k1", "value":"v3"}]
 
 -- !select_map_entries_dup9 --
-[{"key":"a", "value":1}, {"key":"b", "value":2}, {"key":"a", "value":3}, {"key":"c", "value":4}, {"key":"a", "value":5}]
+[{"key":"b", "value":2}, {"key":"c", "value":4}, {"key":"a", "value":5}]
 
 -- !select_m1 --
 1	100	200	\N
