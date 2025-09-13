@@ -85,4 +85,27 @@ suite("agg_4_phase") {
         from agg_4_phase_tbl2
         group by id
         order by id"""
+    multi_sql """
+set runtime_filter_type= "BLOOM_FILTER,MIN_MAX";
+set enable_runtime_filter_prune= "false";
+set exchange_multi_blocks_byte_size= "4722978";
+set parallel_pipeline_task_num= "3";
+set experimental_parallel_scan_min_rows_per_scanner= "256";
+set enable_strong_consistency_read= "true";
+set runtime_filter_wait_infinitely= "true";
+set enable_share_hash_table_for_broadcast_join= "false";
+set experimental_parallel_scan_max_scanners_count= "8";
+set disable_streaming_preaggregations= "true";
+set experimental_use_serial_exchange= "true";
+    """
+        qt_phase4_multi_distinct """
+        select
+            id,
+            group_concat(cast(field1 as varchar), ','),
+            count(distinct field1),
+            group_concat(cast(field2 as varchar), ','),
+            count(distinct field2)
+        from agg_4_phase_tbl2
+        group by id
+        order by id"""
 }
