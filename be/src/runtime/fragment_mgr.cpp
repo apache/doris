@@ -291,14 +291,13 @@ void ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
 }
 
 template <typename Key, typename Value, typename ValueType>
-void ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
+bool ConcurrentContextMap<Key, Value, ValueType>::insert(const Key& query_id,
                                                          std::shared_ptr<ValueType> query_ctx) {
     auto id = get_map_id(query_id, _internal_map.size());
-    {
-        std::unique_lock lock(*_internal_map[id].first);
-        auto& map = _internal_map[id].second;
-        map.insert({query_id, query_ctx});
-    }
+    std::unique_lock lock(*_internal_map[id].first);
+    auto& map = _internal_map[id].second;
+    auto inset_result = map.insert({query_id, query_ctx});
+    return inset_result.second;
 }
 
 template <typename Key, typename Value, typename ValueType>
@@ -868,13 +867,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         g_fragment_last_active_time.set_value(now);
 
         // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
-        auto res = _pipeline_map.find({params.query_id, params.fragment_id});
-        if (res != nullptr) {
+        if (!_pipeline_map.insert({params.query_id, params.fragment_id}, context)) {
             return Status::InternalError(
-                    "exec_plan_fragment query_id({}) input duplicated fragment_id({})",
+                    "exec_plan_fragment query_id({}) insert fragment_id({}) failed",
                     print_id(params.query_id), params.fragment_id);
         }
-        _pipeline_map.insert({params.query_id, params.fragment_id}, context);
     }
 
     if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
@@ -884,6 +881,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     query_ctx->set_pipeline_context(params.fragment_id, context);
 
     RETURN_IF_ERROR(context->submit());
+    // check context.use_count()
+    DCHECK_GE(context.use_count(), 2)
+            << "context's use_count is " << context.use_count()
+            << ", it should be at least 2, one in _pipeline_map, one in this stack";
     return Status::OK();
 }
 
