@@ -202,6 +202,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
             return true;
+        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
+            // Variant to Json is always nullable
+            return true;
         }
         return false;
     }
