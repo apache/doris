@@ -92,8 +92,8 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
         } else if (diff > 0) {
             return false;
         }
-        // When the version diff is equal, compare the rowset`s create time
-        return a->creation_time() < b->creation_time();
+        // When the version diff is equal, compare the rowset`s stale time
+        return a->stale_at() < b->stale_at();
     });
 
     // first_version -> (second_version -> rowset_meta)
@@ -306,8 +306,7 @@ void TimestampedVersionTracker::add_stale_path_version(
 
     PathVersionListSharedPtr ptr(new TimestampedVersionPathContainer());
     for (auto rs : stale_rs_metas) {
-        TimestampedVersionSharedPtr vt_ptr(
-                new TimestampedVersion(rs->version(), rs->creation_time()));
+        TimestampedVersionSharedPtr vt_ptr(new TimestampedVersion(rs->version(), rs->stale_at()));
         ptr->add_timestamped_version(vt_ptr);
     }
 
