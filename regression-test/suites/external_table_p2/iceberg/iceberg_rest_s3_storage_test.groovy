@@ -306,9 +306,11 @@ suite("iceberg_rest_s3_storage_test", "p2,external,iceberg,external_docker,exter
         /****************OSS*******************/
         String oss_ak = context.config.otherConfigs.get("aliYunAk")
         String oss_sk = context.config.otherConfigs.get("aliYunSk")
-        String oss_endpoint = "https://oss-cn-beijing.aliyuncs.com"
-        String oss_parent_path = "doris-regression-bj"
-        String oss_region = "cn-beijing"
+        String endpoint = context.config.otherConfigs.get("aliYunEndpoint")
+        String oss_endpoint = "https://${endpoint}"
+        String oss_parent_path = context.config.otherConfigs.get("aliYunBucket")
+        String oss_region = context.config.otherConfigs.get("aliYunRegion")
+
         String oss_region_param = """
          'oss.region' = '${oss_region}',
         """
