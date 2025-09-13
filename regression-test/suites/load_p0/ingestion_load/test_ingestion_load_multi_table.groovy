@@ -103,7 +103,7 @@ suite('test_ingestion_load_multi_table', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 81758, \\"${etlResultFilePath2}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 5745, \\"${etlResultFilePath2}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
