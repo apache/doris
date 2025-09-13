@@ -102,19 +102,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------PhysicalDistribute[DistributionSpecExecutionAny]
 --------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
--- !no_stats_should_use_cte_with_group_by --
-PhysicalCteAnchor ( cteId=CTEId#0 )
---PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalOlapScan[t1000]
---PhysicalResultSink
-----PhysicalDistribute[DistributionSpecGather]
-------hashJoin[INNER_JOIN colocated] hashCondition=((a_1 <=> .a_1)) otherCondition=()
---------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------hashAgg[GLOBAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+-- !no_stats_should_use_multi_distinct --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[t1000]
 

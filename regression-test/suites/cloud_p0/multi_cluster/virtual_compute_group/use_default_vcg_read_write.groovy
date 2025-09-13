@@ -20,12 +20,12 @@ import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 
 // 1 create two physical cluster c1, c2, every cluster contains 2 be
-// 2 stop a backend of c1
-// 3 stop a backend of c1
-// 4 start 2 backends of c1
-// 5 long-term stop 2 backends of c1
+// 2 create vcg, c1, c2 are sub compute group of vcg, adn c1 is active cg
+// 3 use vcg
+// 4 stop a backend of c1
+// 5 stop another backend of c1
 
-suite('use_vcg_read_write', 'multi_cluster,docker') {
+suite('use_default_vcg_read_write', 'multi_cluster,docker') {
     def options = new ClusterOptions()
     String tableName = "test_all_vcluster"
     String tbl = "test_virtual_compute_group_tbl"
@@ -76,9 +76,9 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             def normalVclusterId = "normalVirtualClusterId"
             def vcgClusterNames = [clusterName1, clusterName2]
             def clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName1}", standby_cluster_names: ["${clusterName2}"]]
-            clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
+            def clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_names:vcgClusterNames, cluster_policy:clusterPolicy]
             def normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
-            jsonOutput = new JsonOutput()
+            def jsonOutput = new JsonOutput()
             def normalVcgBody = jsonOutput.toJson(normalInstance)
             add_cluster_api.call(msHttpPort, normalVcgBody) {
                 respCode, body ->
@@ -89,14 +89,13 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
             // show cluster
             sleep(5000)
-            showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
+            def showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             def vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster1', standbyComputeGroup='newcluster2'"))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster1","standbyComputeGroup":"newcluster2"'))
 
-
-            showResult = sql "show clusters"
+            def showResult = sql "show clusters"
             for (row : showResult) {
                 println row
             }
@@ -126,6 +125,30 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             log.info("backends of cluster2: ${clusterName2} ${cluster2Ips}".toString())
 
             sql """ SET PROPERTY 'default_cloud_cluster' = 'normalVirtualClusterName' """
+
+            def reconnectFe = {
+                sleep(10000)
+                logger.info("Reconnecting to a new frontend...")
+                def newFe
+                if (options.connectToFollower) {
+                    newFe = cluster.getOneFollowerFe()
+                } else {
+                    newFe = cluster.getMasterFe()
+                }
+                if (newFe) {
+                    logger.info("New frontend found: ${newFe.host}:${newFe.httpPort}")
+                    def url = String.format(
+                            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+                            newFe.host, newFe.queryPort)
+                    url = context.config.buildUrlWithDb(url, context.dbName)
+                    context.connectTo(url, context.config.jdbcUser, context.config.jdbcPassword)
+                    logger.info("Successfully reconnected to the new frontend")
+                } else {
+                    logger.error("No new frontend found to reconnect")
+                }
+            }
+
+            reconnectFe()
 
             sql """ drop table if exists ${tableName} """
 
@@ -163,27 +186,27 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
             sql """ set enable_profile = true """
 
-            before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            def before_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("before_cluster1_be0_load_rows : ${before_cluster1_be0_load_rows}".toString())
-            before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            def before_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
             log.info("before_cluster1_be0_flush : ${before_cluster1_be0_flush}".toString())
 
-            before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            def before_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
             log.info("before_cluster1_be1_load_rows : ${before_cluster1_be1_load_rows}".toString())
-            before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            def before_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster1_be1_flush : ${before_cluster1_be1_flush}".toString())
 
-            before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            def before_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("before_cluster2_be0_load_rows : ${before_cluster2_be0_load_rows}".toString())
-            before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            def before_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
             log.info("before_cluster2_be0_flush : ${before_cluster2_be0_flush}".toString())
 
-            before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            def before_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
             log.info("before_cluster2_be1_load_rows : ${before_cluster2_be1_load_rows}".toString())
-            before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            def before_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("before_cluster2_be1_flush : ${before_cluster2_be1_flush}".toString())
 
-            txnId = -1;
+            def txnId = -1;
             streamLoad {
                 table "${tableName}"
 
@@ -191,6 +214,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -213,24 +237,24 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             order_qt_all11 "SELECT count(*) FROM ${tableName}" // 20
             order_qt_all12 "SELECT count(*) FROM ${tableName} where k1 <= 10"  // 11
 
-            after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
+            def after_cluster1_be0_load_rows = get_be_metric(cluster1Ips[0], "8040", "load_rows");
             log.info("after_cluster1_be0_load_rows : ${after_cluster1_be0_load_rows}".toString())
-            after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
+            def after_cluster1_be0_flush = get_be_metric(cluster1Ips[0], "8040", "memtable_flush_total");
             log.info("after_cluster1_be0_flush : ${after_cluster1_be0_flush}".toString())
 
-            after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
+            def after_cluster1_be1_load_rows = get_be_metric(cluster1Ips[1], "8040", "load_rows");
             log.info("after_cluster1_be1_load_rows : ${after_cluster1_be1_load_rows}".toString())
-            after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
+            def after_cluster1_be1_flush = get_be_metric(cluster1Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster1_be1_flush : ${after_cluster1_be1_flush}".toString())
 
-            after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
+            def after_cluster2_be0_load_rows = get_be_metric(cluster2Ips[0], "8040", "load_rows");
             log.info("after_cluster2_be0_load_rows : ${after_cluster2_be0_load_rows}".toString())
-            after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
+            def after_cluster2_be0_flush = get_be_metric(cluster2Ips[0], "8040", "memtable_flush_total");
             log.info("after_cluster2_be0_flush : ${after_cluster2_be0_flush}".toString())
 
-            after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
+            def after_cluster2_be1_load_rows = get_be_metric(cluster2Ips[1], "8040", "load_rows");
             log.info("after_cluster2_be1_load_rows : ${after_cluster2_be1_load_rows}".toString())
-            after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
+            def after_cluster2_be1_flush = get_be_metric(cluster2Ips[1], "8040", "memtable_flush_total");
             log.info("after_cluster2_be1_flush : ${after_cluster2_be1_flush}".toString())
 
             assertTrue(before_cluster1_be0_load_rows < after_cluster1_be0_load_rows || before_cluster1_be1_load_rows < after_cluster1_be1_load_rows)
@@ -241,9 +265,13 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
-            set = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
+            def addrSet = [cluster1Ips[0] + ":" + "8060", cluster1Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             cluster.stopBackends(4)
             sleep(6000)
@@ -287,6 +315,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -332,9 +361,13 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be1_load_rows == after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be1_flush == after_cluster2_be1_flush)
 
-            set = [cluster1Ips[0] + ":" + "8060"] as Set
+            addrSet = [cluster1Ips[0] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
             cluster.stopBackends(5)
 
@@ -356,6 +389,7 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
 
                 file 'all_types.csv'
                 time 10000 // limit inflight 10s
+                setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
                 check { loadResult, exception, startTime, endTime ->
                     if (exception != null) {
@@ -391,61 +425,28 @@ suite('use_vcg_read_write', 'multi_cluster,docker') {
             assertTrue(before_cluster2_be0_load_rows < after_cluster2_be0_load_rows || before_cluster2_be1_load_rows < after_cluster2_be1_load_rows)
             assertTrue(before_cluster2_be0_flush < after_cluster2_be0_flush || before_cluster2_be1_flush < after_cluster2_be1_flush)
 
-            set = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
+            addrSet = [cluster2Ips[0] + ":" + "8060", cluster2Ips[1] + ":" + "8060"] as Set
             sql """ select count(k2) AS theCount, k3 from test_all_vcluster group by k3 order by theCount limit 1 """
-            checkProfileNew.call(set)
+            if (options.connectToFollower) {
+                checkProfileNew.call(cluster.getOneFollowerFe(), addrSet)
+            } else {
+                checkProfileNew.call(cluster.getMasterFe(), addrSet)
+            }
 
-            sleep(16000)
+            sleep(21000)
+
+            sql """
+                insert into ${tbl} (k1, k2) values (1, "10");
+            """
+
             // show cluster
             showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
             log.info("show compute group {}", showComputeGroup)
             vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
             assertNotNull(vcgInShow)
-            assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
-
-            //// use vcg
-            //sql """use @${normalVclusterName}"""
-            //sql """
-            //CREATE TABLE ${tbl} (
-            //`k1` int(11) NULL,
-            //`k2` char(5) NULL
-            //)
-            //DUPLICATE KEY(`k1`, `k2`)
-            //COMMENT 'OLAP'
-            //DISTRIBUTED BY HASH(`k1`) BUCKETS 1
-            //PROPERTIES (
-            //"replication_num"="1"
-            //);
-            //"""
-
-            //sql """
-            //    insert into ${tbl} (k1, k2) values (1, "10");
-            //"""
-
-            //result = sql """select count(*) from ${tbl}"""
-            //log.info("result = {}", result)
-            //assertEquals(result.size(), 1)
-
-            // alter cluster info, change standbyComputeGroup to newcluster1, activeComputeGroup to newcluster2
-            //clusterPolicy = [type: "ActiveStandby", active_cluster_name: "${clusterName2}", standby_cluster_names: ["${clusterName1}"]]
-            //clusterMap = [cluster_name: "${normalVclusterName}", cluster_id:"${normalVclusterId}", type:"VIRTUAL", cluster_policy:clusterPolicy]
-            //normalInstance = [instance_id: "${instance_id}", cluster: clusterMap]
-            //jsonOutput = new JsonOutput()
-            //normalVcgBody = jsonOutput.toJson(normalInstance)
-            //alter_cluster_info_api(msHttpPort, normalVcgBody) {
-            //    respCode, body ->
-            //        log.info("alter virtual cluster result: ${body} ${respCode}".toString())
-            //        def json = parseJson(body)
-            //        assertTrue(json.code.equalsIgnoreCase("OK"))
-            //}
-            //sleep(5000)
-            //showComputeGroup = sql_return_maparray """ SHOW COMPUTE GROUPS """
-            //log.info("show compute group after alter {}", showComputeGroup)
-            //vcgInShow = showComputeGroup.find { it.Name == normalVclusterName }
-            //assertNotNull(vcgInShow)
-            //assertTrue(vcgInShow.Policy.contains("activeComputeGroup='newcluster2', standbyComputeGroup='newcluster1'"))
+            assertTrue(vcgInShow.Policy.contains('"activeComputeGroup":"newcluster2","standbyComputeGroup":"newcluster1"'))
         }
         // connect to follower, run again
-        //options.connectToFollower = true
+        options.connectToFollower = true
     }
 }

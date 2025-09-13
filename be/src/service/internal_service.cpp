@@ -999,6 +999,10 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
     bool ret = _heavy_work_pool.try_offer([request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
+        std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::test_jdbc_connection"));
+        SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
         vectorized::JdbcConnectorParam jdbc_param;
         Status st = Status::OK();

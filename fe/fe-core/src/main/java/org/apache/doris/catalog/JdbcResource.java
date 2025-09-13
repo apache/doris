@@ -23,6 +23,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
+import org.apache.doris.common.plugin.CloudPluginDownloader.PluginType;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -330,13 +332,24 @@ public class JdbcResource extends Resource {
             // Because in new version, we change the default value of `jdbc_drivers_dir`
             // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
             // so we need to check the old default dir for compatibility.
-            File file = new File(defaultDriverUrl + "/" + driverUrl);
-            if (file.exists()) {
-                return "file://" + defaultDriverUrl + "/" + driverUrl;
-            } else {
-                // use old one
-                return "file://" + defaultOldDriverUrl + "/" + driverUrl;
+            String targetPath = defaultDriverUrl + "/" + driverUrl;
+            File targetFile = new File(targetPath);
+            if (targetFile.exists()) {
+                // File exists in new default directory
+                return "file://" + targetPath;
+            } else if (Config.isCloudMode()) {
+                // Cloud mode: download from cloud to default directory
+                try {
+                    String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                            PluginType.JDBC_DRIVERS, driverUrl, targetPath);
+                    return "file://" + downloadedPath;
+                } catch (Exception e) {
+                    throw new RuntimeException("Cannot download JDBC driver from cloud: " + driverUrl
+                            + ". Please retry later or check your driver has been uploaded to cloud.");
+                }
             }
+            // Fallback to old default directory for compatibility
+            return "file://" + defaultOldDriverUrl + "/" + driverUrl;
         } else {
             // Return user specified driver url directly.
             return "file://" + Config.jdbc_drivers_dir + "/" + driverUrl;

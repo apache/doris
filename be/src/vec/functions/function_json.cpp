@@ -454,10 +454,14 @@ public:
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
-        if (auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+        const ColumnUInt8::Container* input_null_map = nullptr;
+        const ColumnString* col_from_string = nullptr;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
+            input_null_map = &nullable->get_null_map_data();
             col_from_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+        } else {
+            col_from_string = check_and_get_column<ColumnString>(col_from);
         }
 
         if (!col_from_string) {
@@ -471,19 +475,52 @@ public:
         vec_to.resize(size);
 
         // parser can be reused for performance
-        JsonBinaryValue jsonb_value;
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            if (col_from.is_null_at(i)) {
-                null_map->get_data()[i] = 1;
-                vec_to[i] = 0;
-                continue;
+
+        auto input_type = block.get_by_position(arguments[0]).type->get_primitive_type();
+
+        if (input_type == PrimitiveType::TYPE_VARCHAR || input_type == PrimitiveType::TYPE_CHAR ||
+            input_type == PrimitiveType::TYPE_STRING) {
+            JsonBinaryValue jsonb_value;
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (input_null_map && (*input_null_map)[i]) {
+                    null_map->get_data()[i] = 1;
+                    vec_to[i] = 0;
+                    continue;
+                }
+
+                const auto& val = col_from_string->get_data_at(i);
+                if (jsonb_value.from_json_string(val.data, cast_set<unsigned int>(val.size)).ok()) {
+                    vec_to[i] = 1;
+                } else {
+                    vec_to[i] = 0;
+                }
             }
 
-            const auto& val = col_from_string->get_data_at(i);
-            if (jsonb_value.from_json_string(val.data, cast_set<unsigned int>(val.size)).ok()) {
+        } else {
+            DCHECK(input_type == PrimitiveType::TYPE_JSONB);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (input_null_map && (*input_null_map)[i]) {
+                    null_map->get_data()[i] = 1;
+                    vec_to[i] = 0;
+                    continue;
+                }
+                const auto& val = col_from_string->get_data_at(i);
+                if (val.size == 0) {
+                    vec_to[i] = 0;
+                    continue;
+                }
+                JsonbDocument* doc = nullptr;
+                auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+                if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+                    vec_to[i] = 0;
+                    continue;
+                }
+                JsonbValue* value = doc->getValue();
+                if (UNLIKELY(!value)) {
+                    vec_to[i] = 0;
+                    continue;
+                }
                 vec_to[i] = 1;
-            } else {
-                vec_to[i] = 0;
             }
         }
 

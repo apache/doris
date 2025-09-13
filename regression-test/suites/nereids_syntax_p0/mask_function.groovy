@@ -46,7 +46,7 @@ suite("test_mask_function") {
             (6, 'Meimei Han', '13556780000')
         ;
     """
-
+    
     qt_select_all """
         select * from table_mask_test order by id;
     """
