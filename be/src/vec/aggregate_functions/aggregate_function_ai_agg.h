@@ -261,6 +261,33 @@ public:
                                 .get_data_at(row_num));
     }
 
+    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+                   const IColumn** columns, Arena&, bool agg_many = false) const override {
+        const auto& resource_ref =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[0])
+                        .get_data_at(0);
+        const auto& data_column =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+        const auto& task_ref =
+                assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2])
+                        .get_data_at(0);
+
+        if (!data(places[0] + place_offset).inited) {
+            for (size_t i = 0; i < batch_size; ++i) {
+                AggregateDataPtr place = places[i] + place_offset;
+
+                data(place).prepare(resource_ref, task_ref);
+                data(place).add(data_column.get_data_at(i));
+            }
+        } else {
+            for (size_t i = 0; i < batch_size; ++i) {
+                AggregateDataPtr place = places[i] + place_offset;
+
+                data(place).add(data_column.get_data_at(i));
+            }
+        }
+    }
+
     void reset(AggregateDataPtr place) const override { data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
