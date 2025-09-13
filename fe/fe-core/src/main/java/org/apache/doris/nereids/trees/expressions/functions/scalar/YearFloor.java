@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -51,12 +50,7 @@ public class YearFloor extends ScalarFunction
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE)
-                    .args(DateTimeType.INSTANCE, IntegerType.INSTANCE, DateTimeType.INSTANCE)
+                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE)
     );
 
     /**
