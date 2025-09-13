@@ -95,7 +95,7 @@ public:
     virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
     virtual Status check_column(const IColumn& column) const = 0;
-
+// for test
 protected:
     virtual String do_get_name() const;
 
