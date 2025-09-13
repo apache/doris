@@ -140,12 +140,12 @@ Status FileBuffer::submit(std::shared_ptr<FileBuffer> buf) {
     return Status::InternalError("should never come here");
 }
 
-std::string_view FileBuffer::get_string_view_data() const {
-    return {_inner_data->data().get_data(), _size};
+Slice FileBuffer::get_slice_data() const {
+    return {_inner_data->data().data, _size};
 }
 
 void UploadFileBuffer::on_upload() {
-    _stream_ptr = std::make_shared<StringViewStream>(_inner_data->data().get_data(), _size);
+    _stream_ptr = std::make_shared<StringViewOutStream>(_inner_data->data().data, _size);
     if (_crc_value != crc32c::Value(_inner_data->data().get_data(), _size)) {
         DCHECK(false);
         set_status(Status::IOError("Buffer checksum not match"));

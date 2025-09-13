@@ -104,7 +104,7 @@ private:
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
-            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            std::vector<SlotDescriptor*>& slots, const TabletSchema& full_read_schema,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms,
@@ -113,14 +113,14 @@ private:
 
     static Status read_batch_doris_format_row(
             const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
+            std::vector<SlotDescriptor*>& slots, const TUniqueId& query_id,
             vectorized::Block& result_block, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
-            std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
+            std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor*>& slots,
             std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
             vectorized::Block& result_block, PRuntimeProfileTree* pprofile,
             int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);

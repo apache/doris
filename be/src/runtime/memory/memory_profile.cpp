@@ -288,33 +288,32 @@ void MemoryProfile::make_memory_profile(RuntimeProfile* profile) const {
 
     RuntimeProfile* memory_overview_profile =
             memory_profile_snapshot->create_child(_memory_overview_profile->name(), true, false);
-    memory_overview_profile->merge(const_cast<RuntimeProfile*>(_memory_overview_profile.get()));
+    memory_overview_profile->merge(_memory_overview_profile.get());
 
     auto global_memory_version_ptr = _global_memory_profile.get();
     RuntimeProfile* global_memory_profile =
             memory_profile_snapshot->create_child(global_memory_version_ptr->name(), true, false);
-    global_memory_profile->merge(const_cast<RuntimeProfile*>(global_memory_version_ptr.get()));
+    global_memory_profile->merge(global_memory_version_ptr.get());
 
     auto metadata_memory_version_ptr = _metadata_memory_profile.get();
     RuntimeProfile* metadata_memory_profile =
             memory_profile_snapshot->create_child(metadata_memory_version_ptr->name(), true, false);
-    metadata_memory_profile->merge(const_cast<RuntimeProfile*>(metadata_memory_version_ptr.get()));
+    metadata_memory_profile->merge(metadata_memory_version_ptr.get());
 
     auto cache_memory_version_ptr = _cache_memory_profile.get();
     RuntimeProfile* cache_memory_profile =
             memory_profile_snapshot->create_child(cache_memory_version_ptr->name(), true, false);
-    cache_memory_profile->merge(const_cast<RuntimeProfile*>(cache_memory_version_ptr.get()));
+    cache_memory_profile->merge(cache_memory_version_ptr.get());
 
     auto top_memory_tasks_version_ptr = _top_memory_tasks_profile.get();
     RuntimeProfile* top_memory_tasks_profile = memory_profile_snapshot->create_child(
             top_memory_tasks_version_ptr->name(), true, false);
-    top_memory_tasks_profile->merge(
-            const_cast<RuntimeProfile*>(top_memory_tasks_version_ptr.get()));
+    top_memory_tasks_profile->merge(top_memory_tasks_version_ptr.get());
 
     auto tasks_memory_version_ptr = _tasks_memory_profile.get();
     RuntimeProfile* tasks_memory_profile =
             memory_profile_snapshot->create_child(tasks_memory_version_ptr->name(), true, false);
-    tasks_memory_profile->merge(const_cast<RuntimeProfile*>(tasks_memory_version_ptr.get()));
+    tasks_memory_profile->merge(tasks_memory_version_ptr.get());
 }
 
 int64_t MemoryProfile::query_current_usage() {

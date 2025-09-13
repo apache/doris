@@ -1081,9 +1081,9 @@ TEST(BlockTest, ctor) {
 
     auto slots = tbl->get_tuple_descriptor(0)->slots();
 
-    std::vector<SlotDescriptor> slot_descs;
+    std::vector<SlotDescriptor*> slot_descs;
     for (auto* slot : slots) {
-        slot_descs.push_back(*slot);
+        slot_descs.push_back(slot);
     }
 
     vectorized::Block block(slot_descs, 1);

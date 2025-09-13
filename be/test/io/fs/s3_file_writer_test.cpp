@@ -104,7 +104,7 @@ public:
     }
 
     Aws::S3::Model::UploadPartOutcome upload_part(const Aws::S3::Model::UploadPartRequest& request,
-                                                  std::string_view buf) {
+                                                  Slice buf) {
         if (request.GetKey() != key || request.GetBucket() != bucket ||
             upload_id != request.GetUploadId()) {
             return Aws::S3::Model::UploadPartOutcome(Aws::Client::AWSError<Aws::S3::S3Errors>(
@@ -122,7 +122,7 @@ public:
             }
         }
         {
-            Slice slice {buf.data(), buf.size()};
+            Slice slice {buf.data, buf.size};
             std::string str;
             str.resize(slice.get_size());
             std::memcpy(str.data(), slice.get_data(), slice.get_size());
@@ -163,12 +163,12 @@ public:
     }
 
     Aws::S3::Model::PutObjectOutcome put_object(const Aws::S3::Model::PutObjectRequest& request,
-                                                std::string_view& buf) {
+                                                Slice& buf) {
         exists = true;
         file_size = request.GetContentLength();
         key = request.GetKey();
         bucket = request.GetBucket();
-        Slice s {buf.data(), buf.size()};
+        Slice s {buf.data, buf.size};
         std::string str;
         str.resize(s.get_size());
         std::memcpy(str.data(), s.get_data(), s.get_size());
@@ -234,7 +234,7 @@ static auto test_mock_callbacks = std::array {
                       [](auto&& outcome) {
                           const auto& req = try_any_cast<const Aws::S3::Model::UploadPartRequest&>(
                                   outcome.at(0));
-                          const auto& buf = try_any_cast<std::string_view*>(outcome.at(1));
+                          const auto& buf = try_any_cast<Slice*>(outcome.at(1));
                           auto pair = try_any_cast_ret<Aws::S3::Model::UploadPartOutcome>(outcome);
                           pair->second = true;
                           pair->first = mock_client->upload_part(req, *buf);
@@ -254,7 +254,7 @@ static auto test_mock_callbacks = std::array {
                       [](auto&& outcome) {
                           const auto& req = try_any_cast<const Aws::S3::Model::PutObjectRequest&>(
                                   outcome.at(0));
-                          const auto& buf = try_any_cast<std::string_view*>(outcome.at(1));
+                          const auto& buf = try_any_cast<Slice*>(outcome.at(1));
                           auto pair = try_any_cast_ret<Aws::S3::Model::PutObjectOutcome>(outcome);
                           pair->second = true;
                           pair->first = mock_client->put_object(req, *buf);
@@ -1108,28 +1108,27 @@ public:
         return default_upload_response;
     }
 
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override {
+    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts, Slice stream) override {
         put_object_count++;
-        put_object_params.emplace_back(opts, std::string(stream));
+        put_object_params.emplace_back(opts, std::string(stream.data, stream.size));
         last_opts = opts;
-        last_stream = std::string(stream);
-        objects.emplace(opts.path.native(), std::string(stream));
-        uploaded_bytes += stream.size();
+        last_stream = std::string(stream.data, stream.size);
+        objects.emplace(opts.path.native(), std::string(stream.data, stream.size));
+        uploaded_bytes += stream.size;
         return default_response;
     }
 
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
-                                            std::string_view stream, int part_num) override {
+    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, Slice stream,
+                                            int part_num) override {
         upload_part_count++;
         // upload_part_params.push_back({opts, std::string(stream), part_num});
         last_opts = opts;
-        last_stream = std::string(stream);
+        last_stream = std::string(stream.data, stream.size);
         last_part_num = part_num;
         std::stringstream ss;
         ss << std::setfill('0') << std::setw(3) << part_num;
-        parts[opts.path.native() + "_" + ss.str()] = std::string(stream);
-        uploaded_bytes += stream.size();
+        parts[opts.path.native() + "_" + ss.str()] = std::string(stream.data, stream.size);
+        uploaded_bytes += stream.size;
         return default_upload_response;
     }
 

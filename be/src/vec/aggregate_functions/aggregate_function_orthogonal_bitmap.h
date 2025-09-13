@@ -283,10 +283,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(!result.empty()
-                                               ? result
-                                               : const_cast<AggOrthBitMapExprCal*>(this)
-                                                         ->bitmap_expr_cal.bitmap_calculate());
+        column.get_data().emplace_back(!result.empty() ? result
+                                                       : this->bitmap_expr_cal.bitmap_calculate());
     }
 
     void reset() {
@@ -326,8 +324,7 @@ public:
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
-                                              : const_cast<AggOrthBitMapExprCalCount*>(this)
-                                                        ->bitmap_expr_cal.bitmap_calculate_count());
+                                              : this->bitmap_expr_cal.bitmap_calculate_count());
     }
 
     void reset() {
@@ -399,13 +396,12 @@ public:
         this->data(place).add(columns, row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(const_cast<AggregateDataPtr>(place)).write(buf);
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
@@ -413,7 +409,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).get(to);
     }
 

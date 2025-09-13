@@ -57,9 +57,7 @@ struct QuantileReservoirSampler {
         data.read(buf);
     }
 
-    double get() const {
-        return const_cast<ReservoirSampler&>(data).quantileInterpolated(this->level);
-    }
+    double get() { return data.quantileInterpolated(this->level); }
 
 private:
     double level = 0.0;
@@ -89,12 +87,11 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).serialize(buf);
     }
 
@@ -103,7 +100,7 @@ public:
         this->data(place).deserialize(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get());
     }
 };
