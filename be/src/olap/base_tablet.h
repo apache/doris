@@ -344,6 +344,9 @@ public:
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
+    void prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version);
+    void prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset);
+
 protected:
     // Find the missed versions until the spec_version.
     //

@@ -102,6 +102,27 @@ suite("test_delete_bitmap_metrics", "p0") {
         return deleteBitmapStatus
     }
 
+    def getAggCacheDeleteBitmapStatus = { be_host, be_http_port, tablet_id, boolean verbose=false ->
+        boolean running = true
+        StringBuilder sb = new StringBuilder();
+        sb.append("curl -X GET http://${be_host}:${be_http_port}")
+        sb.append("/api/delete_bitmap/count_agg_cache?tablet_id=")
+        sb.append(tablet_id)
+        if (verbose) {
+            sb.append("&verbose=true")
+        }
+
+        String command = sb.toString()
+        logger.info(command)
+        def process = command.execute()
+        def code = process.waitFor()
+        def out = process.getText()
+        logger.info("Get agg cache delete bitmap count status:  =" + code + ", out=" + out)
+        assertEquals(code, 0)
+        def deleteBitmapStatus = parseJson(out.trim())
+        return deleteBitmapStatus
+    }
+
     String[][] backends = sql """ show backends """
     assertTrue(backends.size() > 0)
     String backendId;
@@ -190,6 +211,16 @@ suite("test_delete_bitmap_metrics", "p0") {
                 assertTrue(ms_delete_bitmap_count == 7)
                 assertTrue(ms_delete_bitmap_cardinality == 7)
             }
+
+            def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+            logger.info("agg cache status: ${status}")
+            assert status.delete_bitmap_count == 8
+            assert status.cardinality == 7
+            assert status.size > 0
+
+            status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
+            logger.info("agg cache verbose status: ${status}")
+
             def tablet_delete_bitmap_count = 0;
             def base_rowset_delete_bitmap_count = 0;
             int retry_time = 0;
