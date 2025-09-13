@@ -29,6 +29,10 @@ struct TFrontendInfo {
     2: optional i64 process_uuid
 }
 
+struct TCloudClusterInfo {
+    1: optional bool isStandby
+}
+
 struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id
@@ -44,6 +48,7 @@ struct TMasterInfo {
     // See configuration item Config.java rehash_tablet_after_be_dead_seconds for meaning
     12: optional i64 tablet_report_inactive_duration_ms;
     13: optional string auth_token;
+    14: optional TCloudClusterInfo cloud_cluster_info;
 }
 
 struct TBackendInfo {

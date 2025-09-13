@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.log4j.Logger;
@@ -312,19 +313,20 @@ public abstract class Literal extends Expression implements LeafExpression {
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
 
+    /**
+     * Fall back to old cast logic when new cast not covered yet.
+     */
     public Expression checkedCastWithFallback(DataType targetType) {
         try {
             return checkedCastTo(targetType);
-        } catch (Exception e) {
+        } catch (CastException c) {
+            if (SessionVariable.enableStrictCast()) {
+                throw c;
+            } else {
+                return new NullLiteral(dataType);
+            }
+        } catch (Throwable t) {
             return deprecatingCheckedCastTo(targetType);
-        }
-    }
-
-    public Expression uncheckedCastWithFallback(DataType targetType) {
-        try {
-            return uncheckedCastTo(targetType);
-        } catch (Exception e) {
-            return deprecatingUncheckedCastTo(targetType);
         }
     }
 
@@ -333,6 +335,9 @@ public abstract class Literal extends Expression implements LeafExpression {
      */
     @Override
     public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
         if (getDataType().isNumericType()) {
             String desc = getStringValue();
             if (numericOverflow(desc, targetType)) {

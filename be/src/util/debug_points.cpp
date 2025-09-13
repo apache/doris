@@ -80,18 +80,15 @@ void DebugPoints::update(std::function<void(DebugPointMap&)>&& handler) {
     while (true) {
         auto new_points = std::make_shared<DebugPointMap>(*old_points);
         handler(*new_points);
-        if (std::atomic_compare_exchange_strong_explicit(
-                    &_debug_points, &old_points,
-                    std::static_pointer_cast<const DebugPointMap>(new_points),
-                    std::memory_order_relaxed, std::memory_order_relaxed)) {
+        if (_debug_points.compare_exchange_strong(
+                    old_points, std::static_pointer_cast<const DebugPointMap>(new_points))) {
             break;
         }
     }
 }
 
 void DebugPoints::clear() {
-    std::atomic_store_explicit(&_debug_points, std::make_shared<const DebugPointMap>(),
-                               std::memory_order_relaxed);
+    _debug_points.store(std::make_shared<const DebugPointMap>());
     LOG(INFO) << "clear debug points";
 }
 

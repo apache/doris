@@ -565,6 +565,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SQL_DIALECT = "sql_dialect";
 
+    public static final String RETRY_ORIGIN_SQL_ON_CONVERT_FAIL = "retry_origin_sql_on_convert_fail";
+
     public static final String SERDE_DIALECT = "serde_dialect";
 
     public static final String EXPAND_RUNTIME_FILTER_BY_INNER_JION = "expand_runtime_filter_by_inner_join";
@@ -769,14 +771,40 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKEW_REWRITE_AGG_BUCKET_NUM = "skew_rewrite_agg_bucket_num";
 
+    public static final String HOT_VALUE_COLLECT_COUNT = "hot_value_collect_count";
+    @VariableMgr.VarAttr(name = HOT_VALUE_COLLECT_COUNT, needForward = true,
+                description = {"列统计信息收集时，收集占比排名前 HOT_VALUE_COLLECT_COUNT 的值作为hot value",
+                        "When collecting column statistics, collect the top values ranked by their "
+                                + "proportion as hot values, up to HOT_VALUE_COLLECT_COUNT."})
+    public int hotValueCollectCount = 10; // Select the values that account for at least 10% of the column
+
+    public void setHotValueCollectCount(int count) {
+        this.hotValueCollectCount = count;
+    }
+
+    public static int getHotValueCollectCount() {
+        if (ConnectContext.get() != null) {
+            if (ConnectContext.get().getState().isInternal()) {
+                return 0;
+            } else {
+                return ConnectContext.get().getSessionVariable().hotValueCollectCount;
+            }
+        } else {
+            return Integer.parseInt(VariableMgr.getDefaultValue(HOT_VALUE_COLLECT_COUNT));
+        }
+    }
+
     public static final String HOT_VALUE_THRESHOLD = "hot_value_threshold";
 
     @VariableMgr.VarAttr(name = HOT_VALUE_THRESHOLD, needForward = true,
-                description = {"value 在每百行中的最低出现次数",
-                        "The minimum number of occurrences of 'value' per hundred lines"})
-    private double hotValueThreshold = 33; // by percentage
+                description = {"当列中某个特定值的出现次数大于等于（rowCount/ndv）× hotValueThreshold 时，该值即被视为热点值",
+                        "When the occurrence of a value in a column is greater than "
+                                + "hotValueThreshold tmies of average occurences "
+                                + "(occurrences >= hotValueThreshold * rowCount / ndv), "
+                                + "the value is regarded as hot value"})
+    private double hotValueThreshold = 10;
 
-    public void setHotValueThreshold(double threshold) {
+    public void setHotValueThreshold(int threshold) {
         this.hotValueThreshold = threshold;
     }
 
@@ -2184,6 +2212,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
     public String sqlDialect = "doris";
+
+    @VariableMgr.VarAttr(name = RETRY_ORIGIN_SQL_ON_CONVERT_FAIL, needForward = true,
+            description = {"当转换后的SQL解析失败时，是否重试原始SQL",
+                    "Enable retrying original SQL when converted SQL parsing fails."})
+    public boolean retryOriginSqlOnConvertFail = false;
 
     @VariableMgr.VarAttr(name = SERDE_DIALECT, needForward = true, checker = "checkSerdeDialect",
             description = {"返回给 MySQL 客户端时各数据类型的输出格式方言",
@@ -3878,6 +3911,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getSqlDialect() {
         return sqlDialect;
+    }
+
+    public boolean isRetryOriginSqlOnConvertFail() {
+        return retryOriginSqlOnConvertFail;
     }
 
     public String[] getSqlConvertorFeatures() {

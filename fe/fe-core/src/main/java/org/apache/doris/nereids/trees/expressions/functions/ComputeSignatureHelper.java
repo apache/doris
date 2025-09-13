@@ -358,28 +358,14 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** dynamicComputePropertiesOfArray */
-    public static FunctionSignature dynamicComputePropertiesOfArray(
-            FunctionSignature signature, List<Expression> arguments) {
+    /** ensureNestedNullableOfArray */
+    public static FunctionSignature ensureNestedNullableOfArray(FunctionSignature signature,
+            List<Expression> arguments) {
         if (!(signature.returnType instanceof ArrayType)) {
             return signature;
         }
-
-        // fill item type by the type of first item
         ArrayType arrayType = (ArrayType) signature.returnType;
-
-        // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
-        boolean containsNull = true;
-
-        // fill containsNull if any array argument contains null
-        /* boolean containsNull = arguments
-                .stream()
-                .map(Expression::getDataType)
-                .filter(argType -> argType instanceof ArrayType)
-                .map(ArrayType.class::cast)
-                .anyMatch(ArrayType::containsNull);*/
-        return signature.withReturnType(
-                ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
+        return signature.withReturnType(ArrayType.of(arrayType.getItemType(), true));
     }
 
     // for time type with precision(now are DateTimeV2Type and TimeV2Type),

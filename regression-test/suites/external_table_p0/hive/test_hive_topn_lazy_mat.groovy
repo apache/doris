@@ -137,6 +137,24 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
                 order by o.id, o.score desc, p.value asc 
                 limit ${limit};
             """
+
+            qt_test_join4  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join5  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1
+                order by a.id,b.id  limit 100;
+            """
+
+            qt_test_join6  """
+                select  * from parquet_topn_lazy_mat_table  as a join orc_topn_lazy_mat_table as b 
+                where a.file_id = 1  and b.file_id = 1 and a.id = 1
+                order by a.id,b.id  limit 100;
+            """
         }
     }
 

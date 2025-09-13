@@ -262,6 +262,8 @@ public:
                         get_name());
     }
 
+    virtual bool is_blockable() const { return false; }
+
     /**
     * Executes the aggregate function in incremental mode.
     * This is a virtual function that should be overridden by aggregate functions supporting incremental calculation.

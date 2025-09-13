@@ -153,6 +153,8 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     M(INT)                          \
     M(BIGINT)                       \
     M(LARGEINT)                     \
+    M(FLOAT)                        \
+    M(DOUBLE)                       \
     M(CHAR)                         \
     M(DATE)                         \
     M(DATETIME)                     \
@@ -634,7 +636,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         } else {
             // normal in predicate
             auto* pred = static_cast<vectorized::VInPredicate*>(expr);
-            PushDownType temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, false);
+            PushDownType temp_pdt = _should_push_down_in_predicate(pred, false);
             if (temp_pdt == PushDownType::UNACCEPTABLE) {
                 return Status::OK();
             }
@@ -748,8 +750,8 @@ Status ScanLocalState<Derived>::_should_push_down_binary_predicate(
 }
 
 template <typename Derived>
-PushDownType ScanLocalState<Derived>::_should_push_down_in_predicate(
-        vectorized::VInPredicate* pred, vectorized::VExprContext* expr_ctx, bool is_not_in) {
+PushDownType ScanLocalState<Derived>::_should_push_down_in_predicate(vectorized::VInPredicate* pred,
+                                                                     bool is_not_in) {
     if (pred->is_not_in() != is_not_in) {
         return PushDownType::UNACCEPTABLE;
     }
@@ -776,8 +778,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
         }
 
         vectorized::VInPredicate* pred = static_cast<vectorized::VInPredicate*>(expr);
-        if ((temp_pdt = _should_push_down_in_predicate(pred, expr_ctx, true)) ==
-            PushDownType::UNACCEPTABLE) {
+        if ((temp_pdt = _should_push_down_in_predicate(pred, true)) == PushDownType::UNACCEPTABLE) {
             return Status::OK();
         }
 
@@ -915,7 +916,8 @@ Status ScanLocalState<Derived>::_change_value_range(ColumnValueRange<PrimitiveTy
                          (PrimitiveType == TYPE_VARCHAR) || (PrimitiveType == TYPE_DATETIMEV2) ||
                          (PrimitiveType == TYPE_TINYINT) || (PrimitiveType == TYPE_SMALLINT) ||
                          (PrimitiveType == TYPE_INT) || (PrimitiveType == TYPE_BIGINT) ||
-                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_IPV4) ||
+                         (PrimitiveType == TYPE_LARGEINT) || (PrimitiveType == TYPE_FLOAT) ||
+                         (PrimitiveType == TYPE_DOUBLE) || (PrimitiveType == TYPE_IPV4) ||
                          (PrimitiveType == TYPE_IPV6) || (PrimitiveType == TYPE_DECIMAL32) ||
                          (PrimitiveType == TYPE_DECIMAL64) || (PrimitiveType == TYPE_DECIMAL128I) ||
                          (PrimitiveType == TYPE_DECIMAL256) || (PrimitiveType == TYPE_STRING) ||

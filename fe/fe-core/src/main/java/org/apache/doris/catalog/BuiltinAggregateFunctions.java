@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -29,6 +27,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
@@ -107,8 +108,6 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(AIAgg.class, "ai_agg"),
             agg(AnyValue.class, "any", "any_value"),
-            agg(ApproxTopK.class, "approx_top_k"),
-            agg(ApproxTopSum.class, "approx_top_sum"),
             agg(ArrayAgg.class, "array_agg"),
             agg(Avg.class, "avg"),
             agg(AvgWeighted.class, "avg_weighted"),
@@ -117,6 +116,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
+            agg(BoolOr.class, "bool_or", "boolor_agg"),
+            agg(BoolAnd.class, "bool_and", "booland_agg"),
+            agg(BoolXor.class, "bool_xor", "boolxor_agg"),
             agg(CollectList.class, "collect_list", "group_array"),
             agg(CollectSet.class, "collect_set", "group_uniq_array"),
             agg(Corr.class, "corr"),

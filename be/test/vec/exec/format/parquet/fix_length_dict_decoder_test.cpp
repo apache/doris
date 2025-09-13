@@ -21,6 +21,7 @@
 
 #include "util/slice.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
@@ -33,7 +34,7 @@ protected:
         size_t dict_size = 3;
         size_t dict_data_size = dict_size * _type_length;
 
-        auto dict_data = std::make_unique<uint8_t[]>(dict_data_size);
+        auto dict_data = make_unique_buffer<uint8_t>(dict_data_size);
         const char* values[3] = {"apple ", "banana", "cherry"}; // Dictionary values
         for (int i = 0; i < 3; i++) {
             memcpy(dict_data.get() + i * _type_length, values[i], _type_length);
@@ -202,14 +203,14 @@ TEST_F(FixLengthDictDecoderTest, test_empty_dict) {
     FixLengthDictDecoder empty_decoder;
     empty_decoder.set_type_length(sizeof(int32_t));
 
-    auto dict_data = std::make_unique<uint8_t[]>(0);
+    auto dict_data = make_unique_buffer<uint8_t>(0);
     ASSERT_TRUE(empty_decoder.set_dict(dict_data, 0, 0).ok());
 }
 
 // Test decoding with ColumnDictI32
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -252,7 +253,7 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32) {
 // Test decoding with ColumnDictI32 and filter
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 1, 2, 1, padded to 8 values, [0 0 0 0 1 2 1]
@@ -293,7 +294,7 @@ TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter) {
 // Test decoding with ColumnDictI32 with filter and null
 TEST_F(FixLengthDictDecoderTest, test_decode_with_column_dict_i32_with_filter_and_null) {
     // Create ColumnDictI32 column
-    MutableColumnPtr column = ColumnDictI32::create();
+    MutableColumnPtr column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
     DataTypePtr data_type = std::make_shared<DataTypeInt32>();
 
     // RLE encoded data: 4 zeros followed by 2, padded to 8 values, [0 0 0 0 2]

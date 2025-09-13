@@ -225,6 +225,13 @@ size_t AggSinkLocalState::_memory_usage() const {
     return usage;
 }
 
+bool AggSinkLocalState::is_blockable() const {
+    return std::any_of(
+            Base::_shared_state->aggregate_evaluators.begin(),
+            Base::_shared_state->aggregate_evaluators.end(),
+            [](const vectorized::AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
+
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
@@ -278,6 +285,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
             block->replace_by_position_if_const(result_column_id);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
+        key_columns[i]->assume_mutable()->replace_float_special_values();
     }
 
     size_t rows = block->rows();
@@ -460,6 +468,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
