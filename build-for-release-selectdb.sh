@@ -34,11 +34,14 @@ Usage: $0 --version version <options>
      [no option]        build with avx2
      --noavx2           build without avx2
      --tar              pack the output
+     --build_only       build only without packaging, same effect as build.sh but with extra
+                        configurations, such as TDE mTLS etc.
 
   Eg.
-    $0 --vendor selectdb --version 1.2.0            build selectdb with avx2
-    $0 --vendor velodb --version 1.2.0 --tar        build velodb with avx2 and pack the output
-    $0 --vendor selectdb --noavx2 --version 1.2.0   build selectdb without avx2
+    $0 --vendor selectdb --version 1.2.0                 build selectdb with avx2
+    $0 --vendor velodb --version 1.2.0 --tar             build velodb with avx2 and pack the output
+    $0 --vendor selectdb --noavx2 --version 1.2.0        build selectdb without avx2
+    $0 --vendor selectdb --build_only --version 1.2.0    build selectdb without packaging
   "
     exit 1
 }
@@ -51,6 +54,7 @@ if ! OPTS="$(getopt \
     -l 'version:' \
     -l 'vendor:' \
     -l 'help' \
+    -l 'build_only' \
     -- "$@")"; then
     usage
 fi
@@ -61,6 +65,7 @@ _USE_AVX2=1
 TAR=0
 VERSION=
 VENDOR=
+BUILD_ONLY=0
 if [[ "$#" == 1 ]]; then
     _USE_AVX2=1
 else
@@ -82,6 +87,10 @@ else
             VENDOR="$2"
             shift 2
             ;;
+        --build_only)
+            BUILD_ONLY=1
+            shift
+            ;;
         --help)
             HELP=1
             shift
@@ -102,15 +111,20 @@ if [[ "${VENDOR}" == "" ]]; then
     usage
     exit -1
 fi
-# this env var is used by the doris build script
-export DORIS_VENDOR=${VENDOR}
+# these env vars are used by gensrc/script/gen_build_version.sh
+export DORIS_BUILD_VERSION_PREFIX=${VENDOR-selectdb}
+export DORIS_BUILD_VERSION_MAJOR=3
+export DORIS_BUILD_VERSION_MINOR=1
+export DORIS_BUILD_VERSION_PATCH=0
+export DORIS_BUILD_VERSION_HOTFIX=0
+export DORIS_BUILD_VERSION_RC_VERSION="rc01"
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
     exit
 fi
 
-if [[ -z ${VERSION} ]]; then
+if [[ -z ${VERSION} ]] && [[ ${BUILD_ONLY} -eq 0 ]]; then
     echo "Must specify version"
     usage
     exit 1
@@ -120,6 +134,7 @@ echo "Get params:
     VERSION         -- ${VERSION}
     USE_AVX2        -- ${_USE_AVX2}
     TAR             -- ${TAR}
+    BUILD_ONLY      -- ${BUILD_ONLY}
 "
 
 ARCH="$(uname -m)"
@@ -150,14 +165,12 @@ rm -rf "${OUTPUT}" && mkdir -p "${OUTPUT}"
 echo "Package Path: ${OUTPUT}"
 
 # download and setup java
-JAVA17_DOWNLOAD_LINK=
-JAVA17_DIR_NAME=
 if [[ "${ARCH}" == "x64" ]]; then
-    JAVA17_DOWNLOAD_LINK="https://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/release/jdbc_driver/openjdk-17.0.2_linux-x64_bin.tar.gz"
-    JAVA17_DIR_NAME="jdk-17.0.2"
+    JAVA17_DOWNLOAD_LINK="${JAVA17_DOWNLOAD_LINK:-"https://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/release/jdbc_driver/openjdk-17.0.2_linux-x64_bin.tar.gz"}"
+    JAVA17_DIR_NAME="${JAVA17_DIR_NAME:-"jdk-17.0.2"}"
 elif [[ "${ARCH}" == "arm64" ]]; then
-    JAVA17_DOWNLOAD_LINK="https://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/release/jdbc_driver/bisheng-jdk-17.0.11-linux-aarch64.tar.gz"
-    JAVA17_DIR_NAME="bisheng-jdk-17.0.11"
+    JAVA17_DOWNLOAD_LINK="${JAVA17_DOWNLOAD_LINK:-"https://selectdb-doris-1308700295.cos.ap-beijing.myqcloud.com/release/jdbc_driver/bisheng-jdk-17.0.11-linux-aarch64.tar.gz"}"
+    JAVA17_DIR_NAME="${JAVA17_DIR_NAME:-"bisheng-jdk-17.0.11"}"
 else
     echo "Unknown arch: ${ARCH}"
     exit 1
@@ -169,9 +182,14 @@ export JAVA_HOME="${OUTPUT_JAVA17}"
 export PATH="${JAVA_HOME}/bin:${PATH}"
 
 # build core
-#sh build.sh --clean &&
-USE_AVX2="${_USE_AVX2}" WITH_TDE_DIR=enterprise sh build.sh &&
-USE_AVX2="${_USE_AVX2}" WITH_TDE_DIR=enterprise sh build.sh --be --meta-tool --cloud
+WITH_TDE_DIR=enterprise
+USE_AVX2="${_USE_AVX2}"
+if [[ ${BUILD_ONLY} -eq 1 ]]; then
+    sh build.sh
+    exit 0
+else # for release and package
+    sh build.sh && sh build.sh --be --meta-tool --cloud
+fi
 
 package_fdb() {
     echo "package fdb"
@@ -181,12 +199,12 @@ package_fdb() {
     ## fake a mandatory variable
     mv fdb_vars.sh fdb_vars_bak.sh
     cp fdb_vars_bak.sh fdb_vars.sh
-    sed -ri 's#^FDB_HOME=.*#FDB_HOME=/tmp/fdb#' fdb_vars.sh
-    rm -rf /tmp/fdb
-    mkdir -p /tmp/fdb
+    local fdbtmp=$(mktemp -d)
+    sed -ri "s#^FDB_HOME=.*#FDB_HOME=${fdbtmp}#" fdb_vars.sh
 
     sh fdb_ctl.sh download
     mv fdb_vars_bak.sh fdb_vars.sh
+    rm -rf "${fdbtmp}"
     popd
 }
 
@@ -194,6 +212,16 @@ package_fdb
 
 echo "Begin to install"
 cp -r "${ORI_OUTPUT}/fe" "${OUTPUT}/fe"
+# remove ali specific files that should be contained by cloud product line
+tmpdir=$(mktemp -d)
+echo "begin to remove rass-policy.xml from ${doris_fe_jar} at ${tmpdir}"
+doris_fe_jar="${OUTPUT}/fe/lib/doris-fe.jar"
+unzip -q "${doris_fe_jar}" -d "${tmpdir}"
+rm -f  "${tmpdir}/rass-policy.xml"
+(cd "$tmpdir" && zip -qr - .) > "${doris_fe_jar}"
+echo "removed rass-policy.xml from ${doris_fe_jar}"
+rm -rf "${tmpdir}"
+
 cp -r "${ORI_OUTPUT}/be" "${OUTPUT}/be"
 cp -r "${ORI_OUTPUT}/ms" "${OUTPUT}/ms"
 cp -r "${ORI_OUTPUT}/apache_hdfs_broker" "${OUTPUT}/apache_hdfs_broker"
