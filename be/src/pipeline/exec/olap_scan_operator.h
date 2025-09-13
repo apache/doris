@@ -269,6 +269,14 @@ private:
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
+    RuntimeProfile::Counter* _variant_scan_sparse_column_timer = nullptr;
+    RuntimeProfile::Counter* _variant_scan_sparse_column_bytes = nullptr;
+    RuntimeProfile::Counter* _variant_fill_path_from_sparse_column_timer = nullptr;
+    RuntimeProfile::Counter* _variant_subtree_default_iter_count = nullptr;
+    RuntimeProfile::Counter* _variant_subtree_leaf_iter_count = nullptr;
+    RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
+    RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
+
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReader::ReadSource> _read_sources;
 
