@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_create_and_drop_repository", "backup_restore") {
+suite("test_create_and_drop_repository", "backup_restore,external") {
     String repoName = "test_create_and_drop_repository"
 
     try_sql "DROP REPOSITORY `${repoName}`"
