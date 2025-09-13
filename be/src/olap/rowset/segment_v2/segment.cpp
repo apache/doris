@@ -757,7 +757,7 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+        return Status::NotFound<false>("column not found in segment, col_uid={}", col_uid);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
@@ -771,7 +771,7 @@ Status Segment::get_column_reader(const TabletColumn& col,
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+        return Status::NotFound<false>("column not found in segment, col_uid={}", col_uid);
     }
     if (col.has_path_info()) {
         vectorized::PathInData relative_path = col.path_info_ptr()->copy_pop_front();
