@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package infer_expr_name
-
 suite("nereids_test_create_blocked") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'

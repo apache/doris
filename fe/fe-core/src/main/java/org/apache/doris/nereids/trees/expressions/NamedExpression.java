@@ -28,8 +28,14 @@ import java.util.Optional;
  */
 public abstract class NamedExpression extends Expression {
 
-    protected NamedExpression(List<Expression> children) {
+    // Identify whether the name in NamedExpression comes from the child or is custom-defined. This field is
+    // used for column name derivation, and the derived column name must be valid.
+    // It will be used when creating views and tables
+    protected final boolean nameFromChild;
+
+    protected NamedExpression(List<Expression> children, boolean nameFromChild) {
         super(children);
+        this.nameFromChild = nameFromChild;
     }
 
     public Slot toSlot() throws UnboundException {
@@ -50,6 +56,11 @@ public abstract class NamedExpression extends Expression {
 
     public String getJoinQualifier() {
         return String.join(".", getQualifier());
+    }
+
+    //
+    public boolean isNameFromChild() {
+        return nameFromChild;
     }
 
     /**

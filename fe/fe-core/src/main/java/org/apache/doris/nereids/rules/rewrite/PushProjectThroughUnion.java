@@ -111,7 +111,8 @@ public class PushProjectThroughUnion extends OneRewriteRuleFactory {
                         = ExpressionUtils.replaceNameExpression(selectItem, replaceMap);
                 NamedExpression childProject = newSelectItem;
                 if (newSelectItem instanceof Alias) {
-                    childProject = new Alias(((Alias) newSelectItem).child(), newSelectItem.getName());
+                    childProject = new Alias(((Alias) newSelectItem).child(), newSelectItem.getName(),
+                            newSelectItem.isNameFromChild());
                 }
                 childProjections.add(childProject);
                 childOutputSlots.add((SlotReference) childProject.toSlot());

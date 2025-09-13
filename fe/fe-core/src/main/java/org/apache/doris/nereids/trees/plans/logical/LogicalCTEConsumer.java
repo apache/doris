@@ -111,7 +111,8 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                 slotRef != null ? slotRef.getOriginalTable().orElse(null) : null,
                 slotRef != null ? slotRef.getOriginalColumn().orElse(null) : null,
                 slotRef != null ? slotRef.getOneLevelTable().orElse(null) : null,
-                slotRef != null ? slotRef.getOneLevelColumn().orElse(null) : null);
+                slotRef != null ? slotRef.getOneLevelColumn().orElse(null) : null,
+                producerOutputSlot.isNameFromChild());
     }
 
     public Map<Slot, Slot> getConsumerToProducerOutputMap() {
