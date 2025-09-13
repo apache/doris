@@ -639,5 +639,38 @@ Status DataTypeMapSerDe::from_string_strict_mode(StringRef& str, IColumn& column
     return _from_string<true>(str, column, options);
 }
 
+void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    bw.write("{", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        if (key_serde->is_string_type()) {
+            bw.write("\"", 1);
+            key_serde->to_string(nested_keys_column, i, bw);
+            bw.write("\"", 1);
+        } else {
+            key_serde->to_string(nested_keys_column, i, bw);
+        }
+        bw.write(":", 1);
+        if (value_serde->is_string_type()) {
+            bw.write("\"", 1);
+            value_serde->to_string(nested_values_column, i, bw);
+            bw.write("\"", 1);
+        } else {
+            value_serde->to_string(nested_values_column, i, bw);
+        }
+    }
+    bw.write("}", 1);
+}
+
 } // namespace vectorized
 } // namespace doris

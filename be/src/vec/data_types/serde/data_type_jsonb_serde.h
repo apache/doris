@@ -80,6 +80,10 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
+    bool is_string_type() const override { return false; }
+
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
