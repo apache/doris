@@ -4927,6 +4927,186 @@ TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
     ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
     ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
 }
+TEST(CheckerTest, meta_rowset_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t tablet_id = 10001;
+    int64_t version = 1;
+    int64_t index_id = 1001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TabletIndexPB tablet_index;
+    tablet_index.set_index_id(index_id);
+    tablet_index.set_tablet_id(tablet_id);
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    txn->put(tablet_index_key, tablet_index.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id("resource_id");
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+    txn2->put(rowset_key, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = meta_rowset_key({instance_id, tablet_id, version});
+    std::string val;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 0);
+}
+
+TEST(CheckerTest, meta_rowset_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t version = 1;
+    int64_t non_existent_tablet_id = 10002;
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(non_existent_tablet_id);
+    rowset_pb.set_resource_id("resource_id");
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string rowset_key = meta_rowset_key({instance_id, non_existent_tablet_id, version});
+    txn->put(rowset_key, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = meta_rowset_key({instance_id, non_existent_tablet_id, version});
+    std::string val;
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn1->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 1);
+}
+
+TEST(CheckerTest, meta_tmp_rowset_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1000;
+    int64_t txn_id = 2000;
+    int64_t tablet_id = 3000;
+
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    TxnIndexPB txn_index_pb;
+    auto* tablet_index = txn_index_pb.mutable_tablet_index();
+    tablet_index->set_tablet_id(tablet_id);
+    std::string txn_index_key_str = txn_index_key({instance_id, txn_id});
+    txn1->put(txn_index_key_str, txn_index_pb.SerializeAsString());
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_PREPARED);
+    std::string txn_info_key_str = txn_info_key({instance_id, db_id, txn_id});
+    txn2->put(txn_info_key_str, txn_info_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn3;
+    ASSERT_EQ(txn_kv->create_txn(&txn3), TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    std::string meta_tmp_rowset_key_str = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 0);
+}
+
+TEST(CheckerTest, meta_tmp_rowset_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    constexpr int64_t db_id = 1000;
+    constexpr int64_t txn_id = 2000;
+    constexpr int64_t tablet_id = 3000;
+
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    TxnIndexPB txn_index_pb;
+    auto* tablet_index = txn_index_pb.mutable_tablet_index();
+    tablet_index->set_tablet_id(tablet_id);
+    std::string txn_index_key_str = txn_index_key({instance_id, txn_id});
+    txn1->put(txn_index_key_str, txn_index_pb.SerializeAsString());
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    std::string txn_info_key_str = txn_info_key({instance_id, db_id, txn_id});
+    txn2->put(txn_info_key_str, txn_info_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn3;
+    ASSERT_EQ(txn_kv->create_txn(&txn3), TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    std::string meta_tmp_rowset_key_str = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 1);
+}
 
 TEST(CheckerTest, tablet_stats_key_check_leak) {
     auto txn_kv = std::make_shared<MemTxnKv>();
