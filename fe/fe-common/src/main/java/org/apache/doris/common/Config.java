@@ -3600,4 +3600,10 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+        "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",
+        "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"
+    })
+    public static int first_error_msg_max_length = 256;
 }
