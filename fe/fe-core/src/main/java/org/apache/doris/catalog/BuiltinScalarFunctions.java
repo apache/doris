@@ -382,6 +382,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpCount;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpPosition;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
@@ -878,6 +879,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Random.class, "rand", "random"),
             scalar(Regexp.class, "regexp"),
             scalar(RegexpCount.class, "regexp_count"),
+            scalar(RegexpPosition.class, "regexp_position"),
             scalar(RegexpExtract.class, "regexp_extract"),
             scalar(RegexpExtractAll.class, "regexp_extract_all"),
             scalar(RegexpExtractOrNull.class, "regexp_extract_or_null"),
