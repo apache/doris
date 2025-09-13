@@ -549,7 +549,9 @@ public class PaimonUtil {
         if (isDigital) {
             timestampMillis = Long.parseLong(timestamp);
         } else {
-            timestampMillis = TimeUtils.msTimeStringToLong(timestamp, TimeUtils.getTimeZone());
+            // Supported formats include：yyyy-MM-dd, yyyy-MM-dd HH:mm:ss, yyyy-MM-dd HH:mm:ss.SSS.
+            // use default local time zone.
+            timestampMillis = DateTimeUtils.parseTimestampData(timestamp, 3, TimeUtils.getTimeZone()).getMillisecond();
             if (timestampMillis < 0) {
                 throw new DateTimeException("can't parse time: " + timestamp);
             }
