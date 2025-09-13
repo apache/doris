@@ -837,6 +837,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
+    public static final String ENABLE_PREFER_CACHED_ROWSET = "enable_prefer_cached_rowset";
+    public static final String QUERY_FRESHNESS_TOLERANCE_MS = "query_freshness_tolerance_ms";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2485,6 +2488,14 @@ public class SessionVariable implements Serializable, Writable {
             }, checker = "checkSkewRewriteAggBucketNum")
     public int skewRewriteAggBucketNum = 1024;
 
+    @VariableMgr.VarAttr(name = ENABLE_PREFER_CACHED_ROWSET, needForward = false,
+            description = {"是否启用 prefer cached rowset 功能",
+                    "Whether to enable prefer cached rowset feature"})
+    public boolean enablePreferCachedRowset = false;
+
+    @VariableMgr.VarAttr(name = QUERY_FRESHNESS_TOLERANCE_MS, needForward = false)
+    public long queryFreshnessToleranceMs = -1;
+
     public void setSkewRewriteAggBucketNum(int num) {
         this.skewRewriteAggBucketNum = num;
     }
@@ -3603,6 +3614,30 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean getEnablePreferCachedRowset() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            boolean userEnablePreferCachedRowset = connectContext.getEnv().getAuth()
+                    .getEnablePreferCachedRowset(connectContext.getQualifiedUser());
+            if (userEnablePreferCachedRowset) {
+                return userEnablePreferCachedRowset;
+            }
+        }
+        return enablePreferCachedRowset;
+    }
+
+    public long getQueryFreshnessToleranceMs() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            long userQueryFreshnessToleranceMs = connectContext.getEnv().getAuth()
+                    .getQueryFreshnessToleranceMs(connectContext.getQualifiedUser());
+            if (userQueryFreshnessToleranceMs > 0) {
+                return userQueryFreshnessToleranceMs;
+            }
+        }
+        return queryFreshnessToleranceMs;
+    }
+
     public int getExchangeInstanceParallel() {
         return exchangeInstanceParallel;
     }
@@ -4536,6 +4571,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
+
+        tResult.setEnablePreferCachedRowset(getEnablePreferCachedRowset());
+        tResult.setQueryFreshnessToleranceMs(getQueryFreshnessToleranceMs());
 
         // for spill
         tResult.setEnableSpill(enableSpill);
