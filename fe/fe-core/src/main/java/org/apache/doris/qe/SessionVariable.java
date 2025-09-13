@@ -714,6 +714,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
+    public static final String TABLE_REPLICA_COUNT_OVERRIDE = "table_replica_count_override";
+
     // enable variant flatten nested as session variable, default is false,
     // which means do not flatten nested when create table
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
@@ -1462,6 +1464,27 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
+
+    @VariableMgr.VarAttr(name = TABLE_REPLICA_COUNT_OVERRIDE, needForward = true,
+            description = {"用于回归测试。可以在不修改回归测试建表语句的情况下创建多副本的表，增加回归测试覆盖率。"
+                    + "\n如果设置了 fe 参数 force_olap_table_replication_allocation，"
+                    + "\n该参数不生效",
+                    "used to enable test programs to run successfully in both "
+                    + "single-BE (Backend) and multi-BE environments."
+                    + "\nIt ensures that:"
+                    + "\nIn single-BE environments, tables are created with ​​1 replica​​ by default"
+                    + "\nIn multi-BE environments, tables are created with ​​multiple replicas​​ by default"
+                    + "\nWhile still allowing creation of single-replica tables in multi-BE environments when needed"
+                    + "\n Do not work if fe config force_olap_table_replication_allocation is set."})
+    public int tableReplicaCountOverride = 0;
+
+    public void setTableReplicaCountOverride(int tableReplicaCountOverride) {
+        this.tableReplicaCountOverride = tableReplicaCountOverride;
+    }
+
+    public int getTableReplicaCountOverride() {
+        return this.tableReplicaCountOverride;
+    }
 
     @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
     private boolean enableVariantFlattenNested = false;

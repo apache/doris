@@ -1738,11 +1738,11 @@ public class PropertyAnalyzer {
     }
 
     public Map<String, String> rewriteOlapProperties(
-            String ctl, String db, Map<String, String> properties) {
+            String ctl, String db, Map<String, String> properties, int tableReplicaCountOverride) {
         if (properties == null) {
             properties = Maps.newHashMap();
         }
-        rewriteReplicaAllocationProperties(ctl, db, properties);
+        rewriteReplicaAllocationProperties(ctl, db, properties, tableReplicaCountOverride);
         rewriteForceProperties(properties);
         return properties;
     }
@@ -1758,13 +1758,17 @@ public class PropertyAnalyzer {
         return forceProperties;
     }
 
+    /**
+     * tableReplicaCountOverrideForTest: force override table's replica count.
+     *  0: not override.
+     *  1~n: override replica numbers to tableReplicaCountOverrideForTest
+     */
     private static Map<String, String> rewriteReplicaAllocationProperties(
-            String ctl, String db, Map<String, String> properties) {
-        if (Config.force_olap_table_replication_num <= 0) {
+            String ctl, String db, Map<String, String> properties, int tableReplicaCountOverrideForTest) {
+        LOG.info("rewriteReplicaAllocationProperties={}", tableReplicaCountOverrideForTest);
+        if (tableReplicaCountOverrideForTest <= 0) {
             return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
         }
-        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
-        // replication_allocation properties
         Map<String, String> newProperties = properties;
         if (newProperties == null) {
             newProperties = Maps.newHashMap();
@@ -1772,18 +1776,19 @@ public class PropertyAnalyzer {
         boolean rewrite = false;
         if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
             newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
+                    String.valueOf(tableReplicaCountOverrideForTest));
             rewrite = true;
         }
         if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
             newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
+                    new ReplicaAllocation((short) tableReplicaCountOverrideForTest).toCreateStmt());
             rewrite = true;
         }
         if (!rewrite) {
             newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
-                    String.valueOf(Config.force_olap_table_replication_num));
+                    String.valueOf(tableReplicaCountOverrideForTest));
         }
+
         return newProperties;
     }
 
