@@ -71,7 +71,7 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     std::string operation = req->param(OP);
     if (operation == HEADER) {
         TabletMeta tablet_meta;
-        tablet->generate_tablet_meta_copy(tablet_meta);
+        tablet->generate_tablet_meta_copy(tablet_meta, true);
         json2pb::Pb2JsonOptions json_options;
         json_options.pretty_json = true;
         json_options.bytes_to_base64 = enable_byte_to_base64;

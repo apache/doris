@@ -88,7 +88,7 @@ void show_meta() {
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
     doris::TabletMetaPB tablet_meta_pb;
-    tablet_meta.to_meta_pb(&tablet_meta_pb);
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
     json2pb::ProtoMessageToJson(tablet_meta_pb, &json_meta, json_options);
     std::cout << json_meta << std::endl;
 }
