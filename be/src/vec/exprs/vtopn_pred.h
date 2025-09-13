@@ -116,10 +116,16 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    bool has_value() const { return _predicate->has_value(); }
+    bool get_binary_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            // top rf maybe is `xxx order by abs(column) limit xxx`.
+            return false;
+        }
 
-    VExprSPtr get_binary_expr() const {
-        VExprSPtr root;
+        if (!_predicate->has_value()) {
+            return false;
+        }
+
         auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
         auto slot_data_type = remove_nullable(slot_ref->data_type());
         {
@@ -148,12 +154,12 @@ public:
             texpr_node.__set_fn(fn);
             texpr_node.__set_num_children(2);
             texpr_node.__set_is_nullable(is_nullable());
-            root = VectorizedFnCall::create_shared(texpr_node);
+            new_root = VectorizedFnCall::create_shared(texpr_node);
         }
 
         {
             // add slot
-            root->add_child(children().at(0));
+            new_root->add_child(children().at(0));
         }
         // add Literal
         {
@@ -161,9 +167,9 @@ public:
             TExprNode node = create_texpr_node_from(field, slot_data_type->get_primitive_type(),
                                                     slot_data_type->get_precision(),
                                                     slot_data_type->get_scale());
-            root->add_child(VLiteral::create_shared(node));
+            new_root->add_child(VLiteral::create_shared(node));
         }
-        return root;
+        return true;
     }
 
 private:
