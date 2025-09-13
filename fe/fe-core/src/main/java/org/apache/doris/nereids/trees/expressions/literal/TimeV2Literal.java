@@ -33,8 +33,8 @@ import java.time.LocalDateTime;
 public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
-    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
+    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, true);
+    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, false);
 
     protected int hour;
     protected int minute;
