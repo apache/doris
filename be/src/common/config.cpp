@@ -1593,6 +1593,8 @@ DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
 DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
 DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 
+DEFINE_mBool(enable_wal_tde, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

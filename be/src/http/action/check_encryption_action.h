@@ -15,15 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include <gen_cpp/FrontendService_types.h>
 
-#include <gen_cpp/olap_file.pb.h>
+#include "cloud/cloud_tablet_mgr.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_request.h"
+#include "olap/tablet_manager.h"
+#include "runtime/exec_env.h"
+namespace doris {
 
-#include "io/fs/file_system.h"
-namespace doris::io {
+class CheckEncryptionAction : public HttpHandlerWithAuth {
+public:
+    explicit CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
 
-struct EncryptionInfo;
+    void handle(HttpRequest* req) override;
+};
 
-FileSystemSPtr make_file_system(const FileSystemSPtr& inner, EncryptionAlgorithmPB algorithm);
-
-} // namespace doris::io
+} // namespace doris

@@ -34,6 +34,7 @@
 #include "http/action/batch_download_action.h"
 #include "http/action/be_proc_thread_action.h"
 #include "http/action/calc_file_crc_action.h"
+#include "http/action/check_encryption_action.h"
 #include "http/action/check_rpc_channel_action.h"
 #include "http/action/check_tablet_segment_action.h"
 #include "http/action/checksum_action.h"
@@ -448,6 +449,10 @@ void HttpService::register_local_handler(StorageEngine& engine) {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_manager()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
+    CheckEncryptionAction* check_encryption_action =
+            _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
+                                      check_encryption_action);
 }
 
 void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
@@ -503,6 +508,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, engine.tablet_mgr()));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction_score",
                                       compaction_score_action);
+    CheckEncryptionAction* check_encryption_action =
+            _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
+                                      check_encryption_action);
 }
 // NOLINTEND(readability-function-size)
 
