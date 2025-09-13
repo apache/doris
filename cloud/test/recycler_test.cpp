@@ -4940,6 +4940,7 @@ TEST(RecyclerTest, recycle_tablet_without_resource_id) {
     sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
         auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
         auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(1); // force delete rowset data
         EXPECT_EQ(rs->has_resource_id(), false);
     });
     sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
