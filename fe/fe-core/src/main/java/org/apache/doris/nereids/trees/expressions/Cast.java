@@ -49,16 +49,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     private final DataType targetType;
 
-    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = isExplicitType;
+    public Cast(Expression child, DataType targetType) {
+        this(child, targetType, false);
     }
 
-    public Cast(Expression child, DataType targetType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = false;
+    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
+        this(ImmutableList.of(child), targetType, isExplicitType);
     }
 
     private Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
