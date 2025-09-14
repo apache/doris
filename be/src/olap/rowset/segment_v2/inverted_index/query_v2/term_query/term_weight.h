@@ -35,8 +35,9 @@ public:
               _enable_scoring(enable_scoring) {}
     ~TermWeight() override = default;
 
-    ScorerPtr scorer(lucene::index::IndexReader* reader) override {
+    ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
         auto t = make_term_ptr(_field.c_str(), _term.c_str());
+        auto* reader = composite_reader->get_reader(_field);
         auto iter = make_term_doc_ptr(reader, t.get(), _enable_scoring, _context->io_ctx);
 
         auto make_scorer = [this](auto segment_postings) -> ScorerPtr {
