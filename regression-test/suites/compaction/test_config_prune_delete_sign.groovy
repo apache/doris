@@ -66,9 +66,15 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         qt_sql "select count() from ${table1};"
         getDeleteSignCnt()
 
-        (31..60).each {
+        (31..59).each {
             sql "insert into ${table1} values($it,$it,$it);"
         }
+        trigger_and_wait_compaction(table1, "cumulative")
+
+        // cloud base compaction does not include [0,1], after last cumulative compaction,
+        // the base compacton would report -808, which means the base compaction is not triggered.
+        // so we need to insert a row to make sure the base compaction happens.
+        sql "insert into ${table1} values(60,60,60);"
         trigger_and_wait_compaction(table1, "cumulative")
 
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
