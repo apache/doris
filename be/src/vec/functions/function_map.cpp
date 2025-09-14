@@ -763,9 +763,8 @@ private:
         PrimitiveType key_primitive_type = map_key_type->get_primitive_type();
         PrimitiveType value_primitive_type = map_value_type->get_primitive_type();
 
-        // FE should have unified column types
-        DCHECK_EQ(key_primitive_type, search_key_type->get_primitive_type());
-        DCHECK_EQ(value_primitive_type, search_value_type->get_primitive_type());
+        // FE should ensure the column types are the same,
+        // but primitive type may be different (eg. TYPE_STRING and TYPE_VARCHAR both use ColumnString)
 
         // check whether this function supports equality comparison for the types
         if (!is_equality_comparison_supported(key_primitive_type) ||
