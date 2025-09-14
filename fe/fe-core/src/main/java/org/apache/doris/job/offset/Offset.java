@@ -19,4 +19,8 @@ package org.apache.doris.job.offset;
 
 public interface Offset {
     String toJson();
+
+    void setEndOffset(String endOffset);
+
+    String endOffset();
 }

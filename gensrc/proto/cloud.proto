@@ -322,6 +322,7 @@ enum LoadJobSourceTypePB {
     LOAD_JOB_SRC_TYPE_INSERT_STREAMING  = 3; // insert stmt (streaming type), update stmt use this type
     LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK = 4; // routine load task use this type
     LOAD_JOB_SRC_TYPE_BATCH_LOAD_JOB    = 5; // load job v2 for broker load
+    LOAD_JOB_SRC_TYPE_STREAMING_JOB     = 6; // streaming job use this type
 }
 
 enum TxnStatusPB {
@@ -365,10 +366,21 @@ message RoutineLoadJobStatisticPB {
     optional int64 task_execution_time_ms = 5;
 }
 
+message StreamingTaskCommitAttachmentPB {
+    optional int64 job_id = 1;
+    optional UniqueIdPB task_id = 2;
+    optional string offset = 3;
+    optional int64 scanned_rows = 4;
+    optional int64 load_bytes = 5;
+    optional int64 file_number = 6;
+    optional int64 file_size = 7;
+}
+
 message TxnCommitAttachmentPB {
     enum Type {
         LODD_JOB_FINAL_OPERATION = 0;
         RT_TASK_TXN_COMMIT_ATTACHMENT = 1;
+        STREAMING_TASK_TXN_COMMIT_ATTACHMENT = 2;
     }
     message LoadJobFinalOperationPB {
         message EtlStatusPB {
@@ -425,6 +437,7 @@ message TxnCommitAttachmentPB {
     optional Type type = 1;
     optional LoadJobFinalOperationPB load_job_final_operation = 2;
     optional RLTaskTxnCommitAttachmentPB rl_task_txn_commit_attachment = 3;
+    optional StreamingTaskCommitAttachmentPB streaming_task_txn_commit_attachment = 4;
 }
 
 // For storing label -> txn_ids
@@ -1698,7 +1711,8 @@ enum MetaServiceCode {
     JOB_ALREADY_SUCCESS = 5002;
     ROUTINE_LOAD_DATA_INCONSISTENT = 5003;
     ROUTINE_LOAD_PROGRESS_NOT_FOUND = 5004;
-    JOB_CHECK_ALTER_VERSION = 5005;
+    STREAMING_JOB_PROGRESS_NOT_FOUND = 5005;
+    JOB_CHECK_ALTER_VERSION = 5006;
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
@@ -1874,6 +1888,18 @@ message ResetRLProgressRequest {
 
 message ResetRLProgressResponse {
     optional MetaServiceResponseStatus status = 1;
+}
+
+message GetStreamingTaskCommitAttachRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 db_id = 2;
+    optional int64 job_id = 3;
+    optional string request_ip = 4;
+}
+
+message GetStreamingTaskCommitAttachResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional StreamingTaskCommitAttachmentPB commit_attach = 2;
 }
 
 message CheckKeyInfos {
@@ -2068,6 +2094,9 @@ service MetaService {
     // routine load progress
     rpc get_rl_task_commit_attach(GetRLTaskCommitAttachRequest) returns (GetRLTaskCommitAttachResponse);
     rpc reset_rl_progress(ResetRLProgressRequest) returns (ResetRLProgressResponse);
+
+    // streaming job meta
+    rpc get_streaming_task_commit_attach(GetStreamingTaskCommitAttachRequest) returns (GetStreamingTaskCommitAttachResponse);
 
     // check KV
     rpc check_kv(CheckKVRequest) returns (CheckKVResponse);
