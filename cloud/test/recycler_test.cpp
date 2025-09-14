@@ -878,10 +878,10 @@ static int create_delete_bitmap_update_lock_kv(TxnKv* txn_kv, int64_t table_id, 
     return 0;
 }
 
-static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
+static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t version = 1) {
     auto key = table_version_key({instance_id, db_id, table_id});
     std::string val(sizeof(int64_t), 0);
-    *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
+    *reinterpret_cast<int64_t*>(val.data()) = version;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -5111,6 +5111,97 @@ TEST(CheckerTest, tablet_stats_key_check_normal) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     ASSERT_EQ(checker.do_tablet_stats_key_check(), 0);
+}
+
+TEST(CheckerTest, version_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("version_key_check_normal");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("version_key_check_normal");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    int64_t table_id = 998;
+    size_t part_num = 5;
+    size_t table_version = 20;
+    size_t part_version = 10;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    create_table_version_kv(txn_kv.get(), table_id, table_version);
+    for (size_t partition_id = 0; partition_id < part_num; partition_id++) {
+        std::string part_ver_key =
+                partition_version_key({instance_id, db_id, table_id, partition_id});
+        std::string part_ver_val;
+        VersionPB version_pb;
+        version_pb.set_version(part_version);
+        version_pb.SerializeToString(&part_ver_val);
+        txn->put(part_ver_key, part_ver_val);
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_version_key_check(), 0);
+}
+
+TEST(CheckerTest, version_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("version_key_check_abnormal");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("version_key_check_normal");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    int64_t table_id = 998;
+    size_t part_num = 6;
+    size_t table_version = 20;
+    size_t part_version_normal = 10;
+    size_t part_version_abnormal = 30;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    create_table_version_kv(txn_kv.get(), table_id, table_version);
+    for (size_t partition_id = 0; partition_id < part_num; partition_id++) {
+        std::string part_ver_key =
+                partition_version_key({instance_id, db_id, table_id, partition_id});
+        std::string part_ver_val;
+        VersionPB version_pb;
+        if (partition_id < part_num / 2) {
+            version_pb.set_version(part_version_normal);
+        } else {
+            version_pb.set_version(part_version_abnormal);
+        }
+        version_pb.SerializeToString(&part_ver_val);
+        txn->put(part_ver_key, part_ver_val);
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_version_key_check(), -1);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {

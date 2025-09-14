@@ -139,6 +139,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -643,6 +644,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterTableCommand(AlterTableCommand alterTableCommand, C context) {
         return visitCommand(alterTableCommand, context);
+    }
+
+    default R visitOptimizeTableCommand(OptimizeTableCommand optimizeTableCommand, C context) {
+        return visitCommand(optimizeTableCommand, context);
     }
 
     default R visitShowGrantsCommand(ShowGrantsCommand showGrantsCommand, C context) {
