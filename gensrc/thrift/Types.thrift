@@ -758,6 +758,11 @@ enum TMetadataType {
   PAIMON = 12,
 }
 
+// deprecated
+enum TIcebergQueryType {
+  SNAPSHOTS
+}
+
 enum THudiQueryType {
   TIMELINE = 0
 }

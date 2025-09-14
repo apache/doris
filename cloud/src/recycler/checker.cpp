@@ -228,6 +228,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_version_key_check) {
+                if (int ret = checker->do_version_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
@@ -2055,6 +2061,85 @@ int InstanceChecker::scan_and_handle_kv(
     return ret;
 }
 
+int InstanceChecker::do_version_key_check() {
+    std::unique_ptr<RangeGetIterator> it;
+    std::string begin = table_version_key({instance_id_, 0, 0});
+    std::string end = table_version_key({instance_id_, INT64_MAX, 0});
+    bool check_res = true;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            int64_t table_version = -1;
+            // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}
+            if (!txn->decode_atomic_int(v, &table_version)) {
+                LOG(WARNING) << "malformed table version value";
+                return -1;
+            }
+            auto table_id = std::get<int64_t>(std::get<0>(out[4]));
+            auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+            std::string partition_version_key_begin =
+                    partition_version_key({instance_id_, db_id, table_id, 0});
+            std::string partition_version_key_end =
+                    partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+            VersionPB partition_version_pb;
+
+            do {
+                std::unique_ptr<Transaction> txn;
+                TxnErrorCode err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG(WARNING) << "failed to create txn";
+                    return -1;
+                }
+                err = txn->get(partition_version_key_begin, partition_version_key_end, &it);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+                    return -1;
+                }
+                while (it->has_next() && !stopped()) {
+                    auto [k, v] = it->next();
+                    // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
+                    std::string_view k1 = k;
+                    k1.remove_prefix(1);
+                    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                    decode_key(&k1, &out);
+                    if (!partition_version_pb.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                        LOG(WARNING) << "failed to parse partition VersionPB";
+                        return -1;
+                    }
+                    auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+                    int64_t partition_version = partition_version_pb.version();
+                    if (table_version < partition_version) {
+                        check_res = false;
+                        LOG(WARNING)
+                                << "table version is less than partition version,"
+                                << " table_id: " << table_id << "tablet_version: " << table_version
+                                << " partition_id: " << partition_id
+                                << " partition_version: " << partition_version;
+                    }
+                }
+                partition_version_key_begin = it->next_begin_key();
+            } while (it->more() && !stopped());
+        }
+        begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return check_res ? 0 : -1;
+}
+
 int InstanceChecker::do_restore_job_check() {
     int64_t num_prepared = 0;
     int64_t num_committed = 0;
@@ -2103,6 +2188,7 @@ int InstanceChecker::do_restore_job_check() {
             LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
             return -1;
         }
+
         if (!it->has_next()) {
             break;
         }
