@@ -208,9 +208,9 @@ std::string VFileResultWriter::_file_format_to_name() {
 std::string VFileResultWriter::_compression_type_to_name() {
     switch (_file_opts->compression_type) {
     case TFileCompressType::GZ:
-        return ".gzip";
+        return ".gz";
     case TFileCompressType::BZ2:
-        return ".bzip2";
+        return ".bz2";
     case TFileCompressType::SNAPPYBLOCK:
         return ".snappy";
     case TFileCompressType::LZ4BLOCK:
