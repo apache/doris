@@ -164,13 +164,16 @@ TEST_F(CheckOverFlowTest, test_overflow_int256) {
         // std::cout << "Testing multiplication as int256: " << wide::to_string(i1) << " * "
         //           << wide::to_string(i2) << " = " << wide::to_string(expect_result) << std::endl;
         wide::Int256 mul_res = 0;
-        // wide::Int256 mul_res_direct = i1 * i2;
         bool overflow = common::mul_overflow(i1, i2, mul_res);
-        // std::cout << "actual multiplication result: " << wide::to_string(mul_res)
-        //           << ", multi res direct: " << wide::to_string(mul_res_direct) << std::endl;
         EXPECT_FALSE(overflow);
         EXPECT_EQ(mul_res, expect_result);
         std::string str_output = wide::to_string(mul_res);
+        EXPECT_EQ(str_output, expected_str);
+
+        overflow = common::mul_overflow(i2, i1, mul_res);
+        EXPECT_FALSE(overflow);
+        EXPECT_EQ(mul_res, expect_result);
+        str_output = wide::to_string(mul_res);
         EXPECT_EQ(str_output, expected_str);
     }
     std::vector<std::tuple<std::string, std::string>> test_input_data_overflow = {
@@ -228,6 +231,8 @@ TEST_F(CheckOverFlowTest, test_overflow_int256) {
         //           << wide::to_string(i2) << " = " << wide::to_string(mul_res_direct) << std::endl;
         wide::Int256 mul_res;
         bool overflow = common::mul_overflow(i1, i2, mul_res);
+        EXPECT_TRUE(overflow);
+        overflow = common::mul_overflow(i2, i1, mul_res);
         EXPECT_TRUE(overflow);
     }
 }
