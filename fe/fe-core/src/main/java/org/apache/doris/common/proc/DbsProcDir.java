@@ -107,7 +107,7 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                long usedDataQuota = (db instanceof Database) ? ((Database) db).getUsedDataQuotaWithLock() : 0;
+                long usedDataQuota = (db instanceof Database) ? ((Database) db).getUsedDataQuota() : 0;
                 long dataQuota = (db instanceof Database) ? ((Database) db).getDataQuota() : 0;
                 String readableUsedQuota = DebugUtil.printByteWithUnit(usedDataQuota);
                 String readableQuota = DebugUtil.printByteWithUnit(dataQuota);
