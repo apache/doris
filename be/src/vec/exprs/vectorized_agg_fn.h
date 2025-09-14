@@ -111,6 +111,8 @@ public:
 
     AggFnEvaluator* clone(RuntimeState* state, ObjectPool* pool);
 
+    bool is_blockable() const;
+
 private:
     const TFunction _fn;
 

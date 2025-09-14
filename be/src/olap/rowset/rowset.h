@@ -323,6 +323,10 @@ public:
     // set the rowset as a hole rowset
     void set_hole_rowset(bool is_hole_rowset) { _is_hole_rowset = is_hole_rowset; }
 
+    int64_t approximate_cached_data_size();
+
+    int64_t approximate_cache_index_size();
+
 protected:
     friend class RowsetFactory;
 

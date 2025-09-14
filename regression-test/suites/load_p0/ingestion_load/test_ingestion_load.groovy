@@ -21,7 +21,7 @@ import java.nio.file.StandardCopyOption
 
 suite('test_ingestion_load', 'p0,external') {
 
-    def testIngestLoadJob = { testTable, loadLabel, String dataFile ->
+    def testIngestLoadJob = { testTable, loadLabel, String dataFile , filesize ->
 
         sql "TRUNCATE TABLE ${testTable}"
 
@@ -85,7 +85,7 @@ suite('test_ingestion_load', 'p0,external') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": ${filesize}}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -156,7 +156,7 @@ suite('test_ingestion_load', 'p0,external') {
 
         def label = "test_ingestion_load"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet',5745)
 
         tableName = 'tbl_test_spark_load_unique_mor'
 
@@ -189,7 +189,7 @@ suite('test_ingestion_load', 'p0,external') {
 
         label = "test_ingestion_load_unique_mor"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet',5745)
 
         tableName = 'tbl_test_spark_load_agg'
 
@@ -215,7 +215,7 @@ suite('test_ingestion_load', 'p0,external') {
 
         label = "test_ingestion_load_agg"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet',4057)
 
     }
 

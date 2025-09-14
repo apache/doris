@@ -1164,6 +1164,7 @@ DECLARE_mInt64(cache_lock_held_long_tail_threshold_us);
 // enable this option; otherwise, it is recommended to leave it disabled.
 DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 DECLARE_mBool(enable_file_cache_adaptive_write);
+DECLARE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio);
 DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
@@ -1645,6 +1646,8 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
+
+DECLARE_mBool(enable_wal_tde);
 
 #ifdef BE_TEST
 // test s3

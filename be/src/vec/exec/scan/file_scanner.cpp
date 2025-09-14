@@ -965,9 +965,6 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
-        // JNI reader can only push down column value range
-        bool push_down_predicates =
-                !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -984,6 +981,8 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
+        // JNI reader can only push down column value range
+        bool push_down_predicates = !_is_load && format_type != TFileFormatType::FORMAT_JNI;
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {

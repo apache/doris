@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/controller.h>
+#include <bthread/countdown_event.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
@@ -41,6 +42,10 @@ struct FileMapping;
 struct IteratorKey;
 struct IteratorItem;
 struct HashOfIteratorKey;
+
+inline void fetch_callback(bthread::CountdownEvent* counter) {
+    Defer __defer([&] { counter->signal(); });
+}
 
 namespace vectorized {
 template <typename T>

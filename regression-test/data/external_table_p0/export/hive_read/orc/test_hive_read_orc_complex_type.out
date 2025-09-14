@@ -33,7 +33,7 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":null, "b":333, "c":399, "d":399999999999999}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -42,7 +42,7 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":null, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -156,7 +156,7 @@
 1	doris1	{"a":100, "b":111}
 2	doris2	{"a":200, "b":222}
 3	doris3	{"a":null, "b":333, "c":399, "d":399999999999999}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N
@@ -165,7 +165,7 @@
 1	doris1	{"a":"100", "b":"111"}
 2	doris2	{"a":"200", "b":"222"}
 3	doris3	{"a":null, "b":"333", "c":"399", "d":"399999999999999"}
-4	doris4	{null:null, null:null}
+4	doris4	{null:null}
 5	doris5	{"b":null}
 6	\N	\N
 7	doris7	\N

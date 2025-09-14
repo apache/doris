@@ -58,6 +58,8 @@ public:
         return assert_cast<const Derived&>(*this).number_of_arguments;
     }
 
+    bool is_blockable() const override { return true; }
+
     virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
                                 std::string& prompt) const {
         const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);

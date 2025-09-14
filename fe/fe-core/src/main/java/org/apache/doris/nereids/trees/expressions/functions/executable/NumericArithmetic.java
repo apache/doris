@@ -500,6 +500,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "sqrt")
     public static Expression sqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -612,6 +615,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "asin")
     public static Expression asin(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -623,6 +629,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "acos")
     public static Expression acos(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, -1.0, 1.0, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -919,6 +928,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "dsqrt")
     public static Expression dsqrt(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, true, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
