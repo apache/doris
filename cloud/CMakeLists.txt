@@ -264,6 +264,7 @@ include_directories(
 
 option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
 if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
     if ("${DORIS_JAVA_HOME}" STREQUAL "")
         set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
     endif()
