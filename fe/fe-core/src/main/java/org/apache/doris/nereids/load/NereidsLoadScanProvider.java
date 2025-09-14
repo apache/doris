@@ -62,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -164,10 +165,14 @@ public class NereidsLoadScanProvider {
         //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
         //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<NereidsImportColumnDesc> copiedColumnExprs = new ArrayList<>(columnDescs.size());
+        Set<String> userMappingColumns = new HashSet<>();
         for (NereidsImportColumnDesc importColumnDesc : columnDescs) {
             String mappingColumnName = importColumnDesc.getColumnName();
-            if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
+            if (importColumnDesc.isColumn()) {
                 copiedColumnExprs.add(importColumnDesc);
+            } else if (tbl.getColumn(mappingColumnName) != null) {
+                copiedColumnExprs.add(importColumnDesc);
+                userMappingColumns.add(mappingColumnName);
             }
         }
 
@@ -188,6 +193,11 @@ public class NereidsLoadScanProvider {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                if (userMappingColumns.contains(column.getName())) {
+                    // Skip this column because user has already specified a mapping expression for it
+                    // in the COLUMNS parameter (e.g., "column_name = expression")
+                    continue;
+                }
                 NereidsImportColumnDesc columnDesc;
                 if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
