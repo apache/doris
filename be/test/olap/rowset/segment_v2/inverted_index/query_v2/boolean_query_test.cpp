@@ -39,23 +39,34 @@ using namespace inverted_index;
 
 class BooleanQueryTest : public testing::Test {
 public:
-    const std::string kTestDir = "./ut_dir/query_test";
-    std::string field_name = "name";
+    const std::string kTestDir1 = "./ut_dir/query_test1";
+    const std::string kTestDir2 = "./ut_dir/query_test2";
 
     void SetUp() override {
-        auto st = io::global_local_filesystem()->delete_directory(kTestDir);
-        ASSERT_TRUE(st.ok()) << st;
-        st = io::global_local_filesystem()->create_directory(kTestDir);
-        ASSERT_TRUE(st.ok()) << st;
-
-        create_test_index();
+        {
+            auto st = io::global_local_filesystem()->delete_directory(kTestDir1);
+            ASSERT_TRUE(st.ok()) << st;
+            st = io::global_local_filesystem()->create_directory(kTestDir1);
+            ASSERT_TRUE(st.ok()) << st;
+            std::string field_name1 = "name1";
+            create_test_index(field_name1, kTestDir1);
+        }
+        {
+            auto st = io::global_local_filesystem()->delete_directory(kTestDir2);
+            ASSERT_TRUE(st.ok()) << st;
+            st = io::global_local_filesystem()->create_directory(kTestDir2);
+            ASSERT_TRUE(st.ok()) << st;
+            std::string field_name2 = "name2";
+            create_test_index(field_name2, kTestDir2);
+        }
     }
     void TearDown() override {
-        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir1).ok());
+        EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir2).ok());
     }
 
 private:
-    void create_test_index() {
+    void create_test_index(const std::string& field_name, const std::string& dir) {
         std::vector<std::string> test_data = {"apple banana orange",   "apple cherry grape",
                                               "banana cherry kiwi",    "orange grape strawberry",
                                               "apple orange kiwi",     "cherry banana grape",
@@ -67,7 +78,7 @@ private:
         auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
 
         auto* indexwriter =
-                _CLNEW lucene::index::IndexWriter(kTestDir.c_str(), custom_analyzer.get(), true);
+                _CLNEW lucene::index::IndexWriter(dir.c_str(), custom_analyzer.get(), true);
         indexwriter->setMaxBufferedDocs(100);
         indexwriter->setRAMBufferSizeMB(-1);
         indexwriter->setMaxFieldLength(0x7FFFFFFFL);
@@ -109,6 +120,9 @@ static Status boolean_query_search(
         query_v2::OperatorType op, roaring::Roaring& out_bitmap) {
     std::wstring field = StringHelper::to_wstring(name);
 
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
@@ -136,7 +150,7 @@ static Status boolean_query_search(
     }
     auto boolean_query = builder.build();
     auto weight = boolean_query->weight(false);
-    auto scorer = weight->scorer(reader);
+    auto scorer = weight->scorer(composite_reader);
 
     uint32_t doc = scorer->doc();
     while (doc != query_v2::TERMINATED) {
@@ -173,7 +187,7 @@ TEST_F(BooleanQueryTest, test_boolean_query) {
             {{"cherry"}, {"strawberry"}},
             {{"apple", "banana"}, {"kiwi"}}};
 
-    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
     auto* reader = IndexReader::open(dir, true);
 
     ASSERT_TRUE(reader != nullptr) << "Failed to open index reader";
@@ -186,7 +200,7 @@ TEST_F(BooleanQueryTest, test_boolean_query) {
         roaring::Roaring result;
 
         try {
-            Status res = boolean_query_search(field_name, reader, terms,
+            Status res = boolean_query_search("name1", reader, terms,
                                               query_v2::OperatorType::OP_AND, result);
             EXPECT_TRUE(res.ok()) << "Boolean query case " << i << " should execute successfully";
             EXPECT_EQ(result.cardinality(), expected_cards[i])
@@ -210,7 +224,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
     std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>> test_cases = {
             {{"apple"}, {"banana"}}, {{"nonexistent"}, {"apple"}}};
 
-    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
     auto* reader = IndexReader::open(dir, true);
 
     const std::vector<uint32_t> expected_cards = {70, 40};
@@ -220,8 +234,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
         roaring::Roaring result;
 
         try {
-            Status res = boolean_query_search(field_name, reader, terms,
-                                              query_v2::OperatorType::OP_OR, result);
+            Status res = boolean_query_search("name1", reader, terms, query_v2::OperatorType::OP_OR,
+                                              result);
             EXPECT_TRUE(res.ok()) << "Boolean OR query case " << i
                                   << " should execute successfully";
             EXPECT_EQ(result.cardinality(), expected_cards[i])
@@ -237,13 +251,13 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_operation) {
 }
 
 TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
-    std::wstring field = StringHelper::to_wstring(field_name);
+    std::wstring field = StringHelper::to_wstring("name1");
 
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
-    std::wstring ws_field = StringHelper::to_wstring(field_name);
+    std::wstring ws_field = StringHelper::to_wstring("name1");
     // 直接访问成员填充统计信息
     context->collection_statistics->_total_num_docs = 80;
     context->collection_statistics->_total_num_tokens[ws_field] = 240; // 80*3
@@ -276,12 +290,15 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     }
     auto boolean_query = builder.build();
 
-    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto* dir = FSDirectory::getDirectory(kTestDir1.c_str());
     auto* reader = IndexReader::open(dir, true);
     ASSERT_TRUE(reader != nullptr);
 
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(field, reader);
+
     auto weight = boolean_query->weight(true);
-    auto scorer = weight->scorer(reader);
+    auto scorer = weight->scorer(composite_reader);
 
     uint32_t doc = scorer->doc();
     uint32_t count = 0;
@@ -300,9 +317,6 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
         doc = scorer->advance();
     }
 
-    std::cout << "count: " << count << std::endl;
-    std::cout << "score_single: " << score_single << std::endl;
-    std::cout << "score_both: " << score_both << std::endl;
     EXPECT_EQ(count, 50);
     EXPECT_GT(score_single, 0.0F);
     EXPECT_GT(score_both, 0.0F);
@@ -311,6 +325,75 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     reader->close();
     _CLLDELETE(reader);
     _CLDECDELETE(dir);
+}
+
+TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) {
+    std::string field_name1 = "name1";
+    std::string field_name2 = "name2";
+    std::wstring wfield1 = StringHelper::to_wstring(field_name1);
+    std::wstring wfield2 = StringHelper::to_wstring(field_name2);
+
+    auto* dir1 = FSDirectory::getDirectory(kTestDir1.c_str());
+    auto* dir2 = FSDirectory::getDirectory(kTestDir2.c_str());
+    auto* ir1 = IndexReader::open(dir1, true);
+    auto* ir2 = IndexReader::open(dir2, true);
+    ASSERT_TRUE(ir1 != nullptr);
+    ASSERT_TRUE(ir2 != nullptr);
+    EXPECT_EQ(ir1->numDocs(), 80);
+    EXPECT_EQ(ir2->numDocs(), 80);
+
+    auto composite_reader = std::make_unique<query_v2::CompositeReader>();
+    composite_reader->set_reader(wfield1, ir1);
+    composite_reader->set_reader(wfield2, ir2);
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    context->collection_similarity = std::make_shared<CollectionSimilarity>();
+
+    {
+        query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_AND);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
+                                                    StringHelper::to_wstring("apple")));
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
+                                                    StringHelper::to_wstring("banana")));
+        auto q = b.build();
+        auto w = q->weight(false);
+        auto s = w->scorer(composite_reader);
+
+        uint32_t doc = s->doc();
+        uint32_t count = 0;
+        while (doc != query_v2::TERMINATED) {
+            ++count;
+            doc = s->advance();
+        }
+        EXPECT_EQ(count, 10);
+    }
+
+    {
+        query_v2::BooleanQuery::Builder b(query_v2::OperatorType::OP_OR);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
+                                                    StringHelper::to_wstring("apple")));
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
+                                                    StringHelper::to_wstring("banana")));
+        auto q = b.build();
+        auto w = q->weight(false);
+        auto s = w->scorer(composite_reader);
+
+        uint32_t doc = s->doc();
+        uint32_t count = 0;
+        while (doc != query_v2::TERMINATED) {
+            ++count;
+            doc = s->advance();
+        }
+        EXPECT_EQ(count, 70);
+    }
+
+    ir1->close();
+    ir2->close();
+    _CLLDELETE(ir1);
+    _CLLDELETE(ir2);
+    _CLDECDELETE(dir1);
+    _CLDECDELETE(dir2);
 }
 
 } // namespace doris::segment_v2
