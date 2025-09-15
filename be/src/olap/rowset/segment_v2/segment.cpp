@@ -628,12 +628,14 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // of the variant column itself. We should return the Variant type.
     // If node is nullptr, it means the path is not exist in the variant sub columns.
     if (node == nullptr || relative_path.empty()) {
+        // nested subcolumn is not exist in the sparse column
+        if (column.is_nested_subcolumn()) {
+            return vectorized::DataTypeFactory::instance().create_data_type(column);
+        }
+
         // when the path is in the sparse column or exceeded the limit, return the variant type.
         if (variant_reader->exist_in_sparse_column(relative_path) ||
             variant_reader->is_exceeded_sparse_column_limit()) {
-            if (column.is_nested_subcolumn()) {
-                return vectorized::DataTypeFactory::instance().create_data_type(column);
-            }
             return column.is_nullable() ? vectorized::make_nullable(
                                                   std::make_shared<vectorized::DataTypeVariant>(
                                                           column.variant_max_subcolumns_count()))
