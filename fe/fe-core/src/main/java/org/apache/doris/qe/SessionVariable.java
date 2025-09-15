@@ -3028,10 +3028,10 @@ public class SessionVariable implements Serializable, Writable {
 
         if (Config.fuzzy_test_type.equals("p0")) {
             if (random.nextInt(2) == 1) {
-                this.batchSize = 4064;
+                this.batchSize = 100;
                 this.enableFoldConstantByBe = true;
             } else {
-                this.batchSize = 1024;
+                this.batchSize = 100;
                 this.enableFoldConstantByBe = false;
             }
 
