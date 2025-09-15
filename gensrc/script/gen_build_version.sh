@@ -27,12 +27,17 @@
 
 set -eo pipefail
 
-build_version_prefix="${DORIS_BUILD_VERSION_PREFIX-doris}"
-build_version_major="${DORIS_BUILD_VERSION_MAJOR-0}"
-build_version_minor="${DORIS_BUILD_VERSION_MINOR-0}"
-build_version_patch="${DORIS_BUILD_VERSION_PATCH-0}"
-build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
-build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-""}"
+vendor=doris
+if [[ $1 != "" ]]; then
+    vendor=$1
+fi
+
+build_version_prefix="${vendor}"
+build_version_major=4
+build_version_minor=0
+build_version_patch=0
+build_version_hotfix=0
+build_version_rc_version="rc02"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
