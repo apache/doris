@@ -54,6 +54,9 @@ DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
 // Dir of jdbc drivers
 DEFINE_String(jdbc_drivers_dir, "${DORIS_HOME}/plugins/jdbc_drivers");
 
+// Dir of java udf
+DEFINE_String(java_udf_dir, "${DORIS_HOME}/plugins/java_udf");
+
 // cluster id
 DEFINE_Int32(cluster_id, "-1");
 // port on which BackendService is exported

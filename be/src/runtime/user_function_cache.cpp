@@ -42,6 +42,7 @@
 #include "runtime/exec_env.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
+#include "util/path_util.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -271,10 +272,12 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         return Status::InternalError("fail to open file");
     }
 
+    std::string udf_path = doris::path_util::get_real_plugin_url(
+        url, doris::config::java_udf_dir, "java_udf");
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
-    RETURN_IF_ERROR(client.init(_get_real_url(url)));
+    RETURN_IF_ERROR(client.init(udf_path));
     Status status;
     auto download_cb = [&status, &tmp_file, &fp, &digest, &file_size](const void* data,
                                                                       size_t length) {
@@ -381,35 +384,6 @@ std::vector<std::string> UserFunctionCache::_split_string_by_checksum(const std:
     result.push_back(file.substr(lastDot + 1));
 
     return result;
-}
-
-std::string UserFunctionCache::_get_real_url(const std::string& url) {
-    if (url.find(":/") == std::string::npos) {
-        return _check_and_return_default_driver_url(url);
-    }
-    return url;
-}
-
-std::string UserFunctionCache::_check_and_return_default_driver_url(const std::string& url) {
-    const char* doris_home = std::getenv("DORIS_HOME");
-
-    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
-    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
-
-    if (config::jdbc_drivers_dir == default_url) {
-        // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
-        // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
-        // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
-        // so we need to check the old default dir for compatibility.
-        std::filesystem::path file = default_url + "/" + url;
-        if (std::filesystem::exists(file)) {
-            return "file://" + default_url + "/" + url;
-        } else {
-            return "file://" + default_old_url + "/" + url;
-        }
-    } else {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
 }
 
 } // namespace doris

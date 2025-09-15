@@ -20,6 +20,10 @@
 // Use the POSIX version of dirname(3). See `man 3 dirname`
 #include <libgen.h>
 
+#include <cstdlib>
+#include <filesystem>
+
+#include "common/config.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
 
@@ -62,6 +66,40 @@ std::string file_extension(const string& path) {
 
     string::size_type pos = file_name.rfind(".");
     return pos == string::npos ? "" : file_name.substr(pos);
+}
+
+std::string get_real_plugin_url(const std::string& url,
+                                const std::string& plugin_dir_config_value,
+                                const std::string& plugin_dir_name) {
+    if (url.find(":/") == std::string::npos) {
+        return check_and_return_default_plugin_url(url, plugin_dir_config_value,
+                                                   plugin_dir_name);
+    }
+    return url;
+}
+
+std::string check_and_return_default_plugin_url(const std::string& url,
+                                                const std::string& plugin_dir_config_value,
+                                                const std::string& plugin_dir_name) {
+    const char* doris_home = std::getenv("DORIS_HOME");
+
+    std::string default_url = std::string(doris_home) + "/plugins/" + plugin_dir_name;
+    std::string default_old_url = std::string(doris_home) + "/" + plugin_dir_name;
+
+    if (plugin_dir_config_value == default_url) {
+        // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
+        // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
+        // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
+        // so we need to check the old default dir for compatibility.
+        std::filesystem::path file = default_url + "/" + url;
+        if (std::filesystem::exists(file)) {
+            return "file://" + default_url + "/" + url;
+        } else {
+            return "file://" + default_old_url + "/" + url;
+        }
+    } else {
+        return "file://" + plugin_dir_config_value + "/" + url;
+    }
 }
 
 } // namespace path_util

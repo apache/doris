@@ -36,6 +36,7 @@
 #include "runtime/types.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
+#include "util/path_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -126,7 +127,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
     {
-        std::string driver_path = _get_real_url(_conn_param.driver_path);
+        std::string driver_path = doris::path_util::get_real_plugin_url(
+                _conn_param.driver_path, doris::config::jdbc_drivers_dir, "jdbc_drivers");
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -631,42 +633,6 @@ Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tab
     RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, java_enum_local_obj, java_enum_obj));
     env->DeleteLocalRef(java_enum_local_obj);
     return Status::OK();
-}
-
-// std::string JdbcConnector::_get_real_url(const std::string& url) {
-//     if (url.find(":/") == std::string::npos) {
-//         return "file://" + config::jdbc_drivers_dir + "/" + url;
-//     }
-//     return url;
-// }
-
-std::string JdbcConnector::_get_real_url(const std::string& url) {
-    if (url.find(":/") == std::string::npos) {
-        return _check_and_return_default_driver_url(url);
-    }
-    return url;
-}
-
-std::string JdbcConnector::_check_and_return_default_driver_url(const std::string& url) {
-    const char* doris_home = std::getenv("DORIS_HOME");
-
-    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
-    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
-
-    if (config::jdbc_drivers_dir == default_url) {
-        // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
-        // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
-        // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
-        // so we need to check the old default dir for compatibility.
-        std::filesystem::path file = default_url + "/" + url;
-        if (std::filesystem::exists(file)) {
-            return "file://" + default_url + "/" + url;
-        } else {
-            return "file://" + default_old_url + "/" + url;
-        }
-    } else {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
 }
 
 } // namespace doris::vectorized

@@ -88,6 +88,9 @@ DECLARE_String(custom_config_dir);
 // Dir of jdbc drivers
 DECLARE_String(jdbc_drivers_dir);
 
+// Dir of java udf
+DECLARE_String(java_udf_dir);
+
 // cluster id
 DECLARE_Int32(cluster_id);
 // port on which BackendService is exported

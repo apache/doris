@@ -55,5 +55,18 @@ std::string base_name(const std::string& path);
 // NOTE: path can be either one file's full path or only file name
 std::string file_extension(const std::string& path);
 
+// Get the real URL for plugins (e.g., JDBC drivers). If the URL doesn't contain ":/",
+// it will be treated as a relative path and converted to a file:// URL using provided dirs.
+// plugin_dir_config_value is the configured plugin dir; plugin_dir_name is the dir name (e.g. "jdbc_drivers").
+std::string get_real_plugin_url(const std::string& url,
+                                const std::string& plugin_dir_config_value,
+                                const std::string& plugin_dir_name);
+
+// Check and return the default plugin URL using provided directories.
+// plugin_dir_config_value is the configured drivers dir; plugin_dir_name is dir name.
+std::string check_and_return_default_plugin_url(const std::string& url,
+                                                const std::string& plugin_dir_config_value,
+                                                const std::string& plugin_dir_name);
+
 } // namespace path_util
 } // namespace doris
