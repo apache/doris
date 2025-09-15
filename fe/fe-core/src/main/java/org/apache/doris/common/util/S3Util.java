@@ -31,6 +31,7 @@ import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProviderChain;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
@@ -145,7 +146,7 @@ public class S3Util {
 
         if (!Strings.isNullOrEmpty(roleArn)) {
             StsClient stsClient = StsClient.builder()
-                    .credentialsProvider(InstanceProfileCredentialsProvider.create())
+                    .credentialsProvider(DefaultCredentialsProvider.create())
                     .build();
 
             return StsAssumeRoleCredentialsProvider.builder()
@@ -157,11 +158,7 @@ public class S3Util {
                         }
                     }).build();
         }
-        return AwsCredentialsProviderChain.of(SystemPropertyCredentialsProvider.create(),
-                    EnvironmentVariableCredentialsProvider.create(),
-                    WebIdentityTokenFileCredentialsProvider.create(),
-                    ProfileCredentialsProvider.create(),
-                    InstanceProfileCredentialsProvider.create());
+        return DefaultCredentialsProvider.create();
     }
 
     public static S3Client buildS3Client(URI endpoint, String region, boolean isUsePathStyle,

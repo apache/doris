@@ -289,7 +289,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
 
     if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
         if (s3_conf.role_arn.empty()) {
-            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+            return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
         }
 
         Aws::Client::ClientConfiguration clientConfiguration =
@@ -303,7 +303,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
         }
 
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>(),
                 clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
