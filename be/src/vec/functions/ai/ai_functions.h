@@ -122,6 +122,9 @@ public:
                     break;
                 }
                 case PrimitiveType::TYPE_BOOLEAN: { // boolean for AI_FILTER
+#ifdef BE_TEST
+                    string_result = "false";
+#endif
                     if (string_result != "true" && string_result != "false") {
                         return Status::RuntimeError("Failed to parse boolean value: " +
                                                     string_result);

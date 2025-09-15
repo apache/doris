@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -26,7 +28,6 @@
 #include "runtime/query_context.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
-#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_string.h"
 #include "vec/common/arena.h"
