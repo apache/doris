@@ -23,7 +23,6 @@ import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
@@ -762,33 +761,6 @@ public class CreateTableTest extends TestWithFeService {
         Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
         Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
         Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
-    }
-
-    @Test
-    public void testCreateTableWithForceReplica() throws DdlException {
-        try {
-            Config.force_olap_table_replication_num = 1;
-            // no need to specify replication_num, the table can still be created.
-            ExceptionChecker.expectThrowsNoException(() -> {
-                createTable("create table test.test_replica\n" + "(k1 int, k2 int) partition by range(k1)\n" + "(\n"
-                        + "partition p1 values less than(\"10\"),\n" + "partition p2 values less than(\"20\")\n" + ")\n"
-                        + "distributed by hash(k2) buckets 1 \n properties ('replication_num' = '4') ;");
-            });
-
-            // can still set replication_num manually.
-            ExceptionChecker.expectThrowsWithMsg(UserException.class, "Failed to find enough host with tag",
-                    () -> {
-                        alterTableSync("alter table test.test_replica modify partition p1 set ('replication_num' = '4')");
-                    });
-
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-            OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
-            Partition p1 = tb.getPartition("p1");
-            Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
-            Assert.assertEquals(1, tb.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
-        } finally {
-            Config.force_olap_table_replication_num = -1;
-        }
     }
 
     @Test

@@ -160,7 +160,7 @@ public class CreateMTMVInfo {
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
-        analyzeProperties();
+        analyzeProperties(ctx.getSessionVariable().getTableReplicaCountOverride());
         analyzeQuery(ctx, this.mvProperties);
         // analyze column
         final boolean finalEnableMergeOnWrite = false;
@@ -184,7 +184,7 @@ public class CreateMTMVInfo {
         distribution.validate(columnMap, KeysType.DUP_KEYS);
         refreshInfo.validate();
 
-        analyzeProperties();
+        analyzeProperties(ctx.getSessionVariable().getTableReplicaCountOverride());
         rewriteQuerySql(ctx);
     }
 
@@ -221,8 +221,9 @@ public class CreateMTMVInfo {
         analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
-    private void analyzeProperties() {
-        properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(), properties);
+    private void analyzeProperties(int tableReplicaCountOverride) {
+        properties = PropertyAnalyzer.getInstance().rewriteOlapProperties(mvName.getCtl(), mvName.getDb(),
+                properties, tableReplicaCountOverride);
         if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             throw new AnalysisException("Not support dynamic partition properties on async materialized view");
         }
