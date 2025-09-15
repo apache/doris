@@ -635,9 +635,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                 return vectorized::DataTypeFactory::instance().create_data_type(column);
             }
             return column.is_nullable()
-                           ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
+                           ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
                                      column.variant_max_subcolumns_count()))
-                           : std::make_shared<vectorized::DataTypeObject>(
+                           : std::make_shared<vectorized::DataTypeVariant>(
                                      column.variant_max_subcolumns_count());
         }
         // now, path is not in this segment, return the default type from column.
