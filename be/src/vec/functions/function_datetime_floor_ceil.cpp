@@ -487,7 +487,7 @@ private:
                     diff++;
                 }
             }
-            TimeInterval interval(Flag::Unit, diff, true);
+            TimeInterval interval(Flag::Unit, diff, false);
             return ts_res.template date_set_interval<Flag::Unit>(interval);
         }
     }
