@@ -62,6 +62,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         AZURE,
         BROKER,
         LOCAL,
+        HTTP,
         UNKNOWN
     }
 
