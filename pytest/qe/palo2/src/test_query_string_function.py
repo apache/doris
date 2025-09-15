@@ -648,10 +648,25 @@ def test_query_get_json_string():
         \"abcdefghjklmnopqrstuvwxyzabcdefghjklmnopqrstuvwxyzabcdefghjklmnopqrstuvwxyz\"}', '$.k2')"
     line2 = "select 'abcdefghjklmnopqrstuvwxyzabcdefghjklmnopqrstuvwxyzabcdefghjklmnopqrstuvwxyz'"
     runner.check2(line1, line2)
+    # array
+    line1 = "SELECT get_json_string('[{\"k1\":\"v1\"}, {\"k2\":\"v2\"}, {\"k1\":\"v3\"}, {\"k1\":\"v4\"}]', '$.k1'), \
+        get_json_string('[{\"k1\":\"v1\"}, {\"k2\":\"v2\"}, {\"k1\":\"v3\"}, {\"k1\":\"v4\"}]', '$**.k1'), \
+        get_json_string('[{\"k1\":\"v1\"}, {\"k2\":\"v2\"}, {\"k1\":\"v3\"}, {\"k1\":\"v4\"}]', NULL), \
+        get_json_string('[]','$.k1'), \
+        get_json_string('[]','$**.k1'), \
+        get_json_string('[]',NULL)"
+    line2 = "SELECT '["v1","v3","v4"]', '["v1","v3","v4"]', NULL, NULL, NULL, NULL"
+    runner.check2(line1, line2)
     ##checkwrong
     line = "SELECT get_json_string('{\"k1\":1111.1111, \"k2\":222}', '$.k1', '$.k2')"
     runner.checkwrong(line)
     line = "select get_json_string(k11:11) from %s" % join_name
+    runner.checkwrong(line)
+    line = "SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4"}]', 'k1')"
+    runner.checkwrong(line)
+    line = "SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4"}]', '')"
+    runner.checkwrong(line)
+    line = "SELECT get_json_string('[]','')"
     runner.checkwrong(line)
     ###函数
     line1 = '''select get_json_string('{\"k1\":1111.1, \"k2\":repeat(\"abcdefaaaa\", 3)}', '$.k2'),\

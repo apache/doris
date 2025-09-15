@@ -31,6 +31,7 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_sql "SELECT get_json_string('{\"k1\":\"v1\", \"k2\":\"v2\"}', \"\$.k1\");"
     qt_sql "SELECT get_json_string('{\"k1\":\"v1\", \"my.key\":[\"e1\", \"e2\", \"e3\"]}', '\$.\"my.key\"[1]');"
     qt_sql "SELECT get_json_string('{\"k1.key\":{\"k2\":[\"v1\", \"v2\"]}}', '\$.\"k1.key\".k2[0]');"
+    qt_sql "SELECT get_json_string('[{\"k1\":{\"p1\":\"t1\"}}, {\"k2\":{\"p1\":\"t2\"}}, {\"k1\":{\"p1\":\"t3\"}}, {\"k1\":\"v4\"}]', '\$.k1');"
 
     qt_sql "SELECT json_array();"
     qt_sql "SELECT json_array(null);"
