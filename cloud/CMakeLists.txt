@@ -262,15 +262,19 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
+    if ("${DORIS_JAVA_HOME}" STREQUAL "")
+        set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+    endif()
 
-include_directories(${DORIS_JAVA_HOME}/include)
-if (NOT OS_MACOSX)
-    include_directories(${DORIS_JAVA_HOME}/include/linux)
-else()
-    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
 endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
@@ -312,10 +316,6 @@ set(DORIS_DEPENDENCIES
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
-
 # Add all external dependencies. They should come after the project's libs.
 # static link gcc's lib
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
@@ -333,9 +333,14 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libstdc++
     -static-libgcc
     -lresolv
-    -L${DORIS_JAVA_HOME}/lib/server
-    -ljvm
 )
+
+if (ENABLE_HDFS_STORAGE_VAULT)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -L${DORIS_JAVA_HOME}/lib/server
+        -ljvm)
+endif()
+
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()

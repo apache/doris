@@ -559,6 +559,7 @@ USE_MV: 'USE_MV';
 USING: 'USING';
 VALUE: 'VALUE';
 VALUES: 'VALUES';
+VARBINARY: 'VARBINARY';
 VARCHAR: 'VARCHAR';
 VARIABLE: 'VARIABLE';
 VARIABLES: 'VARIABLES';
@@ -619,6 +620,11 @@ STRING_LITERAL
     | '"' ( {!isNoBackslashEscapes}? '\\'. | '""' | {!isNoBackslashEscapes}? ~('"'| '\\') | {isNoBackslashEscapes}? ~('"'))* '"'
     ;
 
+VARBINARY_LITERAL
+    : [Xx]'\'' HEXDIGIT* '\''
+    | [Xx]'"' HEXDIGIT* '"'
+    ;
+
 LEADING_STRING
     : LEFT_BRACE
     | RIGHT_BRACE
@@ -675,6 +681,10 @@ fragment EXPONENT
 
 fragment DIGIT
     : [0-9]
+    ;
+
+fragment HEXDIGIT
+    : [0-9a-fA-F]
     ;
 
 fragment LETTER

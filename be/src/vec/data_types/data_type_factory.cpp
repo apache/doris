@@ -64,6 +64,7 @@
 #include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 #include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
@@ -471,9 +472,12 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_NULL: {
         auto temp_nested = std::make_shared<vectorized::DataTypeUInt8>();
         temp_nested->set_null_literal(true);
-        nested = temp_nested;
+        nested = std::move(temp_nested);
         break;
     }
+    case TYPE_VARBINARY:
+        nested = std::make_shared<vectorized::DataTypeVarbinary>(len, TYPE_VARBINARY);
+        break;
     case TYPE_AGG_STATE:
     case TYPE_ARRAY:
     case TYPE_MAP:

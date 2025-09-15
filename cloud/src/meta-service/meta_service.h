@@ -357,6 +357,10 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override;
 
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
     void clone_instance(::google::protobuf::RpcController* controller,
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -863,6 +867,12 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::list_snapshot, controller, request, response, done);
+    }
+
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::drop_snapshot, controller, request, response, done);
     }
 
     void clone_instance(::google::protobuf::RpcController* controller,
