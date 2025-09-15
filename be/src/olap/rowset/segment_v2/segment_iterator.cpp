@@ -2570,13 +2570,11 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
             std::string vir_cid_to_idx_in_block_msg =
                     fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
             return Status::InternalError(
-                    ErrorCode::INTERNAL_ERROR,
                     "Column in idx {} is nothing, block columns {}, normal_columns {}, "
                     "vir_cid_to_idx_in_block_msg {}",
                     idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
             return Status::InternalError(
-                    ErrorCode::INTERNAL_ERROR,
                     "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}",
                     entry.column->size(), rows, entry.column->get_name(), entry.type->get_name(),
                     idx);
