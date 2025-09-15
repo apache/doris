@@ -59,12 +59,12 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "", isRemoveOriginProperty);
             jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                     "", isRemoveOriginProperty);
-            readJsonByLine = Boolean.valueOf(
-                    getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                            "true", isRemoveOriginProperty)).booleanValue();
             stripOuterArray = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
                             "", isRemoveOriginProperty)).booleanValue();
+            readJsonByLine = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
+                            "true", isRemoveOriginProperty)).booleanValue();
             numAsString = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_NUM_AS_STRING,
                             "", isRemoveOriginProperty)).booleanValue();
