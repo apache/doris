@@ -1055,16 +1055,7 @@ public class PropertyAnalyzer {
         return goalSizeMbytes;
     }
 
-    // analyzeCompressionType will parse the compression type from properties
-    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
-        String compressionType = "";
-        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
-            compressionType = properties.get(PROPERTIES_COMPRESSION);
-            properties.remove(PROPERTIES_COMPRESSION);
-        } else {
-            return TCompressionType.LZ4F;
-        }
-
+    public static TCompressionType stringToCompressionType(String compressionType) throws AnalysisException {
         if (compressionType.equalsIgnoreCase("no_compression")) {
             return TCompressionType.NO_COMPRESSION;
         } else if (compressionType.equalsIgnoreCase("lz4")) {
@@ -1079,11 +1070,27 @@ public class PropertyAnalyzer {
             return TCompressionType.ZSTD;
         } else if (compressionType.equalsIgnoreCase("snappy")) {
             return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")
+                && !Config.default_compression_type.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.valueOf(Config.default_compression_type);
         } else if (compressionType.equalsIgnoreCase("default_compression")) {
             return TCompressionType.LZ4F;
         } else {
             throw new AnalysisException("unknown compression type: " + compressionType);
         }
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+        String compressionType = "";
+        if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
+            compressionType = properties.get(PROPERTIES_COMPRESSION);
+            properties.remove(PROPERTIES_COMPRESSION);
+        } else {
+            return stringToCompressionType(Config.default_compression_type);
+        }
+
+        return stringToCompressionType(compressionType);
     }
 
     public static long alignTo4K(long size) {
