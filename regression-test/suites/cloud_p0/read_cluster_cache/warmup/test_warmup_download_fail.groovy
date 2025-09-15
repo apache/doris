@@ -247,5 +247,8 @@ suite('test_warmup_download_fail', 'docker') {
 
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
+
+        assert getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num") + getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_failed_segment_num")
+                == getBrpcMetrics(src_be.ip, src_be.rpc_port, "file_cache_event_driven_warm_up_requested_segment_num")
     }
 }

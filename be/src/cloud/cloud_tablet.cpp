@@ -207,7 +207,7 @@ Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
     std::shared_lock rlock(_meta_lock);
     RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_prefer_cache(
             spec_version, version_path,
-            [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+            [&](int64_t start, int64_t end) { return rowset_is_warmed_up_unlocked(start, end); }));
     int64_t path_max_version = version_path.back().second;
     VLOG_DEBUG << fmt::format(
             "[verbose] CloudTablet::capture_rs_readers_prefer_cache, capture path: {}, "
@@ -220,7 +220,7 @@ Status CloudTablet::capture_rs_readers_prefer_cache(const Version& spec_version,
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
-bool CloudTablet::rowset_is_warmed_up(int64_t start_version, int64_t end_version) {
+bool CloudTablet::rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version) {
     if (start_version > end_version) {
         return false;
     }
@@ -258,12 +258,14 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         // For merge-on-write table, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
         // So we can ony capture rowsets which are in newest data layout. Otherwise there may be data correctness issue.
         RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator_mow(
-                spec_version, version_path,
-                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+                spec_version, version_path, [&](int64_t start, int64_t end) {
+                    return rowset_is_warmed_up_unlocked(start, end);
+                }));
     } else {
         RETURN_IF_ERROR(_timestamped_version_tracker.capture_consistent_versions_with_validator(
-                spec_version, version_path,
-                [&](int64_t start, int64_t end) { return rowset_is_warmed_up(start, end); }));
+                spec_version, version_path, [&](int64_t start, int64_t end) {
+                    return rowset_is_warmed_up_unlocked(start, end);
+                }));
     }
     int64_t path_max_version = version_path.back().second;
     auto should_be_visible_but_not_warmed_up = [&](const auto& rs_meta) -> bool {

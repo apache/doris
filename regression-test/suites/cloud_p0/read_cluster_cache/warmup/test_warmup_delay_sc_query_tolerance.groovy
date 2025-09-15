@@ -300,5 +300,9 @@ suite('test_warmup_delay_sc_query_tolerance', 'docker') {
 
         logFileCacheDownloadMetrics(clusterName2)
         logWarmUpRowsetMetrics(clusterName2)
+
+        sleep(10000)
+        assert getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+                == getBrpcMetrics(src_be.ip, src_be.rpc_port, "file_cache_event_driven_warm_up_requested_segment_num")
     }
 }

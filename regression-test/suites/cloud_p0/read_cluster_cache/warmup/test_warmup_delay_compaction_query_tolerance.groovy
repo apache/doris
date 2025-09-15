@@ -309,5 +309,8 @@ suite('test_warmup_delay_compaction_query_tolerance', 'docker') {
         future.get()
         assert num_finished + 2 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
         assert 0 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
+
+        assert getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+                == getBrpcMetrics(src_be.ip, src_be.rpc_port, "file_cache_event_driven_warm_up_requested_segment_num")
     }
 }

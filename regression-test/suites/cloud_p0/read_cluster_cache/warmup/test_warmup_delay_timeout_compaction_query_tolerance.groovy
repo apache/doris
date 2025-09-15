@@ -252,8 +252,10 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         logWarmUpRowsetMetrics(clusterName2)
         def num_submitted = getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_submitted_segment_num")
         def num_finished = getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+        def num_requested = getBrpcMetrics(src_be.ip, src_be.rpc_port, "file_cache_event_driven_warm_up_requested_segment_num")
         assert num_submitted >= 6
         assert num_finished == num_submitted
+        assert num_requested == num_finished
 
         sql """use @${clusterName2}"""
         // ensure that base rowsets' meta are loaded on target cluster
@@ -325,5 +327,9 @@ suite('test_warmup_delay_timeout_compaction_query_tolerance', 'docker') {
         future.get()
         assert num_finished == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
         assert 1 == getBrpcMetrics(be.ip, be.rpc_port, "file_cache_warm_up_rowset_wait_for_compaction_timeout_num")
+
+        sleep(10000)
+        assert getBrpcMetrics(be.ip, be.rpc_port, "file_cache_event_driven_warm_up_finished_segment_num")
+                == getBrpcMetrics(src_be.ip, src_be.rpc_port, "file_cache_event_driven_warm_up_requested_segment_num")
     }
 }

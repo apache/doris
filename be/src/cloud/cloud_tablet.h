@@ -347,7 +347,7 @@ private:
             std::chrono::steady_clock::time_point start_tp = std::chrono::steady_clock::now());
 
     // used by capture_rs_reader_xxx functions
-    bool rowset_is_warmed_up(int64_t start_version, int64_t end_version);
+    bool rowset_is_warmed_up_unlocked(int64_t start_version, int64_t end_version);
 
     CloudStorageEngine& _engine;
 
