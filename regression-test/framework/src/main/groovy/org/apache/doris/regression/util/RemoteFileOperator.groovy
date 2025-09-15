@@ -360,7 +360,7 @@ class ExportTestHelper implements AutoCloseable {
         if (deleteTmpFile && operator) {
             operator.deleteRemoteDirectories(remoteDir)
             def localDirFile = new File(localDir);
-            if (localDirFile.exists() && localDirFile.contains(RemoteFileOperator.SAFETY_PREFIX)) {
+            if (localDirFile.exists() && localDir.contains(RemoteFileOperator.SAFETY_PREFIX)) {
                 if (localDirFile.deleteDir()) {
                     logger.info("Successfully deleted local temporary directory: ${localDir}");
                 }
