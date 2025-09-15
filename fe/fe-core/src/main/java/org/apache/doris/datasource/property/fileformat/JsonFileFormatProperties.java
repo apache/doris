@@ -64,7 +64,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                             "", isRemoveOriginProperty)).booleanValue();
             readJsonByLine = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                            "true", isRemoveOriginProperty)).booleanValue();
+                            "", isRemoveOriginProperty)).booleanValue();
             numAsString = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_NUM_AS_STRING,
                             "", isRemoveOriginProperty)).booleanValue();
@@ -77,9 +77,9 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
-            // (TODO Refrain) if both are set to true, read_json_by_line will be ignored
-            if (stripOuterArray) {
-                readJsonByLine = false;
+            // (TODO Refrain) if both are false, set readJsonByLine
+            if (!stripOuterArray && !readJsonByLine) {
+                readJsonByLine = true;
             }
             String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
                     "UNKNOWN", isRemoveOriginProperty);
