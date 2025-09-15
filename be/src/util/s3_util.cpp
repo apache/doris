@@ -269,7 +269,7 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
 
     if (s3_conf.cred_provider_type == CredProviderType::InstanceProfile) {
         if (s3_conf.role_arn.empty()) {
-            return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
+            return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
         }
 
         Aws::Client::ClientConfiguration clientConfiguration =
@@ -284,17 +284,12 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3ClientFactory::get_aws_cred
         }
 
         auto stsClient = std::make_shared<Aws::STS::STSClient>(
-                std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>(),
+                std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>(),
                 clientConfiguration);
 
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 s3_conf.role_arn, Aws::String(), s3_conf.external_id,
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, stsClient);
-    }
-
-    // Support anonymous access for public datasets when no credentials are provided
-    if (s3_conf.ak.empty() && s3_conf.sk.empty()) {
-        return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
     }
 
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
