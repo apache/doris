@@ -153,7 +153,7 @@ public:
 private:
     Status _next_batch_internal(vectorized::Block* block);
 
-    void _check_output_block(vectorized::Block* block);
+    Status _check_output_block(vectorized::Block* block);
 
     template <typename Container>
     void _update_profile(RuntimeProfile* profile, const Container& predicates,

@@ -2521,8 +2521,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
-    _check_output_block(block);
-    return Status::OK();
+    return _check_output_block(block);
 }
 
 Status SegmentIterator::_process_columns(const std::vector<ColumnId>& column_ids,
@@ -2552,7 +2551,7 @@ void SegmentIterator::_fill_column_nothing() {
     }
 }
 
-void SegmentIterator::_check_output_block(vectorized::Block* block) {
+Status SegmentIterator::_check_output_block(vectorized::Block* block) {
 #ifndef NDEBUG
     size_t rows = block->rows();
     size_t idx = 0;
@@ -2570,13 +2569,13 @@ void SegmentIterator::_check_output_block(vectorized::Block* block) {
             }
             std::string vir_cid_to_idx_in_block_msg =
                     fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
-            throw doris::Exception(
+            return Status::InternalError(
                     ErrorCode::INTERNAL_ERROR,
                     "Column in idx {} is nothing, block columns {}, normal_columns {}, "
                     "vir_cid_to_idx_in_block_msg {}",
                     idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
-            throw doris::Exception(
+            return Status::InternalError(
                     ErrorCode::INTERNAL_ERROR,
                     "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}",
                     entry.column->size(), rows, entry.column->get_name(), entry.type->get_name(),
@@ -2585,6 +2584,7 @@ void SegmentIterator::_check_output_block(vectorized::Block* block) {
         idx++;
     }
 #endif
+    return Status::OK();
 }
 
 Status SegmentIterator::_process_column_predicate() {
