@@ -80,7 +80,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                                 path.get_leg_from_leg_vector(i)->leg_len, nullptr);
                         if (pval) {
                             results.emplace_back(pval);
-                        }                              
+                        }
                     }
                 }
                 continue;
