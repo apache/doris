@@ -2614,7 +2614,7 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     VLOG_DEBUG << fmt::format("Execute common expr. block rows {}, selected size {}", block->rows(),
                               _selected_size);
     vectorized::MutableColumnPtr col0 = std::move(*block->get_by_position(0).column).mutate();
-    if (col0 == 0) {
+    if (col0->size() == 0) {
         auto tmp_indicator_col =
                 block->get_by_position(0).type->create_column_const_with_default_value(
                         _selected_size);
