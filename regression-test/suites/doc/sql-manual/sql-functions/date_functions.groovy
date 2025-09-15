@@ -15,6 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 suite("doc_date_functions_test") {
     
     // Test Group 1: Basic Date Functions (序号 1-12)
@@ -860,5 +877,591 @@ suite("doc_date_functions_test") {
     qt_yearweek_3 """SELECT YEARWEEK('2024-12-30', 1) AS cross_year_mode1"""
     qt_yearweek_4 """SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5"""
     qt_yearweek_5 """SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1"""
+
+    // Test constant folding for YEARWEEK function
+    testFoldConst("SELECT YEARWEEK('2021-01-01') AS yearweek_mode0")
+    testFoldConst("SELECT YEARWEEK('2020-07-01', 1) AS yearweek_mode1")
+    testFoldConst("SELECT YEARWEEK('2024-12-30', 1) AS cross_year_mode1")
+    testFoldConst("SELECT YEARWEEK('2023-01-02', 5) AS yearweek_mode5")
+    testFoldConst("SELECT YEARWEEK('2023-12-25', 1) AS date_type_mode1")
+
+    // Test constant folding for Group 1 functions (基础日期函数)
+    
+    // 1. CONVERT_TZ function constant folding tests
+    testFoldConst("SELECT CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), 'Asia/Shanghai', 'America/Los_Angeles')")
+    testFoldConst("SELECT CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATETIME), '+08:00', 'America/Los_Angeles')")
+    testFoldConst("SELECT CONVERT_TZ(CAST('2019-08-01 13:21:03' AS DATE), 'Asia/Shanghai', 'America/Los_Angeles')")
+    testFoldConst("SELECT CONVERT_TZ('2038-01-19 03:14:07', 'GMTaa', 'MET')")
+    testFoldConst("SELECT CONVERT_TZ('2019-08-01 13:21:03.636', '+08:00', 'America/Los_Angeles')")
+    testFoldConst("SELECT CONVERT_TZ('2019-08-01 13:21:03', '+08:00', '+15:00')")
+
+    // 2. DATE_ADD function constant folding tests  
+    testFoldConst("SELECT DATE_ADD(CAST('2010-11-30 23:59:59' AS DATETIME), INTERVAL 2 DAY)")
+    testFoldConst("SELECT DATE_ADD(CAST('2023-01-01' AS DATE), INTERVAL 1 QUARTER)")
+    testFoldConst("SELECT DATE_ADD('2023-01-01', INTERVAL 1 WEEK)")
+    testFoldConst("SELECT DATE_ADD('2023-01-31', INTERVAL 1 MONTH)")
+    testFoldConst("SELECT DATE_ADD('2019-01-01', INTERVAL -3 DAY)")
+    testFoldConst("SELECT DATE_ADD('2023-12-31 23:00:00', INTERVAL 2 HOUR)")
+
+    // 3. DATE_CEIL function constant folding tests
+    testFoldConst("SELECT DATE_CEIL(CAST('2023-07-13 22:28:18' AS DATETIME), INTERVAL 5 SECOND)")
+    testFoldConst("SELECT DATE_CEIL(CAST('2023-07-13 22:28:18.123' AS DATETIME(3)), INTERVAL 5 SECOND)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 MINUTE)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 WEEK)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 HOUR)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 DAY)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 MONTH)")
+    testFoldConst("SELECT DATE_CEIL('2023-07-13 22:28:18', INTERVAL 5 YEAR)")
+
+    // 4. DATEDIFF function constant folding tests
+    testFoldConst("SELECT DATEDIFF(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME))")
+    testFoldConst("SELECT DATEDIFF(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31' AS DATETIME))")
+    testFoldConst("SELECT DATEDIFF('2023-01-02 13:00:00', '2023-01-01 12:00:00')")
+    testFoldConst("SELECT DATEDIFF('2023-01-02 12:00:00', '2023-01-01 13:00:00')")
+
+    // 5. DATE_FLOOR function constant folding tests
+    testFoldConst("SELECT DATE_FLOOR(CAST('0001-01-01 00:00:18' AS DATETIME), INTERVAL 5 SECOND)")
+    testFoldConst("SELECT DATE_FLOOR(CAST('0001-01-01 00:00:18.123' AS DATETIME), INTERVAL 5 SECOND)")
+    testFoldConst("SELECT DATE_FLOOR('2023-07-10 00:00:00', INTERVAL 5 DAY)")
+    testFoldConst("SELECT DATE_FLOOR('2023-07-13', INTERVAL 5 YEAR)")
+
+    // 6. DATE_FORMAT function constant folding tests
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04 22:23:00', '%W %M %Y')")
+    testFoldConst("SELECT DATE_FORMAT('2007-10-04 22:23:00', '%H:%i:%s')")
+    testFoldConst("SELECT DATE_FORMAT('1999-01-01', '%Y-%m-%d')")
+    testFoldConst("SELECT DATE_FORMAT('1999-01-01 00:00:00', '%d/%m/%Y %H:%i:%s')")
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04', '%a %b %c')")
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04', '%D %e %f')")
+    testFoldConst("SELECT DATE_FORMAT(NULL, '%Y-%m-%d')")
+    testFoldConst("SELECT DATE_FORMAT('2009-10-04', NULL)")
+
+    // 7. DATE function constant folding tests
+    testFoldConst("SELECT DATE('2003-12-31 01:02:03')")
+    testFoldConst("SELECT DATE('2003-12-31')")
+
+    // 8. DATE_SUB function constant folding tests
+    testFoldConst("SELECT DATE_SUB('2018-05-01', INTERVAL 1 DAY)")
+    testFoldConst("SELECT DATE_SUB('2018-05-01', INTERVAL 1 MONTH)")
+    testFoldConst("SELECT DATE_SUB('2018-05-01', INTERVAL 1 YEAR)")
+    testFoldConst("SELECT DATE_SUB('2018-05-01 12:00:00', INTERVAL 2 HOUR)")
+
+    // 9. DATE_TRUNC function constant folding tests
+    testFoldConst("SELECT DATE_TRUNC('2019-05-09', 'year')")
+    testFoldConst("SELECT DATE_TRUNC('2019-05-09', 'month')")
+    testFoldConst("SELECT DATE_TRUNC('2019-05-09 12:30:45', 'day')")
+    testFoldConst("SELECT DATE_TRUNC('2019-05-09 12:30:45', 'hour')")
+
+    // Test constant folding for Group 2 functions (Day functions and related)
+    
+    // 13. DAY_CEIL function constant folding tests
+    testFoldConst("SELECT DAY_CEIL(CAST('2023-07-13 22:28:18' AS DATETIME), 5)")
+    testFoldConst("SELECT DAY_CEIL('2023-07-13 22:28:18.123', 5)")
+    testFoldConst("SELECT DAY_CEIL('2023-07-13 22:28:18')")
+    testFoldConst("SELECT DAY_CEIL('2023-07-13 22:28:18', 7, '2023-01-01 00:00:00')")
+    testFoldConst("SELECT DAY_CEIL(CAST('2023-07-13' AS DATE), 3)")
+
+    // 14. DAY_FLOOR function constant folding tests
+    testFoldConst("SELECT DAY_FLOOR('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT DAY_FLOOR('2023-07-13 22:28:18.123', 5)")
+    testFoldConst("SELECT DAY_FLOOR('2023-07-13 22:28:18')")
+    testFoldConst("SELECT DAY_FLOOR('2023-07-13 22:28:18', 7, '2023-01-01 00:00:00')")
+    testFoldConst("SELECT DAY_FLOOR(CAST('2023-07-13' AS DATE), 3)")
+
+    // 15. DAY function constant folding tests
+    testFoldConst("SELECT DAY('1987-01-31')")
+    testFoldConst("SELECT DAY('2023-07-13 22:28:18')")
+
+    // 16. DAYNAME function constant folding tests
+    testFoldConst("SELECT DAYNAME('2007-02-03 00:00:00')")
+    testFoldConst("SELECT DAYNAME('2023-10-01')")
+
+    // 17. DAYOFWEEK function constant folding tests
+    testFoldConst("SELECT DAYOFWEEK('2019-06-25')")
+    testFoldConst("SELECT DAYOFWEEK('2019-06-25 15:30:45')")
+    testFoldConst("SELECT DAYOFWEEK('2024-02-18')")
+
+    // 18. DAYOFYEAR function constant folding tests
+    testFoldConst("SELECT DAYOFYEAR('2007-02-03 00:00:00')")
+    testFoldConst("SELECT DAYOFYEAR('2023-12-31')")
+    testFoldConst("SELECT DAYOFYEAR('2024-12-31')")
+
+    // 19. EXTRACT function constant folding tests
+    testFoldConst("SELECT EXTRACT(year from '2022-09-22 17:01:30') as year, EXTRACT(month from '2022-09-22 17:01:30') as month, EXTRACT(day from '2022-09-22 17:01:30') as day")
+    testFoldConst("SELECT EXTRACT(quarter from '2023-05-15') as quarter")
+    testFoldConst("SELECT EXTRACT(week from '2024-01-06') as week")
+    testFoldConst("SELECT EXTRACT(week from '2024-01-07') as week")
+    testFoldConst("SELECT EXTRACT(week from '2024-12-31') as week")
+
+    // 20. FROM_DAYS function constant folding tests
+    testFoldConst("SELECT FROM_DAYS(730669)")
+    testFoldConst("SELECT FROM_DAYS(365)")
+
+    // 21. FROM_ISO8601_DATE function constant folding tests
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023') as year_only")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10') as year_month")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-05') as full_date")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2021-001') as day_1")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2021-060') as day_60")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2024-366') as day_366")
+    testFoldConst("SELECT FROM_ISO8601_DATE('0522-W01-1') as week_1")
+    testFoldConst("SELECT FROM_ISO8601_DATE('2023-10-01T12:34:10')")
+    testFoldConst("SELECT FROM_ISO8601_DATE('0522-661') as day_661")
+
+    // 22. FROM_MILLISECOND function constant folding tests
+    testFoldConst("SELECT FROM_MILLISECOND(1618236845000)")
+    testFoldConst("SELECT FROM_MILLISECOND(0)")
+
+    // 23. FROM_SECOND_TIMESTAMP function constant folding tests
+    testFoldConst("SELECT FROM_SECOND_TIMESTAMP(1618236845)")
+    testFoldConst("SELECT FROM_SECOND_TIMESTAMP(0)")
+
+    // 24. FROM_UNIXTIME function constant folding tests
+    testFoldConst("SELECT FROM_UNIXTIME(0)")
+    testFoldConst("SELECT FROM_UNIXTIME(1196440219)")
+    testFoldConst("SELECT FROM_UNIXTIME(1196440219, 'yyyy-MM-dd HH:mm:ss')")
+    testFoldConst("SELECT FROM_UNIXTIME(1196440219, '%Y-%m-%d')")
+    testFoldConst("SELECT FROM_UNIXTIME(1196440219, '%Y-%m-%d %H:%i:%s')")
+    testFoldConst("SELECT FROM_UNIXTIME(32536799, 'gdaskpdp')")
+
+    // Group 3: Hour functions (序号24-29)
+    
+    // 24. HOUR_CEIL function constant folding tests
+    testFoldConst("SELECT HOUR_CEIL('2023-07-13 22:28:18')")
+    testFoldConst("SELECT HOUR_CEIL('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT HOUR_CEIL('2023-07-13 22:28:18', 5, '2023-07-13 20:00:00')")
+    testFoldConst("SELECT HOUR_CEIL(CAST('2023-07-13' AS DATE), 3)")
+
+    // 25. HOUR_FLOOR function constant folding tests
+    testFoldConst("SELECT HOUR_FLOOR('2023-07-13 22:28:18')")
+    testFoldConst("SELECT HOUR_FLOOR('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT HOUR_FLOOR('2023-07-13 22:28:18', 5, '2023-07-13 20:00:00')")
+    testFoldConst("SELECT HOUR_FLOOR(CAST('2023-07-13' AS DATE), 3)")
+
+    // 26. HOUR function constant folding tests
+    testFoldConst("SELECT HOUR('2018-12-31 23:59:59')")
+    testFoldConst("SELECT HOUR('2023-01-01 00:00:00')")
+    testFoldConst("SELECT HOUR('2023-10-01 12:30:45')")
+    testFoldConst("SELECT HOUR('14:25:30')")
+    testFoldConst("SELECT HOUR('2023-07-13')")
+
+    // 27. HOURS_ADD function constant folding tests
+    testFoldConst("SELECT HOURS_ADD('2020-02-02 02:02:02', 1)")
+    testFoldConst("SELECT HOURS_ADD('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT HOURS_ADD('2023-07-13 22:28:18', -3)")
+
+    // 28. HOURS_DIFF function constant folding tests
+    testFoldConst("SELECT HOURS_DIFF('2020-12-25 22:00:00', '2020-12-25 21:00:00')")
+    testFoldConst("SELECT HOURS_DIFF('2023-07-14', '2023-07-13')")
+    testFoldConst("SELECT HOURS_DIFF('2023-07-13 12:30:59', '2023-07-13 13:30:01')")
+
+    // 29. HOURS_SUB function constant folding tests
+    testFoldConst("SELECT HOURS_SUB('2020-02-02 02:02:02', 1)")
+    testFoldConst("SELECT HOURS_SUB('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT HOURS_SUB('2023-07-13 22:28:18', -3)")
+
+    // Other functions in Group 2 (序号30-39)
+    
+    // 30. MAKEDATE function constant folding tests
+    testFoldConst("SELECT MAKEDATE(2023, 100)")
+    testFoldConst("SELECT MAKEDATE(2021, 365)")
+
+    // 31. MAKETIME function constant folding tests
+    testFoldConst("SELECT MAKETIME(12, 15, 30.123456)")
+    testFoldConst("SELECT MAKETIME(23, 59, 59)")
+
+    // 32. MICROSECONDS_ADD function constant folding tests
+    testFoldConst("SELECT MICROSECONDS_ADD('2020-02-02 02:02:02', 1000000)")
+    testFoldConst("SELECT MICROSECONDS_ADD('2023-10-01 12:30:45.123456', 500000)")
+    testFoldConst("SELECT MICROSECONDS_ADD('2023-10-01 10:00:00', -1000000)")
+
+    // 33. MICROSECONDS_DIFF function constant folding tests
+    testFoldConst("SELECT MICROSECONDS_DIFF('2020-12-25 22:00:00.123456', '2020-12-25 22:00:00.000000')")
+    testFoldConst("SELECT MICROSECONDS_DIFF('2023-06-15 10:30:00', '2023-06-15 10:29:59')")
+
+    // 34. MICROSECONDS_SUB function constant folding tests
+    testFoldConst("SELECT MICROSECONDS_SUB('2020-02-02 02:02:02.123456', 500000)")
+    testFoldConst("SELECT MICROSECONDS_SUB('2023-10-01 12:30:45', 1000000)")
+    testFoldConst("SELECT MICROSECONDS_SUB('2023-10-01 10:00:00', -500000)")
+
+    // 35. MICROSECOND_TIMESTAMP function constant folding tests
+    testFoldConst("SELECT MICROSECOND_TIMESTAMP('2025-01-23 12:34:56.123456')")
+    testFoldConst("SELECT MICROSECOND_TIMESTAMP('1970-01-01')")
+
+    // 36. MICROSECOND function constant folding tests
+    testFoldConst("SELECT MICROSECOND('2019-01-01 00:00:00.123456')")
+    testFoldConst("SELECT MICROSECOND(CAST('14:30:25.123456' AS TIME))")
+    testFoldConst("SELECT MICROSECOND('2019-01-01 00:00:00')")
+    testFoldConst("SELECT MICROSECOND('2019-01-01')")
+    testFoldConst("SELECT MICROSECOND('2023-05-01 10:05:30.999999')")
+
+    // 37. MILLISECOND function constant folding tests
+    testFoldConst("SELECT MILLISECOND('2018-12-31 23:59:59.123')")
+    testFoldConst("SELECT MILLISECOND('2023-07-13 22:28:18.456')")
+
+    // 38. MILLISECONDS_ADD function constant folding tests
+    testFoldConst("SELECT MILLISECONDS_ADD('2020-02-02 02:02:02', 1000)")
+    testFoldConst("SELECT MILLISECONDS_ADD('2023-10-01 12:30:45.123', 500)")
+    testFoldConst("SELECT MILLISECONDS_ADD('2023-10-01 10:00:00', -1000)")
+
+    // 39. MILLISECONDS_DIFF function constant folding tests
+    testFoldConst("SELECT MILLISECONDS_DIFF('2020-12-25 22:00:00.123', '2020-12-25 22:00:00.000')")
+    testFoldConst("SELECT MILLISECONDS_DIFF('2023-06-15 10:30:00', '2023-06-15 10:29:59')")
+
+    // Test constant folding for Group 3 remaining functions
+    
+    // 40. MILLISECONDS_SUB function constant folding tests
+    testFoldConst("SELECT MILLISECONDS_SUB('2020-02-02 02:02:02.123', 500)")
+    testFoldConst("SELECT MILLISECONDS_SUB('2023-10-01 12:30:45', 1000)")
+    testFoldConst("SELECT MILLISECONDS_SUB('2023-10-01 10:00:00', -500)")
+
+    // 41. MILLISECONDS_DIFF function constant folding tests (additional)
+    testFoldConst("SELECT MILLISECONDS_DIFF('2020-03-01 00:00:00.500', '2020-02-29 23:59:59.000')")
+
+    // 43. MILLISECOND_TIMESTAMP function constant folding tests
+    testFoldConst("SELECT MILLISECOND_TIMESTAMP('2025-01-23 12:34:56.123')")
+    testFoldConst("SELECT MILLISECOND_TIMESTAMP('2024-01-01 00:00:00.123456')")
+    testFoldConst("SELECT MILLISECOND_TIMESTAMP('1970-01-01')")
+
+    // Test constant folding for Group 4 functions (Minute and Month functions)
+    
+    // 44. MINUTE_CEIL function constant folding tests
+    testFoldConst("SELECT MINUTE_CEIL('2023-07-13 22:28:18')")
+    testFoldConst("SELECT MINUTE_CEIL('2023-07-13 22:28:18.123', 5)")
+    testFoldConst("SELECT MINUTE_CEIL('2023-07-13 22:28:18', 5, '2023-07-13 22:20:00')")
+    testFoldConst("SELECT MINUTE_CEIL(CAST('2023-07-13' AS DATE), 30)")
+
+    // 45. MINUTE_FLOOR function constant folding tests
+    testFoldConst("SELECT MINUTE_FLOOR('2023-07-13 22:28:18')")
+    testFoldConst("SELECT MINUTE_FLOOR('2023-07-13 22:28:18.123', 5)")
+    testFoldConst("SELECT MINUTE_FLOOR('2023-07-13 22:28:18', 5, '2023-07-13 22:20:00')")
+    testFoldConst("SELECT MINUTE_FLOOR(CAST('2023-07-13' AS DATE), 30)")
+
+    // 46. MINUTE function constant folding tests
+    testFoldConst("SELECT MINUTE('2018-12-31 23:59:59')")
+    testFoldConst("SELECT MINUTE('2023-05-01 10:05:30.123456')")
+    testFoldConst("SELECT MINUTE('14:25:45')")
+    testFoldConst("SELECT MINUTE('2023-07-13')")
+
+    // 47. MINUTES_ADD function constant folding tests
+    testFoldConst("SELECT MINUTES_ADD('2020-02-02', 1)")
+    testFoldConst("SELECT MINUTES_ADD('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT MINUTES_ADD('2023-07-13 22:28:18', -5)")
+
+    // 48. MINUTES_DIFF function constant folding tests
+    testFoldConst("SELECT MINUTES_DIFF('2020-12-25 22:00:00', '2020-12-25 21:00:00')")
+    testFoldConst("SELECT MINUTES_DIFF('2023-07-13 21:50:00', '2023-07-13 22:00:00')")
+    testFoldConst("SELECT MINUTES_DIFF('2023-07-14', '2023-07-13')")
+
+    // 49. MINUTES_SUB function constant folding tests
+    testFoldConst("SELECT MINUTES_SUB('2020-02-02 02:02:02', 1)")
+    testFoldConst("SELECT MINUTES_SUB('2023-07-13 22:38:18.456789', 10)")
+    testFoldConst("SELECT MINUTES_SUB('2023-07-13 22:23:18', -5)")
+
+    // Month functions (序号50-57)
+    
+    // 50. MONTH_CEIL function constant folding tests
+    testFoldConst("SELECT MONTH_CEIL('2023-07-13 22:28:18')")
+    testFoldConst("SELECT MONTH_CEIL('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT MONTH_CEIL('2023-07-13 22:28:18', 5, '2023-01-01 00:00:00')")
+    testFoldConst("SELECT MONTH_CEIL(CAST('2023-07-13' AS DATE), 3)")
+
+    // 51. MONTH_FLOOR function constant folding tests
+    testFoldConst("SELECT MONTH_FLOOR('2023-07-13 22:28:18')")
+    testFoldConst("SELECT MONTH_FLOOR('2023-07-13 22:28:18', 5)")
+    testFoldConst("SELECT MONTH_FLOOR('2023-07-13 22:28:18', 5, '2023-01-01 00:00:00')")
+    testFoldConst("SELECT MONTH_FLOOR(CAST('2023-07-13' AS DATE), 3)")
+
+    // 52. MONTH function constant folding tests
+    testFoldConst("SELECT MONTH('1987-01-01')")
+    testFoldConst("SELECT MONTH('2023-07-13 22:28:18')")
+    testFoldConst("SELECT MONTH('2023-12-05 10:15:30.456789')")
+
+    // 53. MONTHNAME function constant folding tests
+    testFoldConst("SELECT MONTHNAME('2008-02-03')")
+    testFoldConst("SELECT MONTHNAME('2023-07-13 22:28:18')")
+
+    // 54. MONTHS_ADD function constant folding tests
+    testFoldConst("SELECT MONTHS_ADD('2020-01-31', 1)")
+    testFoldConst("SELECT MONTHS_ADD('2020-01-31 02:02:02', 1)")
+    testFoldConst("SELECT MONTHS_ADD('2020-01-31', -1)")
+    testFoldConst("SELECT MONTHS_ADD('2023-07-13 22:28:18', 5)")
+
+    // 55. MONTHS_BETWEEN function constant folding tests
+    testFoldConst("SELECT MONTHS_BETWEEN('2020-12-26', '2020-10-25')")
+    testFoldConst("SELECT MONTHS_BETWEEN('2020-12-26 15:30:00', '2020-10-25 08:15:00')")
+    testFoldConst("SELECT MONTHS_BETWEEN('2024-02-29', '2024-01-31')")
+    testFoldConst("SELECT MONTHS_BETWEEN('2024-03-15', '2024-01-15')")
+
+    // 56. MONTHS_DIFF function constant folding tests
+    testFoldConst("SELECT MONTHS_DIFF('2020-03-28', '2020-02-29')")
+    testFoldConst("SELECT MONTHS_DIFF('2020-03-29', '2020-02-29')")
+    testFoldConst("SELECT MONTHS_DIFF('2020-03-30', '2020-02-29')")
+    testFoldConst("SELECT MONTHS_DIFF('2023-07-15', '2023-07-30')")
+
+    // 57. MONTHS_SUB function constant folding tests
+    testFoldConst("SELECT MONTHS_SUB('2020-01-31', 1)")
+    testFoldConst("SELECT MONTHS_SUB('2020-01-31 02:02:02', 1)")
+    testFoldConst("SELECT MONTHS_SUB('2020-01-31', -1)")
+    testFoldConst("SELECT MONTHS_SUB('2023-07-13 22:28:18', 5)")
+
+    // Other Group 4 functions (序号58, 60-62)
+    
+    // 58. NEXT_DAY function constant folding tests
+    testFoldConst("SELECT NEXT_DAY('2020-01-31', 'MONDAY')")
+    testFoldConst("SELECT NEXT_DAY('2020-01-31 02:02:02', 'MON')")
+    testFoldConst("SELECT NEXT_DAY('2023-07-17', 'MON')")
+    testFoldConst("SELECT NEXT_DAY('2023-07-13', 'FR')")
+
+    // 60. QUARTER function constant folding tests
+    testFoldConst("SELECT QUARTER('2025-01-16')")
+    testFoldConst("SELECT QUARTER('2025-01-16 01:11:10')")
+    testFoldConst("SELECT QUARTER('2023-05-20')")
+    testFoldConst("SELECT QUARTER('2024-09-30 23:59:59')")
+    testFoldConst("SELECT QUARTER('2022-12-01')")
+
+    // 61. QUARTERS_ADD function constant folding tests
+    testFoldConst("SELECT QUARTERS_ADD('2020-01-31', 1)")
+    testFoldConst("SELECT QUARTERS_ADD('2020-01-31 02:02:02', 1)")
+    testFoldConst("SELECT QUARTERS_ADD('2020-04-30', -1)")
+    testFoldConst("SELECT QUARTERS_ADD('2023-07-13 22:28:18', 2)")
+    testFoldConst("SELECT QUARTERS_ADD('2023-10-01', 2)")
+
+    // 62. QUARTERS_SUB function constant folding tests
+    testFoldConst("SELECT QUARTERS_SUB('2020-01-31', 1)")
+    testFoldConst("SELECT QUARTERS_SUB('2020-01-31 02:02:02', 1)")
+    testFoldConst("SELECT QUARTERS_SUB('2019-10-31', -1)")
+    testFoldConst("SELECT QUARTERS_SUB('2023-07-13 22:28:18', 2)")
+    testFoldConst("SELECT QUARTERS_SUB('2024-04-01', 2)")
+
+    // Test constant folding for Group 5 functions (Second and time manipulation functions)
+    
+    // 63. SECOND_CEIL function constant folding tests
+    testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56')")
+    testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56', 5)")
+    testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56', 10, '2025-01-23 12:00:00')")
+    testFoldConst("SELECT SECOND_CEIL('2025-01-23 12:34:56.789', 5)")
+
+    // 64. SECOND_FLOOR function constant folding tests
+    testFoldConst("SELECT SECOND_FLOOR('2025-01-23 12:34:56')")
+    testFoldConst("SELECT SECOND_FLOOR('2025-01-23 12:34:56', 5)")
+    testFoldConst("SELECT SECOND_FLOOR('2025-01-23 12:34:56', 10, '2025-01-23 12:00:00')")
+    testFoldConst("SELECT SECOND_FLOOR('2025-01-23 12:34:56.789', 5)")
+
+    // 65. SECOND function constant folding tests
+    testFoldConst("SELECT SECOND('2018-12-31 23:59:59')")
+    testFoldConst("SELECT SECOND(CAST('15:42:33' AS TIME))")
+    testFoldConst("SELECT SECOND('2023-07-13')")
+    testFoldConst("SELECT SECOND('2023-07-13 10:30:25.123456')")
+    testFoldConst("SELECT SECOND('2024-01-01 00:00:00')")
+
+    // 66. SECONDS_ADD function constant folding tests
+    testFoldConst("SELECT SECONDS_ADD('2025-01-23 12:34:56', 30)")
+    testFoldConst("SELECT SECONDS_ADD('2025-01-23 12:34:56', -30)")
+    testFoldConst("SELECT SECONDS_ADD('2023-07-13 23:59:50', 15)")
+    testFoldConst("SELECT SECONDS_ADD('2023-01-01', 3600)")
+
+    // 67. SECONDS_DIFF function constant folding tests
+    testFoldConst("SELECT SECONDS_DIFF('2025-01-23 12:35:56', '2025-01-23 12:34:56')")
+    testFoldConst("SELECT SECONDS_DIFF('2023-01-01 00:00:00', '2023-01-01 00:01:00')")
+    testFoldConst("SELECT SECONDS_DIFF('2023-01-02', '2023-01-01')")
+    testFoldConst("SELECT SECONDS_DIFF('2023-07-13 12:00:00.123', '2023-07-13 11:59:59')")
+
+    // 68. SECONDS_SUB function constant folding tests
+    testFoldConst("SELECT SECONDS_SUB('2025-01-23 12:34:56', 30)")
+    testFoldConst("SELECT SECONDS_SUB('2025-01-23 12:34:56', -30)")
+    testFoldConst("SELECT SECONDS_SUB('2023-07-14 00:00:10', 15)")
+    testFoldConst("SELECT SECONDS_SUB('2023-01-01', 3600)")
+
+    // 69. SECOND_TIMESTAMP function constant folding tests
+    testFoldConst("SELECT SECOND_TIMESTAMP('1970-01-01 00:00:00 UTC')")
+    testFoldConst("SELECT SECOND_TIMESTAMP('2025-01-23 12:34:56')")
+    testFoldConst("SELECT SECOND_TIMESTAMP('2023-01-01')")
+    testFoldConst("SELECT SECOND_TIMESTAMP('2023-07-13 22:28:18.456789')")
+
+    // 70. SEC_TO_TIME function constant folding tests
+    testFoldConst("SELECT SEC_TO_TIME(59738)")
+    testFoldConst("SELECT SEC_TO_TIME(90061)")
+    testFoldConst("SELECT SEC_TO_TIME(-3600)")
+    testFoldConst("SELECT SEC_TO_TIME(0)")
+    testFoldConst("SELECT SEC_TO_TIME(3661.9)")
+
+    // 71. STR_TO_DATE function constant folding tests
+    testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')")
+    testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')")
+    testFoldConst("SELECT STR_TO_DATE('20230713', 'yyyyMMdd')")
+    testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
+    testFoldConst("SELECT STR_TO_DATE('200442 Monday', '%X%V %W')")
+    testFoldConst("SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')")
+    testFoldConst("SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')")
+    testFoldConst("SELECT STR_TO_DATE('2023-07-13 12:34:56.789', '%Y-%m-%d %H:%i:%s.%f')")
+    testFoldConst("SELECT STR_TO_DATE('2023-01-01', '')")
+
+    // 72. TIMEDIFF function constant folding tests
+    testFoldConst("SELECT TIMEDIFF('2024-07-20 16:59:30', '2024-07-11 16:35:21')")
+    testFoldConst("SELECT TIMEDIFF('2023-10-05 15:45:00', '2023-10-05')")
+    testFoldConst("SELECT TIMEDIFF('2023-01-01 09:00:00', '2023-01-01 10:30:00')")
+    testFoldConst("SELECT TIMEDIFF('2023-12-31 23:59:59', '2023-12-31 23:59:50')")
+
+    // 73. TIME function constant folding tests
+    testFoldConst("SELECT TIME('2025-1-1 12:12:12')")
+
+    // 74. TIMESTAMPADD function constant folding tests
+    testFoldConst("SELECT TIMESTAMPADD(MINUTE, 1, '2019-01-02')")
+    testFoldConst("SELECT TIMESTAMPADD(WEEK, 1, '2019-01-02')")
+    testFoldConst("SELECT TIMESTAMPADD(HOUR, -3, '2023-07-13 10:30:00')")
+    testFoldConst("SELECT TIMESTAMPADD(MONTH, 1, '2023-01-31')")
+    testFoldConst("SELECT TIMESTAMPADD(YEAR, 1, '2023-12-31 23:59:59')")
+
+    // 75. TIMESTAMPDIFF function constant folding tests
+    testFoldConst("SELECT TIMESTAMPDIFF(MONTH, '2003-02-01', '2003-05-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(YEAR, '2002-05-01', '2001-01-01')")
+    testFoldConst("SELECT TIMESTAMPDIFF(MINUTE, '2003-02-01', '2003-05-01 12:05:55')")
+    testFoldConst("SELECT TIMESTAMPDIFF(DAY, '2023-12-31 23:59:50', '2024-01-01 00:00:05')")
+    testFoldConst("SELECT TIMESTAMPDIFF(MONTH, '2023-01-31', '2023-02-28')")
+    testFoldConst("SELECT TIMESTAMPDIFF(MONTH, '2023-01-31', '2023-02-27')")
+    testFoldConst("SELECT TIMESTAMPDIFF(WEEK, '2023-01-01', '2023-01-15')")
+
+    // 76. TIMESTAMP function constant folding tests
+    testFoldConst("SELECT TIMESTAMP('2019-01-01 12:00:00')")
+    testFoldConst("SELECT TIMESTAMP('2019-01-01')")
+
+    // 77. TIME_TO_SEC function constant folding tests
+    testFoldConst("SELECT TIME_TO_SEC('16:32:18')")
+    testFoldConst("SELECT TIME_TO_SEC('2025-01-01 16:32:18')")
+    testFoldConst("SELECT TIME_TO_SEC('-02:30:00')")
+    testFoldConst("SELECT TIME_TO_SEC('-16:32:18.99')")
+    testFoldConst("SELECT TIME_TO_SEC('10:15:30.123456')")
+    testFoldConst("SELECT TIME_TO_SEC('12:60:00')")
+    testFoldConst("SELECT TIME_TO_SEC('839:00:00')")
+
+    // Test constant folding for Group 6 functions (TO_DATE, TO_DAYS, TO_ISO8601, TO_MONDAY, UNIX_TIMESTAMP, UTC_TIMESTAMP, WEEK functions)
+    
+    // 78. TO_DATE function constant folding tests
+    testFoldConst("SELECT TO_DATE('2020-02-02 00:00:00')")
+    testFoldConst("SELECT TO_DATE('2020-02-02')")
+
+    // 79. TO_DAYS function constant folding tests
+    testFoldConst("SELECT TO_DAYS('2007-10-07')")
+    testFoldConst("SELECT TO_DAYS('2007-10-07 10:03:09')")
+
+    // 80. TO_ISO8601 function constant folding tests
+    testFoldConst("SELECT TO_ISO8601(CAST('2023-10-05' AS DATE)) AS date_result")
+    testFoldConst("SELECT TO_ISO8601(CAST('2020-01-01 12:30:45' AS DATETIME)) AS datetime_result")
+    testFoldConst("SELECT TO_ISO8601(CAST('2020-01-01 12:30:45.956' AS DATETIME)) AS datetime_result")
+
+    // 81. TO_MONDAY function constant folding tests
+    testFoldConst("SELECT TO_MONDAY('2022-09-10') AS result")
+    testFoldConst("SELECT TO_MONDAY('1022-09-10') AS result")
+    testFoldConst("SELECT TO_MONDAY('2023-10-09') AS result")
+    testFoldConst("SELECT TO_MONDAY('1970-01-02'), TO_MONDAY('1970-01-01'), TO_MONDAY('1970-01-03'), TO_MONDAY('1970-01-04')")
+
+    // 82. UNIX_TIMESTAMP function constant folding tests
+    testFoldConst("SELECT UNIX_TIMESTAMP('1970-01-01 +08:00')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2007-11-30 10:30:19')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2007-11-30 10:30:19 +09:00')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2007-11-30 10:30-19', '%Y-%m-%d %H:%i-%s')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2007-11-30 10:30%3A19', '%Y-%m-%d')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2015-11-13 10:20:19.123')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('1007-11-30 10:30:19')")
+    testFoldConst("SELECT UNIX_TIMESTAMP('2038-01-19 11:14:08', NULL)")
+
+    // 84. WEEK_CEIL function constant folding tests
+    testFoldConst("SELECT WEEK_CEIL(CAST('2023-07-13 22:28:18' AS DATETIME)) AS result")
+    testFoldConst("SELECT WEEK_CEIL('2023-07-13 22:28:18', 2) AS result")
+    testFoldConst("SELECT WEEK_CEIL('2023-07-13', 1, '2023-07-03') AS result")
+    testFoldConst("SELECT WEEK_CEIL(CAST('2023-07-13' AS DATE))")
+
+    // 85. WEEKDAY function constant folding tests
+    testFoldConst("SELECT WEEKDAY('2023-10-09')")
+    testFoldConst("SELECT WEEKDAY('2023-10-15 18:30:00')")
+
+    // 86. WEEK_FLOOR function constant folding tests
+    testFoldConst("SELECT WEEK_FLOOR(CAST('2023-07-13 22:28:18' AS DATETIME)) AS result")
+    testFoldConst("SELECT WEEK_FLOOR('2023-07-13 22:28:18', 2) AS result")
+    testFoldConst("SELECT WEEK_FLOOR('2023-07-13', 1, '2023-07-03') AS result")
+    testFoldConst("SELECT WEEK_FLOOR(CAST('2023-07-13' AS DATE)) AS result")
+
+    // 87. WEEK function constant folding tests
+    testFoldConst("SELECT WEEK('2020-01-01') AS week_result")
+    testFoldConst("SELECT WEEK('2020-07-01', 1) AS week_result")
+    testFoldConst("SELECT WEEK('2023-01-01', 0) AS mode_0, WEEK('2023-01-01', 3) AS mode_3")
+    testFoldConst("SELECT WEEK('2023-01-01', 7) AS week_result")
+    testFoldConst("SELECT WEEK('2023-01-01', -1) AS week_result")
+    testFoldConst("SELECT WEEK('2023-12-31 23:59:59', 3) AS week_result")
+
+    // 88. WEEKOFYEAR function constant folding tests
+    testFoldConst("SELECT WEEKOFYEAR('2023-05-01') AS week_20230501")
+    testFoldConst("SELECT WEEKOFYEAR('2023-01-02') AS week_20230102")
+    testFoldConst("SELECT WEEKOFYEAR('2023-12-25') AS week_20231225")
+    testFoldConst("SELECT WEEKOFYEAR('1023-01-04')")
+    testFoldConst("SELECT WEEKOFYEAR('2024-01-01') AS week_20240101")
+
+    // 89. WEEKS_ADD function constant folding tests
+    testFoldConst("SELECT WEEKS_ADD('2023-10-01 08:30:45', 1) AS add_1_week_datetime")
+    testFoldConst("SELECT WEEKS_ADD('2023-10-01 14:20:10', -1) AS subtract_1_week_datetime")
+    testFoldConst("SELECT WEEKS_ADD('2023-05-20', 2) AS add_2_week_date")
+    testFoldConst("SELECT WEEKS_ADD('2023-12-25', 1) AS cross_year_add")
+
+    // 90. WEEKS_DIFF function constant folding tests
+    testFoldConst("SELECT WEEKS_DIFF('2020-12-25', '2020-10-25') AS diff_date")
+    testFoldConst("SELECT WEEKS_DIFF('2020-12-25 10:10:02', '2020-10-25 12:10:02') AS diff_datetime")
+    testFoldConst("SELECT WEEKS_DIFF('2023-10-07', '2023-10-01') AS diff_6_days")
+    testFoldConst("SELECT WEEKS_DIFF('2023-10-09', '2023-10-01') AS diff_8_days")
+    testFoldConst("SELECT WEEKS_DIFF('2024-01-01', '2023-12-25') AS cross_year")
+
+    // 91. WEEKS_SUB function constant folding tests
+    testFoldConst("SELECT WEEKS_SUB('2023-10-01 08:30:45', 1) AS sub_1_week_datetime")
+    testFoldConst("SELECT WEEKS_SUB('2023-09-24 14:20:10', -1) AS add_1_week_datetime")
+    testFoldConst("SELECT WEEKS_SUB('2023-06-03', 2) AS sub_2_week_date")
+    testFoldConst("SELECT WEEKS_SUB('2024-01-01', 1) AS cross_year_sub")
+
+    // Test constant folding for Group 7 functions (Year functions)
+    
+    // 92. YEAR_CEIL function constant folding tests
+    testFoldConst("SELECT YEAR_CEIL('2023-07-13 22:28:18') AS result")
+    testFoldConst("SELECT YEAR_CEIL('2023-07-13 22:28:18', 5) AS result")
+    testFoldConst("SELECT YEAR_CEIL(CAST('2023-07-13' AS DATE)) AS result")
+    testFoldConst("SELECT YEAR_CEIL('2023-07-13', 1, '2020-01-01') AS result")
+    testFoldConst("SELECT YEAR_CEIL('2023-01-01', 1, '2023-01-01') AS result")
+
+    // 93. YEAR_FLOOR function constant folding tests
+    testFoldConst("SELECT YEAR_FLOOR('2023-07-13 22:28:18') AS result")
+    testFoldConst("SELECT YEAR_FLOOR('2023-07-13 22:28:18', 5) AS result")
+    testFoldConst("SELECT YEAR_FLOOR(CAST('2023-07-13' AS DATE)) AS result")
+    testFoldConst("SELECT YEAR_FLOOR('2023-07-13', 1, '2020-01-01') AS result")
+    testFoldConst("SELECT YEAR_FLOOR('2025-07-13', 3, '2020-01-01') AS result")
+
+    // 94. YEAR function constant folding tests
+    testFoldConst("SELECT YEAR('1987-01-01') AS year_date")
+    testFoldConst("SELECT YEAR('2024-05-20 14:30:25') AS year_datetime")
+    testFoldConst("SELECT YEAR('2023-02-30') AS invalid_date")
+
+    // 95. YEAR_OF_WEEK function constant folding tests
+    testFoldConst("SELECT YEAR_OF_WEEK('2005-01-01') AS yow_result")
+    testFoldConst("SELECT YOW('2005-01-01') AS yow_alias_result")
+    testFoldConst("SELECT YEAR_OF_WEEK('2005-01-03') AS yow_result")
+    testFoldConst("SELECT YEAR_OF_WEEK('2023-01-01') AS yow_result")
+    testFoldConst("SELECT YEAR_OF_WEEK('2005-01-01 15:30:45') AS yow_datetime")
+    testFoldConst("SELECT YEAR_OF_WEEK('2024-12-30') AS yow_result")
+
+    // 96. YEARS_ADD function constant folding tests
+    testFoldConst("SELECT YEARS_ADD('2020-01-31 02:02:02', 1) AS add_1_year_datetime")
+    testFoldConst("SELECT YEARS_ADD('2023-05-10 15:40:20', -1) AS subtract_1_year_datetime")
+    testFoldConst("SELECT YEARS_ADD('2019-12-25', 3) AS add_3_year_date")
+    testFoldConst("SELECT YEARS_ADD('2020-02-29', 1) AS leap_day_adjust")
+
+    // 97. YEARS_DIFF function constant folding tests
+    testFoldConst("SELECT YEARS_DIFF('2020-12-25', '2019-12-25') AS diff_full_year")
+    testFoldConst("SELECT YEARS_DIFF('2020-11-25', '2019-12-25') AS diff_less_than_year")
+    testFoldConst("SELECT YEARS_DIFF('2022-03-15 08:30:00', '2021-03-15 09:10:00') AS diff_datetime")
+    testFoldConst("SELECT YEARS_DIFF('2024-05-20', '2020-05-20 12:00:00') AS diff_mixed")
+    testFoldConst("SELECT YEARS_DIFF('2024-02-29', '2023-02-28') AS leap_year_diff")
+
+    // 98. YEARS_SUB function constant folding tests
+    testFoldConst("SELECT YEARS_SUB('2020-02-02 02:02:02', 1) AS sub_1_year_datetime")
+    testFoldConst("SELECT YEARS_SUB('2022-05-10 15:40:20', -1) AS add_1_year_datetime")
+    testFoldConst("SELECT YEARS_SUB('2022-12-25', 3) AS sub_3_year_date")
+    testFoldConst("SELECT YEARS_SUB('2020-02-29', 1) AS leap_day_adjust_1")
 
 }
