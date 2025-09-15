@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 
 @Log4j2
 public class StreamingTaskScheduler extends MasterDaemon {
-    private final LinkedBlockingDeque<StreamingInsertTask> needScheduleTasksQueue = new LinkedBlockingDeque<>();
     private final ThreadPoolExecutor threadPool = new ThreadPoolExecutor(
                     0,
                     Config.max_streaming_job_num,
@@ -63,12 +62,10 @@ public class StreamingTaskScheduler extends MasterDaemon {
         }
     }
 
-    public void registerTask(StreamingInsertTask task) {
-        needScheduleTasksQueue.add(task);
-    }
-
     private void process() throws InterruptedException {
         List<StreamingInsertTask> tasks = new ArrayList<>();
+        LinkedBlockingDeque<StreamingInsertTask> needScheduleTasksQueue =
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getNeedScheduleTasksQueue();
         tasks.add(needScheduleTasksQueue.take());
         needScheduleTasksQueue.drainTo(tasks);
         scheduleTasks(tasks);
@@ -106,13 +103,14 @@ public class StreamingTaskScheduler extends MasterDaemon {
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
-        task.execute();
         job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().addRunningTask(task);
+        task.execute();
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
         delayScheduler.schedule(() -> {
-            needScheduleTasksQueue.add(task);
+            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(task);
         }, delayMs, TimeUnit.MILLISECONDS);
     }
 }
