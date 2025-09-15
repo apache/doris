@@ -67,7 +67,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertFalse(fileCachePathResult.size() == 0 || fileCachePathResult[0][3] == null || fileCachePathResult[0][3].trim().isEmpty(),
             FILE_CACHE_PATH_CHECK_FAILED_MSG)
 
-    String catalog_name = "test_file_cache_external"
+    String catalog_name = "test_file_cache_query_limit"
     String ex_db_name = "tpch1_parquet"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
