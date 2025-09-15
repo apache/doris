@@ -75,9 +75,9 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                     }
                 } else if (pval->type == JsonbType::T_Array && !is_wildcard) {
                     for(const auto& it : *pval->unpack<ArrayVal>()) {
-                        pval = it.unpack<ObjectVal>()->find(path.get_leg_from_leg_vector(i)->leg_ptr,
-                                                            path.get_leg_from_leg_vector(i)->leg_len,
-                                                            nullptr);
+                        pval = it.unpack<ObjectVal>()->find(
+                                path.get_leg_from_leg_vector(i)->leg_ptr,
+                                path.get_leg_from_leg_vector(i)->leg_len, nullptr);
                         if (pval) {
                             results.emplace_back(pval);
                         }                              
@@ -165,18 +165,18 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     } else if (results.size() == 1) {
         result.value = results[0];
     } else if(results.size() > 1){
-            result.writer = std::make_unique<JsonbWriter>();
-            result.writer->writeStartArray();
-            for (const auto* pval : results) {
-                result.writer->writeValue(pval);
-            }
-            result.writer->writeEndArray();
+        result.writer = std::make_unique<JsonbWriter>();
+        result.writer->writeStartArray();
+        for (const auto* pval : results) {
+            result.writer->writeValue(pval);
+        }
+        result.writer->writeEndArray();
 
-            JsonbDocument* doc = nullptr;
-            THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
-                    result.writer->getOutput()->getBuffer(), result.writer->getOutput()->getSize(),
-                    &doc));
-            result.value = doc->getValue();
+        JsonbDocument* doc = nullptr;
+        THROW_IF_ERROR(
+                JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(), 
+                                                    result.writer->getOutput()->getSize(), &doc));
+        result.value = doc->getValue();
     }
 
     return result;
