@@ -1542,6 +1542,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                     "BaseTablet::update_delete_bitmap.block");
             if (block_dp) {
                 auto wait_token = block_dp->param<std::string>("wait_token", "");
+                LOG(INFO) << "BaseTablet::update_delete_bitmap.enable_spin_wait, wait_token: "
+                          << wait_token << ", token: " << token;
                 if (wait_token != token) {
                     break;
                 }

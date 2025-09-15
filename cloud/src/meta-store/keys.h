@@ -455,6 +455,7 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }

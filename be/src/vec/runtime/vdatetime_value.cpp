@@ -254,8 +254,9 @@ bool VecDateTimeValue::from_date_str_base(const char* date_str, size_t len,
                                   date_val[5], _type)) {
         return false;
     }
-    return sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                TimeInterval {TimeUnit::SECOND, sec_offset, false})
+    return sec_offset ? date_add_interval<TimeUnit::SECOND>(TimeInterval {
+                                TimeUnit::SECOND, static_cast<uint64_t>(std::abs(sec_offset)),
+                                sec_offset < 0})
                       : true;
 }
 
@@ -1679,9 +1680,12 @@ bool VecDateTimeValue::date_set_interval(const TimeInterval& interval) {
             (unit == YEAR) || (unit == QUARTER) || (unit == MONTH) || (unit == DAY) ||
                     (unit == HOUR) || (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
+    if (interval.is_neg) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "date_set_interval only support positive interval");
+    }
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR)) {
         // This may change the day information
-        //FIXME: interval must be positive.
         int64_t seconds = interval.day * 86400L + interval.hour * 3600 + interval.minute * 60 +
                           interval.second;
         int64_t days = seconds / 86400;
@@ -2177,8 +2181,9 @@ bool DateV2Value<T>::from_date_str_base(const char* date_str, size_t len, int sc
 
     return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
                                     date_val[5], date_val[6]) &&
-           (sec_offset ? date_add_interval<TimeUnit::SECOND>(
-                                 TimeInterval {TimeUnit::SECOND, sec_offset, false})
+           (sec_offset ? date_add_interval<TimeUnit::SECOND>(TimeInterval {
+                                 TimeUnit::SECOND, static_cast<uint64_t>(std::abs(sec_offset)),
+                                 sec_offset < 0})
                        : true);
 }
 
@@ -3005,7 +3010,12 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
             (unit == YEAR) || (unit == QUARTER) || (unit == MONTH) || (unit == DAY) ||
                     (unit == HOUR) || (unit == MINUTE) || (unit == SECOND),
             "date_set_interval function now only support YEAR MONTH DAY HOUR MINUTE SECOND type");
-    //FIXME: interval must be positive
+
+    if (interval.is_neg) {
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "date_set_interval only support positive interval");
+    }
+
     if constexpr ((unit == SECOND) || (unit == MINUTE) || (unit == HOUR) || (unit == DAY)) {
         set_zero();
         // This may change the day information
