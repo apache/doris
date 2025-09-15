@@ -2128,6 +2128,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
         }
 
+        // 专门调试BE发送给FE的columns参数
+        if (request.isSetColumns()) {
+            LOG.info("=== FE StreamLoadPut Columns Debug ===");
+            LOG.info("BE sent columns to FE: [{}]", request.getColumns());
+
+            // 检查是否包含问号字符
+            int questionMarkCount = 0;
+            String columns = request.getColumns();
+            if (columns != null) {
+                for (char c : columns.toCharArray()) {
+                    if (c == '?') {
+                        questionMarkCount++;
+                    }
+                }
+                LOG.info("Question mark count in BE request: {}", questionMarkCount);
+
+                // 打印字节内容
+                try {
+                    byte[] bytes = columns.getBytes("UTF-8");
+                    StringBuilder hexString = new StringBuilder();
+                    for (byte b : bytes) {
+                        hexString.append(String.format("%02x ", b & 0xFF));
+                    }
+                    LOG.info("BE request columns UTF-8 bytes: [{}]", hexString.toString().trim());
+                } catch (java.io.UnsupportedEncodingException e) {
+                    LOG.warn("Failed to get UTF-8 bytes for BE request columns", e);
+                }
+
+                if (questionMarkCount > 0) {
+                    LOG.warn("DIAGNOSTIC: BE sent columns with {} question marks to FE", questionMarkCount);
+                    LOG.warn("This indicates data corruption happened before reaching FE");
+                }
+            }
+            LOG.info("=== End FE StreamLoadPut Debug ===");
+        }
+
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
