@@ -531,19 +531,33 @@ static std::string escape_json_string(const std::string& s) {
     std::stringstream o;
     for (auto c : s) {
         switch (c) {
-            case '"':  o << "\\\""; break;
-            case '\\': o << "\\\\"; break;
-            case '\b': o << "\\b";  break;
-            case '\f': o << "\\f";  break;
-            case '\n': o << "\\n";  break;
-            case '\r': o << "\\r";  break;
-            case '\t': o << "\\t";  break;
-            default:
-                if ('\x00' <= c && c <= '\x1f') {
-                    o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
-                } else {
-                    o << c;
-                }
+        case '"':
+            o << "\\\"";
+            break;
+        case '\\':
+            o << "\\\\";
+            break;
+        case '\b':
+            o << "\\b";
+            break;
+        case '\f':
+            o << "\\f";
+            break;
+        case '\n':
+            o << "\\n";
+            break;
+        case '\r':
+            o << "\\r";
+            break;
+        case '\t':
+            o << "\\t";
+            break;
+        default:
+            if ('\x00' <= c && c <= '\x1f') {
+                o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
+            } else {
+                o << c;
+            }
         }
     }
     return o.str();
@@ -578,13 +592,14 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
 
             // This value-extraction logic is preserved from your original function
             // to maintain consistency, especially for handling nullability mismatches.
-            if (data[i].column && data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+            if (data[i].column && data[i].type->is_nullable() &&
+                !data[i].column->is_concrete_nullable()) {
                 // This branch handles a specific internal representation of nullable columns.
                 // The original code would assert here if allow_null_mismatch is false.
                 assert(allow_null_mismatch);
                 s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                        ->get_nested_type()
-                        ->to_string(*data[i].column, row_num);
+                            ->get_nested_type()
+                            ->to_string(*data[i].column, row_num);
             } else {
                 // This is the standard path. The to_string method is expected to correctly
                 // handle all cases, including when the column is null (e.g., by returning "NULL").
