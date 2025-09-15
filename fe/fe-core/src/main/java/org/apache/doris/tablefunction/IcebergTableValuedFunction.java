@@ -37,9 +37,9 @@ import org.apache.doris.thrift.TMetadataType;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.util.SerializationUtil;
@@ -82,10 +82,7 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         if (tableName == null || queryType == null) {
             throw new AnalysisException("Invalid iceberg metadata query");
         }
-        // TODO: support these system tables in future;
-        if (queryType.equalsIgnoreCase("all_manifests") || queryType.equalsIgnoreCase("position_deletes")) {
-            throw new AnalysisException("SysTable " + queryType + " is not supported yet");
-        }
+
         String[] names = tableName.split("\\.");
         if (names.length != 3) {
             throw new AnalysisException("The iceberg table name contains the catalogName, databaseName, and tableName");
@@ -136,10 +133,10 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
-        CloseableIterable<FileScanTask> tasks;
+        CloseableIterable<ScanTask> tasks;
         try {
             tasks = preExecutionAuthenticator.execute(() -> {
-                return sysTable.newScan().select(requiredFileds).planFiles();
+                return sysTable.newBatchScan().select(requiredFileds).planFiles();
             });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e));

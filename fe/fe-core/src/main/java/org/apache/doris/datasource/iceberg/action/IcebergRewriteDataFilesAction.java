@@ -23,10 +23,17 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteParameters;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -38,6 +45,7 @@ import java.util.Optional;
  * and improve query performance.
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
+    private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);
     // File size parameters
     public static final String TARGET_FILE_SIZE_BYTES = "target-file-size-bytes";
     public static final String MIN_FILE_SIZE_BYTES = "min-file-size-bytes";
@@ -54,6 +62,10 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     // Output specification parameter
     public static final String OUTPUT_SPEC_ID = "output-spec-id";
+
+    // Parameters with special default handling
+    private long min_file_size_bytes;
+    private long max_file_size_bytes;
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -132,14 +144,66 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     @Override
     protected void validateIcebergAction() throws UserException {
-        // TODO: Implement validation logic for rewrite_data_files parameters
+        // Validate min and max file size parameters
+        long target_file_size_bytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
+        // min-file-size-bytes default to 75% of target file size
+        this.min_file_size_bytes = namedArguments.getLong(MIN_FILE_SIZE_BYTES);
+        if (this.min_file_size_bytes == 0) {
+                this.min_file_size_bytes = (long) (target_file_size_bytes * 0.75);
+        }
+        // max-file-size-bytes default to 180% of target file size
+        this.max_file_size_bytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
+        if (this.max_file_size_bytes == 0) {
+                this.max_file_size_bytes = (long) (target_file_size_bytes * 1.8);
+        }
     }
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        // TODO: Implement the logic to rewrite data files in the Iceberg table
-        // For now, just return dummy values
-        return Lists.newArrayList("0", "1", "2", "3");
+        try {
+            org.apache.iceberg.Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
+            
+            if (icebergTable.currentSnapshot() == null) {
+                LOG.info("Table {} has no data, skipping rewrite", table.getName());
+                return Lists.newArrayList("0", "0", "0", "0");
+            }
+
+            RewriteParameters parameters = buildRewriteParameters();
+
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext == null) {
+                throw new UserException("No active connection context found");
+            }
+
+            RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
+                    this.icebergTable, icebergTable, parameters, connectContext);
+
+            RewriteResult result = executor.execute();
+            
+            LOG.info("Rewrite data files completed for table: {}, result: {}", 
+                table.getName(), result);
+            return result.toStringList();
+
+        } catch (Exception e) {
+            LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
+            throw new UserException("Rewrite data files failed: " + e.getMessage());
+        }
+    }
+    
+    private RewriteParameters buildRewriteParameters() {
+        return new RewriteParameters(
+                namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
+                this.min_file_size_bytes,
+                this.max_file_size_bytes,
+                namedArguments.getInt(MIN_INPUT_FILES),
+                namedArguments.getBoolean(REWRITE_ALL),
+                namedArguments.getLong(MAX_FILE_GROUP_SIZE_BYTES),
+                namedArguments.getInt(DELETE_FILE_THRESHOLD),
+                namedArguments.getDouble(DELETE_RATIO_THRESHOLD),
+                namedArguments.getLong(OUTPUT_SPEC_ID),
+                partitionNamesInfo,
+                whereCondition
+        );
     }
 
     @Override
