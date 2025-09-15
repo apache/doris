@@ -533,6 +533,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
         if (iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
             request.__set_strip_outer_array(true);
+            request.__set_read_json_by_line(false);
         } else {
             request.__set_strip_outer_array(false);
         }

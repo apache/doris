@@ -43,7 +43,7 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals("", jsonFileFormatProperties.getJsonRoot());
         Assert.assertEquals("", jsonFileFormatProperties.getJsonPaths());
         Assert.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
-        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
+        Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
         Assert.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
@@ -99,7 +99,7 @@ public class JsonFileFormatPropertiesTest {
     @Test
     public void testAnalyzeFileFormatPropertiesReadJsonByLineFalse() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
-        properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
+        properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "false");
 
         jsonFileFormatProperties.analyzeFileFormatProperties(properties, true);
         Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
@@ -155,7 +155,7 @@ public class JsonFileFormatPropertiesTest {
         Map<String, String> properties = new HashMap<>();
         properties.put(JsonFileFormatProperties.PROP_JSON_ROOT, "data.records");
         properties.put(JsonFileFormatProperties.PROP_JSON_PATHS, "[\"$.id\", \"$.name\"]");
-        properties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "false");
+        properties.put(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, "true");
         properties.put(JsonFileFormatProperties.PROP_READ_JSON_BY_LINE, "true");
         properties.put(JsonFileFormatProperties.PROP_NUM_AS_STRING, "true");
         properties.put(JsonFileFormatProperties.PROP_FUZZY_PARSE, "true");
@@ -164,7 +164,7 @@ public class JsonFileFormatPropertiesTest {
 
         Assert.assertEquals("data.records", jsonFileFormatProperties.getJsonRoot());
         Assert.assertEquals("[\"$.id\", \"$.name\"]", jsonFileFormatProperties.getJsonPaths());
-        Assert.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
+        Assert.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
         Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(true, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
