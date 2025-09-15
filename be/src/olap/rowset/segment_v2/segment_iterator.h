@@ -464,7 +464,6 @@ private:
 
     // char_type or array<char> type columns cid
     std::vector<size_t> _char_type_idx;
-    std::vector<size_t> _char_type_idx_no_0;
     std::vector<bool> _is_char_type;
 
     // number of rows read in the current batch

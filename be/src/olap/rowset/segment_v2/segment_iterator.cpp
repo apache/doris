@@ -1876,7 +1876,7 @@ bool SegmentIterator::_has_char_type(const Field& column_desc) {
 };
 
 void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
-    if (!_char_type_idx.empty() || !_char_type_idx_no_0.empty()) {
+    if (!_char_type_idx.empty()) {
         return;
     }
     _is_char_type.resize(_schema->columns().size(), false);
@@ -1889,9 +1889,6 @@ void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
         if (i < block->columns()) {
             if (_has_char_type(*column_desc)) {
                 _char_type_idx.emplace_back(i);
-                if (i != 0) {
-                    _char_type_idx_no_0.emplace_back(i);
-                }
             }
             if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 _is_char_type[cid] = true;
@@ -2613,17 +2610,23 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
     //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
     VLOG_DEBUG << fmt::format("Execute common expr. block rows {}, selected size {}", block->rows(),
                               _selected_size);
-    vectorized::MutableColumnPtr col0 = std::move(*block->get_by_position(0).column).mutate();
-    if (col0->size() == 0) {
-        auto tmp_indicator_col =
-                block->get_by_position(0).type->create_column_const_with_default_value(
-                        _selected_size);
-        block->replace_by_position(0, std::move(tmp_indicator_col));
+
+    bool need_mock_col = block->rows() != selected_size;
+    vectorized::MutableColumnPtr col0;
+    if (need_mock_col) {
+        col0 = std::move(*block->get_by_position(0).column).mutate();
+        block->replace_by_position(
+                0, block->get_by_position(0).type->create_column_const_with_default_value(
+                           _selected_size));
     }
+
     _output_index_result_column_for_expr(_sel_rowid_idx.data(), _selected_size, block);
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
-    block->replace_by_position(0, std::move(col0));
+
+    if (need_mock_col) {
+        block->replace_by_position(0, std::move(col0));
+    }
 
     VLOG_DEBUG << fmt::format("Execute common expr end. block rows {}, selected size {}",
                               block->rows(), _selected_size);
