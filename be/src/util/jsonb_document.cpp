@@ -74,7 +74,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                         results.emplace_back(pval);
                     }
                 } else if (pval->type == JsonbType::T_Array && !is_wildcard) {
-                    for(const auto& it : *pval->unpack<ArrayVal>()) {
+                    for (const auto& it : *pval->unpack<ArrayVal>()) {
                         pval = it.unpack<ObjectVal>()->find(
                                 path.get_leg_from_leg_vector(i)->leg_ptr,
                                 path.get_leg_from_leg_vector(i)->leg_len, nullptr);
@@ -164,7 +164,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         }
     } else if (results.size() == 1) {
         result.value = results[0];
-    } else if (results.size() > 1){
+    } else if (results.size() > 1) {
         result.writer = std::make_unique<JsonbWriter>();
         result.writer->writeStartArray();
         for (const auto* pval : results) {
@@ -174,7 +174,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
 
         JsonbDocument* doc = nullptr;
         THROW_IF_ERROR(
-                JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(), 
+                JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(),
                                                       result.writer->getOutput()->getSize(), &doc));
         result.value = doc->getValue();
     }
