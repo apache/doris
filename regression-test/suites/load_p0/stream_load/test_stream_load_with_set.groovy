@@ -40,9 +40,9 @@ suite("test_stream_load_with_set", "load_p0") {
             k14 DATETIMEV2      NULL,
             k15 CHAR            NULL,
             k16 VARCHAR         NULL,
+            kd01 DATE            NOT NULL,
             k17 STRING          NULL,
-            k18 JSON            NULL,
-            kd01 DATE            NOT NULL 
+            k18 JSON            NULL
         )
         DUPLICATE KEY(k00)
         DISTRIBUTED BY HASH(k00) BUCKETS 1
