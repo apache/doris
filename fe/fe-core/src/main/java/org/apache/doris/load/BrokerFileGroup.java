@@ -42,6 +42,7 @@ import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
+import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -107,6 +108,21 @@ public class BrokerFileGroup {
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
+    }
+
+    public BrokerFileGroup(NereidsDataDescription dataDescription) {
+        this.fileFieldNames = dataDescription.getFileFieldNames();
+        this.columnNamesFromPath = dataDescription.getColumnsFromPath();
+        this.columnExprList = dataDescription.getParsedColumnExprList();
+        this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
+        this.whereExpr = dataDescription.getWhereExpr();
+        this.deleteCondition = dataDescription.getDeleteCondition();
+        this.mergeType = dataDescription.getMergeType();
+        this.sequenceCol = dataDescription.getSequenceCol();
+        this.filePaths = dataDescription.getFilePaths();
+        // use for cloud copy into
+        this.ignoreCsvRedundantCol = dataDescription.getIgnoreCsvRedundantCol();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
