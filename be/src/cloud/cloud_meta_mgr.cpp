@@ -160,6 +160,7 @@ bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
         "cloud_meta_mgr_rpc_timeout_qps", &g_cloud_meta_mgr_rpc_timeout_count, 30);
 bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
         "cloud_be_mow_get_dbm_lock_backoff_sleep_time");
+bvar::Adder<uint64_t> g_cloud_version_hole_filled_count("cloud_version_hole_filled_count");
 
 class MetaServiceProxy {
 public:
@@ -768,6 +769,12 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
                 RETURN_IF_ERROR(tablet->merge_rowsets_schema());
             }
+
+            // Fill version holes
+            int64_t partition_max_version =
+                    resp.has_partition_max_version() ? resp.partition_max_version() : -1;
+            RETURN_IF_ERROR(fill_version_holes(tablet, partition_max_version, wlock));
+
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
             tablet->set_base_compaction_cnt(stats.base_compaction_cnt());
@@ -1675,5 +1682,120 @@ Status CloudMetaMgr::get_schema_dict(int64_t index_id,
     return Status::OK();
 }
 
-#include "common/compile_check_end.h"
+Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version,
+                                        std::unique_lock<std::shared_mutex>& wlock) {
+    if (max_version <= 0) {
+        return Status::OK();
+    }
+
+    Versions existing_versions;
+    for (const auto& rs : tablet->tablet_meta()->all_rs_metas()) {
+        existing_versions.emplace_back(rs->version());
+    }
+
+    // If there are no existing versions, it may be a new tablet for restore, so skip filling holes.
+    if (existing_versions.empty()) {
+        return Status::OK();
+    }
+
+    std::vector<RowsetSharedPtr> hole_rowsets;
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const Version& a, const Version& b) {
+                  // simple because 2 versions are certainly not overlapping
+                  return a.first < b.first;
+              });
+
+    int64_t last_version = -1;
+    for (const Version& version : existing_versions) {
+        // missing versions are those that are not in the existing_versions
+        if (version.first > last_version + 1) {
+            // there is a hole between versions
+            auto prev_non_hole_rowset = tablet->get_rowset_by_version(version);
+            for (int64_t ver = last_version + 1; ver < version.first; ++ver) {
+                RowsetSharedPtr hole_rowset;
+                RETURN_IF_ERROR(create_empty_rowset_for_hole(
+                        tablet, ver, prev_non_hole_rowset->rowset_meta(), &hole_rowset));
+                hole_rowsets.push_back(hole_rowset);
+            }
+            LOG(INFO) << "Created empty rowset for version hole, from " << last_version + 1
+                      << " to " << version.first - 1 << " for tablet " << tablet->tablet_id();
+        }
+        last_version = version.second;
+    }
+
+    if (last_version + 1 <= max_version) {
+        LOG(INFO) << "Created empty rowset for version hole, from " << last_version + 1 << " to "
+                  << max_version << " for tablet " << tablet->tablet_id();
+        for (; last_version + 1 <= max_version; ++last_version) {
+            RowsetSharedPtr hole_rowset;
+            auto prev_non_hole_rowset = tablet->get_rowset_by_version(existing_versions.back());
+            RETURN_IF_ERROR(create_empty_rowset_for_hole(
+                    tablet, last_version + 1, prev_non_hole_rowset->rowset_meta(), &hole_rowset));
+            hole_rowsets.push_back(hole_rowset);
+        }
+    }
+
+    if (!hole_rowsets.empty()) {
+        size_t hole_count = hole_rowsets.size();
+        tablet->add_rowsets(std::move(hole_rowsets), false, wlock, false);
+        g_cloud_version_hole_filled_count << hole_count;
+    }
+    return Status::OK();
+}
+
+Status CloudMetaMgr::create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,
+                                                  RowsetMetaSharedPtr prev_rowset_meta,
+                                                  RowsetSharedPtr* rowset) {
+    // Create a RowsetMeta for the empty rowset
+    auto rs_meta = std::make_shared<RowsetMeta>();
+
+    // Generate a deterministic rowset ID for the hole (same tablet_id + version = same rowset_id)
+    RowsetId hole_rowset_id;
+    hole_rowset_id.init(2, 0, tablet->tablet_id(), version);
+    rs_meta->set_rowset_id(hole_rowset_id);
+
+    // Generate a deterministic load_id for the hole rowset (same tablet_id + version = same load_id)
+    PUniqueId load_id;
+    load_id.set_hi(tablet->tablet_id());
+    load_id.set_lo(version);
+    rs_meta->set_load_id(load_id);
+
+    // Copy schema and other metadata from template
+    rs_meta->set_tablet_schema(prev_rowset_meta->tablet_schema());
+    rs_meta->set_rowset_type(prev_rowset_meta->rowset_type());
+    rs_meta->set_tablet_schema_hash(prev_rowset_meta->tablet_schema_hash());
+    rs_meta->set_resource_id(prev_rowset_meta->resource_id());
+
+    // Basic tablet information
+    rs_meta->set_tablet_id(tablet->tablet_id());
+    rs_meta->set_index_id(tablet->index_id());
+    rs_meta->set_partition_id(tablet->partition_id());
+    rs_meta->set_tablet_uid(tablet->tablet_uid());
+    rs_meta->set_version(Version(version, version));
+    rs_meta->set_txn_id(version);
+
+    rs_meta->set_num_rows(0);
+    rs_meta->set_total_disk_size(0);
+    rs_meta->set_data_disk_size(0);
+    rs_meta->set_index_disk_size(0);
+    rs_meta->set_empty(true);
+    rs_meta->set_num_segments(0);
+    rs_meta->set_segments_overlap(NONOVERLAPPING);
+    rs_meta->set_rowset_state(VISIBLE);
+    rs_meta->set_creation_time(UnixSeconds());
+    rs_meta->set_newest_write_timestamp(UnixSeconds());
+
+    Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, rowset);
+    if (!s.ok()) {
+        LOG_WARNING("Failed to create empty rowset for hole")
+                .tag("tablet_id", tablet->tablet_id())
+                .tag("version", version)
+                .error(s);
+        return s;
+    }
+    (*rowset)->set_hole_rowset(true);
+
+    return Status::OK();
+}
 } // namespace doris::cloud

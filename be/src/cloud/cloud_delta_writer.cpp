@@ -20,6 +20,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "olap/delta_writer.h"
 #include "runtime/thread_context.h"
 
@@ -108,11 +109,31 @@ const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
 
 Status CloudDeltaWriter::commit_rowset() {
     std::lock_guard<bthread::Mutex> lock(_mtx);
+
+    // Handle empty rowset (no data written)
     if (!_is_init) {
-        // No data to write, but still need to write a empty rowset kv to keep version continuous
-        RETURN_IF_ERROR(_rowset_builder->init());
-        RETURN_IF_ERROR(_rowset_builder->build_rowset());
+        return _commit_empty_rowset();
     }
+
+    // Handle normal rowset with data
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+}
+
+Status CloudDeltaWriter::_commit_empty_rowset() {
+    // If skip writing empty rowset metadata is enabled,
+    // we do not prepare rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        rowset_builder()->set_skip_writing_rowset_metadata(true);
+    }
+
+    RETURN_IF_ERROR(_rowset_builder->init());
+    RETURN_IF_ERROR(_rowset_builder->build_rowset());
+
+    // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        return Status::OK();
+    }
+    // write a empty rowset kv to keep version continuous
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
