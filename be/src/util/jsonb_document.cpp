@@ -164,7 +164,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         }
     } else if (results.size() == 1) {
         result.value = results[0];
-    } else if(results.size() > 1){
+    } else if (results.size() > 1){
         result.writer = std::make_unique<JsonbWriter>();
         result.writer->writeStartArray();
         for (const auto* pval : results) {
@@ -175,7 +175,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         JsonbDocument* doc = nullptr;
         THROW_IF_ERROR(
                 JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(), 
-                                                    result.writer->getOutput()->getSize(), &doc));
+                                                      result.writer->getOutput()->getSize(), &doc));
         result.value = doc->getValue();
     }
 
