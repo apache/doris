@@ -138,9 +138,10 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     /****************OSS*******************/
     String oss_ak = context.config.otherConfigs.get("aliYunAk")
     String oss_sk = context.config.otherConfigs.get("aliYunSk")
-    String oss_endpoint = "oss-cn-beijing.aliyuncs.com"
-    String oss_parent_path = "doris-regression-bj/refactor-test"
-    String oss_region = "cn-beijing"
+    String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
+    String bucket = context.config.otherConfigs.get("aliYunBucket")
+    String oss_parent_path = "${bucket}/refactor-test"
+    String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
     """
@@ -185,7 +186,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     /**************** DLF *******************/
 
     String dlf_oss_properties = """
-               "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
+               "oss.endpoint" = "${oss_endpoint}",
                "oss.access_key" = "${dlf_access_key}",
                "oss.secret_key" = "${dlf_secret_key}",
     """
@@ -278,7 +279,7 @@ suite("hive_on_hms_and_dlf", "p2,external,new_catalog_property") {
     String dlf_region_param = """
             "dlf.region" = "${dlf_region}",
     """
-    String dlf_endpoint = "dlf.cn-beijing.aliyuncs.com"
+    String dlf_endpoint = context.config.otherConfigs.get("dlf_endpoint")
     String dlf_endpoint_properties = """
              "dlf.endpoint" = "${dlf_endpoint}",
     """
