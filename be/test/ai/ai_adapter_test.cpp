@@ -20,12 +20,12 @@
 #include <curl/curl.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gmock/gmock-matchers.h>
-#include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 
 #include <string>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/functions/ai/ai_classify.h"
 #include "vec/functions/ai/ai_extract.h"
 #include "vec/functions/ai/ai_sentiment.h"
@@ -470,7 +470,8 @@ TEST(AI_ADAPTER_TEST, local_adapter_parse_response_parse_error) {
     LocalAdapter adapter;
     std::string resp = "not a json";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Failed to parse");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
@@ -481,7 +482,7 @@ TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(),
-                ::testing::EndsWith("Unsupported response format from local AI."));
+                ::testing::HasSubstr("Unsupported response format from local AI."));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
@@ -489,56 +490,70 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     // message field missing
     std::string resp = R"({"choices":[{}]})";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results),
-                 "Invalid choice format in  response");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
 
     // content field is not a string
     resp = R"({"choices":[{"message":{"content":123}}]})";
     results.clear();
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results),
-                 "Invalid choice format in  response");
+    st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
     OpenAIAdapter adapter;
     std::string resp = "not a json";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Failed to parse");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choices_not_array) {
     OpenAIAdapter adapter;
     std::string resp = R"({"choices":123})";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Invalid  response format");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, gemini_adapter_parse_response_parse_error) {
     GeminiAdapter adapter;
     std::string resp = "not a json";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Failed to parse");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
     GeminiAdapter adapter;
     std::string resp = R"({"foo":"bar"})";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Invalid  response format");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
     AnthropicAdapter adapter;
     std::string resp = "not a json";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Failed to parse");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse"));
 }
 
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     AnthropicAdapter adapter;
     std::string resp = R"({"content":123})";
     std::vector<std::string> results;
-    ASSERT_DEATH(Status st = adapter.parse_response(resp, results), "Invalid  response format");
+    Status st = adapter.parse_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {

@@ -537,8 +537,9 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
         }
     )";
     std::vector<std::vector<float>> results;
-    ASSERT_DEATH(Status st = adapter.parse_embedding_response(resp, results),
-                 "Failed to parse  response");
+    Status st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Failed to parse  response"));
 
     // `data` is not an array
     resp = R"({
@@ -552,8 +553,9 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
             "total_tokens": 10
         }
     })";
-    ASSERT_DEATH(Status st = adapter.parse_embedding_response(resp, results),
-                 "Invalid  response format");
+    st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 
     // member `embedding` is missing
     resp = R"({
@@ -569,8 +571,9 @@ TEST(EMBED_TEST, voyageai_adapter_parse_error_test) {
             "total_tokens": 10
         }
     })";
-    ASSERT_DEATH(Status st = adapter.parse_embedding_response(resp, results),
-                 "Invalid  response format");
+    st = adapter.parse_embedding_response(resp, results);
+    ASSERT_FALSE(st.ok());
+    ASSERT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
 TEST(EMBED_TEST, deepseek_adapter_embedding_request) {

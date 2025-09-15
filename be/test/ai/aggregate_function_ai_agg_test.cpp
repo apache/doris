@@ -309,6 +309,104 @@ TEST_F(AggregateFunctionAIAggTest, return_type_and_name_test) {
     EXPECT_EQ(_agg_function->get_name(), "ai_agg");
 }
 
+TEST_F(AggregateFunctionAIAggTest, add_batch_test) {
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+
+    std::vector<std::string> texts = {"First batch text", "Second batch text", "Third batch text"};
+
+    for (const auto& text : texts) {
+        resource_col->insert_data("mock_resource", 13);
+        text_col->insert_data(text.c_str(), text.size());
+        task_col->insert_data("summarize", 9);
+    }
+
+    constexpr size_t batch_size = 3;
+    constexpr size_t place_offset = 0;
+    std::vector<std::unique_ptr<char[]>> memories;
+    std::vector<AggregateDataPtr> places;
+    for (size_t i = 0; i < batch_size; ++i) {
+        memories.emplace_back(new char[_agg_function->size_of_data()]);
+        places.push_back(memories.back().get());
+        _agg_function->create(places[i]);
+    }
+
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+
+    _agg_function->add_batch(batch_size, places.data(), place_offset, columns, _arena);
+    for (size_t i = 0; i < batch_size; ++i) {
+        const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(places[i]);
+        EXPECT_TRUE(data.inited);
+        EXPECT_EQ(data.get_task(), "summarize");
+
+        std::string expected = texts[i];
+        std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+        EXPECT_EQ(actual, expected);
+    }
+
+    for (size_t i = 0; i < batch_size; ++i) {
+        _agg_function->destroy(places[i]);
+    }
+}
+
+TEST_F(AggregateFunctionAIAggTest, add_batch_multiple_calls_test) {
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+
+    std::vector<std::string> first_batch = {"Initial text 1", "Initial text 2"};
+    for (const auto& text : first_batch) {
+        resource_col->insert_data("mock_resource", 13);
+        text_col->insert_data(text.c_str(), text.size());
+        task_col->insert_data("analyze", 7);
+    }
+
+    constexpr size_t batch_size = 2;
+    constexpr size_t place_offset = 0;
+
+    std::vector<std::unique_ptr<char[]>> memories;
+    std::vector<AggregateDataPtr> places;
+
+    for (size_t i = 0; i < batch_size; ++i) {
+        memories.emplace_back(new char[_agg_function->size_of_data()]);
+        places.push_back(memories.back().get());
+        _agg_function->create(places[i]);
+    }
+
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+
+    _agg_function->add_batch(batch_size, places.data(), place_offset, columns, _arena);
+    auto resource_col2 = ColumnString::create();
+    auto text_col2 = ColumnString::create();
+    auto task_col2 = ColumnString::create();
+
+    std::vector<std::string> second_batch = {"Additional text 1", "Additional text 2"};
+    for (const auto& text : second_batch) {
+        resource_col2->insert_data("mock_resource", 13);
+        text_col2->insert_data(text.c_str(), text.size());
+        task_col2->insert_data("analyze", 7);
+    }
+
+    const IColumn* columns2[3] = {resource_col2.get(), text_col2.get(), task_col2.get()};
+
+    _agg_function->add_batch(batch_size, places.data(), place_offset, columns2, _arena);
+
+    for (size_t i = 0; i < batch_size; ++i) {
+        const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(places[i]);
+        EXPECT_TRUE(data.inited);
+        EXPECT_EQ(data.get_task(), "analyze");
+
+        std::string expected = first_batch[i] + "\n" + second_batch[i];
+        std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+        EXPECT_EQ(actual, expected);
+    }
+
+    for (size_t i = 0; i < batch_size; ++i) {
+        _agg_function->destroy(places[i]);
+    }
+}
+
 TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
     std::vector<std::string> resources = {"mock_resource"};
     std::vector<std::string> texts = {"test input"};
