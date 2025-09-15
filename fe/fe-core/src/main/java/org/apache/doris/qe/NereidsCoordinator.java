@@ -367,6 +367,10 @@ public class NereidsCoordinator extends Coordinator {
         return coordinatorContext.fragments;
     }
 
+    public CoordinatorContext getCoordinatorContext() {
+        return coordinatorContext;
+    }
+
     @Override
     public ExecutionProfile getExecutionProfile() {
         return coordinatorContext.executionProfile;
