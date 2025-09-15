@@ -1483,4 +1483,12 @@ public class AnalysisManager implements Writable {
             }
         }
     }
+
+    public NavigableMap<Long, AnalysisInfo> getAnalysisJobInfoMap() {
+        return analysisJobInfoMap;
+    }
+
+    public NavigableMap<Long, AnalysisInfo> getAnalysisTaskInfoMap() {
+        return analysisTaskInfoMap;
+    }
 }

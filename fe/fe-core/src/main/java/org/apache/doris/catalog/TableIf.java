@@ -34,6 +34,7 @@ import org.apache.doris.persist.AlterConstraintLog;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.collect.ImmutableList;
@@ -585,6 +586,21 @@ public interface TableIf {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * canAutoAnalyze
+     *
+     * @return canAutoAnalyze:can not reason
+     */
+    default Pair<Boolean, String> canAutoAnalyze() {
+        if (autoAnalyzeEnabled()) {
+            return Pair.of(false, "The setting is disabled");
+        }
+        if (getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+            return Pair.of(false, "Number of columns exceeds the AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD.");
+        }
+        return Pair.of(true, "");
     }
 }
 
