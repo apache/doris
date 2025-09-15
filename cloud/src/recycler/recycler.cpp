@@ -207,6 +207,7 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
                                     std::move(group_recycle_function_pool));
 
     txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
 }
 
 Recycler::~Recycler() {

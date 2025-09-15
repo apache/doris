@@ -64,9 +64,11 @@ int MetaServer::start(brpc::Server* server) {
     }
 
     auto rate_limiter = std::make_shared<RateLimiter>();
+    auto snapshot_mgr = std::make_shared<SnapshotManager>(txn_kv_);
 
     // Add service
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv_, rc_mgr, rate_limiter);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv_, rc_mgr, rate_limiter,
+                                                          std::move(snapshot_mgr));
     auto meta_service_proxy = new MetaServiceProxy(std::move(meta_service));
 
     brpc::ServiceOptions options;
