@@ -43,7 +43,7 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals("", jsonFileFormatProperties.getJsonRoot());
         Assert.assertEquals("", jsonFileFormatProperties.getJsonPaths());
         Assert.assertEquals(false, jsonFileFormatProperties.isStripOuterArray());
-        Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
+        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
         Assert.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
@@ -165,7 +165,7 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals("data.records", jsonFileFormatProperties.getJsonRoot());
         Assert.assertEquals("[\"$.id\", \"$.name\"]", jsonFileFormatProperties.getJsonPaths());
         Assert.assertEquals(true, jsonFileFormatProperties.isStripOuterArray());
-        Assert.assertEquals(true, jsonFileFormatProperties.isReadJsonByLine());
+        Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(true, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(true, jsonFileFormatProperties.isFuzzyParse());
     }
