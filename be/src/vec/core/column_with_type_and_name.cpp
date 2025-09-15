@@ -28,6 +28,7 @@
 #include <string>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
 #include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -99,11 +100,15 @@ ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_t
         ColumnPtr nested_column = column;
         if (column) {
             // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
-            auto column_ptr = nested_column->convert_to_full_column_if_const();
+            auto [column_ptr, is_const] = unpack_if_const(column);
             const auto* source_column =
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             column_ptr.get());
-            nested_column = source_column->get_nested_column_ptr();
+            if (is_const) {
+                nested_column = ColumnConst::create(source_column->get_nested_column_ptr(), source_column->size());
+            } else {
+                nested_column = source_column->get_nested_column_ptr();
+            }
 
             if (replace_null_data_to_default) {
                 const auto& null_map = source_column->get_null_map_data();
