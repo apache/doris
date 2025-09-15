@@ -240,59 +240,9 @@ class StreamLoadAction implements SuiteAction {
                 .encodeToString((user + ":" + (password == null ? "" : password)).getBytes("UTF-8"))
         requestBuilder.setHeader("Authorization", "Basic ${encoding}")
 
-        // 添加调试日志，显示所有headers
-        log.info("=== StreamLoadAction prepareRequestHeader Debug ===");
-        log.info("Total headers count: {}", headers.size());
         for (Map.Entry<String, String> entry : headers.entrySet()) {
-            log.info("Header: {} = {}", entry.key, entry.value);
+            requestBuilder.setHeader(entry.key, entry.value)
         }
-        
-        for (Map.Entry<String, String> entry : headers.entrySet()) {
-            // 专门处理columns头部的中文编码问题
-            if ("columns".equals(entry.key)) {
-                String columnsValue = entry.value;
-                log.info("=== StreamLoadAction Columns Debug ===");
-                log.info("Original columns value: [{}]", columnsValue);
-                
-                // 检查是否包含问号
-                int questionMarkCount = 0;
-                if (columnsValue != null) {
-                    for (char c : columnsValue.toCharArray()) {
-                        if (c == '?') questionMarkCount++;
-                    }
-                    log.info("Question mark count in columns: {}", questionMarkCount);
-                    
-                    // 打印字节内容
-                    try {
-                        byte[] bytes = columnsValue.getBytes("UTF-8");
-                        StringBuilder hexString = new StringBuilder();
-                        for (byte b : bytes) {
-                            hexString.append(String.format("%02x ", b & 0xFF));
-                        }
-                        log.info("Columns UTF-8 bytes: [{}]", hexString.toString().trim());
-                    } catch (Exception e) {
-                        log.warn("Failed to get UTF-8 bytes for columns", e);
-                    }
-                    
-                    if (questionMarkCount > 0) {
-                        log.warn("DIAGNOSTIC: Columns header contains {} question marks", questionMarkCount);
-                        log.warn("This indicates character encoding issue in regression test framework");
-                    }
-                }
-                log.info("=== End StreamLoadAction Debug ===");
-            }
-            
-            // 确保使用UTF-8编码设置头部
-            try {
-                // 重新编码确保UTF-8
-                String encodedValue = new String(entry.value.getBytes("UTF-8"), "UTF-8");
-                requestBuilder.setHeader(entry.key, encodedValue);
-            } catch (Exception e) {
-                log.warn("Failed to encode header value for key: {}", entry.key, e);
-                requestBuilder.setHeader(entry.key, entry.value);
-            }
-        }
-        log.info("=== End StreamLoadAction prepareRequestHeader Debug ===");
         requestBuilder.setHeader("Expect", "100-Continue")
         return requestBuilder
     }
