@@ -476,6 +476,7 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT RADIANS(90) AS radians_case_2") //radians(90) = π/2
     testFoldConst("SELECT RADIANS(45) AS radians_case_3") //radians(45)
     testFoldConst("SELECT radians(0), radians(180), radians(360), radians(45)")
+    testFoldConst("SELECT RADIANS(1e308)")
 
 //Round function cases
     testFoldConst("SELECT ROUND(3.4) AS round_case_1")

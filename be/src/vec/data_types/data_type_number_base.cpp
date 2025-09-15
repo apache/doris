@@ -31,6 +31,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
+#include "common/status.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
@@ -105,7 +106,8 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
                                                            node.large_int_literal.value.size(),
                                                            &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            value = MAX_INT128;
+            throw Exception(ErrorCode::INVALID_ARGUMENT, fmt::format("Invalid largeint value: {}",
+                                                                     node.large_int_literal.value));
         }
         return Field::create_field<TYPE_LARGEINT>(Int128(value));
     }

@@ -118,6 +118,11 @@ public:
     // Return 0 if success, otherwise error
     int do_version_key_check();
 
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak or loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_meta_rowset_key_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -185,6 +190,19 @@ private:
     int check_txn_index_key(std::string_view key, std::string_view value);
 
     int check_txn_running_key(std::string_view key, std::string_view value);
+
+    // Only check whether the meta rowset key is leak
+    // in do_inverted_check() function, check whether the key is lost by comparing data file with key
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_rowset_key(std::string_view key, std::string_view value);
+
+    // if TxnInfoKey's finish time > current time, it should not find tmp rowset
+    // Return 0 if success.
+    // Return 1 if meta tmp rowset key is abnormal.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_tmp_rowset_key(std::string_view key, std::string_view value);
 
     /**
      * It is used to scan the key in the range from start_key to end_key 

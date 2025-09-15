@@ -166,12 +166,6 @@ public class SplitMultiDistinctStrategy {
 
     private static void collectDistinctAndNonDistinctFunctions(LogicalAggregate<? extends Plan> agg,
             List<List<Alias>> aliases, List<Alias> otherAggFuncs) {
-        // TODO with source repeat aggregate need to be supported in future
-        // 这个可能也没有关系，可以先注释掉，之后加一下关于grouping的测试
-        // if (agg.getSourceRepeat().isPresent()) {
-        //     return false;
-        // }
-        // boolean distinctMultiColumns = false;
         Map<Set<Expression>, List<Alias>> distinctArgToAliasList = new LinkedHashMap<>();
         for (NamedExpression namedExpression : agg.getOutputExpressions()) {
             if (!(namedExpression instanceof Alias) || !(namedExpression.child(0) instanceof AggregateFunction)) {
