@@ -75,6 +75,8 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
     private JobScheduler<T, C> jobScheduler;
 
     @Getter
+    private final StreamingTaskManager streamingTaskManager = new StreamingTaskManager();
+    @Getter
     private StreamingTaskScheduler streamingTaskScheduler;
 
     // lock for job

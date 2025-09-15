@@ -31,6 +31,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -98,14 +99,24 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 throw new BeginTransactionException("current running txns on db is larger than limit");
             }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName,
+                    database.getId(), ImmutableList.of(table.getId()), labelName, null,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
+                    LoadJobSourceType.INSERT_STREAMING, getListenerId(), ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
+    }
+
+    private long getListenerId() {
+        long listenerId = -1;
+        StreamingInsertTask streamingInsertTask =
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getStreamingInsertTaskById(jobId);
+        if (streamingInsertTask != null) {
+            listenerId = streamingInsertTask.getJobId();
+        }
+        return listenerId;
     }
 
     @Override

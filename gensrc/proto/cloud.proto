@@ -368,7 +368,7 @@ message RoutineLoadJobStatisticPB {
 
 message StreamingTaskCommitAttachmentPB {
     optional int64 job_id = 1;
-    optional UniqueIdPB task_id = 2;
+    optional int64 task_id = 2;
     optional string offset = 3;
     optional int64 scanned_rows = 4;
     optional int64 load_bytes = 5;

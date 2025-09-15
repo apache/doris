@@ -171,7 +171,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected StreamingInsertTask createStreamingInsertTask() {
         this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), getExecuteSql(),
                 offsetProvider, getCurrentDbName(), jobProperties, getCreateUser());
-        Env.getCurrentEnv().getJobManager().getStreamingTaskScheduler().registerTask(runningStreamTask);
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
         return runningStreamTask;
     }
@@ -213,6 +213,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void onStreamTaskFail(StreamingInsertTask task) throws JobException {
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
         if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
             this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
         }
@@ -220,6 +221,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     public void onStreamTaskSuccess(StreamingInsertTask task) {
+        Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
         StreamingInsertTask nextTask = createStreamingInsertTask();
         this.runningStreamTask = nextTask;
     }
