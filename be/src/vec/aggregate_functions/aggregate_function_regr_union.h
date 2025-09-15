@@ -178,11 +178,12 @@ public:
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -191,7 +192,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
         auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
         auto& dst_column = assert_cast<ResultCol&>(dst_column_with_nullable.get_nested_column());

@@ -297,12 +297,12 @@ public:
         this->data(place).add(columns, arguments_num, row_num, arena);
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena& arena) const override {
         this->data(place).merge(this->data(rhs), arena);
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).serialize(buf);
     }
 
@@ -311,8 +311,10 @@ public:
         this->data(place).deserialize(buf, arena);
     }
 
-    void insert_result_into(AggregateDataPtr targetplace, IColumn& to) const override {
-        auto arguments = this->data(targetplace).get_arguments(this->argument_types);
+    void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
+        auto* place = const_cast<AggregateDataPtr>(targetplace);
+        auto arguments = this->data(place).get_arguments(this->argument_types);
         ColumnRawPtrs arguments_raw(arguments.size());
         for (size_t i = 0; i < arguments.size(); ++i) {
             arguments_raw[i] = arguments[i].get();
@@ -320,13 +322,13 @@ public:
 
         assert(!arguments.empty());
         Arena arena;
-        nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(targetplace),
+        nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place),
                                             arguments_raw.data(), arena);
-        nested_func->insert_result_into(get_nested_place(targetplace), to);
+        nested_func->insert_result_into(get_nested_place(place), to);
         // for distinct agg function, the real calculate is add_batch_single_place at last step of insert_result_into function.
         // but with distinct agg and over() window function together, the result will be inserted into many times with different rows
         // so we need to clear the data, thus not to affect the next insert_result_into
-        this->data(targetplace).clear();
+        this->data(place).clear();
     }
 
     void reset(AggregateDataPtr place) const override {

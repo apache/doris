@@ -170,7 +170,8 @@ public:
         data.process_col_data(column_data, offset, arr_size, set);
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -211,7 +212,7 @@ public:
         }
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
@@ -248,7 +249,7 @@ public:
         }
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnArray& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& to_nested_col = arr_to.get_data();
@@ -399,7 +400,8 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -439,7 +441,7 @@ public:
         }
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
@@ -475,7 +477,7 @@ public:
         }
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& arr_to = assert_cast<ColumnArray&>(to);
         ColumnArray::Offsets64& offsets_to = arr_to.get_offsets();
         auto& data_to = arr_to.get_data();

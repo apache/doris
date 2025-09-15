@@ -57,7 +57,11 @@ struct QuantileReservoirSampler {
         data.read(buf);
     }
 
-    double get() { return data.quantileInterpolated(this->level); }
+    double get() const {
+        // The caller is a ConstAggregateDataPtr, but it itself is an AggregateDataPtr.
+        // To call a non-const method here, a const_cast is required.
+        return const_cast<ReservoirSampler&>(data).quantileInterpolated(this->level);
+    }
 
 private:
     double level = 0.0;
@@ -87,11 +91,12 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).serialize(buf);
     }
 
@@ -100,7 +105,7 @@ public:
         this->data(place).deserialize(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get());
     }
 };

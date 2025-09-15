@@ -148,7 +148,10 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     bool eos = request->eos();
     if (!request->blocks().empty()) {
         for (int i = 0; i < request->blocks_size(); i++) {
-            std::unique_ptr<const PBlock> pblock_ptr = std::make_unique<PBlock>(request->blocks(i));
+            // here const_cast is used to avoid an extra copy. Ultimately used in vdata_stream_recvr.h
+            // solely for the purpose of reading the data within it.
+            std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
+            pblock_ptr->Swap(const_cast<PBlock*>(&request->blocks(i)));
             auto pass_done = [&]() -> ::google::protobuf::Closure** {
                 // If it is eos, no callback is needed, done can be nullptr
                 if (eos) {
@@ -173,7 +176,7 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     // old logic, for compatibility
     if (request->has_block()) {
         // The use of const_cast here is to invoke non-const methods in gensrc.
-        std::unique_ptr<const PBlock> pblock_ptr {
+        std::unique_ptr<PBlock> pblock_ptr {
                 const_cast<PTransmitDataParams*>(request)->release_block()};
         RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
                                          request->be_number(), request->packet_seq(),
