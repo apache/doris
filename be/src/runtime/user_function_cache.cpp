@@ -272,8 +272,8 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         return Status::InternalError("fail to open file");
     }
 
-    std::string udf_path = doris::path_util::get_real_plugin_url(
-        url, doris::config::java_udf_dir, "java_udf");
+    std::string udf_path =
+            doris::path_util::get_real_plugin_url(url, doris::config::java_udf_dir, "java_udf");
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;

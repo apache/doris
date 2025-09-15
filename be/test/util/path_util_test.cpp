@@ -17,12 +17,12 @@
 
 #include "util/path_util.h"
 
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -133,12 +133,12 @@ void touch_file(const std::string& dir, const std::string& filename) {
 TEST(TestPathUtil, get_real_plugin_url_absolute_passthrough) {
     std::string _home = create_temp_home();
     // absolute style URLs containing ":/" should be returned as-is
-    EXPECT_EQ("http://example.com/a.jar",
-              path_util::get_real_plugin_url("http://example.com/a.jar",
-                                             "/any/dir", "jdbc_drivers"));
-    EXPECT_EQ("file:///opt/driver/a.jar",
-              path_util::get_real_plugin_url("file:///opt/driver/a.jar",
-                                             "/any/dir", "jdbc_drivers"));
+    EXPECT_EQ(
+            "http://example.com/a.jar",
+            path_util::get_real_plugin_url("http://example.com/a.jar", "/any/dir", "jdbc_drivers"));
+    EXPECT_EQ(
+            "file:///opt/driver/a.jar",
+            path_util::get_real_plugin_url("file:///opt/driver/a.jar", "/any/dir", "jdbc_drivers"));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_prefers_new_default_when_exists) {
@@ -152,8 +152,8 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_prefers_new_default_when_
     touch_file(default_new, fname);
 
     std::string expected = "file://" + default_new + "/" + fname;
-    EXPECT_EQ(expected, path_util::check_and_return_default_plugin_url(
-                                 fname, default_new, plugin_name));
+    EXPECT_EQ(expected,
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_falls_back_to_old_default) {
@@ -167,8 +167,8 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_falls_back_to_old_default
     touch_file(default_old, fname);
 
     std::string expected = "file://" + default_old + "/" + fname;
-    EXPECT_EQ(expected, path_util::check_and_return_default_plugin_url(
-                                 fname, default_new, plugin_name));
+    EXPECT_EQ(expected,
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_old_even_if_missing) {
@@ -180,8 +180,8 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_old_even_if_missing) {
 
     // neither new nor old has the file; should still point to old default
     std::string expected = "file://" + default_old + "/" + fname;
-    EXPECT_EQ(expected, path_util::check_and_return_default_plugin_url(
-                                 fname, default_new, plugin_name));
+    EXPECT_EQ(expected,
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_custom_config_dir) {
@@ -192,8 +192,8 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_custom_config_dir) {
     touch_file(custom_dir, fname);
 
     std::string expected = "file://" + custom_dir + "/" + fname;
-    EXPECT_EQ(expected, path_util::check_and_return_default_plugin_url(
-                                 fname, custom_dir, plugin_name));
+    EXPECT_EQ(expected,
+              path_util::check_and_return_default_plugin_url(fname, custom_dir, plugin_name));
 }
 
 TEST(TestPathUtil, get_real_plugin_url_relative_paths) {

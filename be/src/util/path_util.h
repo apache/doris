@@ -58,8 +58,7 @@ std::string file_extension(const std::string& path);
 // Get the real URL for plugins (e.g., JDBC drivers). If the URL doesn't contain ":/",
 // it will be treated as a relative path and converted to a file:// URL using provided dirs.
 // plugin_dir_config_value is the configured plugin dir; plugin_dir_name is the dir name (e.g. "jdbc_drivers").
-std::string get_real_plugin_url(const std::string& url,
-                                const std::string& plugin_dir_config_value,
+std::string get_real_plugin_url(const std::string& url, const std::string& plugin_dir_config_value,
                                 const std::string& plugin_dir_name);
 
 // Check and return the default plugin URL using provided directories.

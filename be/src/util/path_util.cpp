@@ -68,12 +68,10 @@ std::string file_extension(const string& path) {
     return pos == string::npos ? "" : file_name.substr(pos);
 }
 
-std::string get_real_plugin_url(const std::string& url,
-                                const std::string& plugin_dir_config_value,
+std::string get_real_plugin_url(const std::string& url, const std::string& plugin_dir_config_value,
                                 const std::string& plugin_dir_name) {
     if (url.find(":/") == std::string::npos) {
-        return check_and_return_default_plugin_url(url, plugin_dir_config_value,
-                                                   plugin_dir_name);
+        return check_and_return_default_plugin_url(url, plugin_dir_config_value, plugin_dir_name);
     }
     return url;
 }
