@@ -700,9 +700,14 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "makedate")
     public static Expression makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
-        int day = dayOfYear.getValue();
-        return day > 0 ? DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
-                .plusDays(day - 1)) : new NullLiteral(DateType.INSTANCE);
+        int yearValue = year.getValue();
+        int dayValue = dayOfYear.getValue();
+        if (yearValue < 0 || yearValue > 9999 || dayValue <= 0) {
+            throw new AnalysisException("Operation makedate of " + yearValue + ", " + dayValue + " out of range");
+        }
+        return dayValue > 0
+                ? DateLiteral.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
+                : new NullLiteral(DateType.INSTANCE);
     }
 
     /**

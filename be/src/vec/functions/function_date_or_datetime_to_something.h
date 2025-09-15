@@ -87,16 +87,22 @@ public:
                                    get_name(), arguments.size());
         }
 
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType::PType);
+        return std::make_shared<typename PrimitiveTypeTraits<ToDataType::PType>::DataType>();
     }
-
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return DateTimeTransformImpl<Transform::OpArgType, ToDataType::PType, Transform>::execute(
-                block, arguments, result, input_rows_count);
+        static constexpr PrimitiveType FromType = Transform::OpArgType;
+        static constexpr PrimitiveType ToType = ToDataType::PType;
+        using Op = Transformer<FromType, ToType, Transform>;
+
+        const auto* sources = assert_cast<const ColumnVector<FromType>*>(
+                block.get_by_position(arguments[0]).column.get());
+        auto col_to = ColumnVector<ToType>::create();
+        Op::vector(sources->get_data(), col_to->get_data());
+        block.replace_by_position(result, std::move(col_to));
+
+        return Status::OK();
     }
 };
 

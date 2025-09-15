@@ -314,7 +314,7 @@ struct FromUnixTimeImpl {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(val, time_zone);
-        if (!dt.is_valid_date()) {
+        if (!dt.is_valid_date()) [[unlikely]] {
             return true;
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
@@ -375,11 +375,11 @@ struct FromUnixTimeDecimalImpl {
     static bool execute_decimal(const ArgType& interger, const ArgType& fraction, StringRef format,
                                 ColumnString::Chars& res_data, size_t& offset,
                                 const cctz::time_zone& time_zone) {
-        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) {
+        if (!check_valid(interger + (fraction > 0 ? 1 : ((fraction < 0) ? -1 : 0)))) [[unlikely]] {
             return true;
         }
         DateV2Value<DateTimeV2ValueType> dt = get_datetime_value(interger, fraction, time_zone);
-        if (!dt.is_valid_date()) {
+        if (!dt.is_valid_date()) [[unlikely]] {
             return true;
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
@@ -403,52 +403,6 @@ struct FromUnixTimeDecimalImpl {
     }
 };
 
-template <typename Transform>
-struct TransformerToStringOneArgument {
-    static void
-    vector(FunctionContext* context,
-           const PaddedPODArray<typename PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType>&
-                   ts,
-           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets, NullMap& null_map) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-        null_map.resize(len);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<
-                    const typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
-            null_map[i] = !date_time_value.is_valid_date();
-        }
-        res_data.resize(res_offsets[res_offsets.size() - 1]);
-    }
-
-    static void
-    vector(FunctionContext* context,
-           const PaddedPODArray<typename PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType>&
-                   ts,
-           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
-        const auto len = ts.size();
-        res_data.resize(len * Transform::max_size);
-        res_offsets.resize(len);
-
-        size_t offset = 0;
-        for (int i = 0; i < len; ++i) {
-            const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<
-                    const typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&>(t);
-            res_offsets[i] =
-                    cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
-            DCHECK(date_time_value.is_valid_date());
-        }
-        res_data.resize(res_offsets[res_offsets.size() - 1]);
-    }
-};
-
 template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
 struct Transformer {
     using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
@@ -468,9 +422,11 @@ struct Transformer {
         }
 
         for (size_t i = 0; i < size; ++i) {
-            null_map[i] =
-                    !((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
-                             .is_valid_date();
+            if (!((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
+                         .is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_one<typename PrimitiveTypeTraits<Transform::OpArgType>::CppType>(
+                        Transform::name, vec_from[i]);
+            }
         }
     }
 
@@ -531,44 +487,6 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>>
 template <PrimitiveType FromType, PrimitiveType ToType>
 struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
         : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
-
-template <PrimitiveType FromType, PrimitiveType ToType, typename Transform>
-struct DateTimeTransformImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
-                          size_t input_rows_count) {
-        using Op = Transformer<FromType, ToType, Transform>;
-
-        const auto is_nullable = block.get_by_position(result).type->is_nullable();
-
-        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
-        if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
-            auto col_to = ColumnVector<ToType>::create();
-            if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count);
-                Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
-                            block.get_by_position(arguments[0]).column.get())) {
-                    NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
-                    const NullMap& src_null_map =
-                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
-                                    .get_data();
-
-                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
-                }
-                block.replace_by_position(
-                        result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
-            } else {
-                Op::vector(sources->get_data(), col_to->get_data());
-                block.replace_by_position(result, std::move(col_to));
-            }
-        } else {
-            return Status::RuntimeError("Illegal column {} of first argument of function {}",
-                                        block.get_by_position(arguments[0]).column->get_name(),
-                                        Transform::name);
-        }
-        return Status::OK();
-    }
-};
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
