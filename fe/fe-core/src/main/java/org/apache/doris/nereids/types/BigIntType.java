@@ -61,4 +61,9 @@ public class BigIntType extends IntegralType implements Int64OrLessType {
     public int width() {
         return WIDTH;
     }
+
+    @Override
+    public int range() {
+        return RANGE;
+    }
 }
