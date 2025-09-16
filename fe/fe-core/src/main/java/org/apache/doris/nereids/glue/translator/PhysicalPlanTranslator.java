@@ -2909,6 +2909,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
+    /**
+     * Get the smallest slot in the slot list.
+     *
+     * @param slots
+     * @return
+     */
     @VisibleForTesting
     @Nullable
     public static SlotDescriptor getSmallestSlot(List<SlotDescriptor> slots) {
