@@ -2912,8 +2912,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     /**
      * Get the smallest slot in the slot list.
      *
-     * @param slots
-     * @return
+     * @param slots slot list
+     * @return the smallest slot
      */
     @VisibleForTesting
     @Nullable
