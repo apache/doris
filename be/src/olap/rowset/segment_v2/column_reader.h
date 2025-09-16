@@ -264,11 +264,14 @@ private:
 
     Status _get_filtered_pages(const AndBlockColumnPredicate* col_predicates,
                                const std::vector<const ColumnPredicate*>* delete_predicates,
-                               std::vector<uint32_t>* page_indexes,
+                               std::vector<uint32_t>* page_indexes, RowRanges* row_ranges,
                                const ColumnIteratorOptions& iter_opts);
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges,
                                  const ColumnIteratorOptions& iter_opts);
+
+    void _calculate_pages_by_row_ranges(RowRanges* row_ranges, size_t range_size,
+                                        std::vector<uint32_t>& page_ids);
 
 private:
     int64_t _meta_length;
