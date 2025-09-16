@@ -799,7 +799,7 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value
 template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
                                        BufferWritable& bw) const {
-    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     value_to_string<T>(data[row_num], bw, get_scale());
 }
 

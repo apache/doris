@@ -430,7 +430,9 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
     if (_nesting_level > 1) {
         bw.write('"');
     }
-    const auto& value = assert_cast<const ColumnType&>(column).get_data_at(row_num);
+    const auto& value =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data_at(
+                    row_num);
     bw.write(value.data, value.size);
     if (_nesting_level > 1) {
         bw.write('"');

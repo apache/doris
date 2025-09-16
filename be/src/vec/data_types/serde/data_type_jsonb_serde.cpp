@@ -332,7 +332,7 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
 
 void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& bw) const {
-    const auto& col = assert_cast<const ColumnString&>(column);
+    const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
     const auto& data_ref = col.get_data_at(row_num);
     if (data_ref.size > 0) {
         std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);

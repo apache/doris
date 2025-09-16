@@ -492,7 +492,8 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
 template <PrimitiveType T>
 void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
                                         BufferWritable& bw) const {
-    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    auto& data =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
     CastToString::push_decimal(data[row_num], scale, bw);
 }
 
