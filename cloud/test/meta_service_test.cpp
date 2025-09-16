@@ -9803,4 +9803,44 @@ TEST(MetaServiceTest, AlterS3StorageVaultWithRoleArnTest) {
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();
 }
+
+TEST(MetaServiceTest, CreateTabletIdempotentAndHandlingError) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    size_t case_num = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("meta_service_test:get_meta_tablet_key_error", [&case_num](auto&& args) {
+        if (++case_num == 3) {
+            auto* code = try_any_cast<TxnErrorCode*>(args[0]);
+            *code = TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+    });
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    int64_t table_id = 100;
+    int64_t index_id = 200;
+    int64_t partition_id = 300;
+    int64_t tablet_id = 400;
+    req.set_db_id(1); // default db_id
+    add_tablet(req, table_id, index_id, partition_id, tablet_id);
+    // normal create
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // idempotent
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // error handling
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
+}
+
 } // namespace doris::cloud
