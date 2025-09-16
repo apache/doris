@@ -92,8 +92,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             // NOTE: Do not modify the error message here, for historical reasons,
             // some users may rely on this error message.
             if (ctx->need_commit_self) {
-                *status = Status::DataQualityError("too many filtered rows, url: {}",
-                                                   ctx->error_url);
+                *status =
+                        Status::DataQualityError("too many filtered rows, url: {}", ctx->error_url);
             } else {
                 *status = Status::DataQualityError("too many filtered rows");
             }
