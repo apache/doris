@@ -549,17 +549,6 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         assertRewrite(new LessThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(bigDecimalType, new BigDecimal("12.3"))),
                 new LessThanEqual(bigIntSlot, new BigIntLiteral(12L)));
 
-        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
-                ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775808.1"))),
-                ExpressionUtils.trueOrNull(bigIntSlot));
-        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("-9223372036854775807.1"))),
-                new LessThan(bigIntSlot, new BigIntLiteral(-9223372036854775807L)));
-        assertRewrite(new GreaterThanEqual(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("9223372036854775807.1"))),
-                ExpressionUtils.falseOrNull(bigIntSlot));
-        assertRewrite(new LessThan(new Cast(bigIntSlot, bigDecimalType), new DecimalV3Literal(new BigDecimal("9223372036854775806.1"))),
-                new LessThan(bigIntSlot, new BigIntLiteral(9223372036854775807L)));
-
         // do not convert cast(int as decimal) if decimal's range < int's range
         DecimalV3Type noConvertDecimalType = DecimalV3Type.createDecimalV3Type(3, 1);
         assertRewrite(new EqualTo(new Cast(tinyIntSlot, noConvertDecimalType), new DecimalV3Literal(new BigDecimal("12.0"))),

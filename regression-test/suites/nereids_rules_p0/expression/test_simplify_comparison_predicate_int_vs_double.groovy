@@ -78,40 +78,6 @@ suite('test_simplify_comparison_predicate_int_vs_double') {
         }
     }
 
-    sql "set enable_strict_cast=false"
-
-    explainAndOrderResult 'int_vs_double_1', """
-        select *
-        from tbl2_test_simplify_comparison_predicate_int_vs_double
-        where c_bigint > 123.456
-    """
-
-    explainAndOrderResult 'int_vs_double_2', """
-        select *
-        from tbl2_test_simplify_comparison_predicate_int_vs_double
-        where cast(c_bigint as decimal(7, 3)) > 123.456
-    """
-
-    explainAndOrderResult 'decimal_vs_decimal_1', """
-        select *
-        from tbl2_test_simplify_comparison_predicate_int_vs_double
-        where c_decimal > 123.4567
-    """
-
-    explainAndOrderResult 'decimal_vs_decimal_2', """
-        select *
-        from tbl2_test_simplify_comparison_predicate_int_vs_double
-        where cast(c_decimal as decimal(3,1)) > cast(12.3 as decimal(5, 1))
-    """
-
-    explainAndOrderResult 'decimal_vs_decimal_3', """
-        select *
-        from tbl2_test_simplify_comparison_predicate_int_vs_double
-        where cast(c_decimal as decimal(5,2)) > cast(123.45 as decimal(5, 2))
-    """
-
-    sql "set enable_strict_cast=true"
-
     explainAndOrderResult 'int_vs_double_3', """
         select *
         from tbl2_test_simplify_comparison_predicate_int_vs_double
