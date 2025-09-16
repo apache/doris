@@ -95,6 +95,10 @@ public:
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
+    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                const ColumnString& from_column,
+                                                CastParameters& castParms) const override;
+
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
@@ -125,6 +129,9 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
+
+    // will override in DateTime and Time
+    virtual int get_scale() const { return 0; }
 
 private:
     template <bool is_binary_format>

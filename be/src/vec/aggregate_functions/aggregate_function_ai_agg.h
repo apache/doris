@@ -247,6 +247,8 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
+    bool is_blockable() const override { return true; }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
         data(place).prepare(

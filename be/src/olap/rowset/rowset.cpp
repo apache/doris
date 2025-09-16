@@ -203,6 +203,37 @@ std::vector<std::string> Rowset::get_index_file_names() {
     return file_names;
 }
 
+int64_t Rowset::approximate_cached_data_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto cache_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
+int64_t Rowset::approximate_cache_index_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    auto file_names = get_index_file_names();
+    for (const auto& file_name : file_names) {
+        auto cache_key = io::BlockFileCache::hash(file_name);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris

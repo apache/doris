@@ -296,7 +296,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
         return Status::OK();
     }
     if (null_map.size() != rows) {
-        return Status::InternalError("null_map.size() != rows, null_map.size()={}, rows={}",
+        return Status::InternalError("null_map.size()!=rows, null_map.size()={}, rows={}",
                                      null_map.size(), rows);
     }
 
@@ -306,9 +306,10 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
     for (const auto& conjunct : conjuncts) {
         int result_column_id = -1;
         RETURN_IF_ERROR(conjunct->execute(block, &result_column_id));
-        const auto& filter_column =
-                unpack_if_const(block->get_by_position(result_column_id).column).first;
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        auto [filter_column, is_const] =
+                unpack_if_const(block->get_by_position(result_column_id).column);
+        const auto* nullable_column = assert_cast<const ColumnNullable*>(filter_column.get());
+        if (!is_const) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
             const IColumn::Filter& result =
                     assert_cast<const ColumnUInt8&>(*nested_column).get_data();
@@ -325,10 +326,15 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
                 final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
         } else {
-            const auto* filter_data =
-                    assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
+            bool filter_data = nullable_column->get_bool(0);
+            bool null_map_data = nullable_column->is_null_at(0);
             for (size_t i = 0; i != rows; ++i) {
-                final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
+                // null and null    => null
+                // null and true    => null
+                // null and false   => false
+                final_null_map[i] = (final_null_map[i] & (null_map_data | filter_data)) |
+                                    (null_map_data & (final_null_map[i] | final_filter_ptr[i]));
+                final_filter_ptr[i] = final_filter_ptr[i] & filter_data;
             }
         }
     }

@@ -108,6 +108,10 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
+void ColumnConst::replace_float_special_values() {
+    data->replace_float_special_values();
+}
+
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;

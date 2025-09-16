@@ -160,6 +160,13 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 }
                 return data;
             }
+            case VARBINARY: {
+                byte[] data = resultSet.getBytes(columnIndex + 1);
+                if (resultSet.wasNull()) {
+                    return null;
+                }
+                return data;
+            }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

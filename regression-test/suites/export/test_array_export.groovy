@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_array_export", "export") {
+suite("test_array_export", "export,external") {
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -110,18 +110,20 @@ suite("test_array_export", "export") {
                     "column_separator"=",",
                     "format"="${exportFormat}"
                 )
-                WITH BROKER "${BrokerName}" (
+                WITH HDFS (
                     "username"="${HdfsUserName}",
-                    "password"="${HdfsPasswd}"
+                    "password"="${HdfsPasswd}",
+                    "fs.defaultFS"="context.config.otherConfigs.get('hdfsFs')"
                 )
             """
     }
 
     def select_out_file = {exportTable, HdfsPath, outFormat, BrokerName, HdfsUserName, HdfsPasswd->
-        sql """
+
+        def sqlString = """
             SELECT * FROM ${exportTable}
             INTO OUTFILE "${HdfsPath}"
-            FORMAT AS "${outFormat}"
+            FORMAT AS ${outFormat}
             PROPERTIES
             (
                 "broker.name" = "${BrokerName}",
@@ -131,6 +133,8 @@ suite("test_array_export", "export") {
                 "broker.password"="${HdfsPasswd}"
             )
         """
+        logger.info("sqlString: ${sqlString}")
+        sql sqlString
     }
 
     def check_export_result = {checklabel->

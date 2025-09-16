@@ -318,7 +318,7 @@ suite("test_prepared_stmt", "nonConcurrent") {
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select23 stmt_read
 
-        stmt_read = prepareStatement("""SELECT 1, null, [{'id': 1, 'name' : 'doris'}, {'id': 2, 'name': 'apache'}, null], null""")
+        stmt_read = prepareStatement("""SELECT 1, null, [{'id': '1', 'name' : 'doris'}, {'id': '2', 'name': 'apache'}, null], null""")
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         qe_select24 stmt_read
 

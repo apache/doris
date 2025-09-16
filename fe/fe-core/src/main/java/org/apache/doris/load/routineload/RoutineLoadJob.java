@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
@@ -54,6 +53,7 @@ import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -619,7 +619,7 @@ public abstract class RoutineLoadJob
     }
 
     public boolean isStrictMode() {
-        String value = jobProperties.get(LoadStmt.STRICT_MODE);
+        String value = jobProperties.get(LoadCommand.STRICT_MODE);
         if (value == null) {
             return DEFAULT_STRICT_MODE;
         }
@@ -650,7 +650,7 @@ public abstract class RoutineLoadJob
     }
 
     public String getTimezone() {
-        String value = jobProperties.get(LoadStmt.TIMEZONE);
+        String value = jobProperties.get(LoadCommand.TIMEZONE);
         if (value == null) {
             return TimeUtils.DEFAULT_TIME_ZONE;
         }
@@ -1780,9 +1780,9 @@ public abstract class RoutineLoadJob
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
-        appendProperties(sb, LoadStmt.STRICT_MODE, isStrictMode(), false);
-        appendProperties(sb, LoadStmt.TIMEZONE, getTimezone(), false);
-        appendProperties(sb, LoadStmt.EXEC_MEM_LIMIT, getMemLimit(), true);
+        appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
+        appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
         sb.append("FROM ").append(dataSourceType).append("\n");
@@ -1857,14 +1857,14 @@ public abstract class RoutineLoadJob
         if (getFormat().equalsIgnoreCase("json")) {
             jobProperties.put(FileFormatProperties.PROP_FORMAT, "json");
         } else {
-            jobProperties.put(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR,
+            jobProperties.put(LoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR,
                     columnSeparator == null ? "\t" : columnSeparator.toString());
-            jobProperties.put(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER,
+            jobProperties.put(LoadCommand.KEY_IN_PARAM_LINE_DELIMITER,
                     lineDelimiter == null ? "\n" : lineDelimiter.toString());
         }
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_DELETE_CONDITION,
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_DELETE_CONDITION,
                 deleteCondition == null ? STAR_STRING : deleteCondition.toSqlWithoutTbl());
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_SEQUENCE_COL,
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_SEQUENCE_COL,
                 sequenceCol == null ? STAR_STRING : sequenceCol);
 
         // job properties defined in CreateRoutineLoadStmt
@@ -1877,8 +1877,8 @@ public abstract class RoutineLoadJob
                 String.valueOf(currentTaskConcurrentNum));
         jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY,
                 String.valueOf(desireTaskConcurrentNum));
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
-        jobProperties.put(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
+        jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, String.valueOf(execMemLimit));
+        jobProperties.put(LoadCommand.KEY_IN_PARAM_MERGE_TYPE, mergeType.toString());
         jobProperties.putAll(this.jobProperties);
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(jobProperties);

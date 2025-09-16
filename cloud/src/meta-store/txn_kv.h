@@ -391,6 +391,23 @@ public:
      * @brief return the bytes of the put key and values consumed.
      **/
     virtual size_t put_bytes() const = 0;
+
+    /**
+     * @brief Enable getting versionstamp for this transaction.
+     * Must be called before commit() if you want to get versionstamp.
+     **/
+    virtual void enable_get_versionstamp() {}
+
+    /**
+     * @brief Get the versionstamp used by the transaction.
+     * Only available after a successful commit() and when enable_get_versionstamp() was called.
+     * @param versionstamp output parameter to store the versionstamp
+     * @return TXN_OK for success, TXN_INVALID_ARGUMENT if not enabled, 
+     *         TXN_KEY_NOT_FOUND if not available
+     **/
+    virtual TxnErrorCode get_versionstamp(std::string* versionstamp) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
 };
 
 class RangeGetIterator {
@@ -777,6 +794,10 @@ public:
 
     TxnErrorCode abort() override;
 
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
+
     TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
@@ -819,6 +840,9 @@ private:
     size_t get_bytes_ {0};
     size_t put_bytes_ {0};
     size_t approximate_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    std::string versionstamp_result_;
 };
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {

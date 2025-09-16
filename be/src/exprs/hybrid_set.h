@@ -75,40 +75,56 @@ public:
             return false;
         }
         if constexpr (N == 1) {
-            return (value == _data[0]);
+            return (Compare::equal(value, _data[0]));
         }
         if constexpr (N == 2) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1]));
         }
         if constexpr (N == 3) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2]));
         }
         if constexpr (N == 4) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3]));
         }
         if constexpr (N == 5) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4]));
         }
         if constexpr (N == 6) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5]));
         }
         if constexpr (N == 7) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5])) |
+                   (uint8_t)(Compare::equal(value, _data[6]));
         }
         if constexpr (N == FIXED_CONTAINER_MAX_SIZE) {
-            return (uint8_t)(value == _data[0]) | (uint8_t)(value == _data[1]) |
-                   (uint8_t)(value == _data[2]) | (uint8_t)(value == _data[3]) |
-                   (uint8_t)(value == _data[4]) | (uint8_t)(value == _data[5]) |
-                   (uint8_t)(value == _data[6]) | (uint8_t)(value == _data[7]);
+            return (uint8_t)(Compare::equal(value, _data[0])) |
+                   (uint8_t)(Compare::equal(value, _data[1])) |
+                   (uint8_t)(Compare::equal(value, _data[2])) |
+                   (uint8_t)(Compare::equal(value, _data[3])) |
+                   (uint8_t)(Compare::equal(value, _data[4])) |
+                   (uint8_t)(Compare::equal(value, _data[5])) |
+                   (uint8_t)(Compare::equal(value, _data[6])) |
+                   (uint8_t)(Compare::equal(value, _data[7]));
         }
         CHECK(false) << "unreachable path";
         return false;

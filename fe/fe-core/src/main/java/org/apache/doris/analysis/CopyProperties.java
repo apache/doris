@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -33,14 +34,14 @@ public class CopyProperties {
     // properties for type, compression, column_separator
     public static final String TYPE = FILE_PREFIX + "type";
     public static final String COMPRESSION = FILE_PREFIX + "compression";
-    public static final String COLUMN_SEPARATOR = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR;
+    public static final String COLUMN_SEPARATOR = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_COLUMN_SEPARATOR;
     // properties for data desc
-    public static final String LINE_DELIMITER = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_LINE_DELIMITER;
-    public static final String PARAM_STRIP_OUTER_ARRAY = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY;
-    public static final String PARAM_FUZZY_PARSE = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_FUZZY_PARSE;
-    public static final String PARAM_NUM_AS_STRING = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_NUM_AS_STRING;
-    public static final String PARAM_JSONPATHS = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_JSONPATHS;
-    public static final String PARAM_JSONROOT = FILE_PREFIX + LoadStmt.KEY_IN_PARAM_JSONROOT;
+    public static final String LINE_DELIMITER = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_LINE_DELIMITER;
+    public static final String PARAM_STRIP_OUTER_ARRAY = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_STRIP_OUTER_ARRAY;
+    public static final String PARAM_FUZZY_PARSE = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_FUZZY_PARSE;
+    public static final String PARAM_NUM_AS_STRING = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_NUM_AS_STRING;
+    public static final String PARAM_JSONPATHS = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_JSONPATHS;
+    public static final String PARAM_JSONROOT = FILE_PREFIX + LoadCommand.KEY_IN_PARAM_JSONROOT;
 
     public static final String COPY_PREFIX = "copy.";
     // property for size limit, async, on_error
@@ -49,9 +50,9 @@ public class CopyProperties {
     public static final String ON_ERROR = COPY_PREFIX + "on_error";
     public static final String ON_ERROR_CONTINUE = "continue";
     public static final String ON_ERROR_ABORT_STATEMENT = "abort_statement";
-    public static final String ON_ERROR_MAX_FILTER_RATIO = LoadStmt.MAX_FILTER_RATIO_PROPERTY + "_";
-    public static final String STRICT_MODE = COPY_PREFIX + LoadStmt.STRICT_MODE;
-    public static final String LOAD_PARALLELISM = COPY_PREFIX + LoadStmt.LOAD_PARALLELISM;
+    public static final String ON_ERROR_MAX_FILTER_RATIO = LoadCommand.MAX_FILTER_RATIO_PROPERTY + "_";
+    public static final String STRICT_MODE = COPY_PREFIX + LoadCommand.STRICT_MODE;
+    public static final String LOAD_PARALLELISM = COPY_PREFIX + LoadCommand.LOAD_PARALLELISM;
     // If 'copy.force' is true, load files to table without checking if files have been loaded, and copy job will not
     // be recorded in meta service. So it may cause one file is copied to a table many times.
     public static final String FORCE = COPY_PREFIX + "force";

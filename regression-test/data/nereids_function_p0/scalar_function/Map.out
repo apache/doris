@@ -6,12 +6,12 @@
 2
 2
 2
-2
-2
-2
-2
-2
-2
+3
+3
+3
+3
+3
+3
 3
 
 -- !element_at_tint_tint --
@@ -215,12 +215,12 @@
 2
 2
 2
-2
-2
-2
-2
-2
-2
+3
+3
+3
+3
+3
+3
 3
 
 -- !element_at_tint_tint_notnull --
@@ -407,12 +407,12 @@
 
 -- !map_size_bool_tint --
 \N
-3
-3
-3
-3
-3
-3
+2
+2
+2
+2
+2
+2
 3
 3
 3
@@ -826,12 +826,12 @@
 2
 
 -- !map_size_bool_tint_notnull --
-3
-3
-3
-3
-3
-3
+2
+2
+2
+2
+2
+2
 3
 3
 3
@@ -1219,12 +1219,12 @@
 
 -- !size_bool_tint --
 \N
-3
-3
-3
-3
-3
-3
+2
+2
+2
+2
+2
+2
 3
 3
 3
@@ -1638,12 +1638,12 @@
 2
 
 -- !size_bool_tint_notnull --
-3
-3
-3
-3
-3
-3
+2
+2
+2
+2
+2
+2
 3
 3
 3
@@ -2031,18 +2031,18 @@
 
 -- !map_keys_bool_tint --
 \N
-[null, 0, 0]
-[null, 0, 0]
-[null, 0, 0]
 [null, 0, 1]
 [null, 0, 1]
 [null, 0, 1]
+[null, 0]
+[null, 0]
+[null, 0]
 [null, 1, 0]
 [null, 1, 0]
 [null, 1, 0]
-[null, 1, 1]
-[null, 1, 1]
-[null, 1, 1]
+[null, 1]
+[null, 1]
+[null, 1]
 
 -- !map_keys_tint_tint --
 \N
@@ -2240,18 +2240,18 @@
 [null, "2012-03-12 00:00:00"]
 
 -- !map_keys_bool_tint_notnull --
-[null, 0, 0]
-[null, 0, 0]
-[null, 0, 0]
 [null, 0, 1]
 [null, 0, 1]
 [null, 0, 1]
+[null, 0]
+[null, 0]
+[null, 0]
 [null, 1, 0]
 [null, 1, 0]
 [null, 1, 0]
-[null, 1, 1]
-[null, 1, 1]
-[null, 1, 1]
+[null, 1]
+[null, 1]
+[null, 1]
 
 -- !map_keys_tint_tint_notnull --
 [null, 0, 3]

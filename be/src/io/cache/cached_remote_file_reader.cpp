@@ -149,6 +149,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         return Status::OK();
     }
     ReadStatistics stats;
+    stats.bytes_read += bytes_req;
     auto defer_func = [&](int*) {
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
@@ -160,7 +161,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     };
     std::unique_ptr<int, decltype(defer_func)> defer((int*)0x01, std::move(defer_func));
-    stats.bytes_read += bytes_req;
     if (_is_doris_table && config::enable_read_cache_file_directly) {
         // read directly
         SCOPED_RAW_TIMER(&stats.read_cache_file_directly_timer);
@@ -226,6 +226,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     for (auto& block : holder.file_blocks) {
         switch (block->state()) {
         case FileBlock::State::EMPTY:
+            VLOG_DEBUG << fmt::format("Block EMPTY path={} hash={}:{}:{} offset={} cache_path={}",
+                                      path().native(), _cache_hash.to_string(), _cache_hash.high(),
+                                      _cache_hash.low(), block->offset(), block->get_cache_file());
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 empty_blocks.push_back(block);
@@ -234,6 +237,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.hit_cache = false;
             break;
         case FileBlock::State::SKIP_CACHE:
+            VLOG_DEBUG << fmt::format(
+                    "Block SKIP_CACHE path={} hash={}:{}:{} offset={} cache_path={}",
+                    path().native(), _cache_hash.to_string(), _cache_hash.high(), _cache_hash.low(),
+                    block->offset(), block->get_cache_file());
             empty_blocks.push_back(block);
             stats.hit_cache = false;
             stats.skip_cache = true;
@@ -405,7 +412,6 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->inverted_index_remote_io_timer += read_stats.remote_read_timer;
     }
 
-    g_skip_cache_num << read_stats.skip_cache;
     g_skip_cache_sum << read_stats.skip_cache;
 }
 
