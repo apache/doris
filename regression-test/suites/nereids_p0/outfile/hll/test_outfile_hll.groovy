@@ -16,6 +16,7 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -23,10 +24,13 @@ import java.nio.file.Paths
 
 suite("test_outfile_hll") {
     sql "set return_object_data_as_binary=true"
-    def outFilePath = """./tmp/test_outfile_hll"""
-    File path = new File(outFilePath)
-    path.deleteDir()
-    path.mkdirs()
+    
+    def hosts = []
+    List<List<Object>> backends = sql("show backends");
+    for (def b : backends) {
+        hosts.add(b[1])
+    }
+    ExportTestHelper testHelper = new ExportTestHelper(hosts)
 
     sql "DROP TABLE IF EXISTS h_table"
     sql """
@@ -45,7 +49,8 @@ suite("test_outfile_hll") {
 
     qt_test "select k1,hll_union_agg(k2) from h_table group by k1 order by k1;"
 
-    sql """select k1, cast(hll_to_base64(k2) as string) as tmp from h_table into outfile "file://${path.getAbsolutePath()}/tmp" FORMAT AS PARQUET;"""
+    sql """select k1, cast(hll_to_base64(k2) as string) as tmp from h_table into outfile "file://${testHelper.remoteDir}/tmp_" FORMAT AS PARQUET;"""
+    testHelper.collect()
 
     sql "DROP TABLE IF EXISTS h_table2"
     sql """
@@ -58,10 +63,12 @@ suite("test_outfile_hll") {
     properties("replication_num" = "1");
     """
 
-    def filePath=path.getAbsolutePath()+"/tmp*"
+    def filePath=testHelper.localDir+"/tmp_*"
     cmd """
     curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "columns: k1, tmp, k2=hll_from_base64(tmp)" -H "format:PARQUET" -H "Expect:100-continue" -T ${filePath} -XPUT http://${context.config.feHttpAddress}/api/regression_test_nereids_p0_outfile_hll/h_table2/_stream_load
     """
     Thread.sleep(10000)
     qt_test "select k1,hll_union_agg(k2) from h_table2 group by k1 order by k1;"
+
+    testHelper.close()
 }

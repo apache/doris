@@ -132,6 +132,9 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
+        if (!Objects.equals(functionName, rhs.functionName)) {
+            return false;
+        }
         if ((subTypes == null) != (rhs.subTypes == null)) {
             return false;
         }
@@ -151,6 +154,11 @@ public class AggStateType extends DataType {
             }
         }
         return true;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName);
     }
 
     @Override
