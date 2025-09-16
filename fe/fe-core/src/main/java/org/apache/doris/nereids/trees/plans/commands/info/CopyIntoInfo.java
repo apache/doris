@@ -252,10 +252,12 @@ public class CopyIntoInfo {
 
         dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
 
+        Expression filterExpr = copyFromDesc.getFileFilterExpr().isPresent()
+                ? copyFromDesc.getFileFilterExpr().get() : null;
         nereidsDataDescription = new NereidsDataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
-            copyFromDesc.getColumnMappingList(), copyFromDesc.getFileFilterExpr().get(),
-            null, LoadTask.MergeType.APPEND, null, null, dataDescProperties);
+            copyFromDesc.getColumnMappingList(), filterExpr, null, LoadTask.MergeType.APPEND,
+            null, null, dataDescProperties);
 
         if (!(copyFromDesc.getColumnMappingList() == null
                 || copyFromDesc.getColumnMappingList().isEmpty())) {
