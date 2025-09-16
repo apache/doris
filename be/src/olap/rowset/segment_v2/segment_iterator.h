@@ -218,7 +218,7 @@ private:
     // for vectorization implementation
     [[nodiscard]] Status _read_columns(const std::vector<ColumnId>& column_ids,
                                        vectorized::MutableColumns& column_block, size_t nrows);
-    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read);
+    [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
     Status _init_current_block(vectorized::Block* block,
                                std::vector<vectorized::MutableColumnPtr>& non_pred_vector,
@@ -466,8 +466,6 @@ private:
     std::vector<size_t> _char_type_idx;
     std::vector<bool> _is_char_type;
 
-    // number of rows read in the current batch
-    uint32_t _current_batch_rows_read = 0;
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;

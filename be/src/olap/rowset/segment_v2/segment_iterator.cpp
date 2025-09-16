@@ -2041,10 +2041,10 @@ Status SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
  * This approach optimizes reading performance by leveraging batch processing for continuous
  * rowid sequences and handling discontinuities gracefully in smaller chunks.
  */
-Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read) {
+Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read) {
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
-    nrows_read = _range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
+    nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
     VLOG_DEBUG << fmt::format(
@@ -2421,28 +2421,18 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
     _converted_column_ids.assign(_schema->columns().size(), false);
 
-    _current_batch_rows_read = 0;
-    RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _current_batch_rows_read));
-    _replace_version_col_if_needed(_predicate_column_ids, _current_batch_rows_read);
+    _selected_size = 0;
+    RETURN_IF_ERROR(_read_columns_by_index(nrows_read_limit, _selected_size));
+    _replace_version_col_if_needed(_predicate_column_ids, _selected_size);
 
     _opts.stats->blocks_load += 1;
-    _opts.stats->raw_rows_read += _current_batch_rows_read;
+    _opts.stats->raw_rows_read += _selected_size;
 
-    if (_current_batch_rows_read == 0) {
+    if (_selected_size == 0) {
         return _process_eof(block);
     }
 
-    if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        if (_non_predicate_columns.empty()) {
-            return Status::InternalError("_non_predicate_columns is empty");
-        }
-        VLOG_DEBUG << fmt::format(
-                "No need to evaluate any predicates or filter block rows {}, "
-                "_current_batch_rows_read {}",
-                block->rows(), _current_batch_rows_read);
-        RETURN_IF_ERROR(_output_non_pred_columns(block));
-    } else {
-        _selected_size = cast_set<uint16_t>(_current_batch_rows_read);
+    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         _sel_rowid_idx.resize(_selected_size);
 
         if (_is_need_vec_eval || _is_need_short_eval) {
@@ -2476,8 +2466,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _non_predicate_column_ids, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_return_columns));
-                        _replace_version_col_if_needed(_non_predicate_column_ids,
-                                                       _current_batch_rows_read);
+                        _replace_version_col_if_needed(_non_predicate_column_ids, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_non_predicate_column_ids, block));
                     }
 
@@ -2506,18 +2495,15 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
                                                     _sel_rowid_idx.data(), _selected_size,
                                                     &_current_return_columns));
-            _replace_version_col_if_needed(_non_predicate_columns, _current_batch_rows_read);
+            _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
         }
-
-        // step5: output columns
-        RETURN_IF_ERROR(_output_non_pred_columns(block));
     }
 
+    // step5: output columns
+    RETURN_IF_ERROR(_output_non_pred_columns(block));
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
-
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
     return _check_output_block(block);
 }
 
@@ -2572,9 +2558,10 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
                     idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
             return Status::InternalError(
-                    "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}",
+                    "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}, "
+                    "block: {}",
                     entry.column->size(), rows, entry.column->get_name(), entry.type->get_name(),
-                    idx);
+                    idx, block->dump_structure());
         }
         idx++;
     }
@@ -2709,21 +2696,21 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             auto index_result_column = vectorized::ColumnUInt8::create();
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
             vec_match_pred.resize(block->rows());
-            size_t idx_in_selected = 0;
             roaring::BulkContext bulk_context;
 
-            for (uint32_t i = 0; i < _current_batch_rows_read; i++) {
-                auto rowid = _block_rowids[i];
-                if (sel_rowid_idx == nullptr ||
-                    (idx_in_selected < select_size && i == sel_rowid_idx[idx_in_selected])) {
-                    if (index_result_bitmap->containsBulk(bulk_context, rowid)) {
-                        vec_match_pred[idx_in_selected] = true;
-                    } else {
-                        vec_match_pred[idx_in_selected] = false;
-                    }
-                    idx_in_selected++;
+            if (sel_rowid_idx == nullptr) {
+                for (uint32_t i = 0; i < select_size; i++) {
+                    auto rowid = _block_rowids[i];
+                    vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
+                }
+            } else {
+                for (uint32_t i = 0; i < select_size; i++) {
+                    auto rowid = _block_rowids[sel_rowid_idx[i]];
+                    vec_match_pred[sel_rowid_idx[i]] =
+                            index_result_bitmap->containsBulk(bulk_context, rowid);
                 }
             }
+
             DCHECK(block->rows() == vec_match_pred.size());
             expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
                     expr, std::move(index_result_column));
@@ -2763,15 +2750,14 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
     DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _current_batch_rows_read);
+    DCHECK_GE(_block_rowids.size(), _selected_size);
+    block_row_locations->resize(_selected_size);
     uint32_t sid = segment_id();
     if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        block_row_locations->resize(_current_batch_rows_read);
-        for (auto i = 0; i < _current_batch_rows_read; i++) {
+        for (auto i = 0; i < _selected_size; i++) {
             (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
         }
     } else {
-        block_row_locations->resize(_selected_size);
         for (auto i = 0; i < _selected_size; i++) {
             (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
         }
