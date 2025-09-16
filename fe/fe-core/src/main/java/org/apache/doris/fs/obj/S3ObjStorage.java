@@ -642,7 +642,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      *
      * @return The largest file name after listObject this time
      */
-    public String globListWithLimit(String remotePath, List<String> result, String startFile,
+    public String globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
         long roundCnt = 0;
         long elementCnt = 0;
@@ -704,9 +704,16 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         }
 
                         matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(objPath.getFileName().toString(),
+                                !isPrefix,
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? -1 : obj.size(),
+                                isPrefix ? 0 : obj.lastModified().toEpochMilli()
+                        );
+                        remoteFile.setBucket(bucket);
+                        remoteFile.setParentPath(objPath.getParent().toString());
                         matchFileSize += obj.size();
-                        String remoteFileName = "s3://" + bucket + "/" + objPath;
-                        result.add(remoteFileName);
+                        result.add(remoteFile);
 
                         if (reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
                             break;
@@ -718,8 +725,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 }
                 //record current last object file name
                 S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
-                java.nio.file.Path lastObjPath = Paths.get(lastS3Object.key());
-                currentMaxFile =  "s3://" + bucket + "/" + lastObjPath;
+                currentMaxFile = lastS3Object.key();
 
                 isTruncated = response.isTruncated();
                 if (isTruncated) {

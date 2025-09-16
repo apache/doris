@@ -99,13 +99,13 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
 
     @SerializedName(value = "stc")
-    private AtomicLong succeedTaskCount = new AtomicLong(0);
+    protected AtomicLong succeedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ftc")
-    private AtomicLong failedTaskCount = new AtomicLong(0);
+    protected AtomicLong failedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ctc")
-    private AtomicLong canceledTaskCount = new AtomicLong(0);
+    protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
     public AbstractJob() {
     }

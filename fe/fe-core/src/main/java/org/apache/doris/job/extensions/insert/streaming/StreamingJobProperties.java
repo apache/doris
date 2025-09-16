@@ -24,6 +24,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
 import java.util.HashMap;
@@ -43,15 +44,18 @@ public class StreamingJobProperties implements JobProperties {
 
     private final Map<String, String> properties;
     private long maxIntervalSecond;
-    private int  maxRetry;
     private long s3BatchFiles;
     private long s3BatchSize;
 
     public StreamingJobProperties(Map<String, String> jobProperties) {
         this.properties = jobProperties;
+        if (properties.isEmpty()) {
+            this.maxIntervalSecond = DEFAULT_MAX_INTERVAL_SECOND;
+            this.s3BatchFiles = DEFAULT_S3_BATCH_FILES;
+            this.s3BatchSize = DEFAULT_S3_BATCH_SIZE;
+        }
     }
 
-    @Override
     public void validate() throws AnalysisException {
         this.maxIntervalSecond = Util.getLongPropertyOrDefault(
                 properties.get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY),
