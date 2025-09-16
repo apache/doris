@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -599,6 +600,41 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testOptimizeTable() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Basic optimize table
+        String sql = "optimize table t1 properties('action' = 'compact')";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with partition
+        sql = "optimize table t1 partition(p1, p2) properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with where clause
+        sql = "optimize table t1 where id > 100 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with partition and where clause
+        sql = "optimize table t1 partition(p1) where id > 100 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with catalog and database
+        sql = "optimize table catalog1.db1.t1 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with multiple properties
+        sql = "optimize table t1 properties('action' = 'compact', 'max_files' = '10')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+    }
+
+    @Test
     public void testKill() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "kill 1234";
@@ -1121,4 +1157,5 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertEquals(entry.getValue(), (boolean) value);
         }
     }
+
 }

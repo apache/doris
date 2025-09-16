@@ -65,8 +65,7 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
-#include "pipeline/exec/materialization_sink_operator.h"
-#include "pipeline/exec/materialization_source_operator.h"
+#include "pipeline/exec/materialization_opertor.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -1594,25 +1593,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::MATERIALIZATION_NODE: {
-        op.reset(new MaterializationSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        op.reset(new MaterializationOperator(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
-
-        auto new_pipe = add_pipeline(cur_pipe);
-        DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
-                op->operator_id(), next_sink_operator_id(), pool, tnode));
-        std::shared_ptr<MaterializationSharedState> shared_state =
-                MaterializationSharedState::create_shared();
-        // create source/sink dependency for materialization operator
-        shared_state->create_counter_dependency(op->operator_id(), op->node_id(),
-                                                "MATERIALIZATION_COUNTER");
-        (void)shared_state->create_sink_dependency(sink->dests_id().front(), sink->node_id(),
-                                                   sink->get_name());
-        _op_id_to_shared_state.insert({op->operator_id(), {shared_state, shared_state->sink_deps}});
-
-        RETURN_IF_ERROR(new_pipe->set_sink(sink));
-        RETURN_IF_ERROR(new_pipe->sink()->init(tnode, _runtime_state.get()));
-        cur_pipe = new_pipe;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {

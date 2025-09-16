@@ -93,12 +93,16 @@ void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
 
 ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_to_default) const {
     if (type->is_nullable()) {
-        auto nested_type = assert_cast<const DataTypeNullable*>(type.get())->get_nested_type();
+        auto nested_type =
+                assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
+                        ->get_nested_type();
         ColumnPtr nested_column = column;
         if (column) {
             // A column_ptr is needed here to ensure that the column in convert_to_full_column_if_const is not released.
             auto column_ptr = nested_column->convert_to_full_column_if_const();
-            const auto* source_column = assert_cast<const ColumnNullable*>(column_ptr.get());
+            const auto* source_column =
+                    assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                            column_ptr.get());
             nested_column = source_column->get_nested_column_ptr();
 
             if (replace_null_data_to_default) {

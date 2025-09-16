@@ -959,29 +959,29 @@ suite("test_join", "query,p0") {
                  baseall a right outer join test b on (a.${c} = b.${c}) order by 
                  isnull(ak1), 1, 2, 3, 4, isnull(bk1), 12, 13, 14, 15 limit 65535"""
 
-        def res67 = sql"""select * from baseall a left semi join test b on (a.${c} = b.${c}) 
+        def sql67 = """select * from baseall a left semi join test b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
-        def res68 = sql"""select distinct a.* from baseall a left outer join test b on (a.${c} = b.${c}) 
+        def sql68 = """select distinct a.* from baseall a left outer join test b on (a.${c} = b.${c}) 
                 where b.k1 is not null order by a.k1, a.k2, a.k3"""
-        check2_doris(res67, res68)
+        check_sqls_result_equal(sql67, sql68)
 
-        def res69 = sql"""select * from baseall a right semi join test b on (a.${c} = b.${c}) 
+        def sql69 = """select * from baseall a right semi join test b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
-        def res70 = sql"""select distinct b.* from baseall a right outer join test b on (a.${c} = b.${c}) 
+        def sql70 = """select distinct b.* from baseall a right outer join test b on (a.${c} = b.${c}) 
                 where a.k1 is not null order by b.k1, b.k2, b.k3"""
-        check2_doris(res69, res70)
+        check_sqls_result_equal(sql69, sql70)
 
-        def res71 = sql"""select * from baseall a left anti join test b on (a.${c} = b.${c}) 
+        def sql71 = """select * from baseall a left anti join test b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
-        def res72 = sql"""select distinct a.* from baseall a left outer join test b on (a.${c} = b.${c}) 
+        def sql72 = """select distinct a.* from baseall a left outer join test b on (a.${c} = b.${c}) 
                 where b.k1 is null order by a.k1, a.k2, a.k3"""
-        check2_doris(res71, res72)
+        check_sqls_result_equal(sql71, sql72)
 
-        def res73 = sql"""select * from baseall a right anti join test b on (a.${c} = b.${c}) 
+        def sql73 = """select * from baseall a right anti join test b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
-        def res74 = sql"""select distinct b.* from baseall a right outer join test b on (a.${c} = b.${c}) 
+        def sql74 = """select distinct b.* from baseall a right outer join test b on (a.${c} = b.${c}) 
                 where a.k1 is null order by b.k1, b.k2, b.k3"""
-        check2_doris(res73, res74)
+        check_sqls_result_equal(sql73, sql74)
     }
 
 

@@ -187,6 +187,9 @@ public class DorisFE {
             System.setProperty("software.amazon.awssdk.http.service.impl",
                     "software.amazon.awssdk.http.urlconnection.UrlConnectionSdkHttpService");
 
+            if (cmdLineOpts.getClusterSnapshotPath() != null) {
+                Env.getCurrentEnv().setClusterSnapshotFile(dorisHomeDir + "/" + cmdLineOpts.getClusterSnapshotPath());
+            }
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
@@ -314,6 +317,7 @@ public class DorisFE {
         options.addOption("m", "metaversion", true, "Specify the meta version to decode log value");
         options.addOption("r", FeConstants.METADATA_FAILURE_RECOVERY_KEY, false,
                 "Check if the specified metadata recover is valid");
+        options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
 
         CommandLine cmd = null;
         try {
@@ -400,6 +404,15 @@ public class DorisFE {
                 System.err.println("Invalid options when running bdb je tools");
                 System.exit(-1);
             }
+        }
+        // cluster snapshot
+        if (cmd.hasOption('c') || cmd.hasOption("cluster_snapshot")) {
+            String clusterSnapshotFile = cmd.getOptionValue("cluster_snapshot");
+            if (Strings.isNullOrEmpty(clusterSnapshotFile)) {
+                System.err.println("Missing cluster_snapshot file");
+                System.exit(-1);
+            }
+            return new CommandLineOptions(false, null, null, "", clusterSnapshotFile.trim());
         }
 
         // helper node is null, means no helper node is specified

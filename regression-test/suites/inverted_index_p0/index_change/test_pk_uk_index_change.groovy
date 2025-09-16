@@ -32,20 +32,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
     def alter_res = "null"
     def useTime = 0
 
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
+    sql "set enable_add_index_for_new_data = true"
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -240,13 +227,9 @@ suite("test_pk_uk_index_change", "inverted_index") {
                     ADD INDEX L_ORDERKEY_idx (L_ORDERKEY) USING INVERTED COMMENT 'L_ORDERKEY index';
             """
 
-            wait_for_latest_op_on_table_finish(tableNamePk, timeout)
-
             // build inverted index
-            if (!isCloudMode()) {
-                sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-                wait_for_build_index_on_partition_finish(tableNamePk, timeout)
-            }
+            build_index_on_table("L_ORDERKEY_idx", tableNamePk)
+            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
         }
 
         sql "sync"
@@ -321,10 +304,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
 
         // drop inverted index
         sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-        wait_for_latest_op_on_table_finish(tableNamePk, timeout)
-        if (!isCloudMode()) {
-            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
-        }
+        wait_for_build_index_on_partition_finish(tableNamePk, timeout)
     }
 }
 

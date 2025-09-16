@@ -117,13 +117,13 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     /*-----S3------*/
     String s3_ak = context.config.otherConfigs.get("AWSAK")
     String s3_sk = context.config.otherConfigs.get("AWSSK")
-    String s3_endpoint = "http://s3.ap-east-1.amazonaws.com/"
-    String s3_region = "ap-east-1"
+    String s3_endpoint = context.config.otherConfigs.get("AWSEndpoint")
+    String s3_region = context.config.otherConfigs.get("AWSRegion")
     String s3_parent_path = "selectdb-qa-datalake-test-hk/refactor-test"
     String s3_storage_properties = """
       's3.access_key' = '${s3_ak}',
       's3.secret_key' = '${s3_sk}',
-      's3.endpoint' = '${s3_endpoint}'
+      's3.endpoint' = 'http://${s3_endpoint}'
     """
     String s3_region_param = """
      's3.region' = '${s3_region}',
@@ -131,9 +131,10 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     /****************OSS*******************/
     String oss_ak = context.config.otherConfigs.get("aliYunAk")
     String oss_sk = context.config.otherConfigs.get("aliYunSk")
-    String oss_endpoint = "oss-cn-beijing.aliyuncs.com"
-    String oss_parent_path = "doris-regression-bj/refactor-test"
-    String oss_region = "cn-beijing"
+    String oss_endpoint = context.config.otherConfigs.get("aliYunEndpoint")
+    String oss_bucket = context.config.otherConfigs.get("aliYunBucket")
+    String oss_parent_path = "${oss_bucket}/refactor-test"
+    String oss_region = context.config.otherConfigs.get("aliYunRegion")
     String oss_region_param = """
               'oss.region' = '${oss_region}',
     """
@@ -158,7 +159,39 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
               'cos.secret_key' = '${cos_sk}',
               'cos.endpoint' = '${cos_endpoint}'
     """
+    /***************OBS*******************/
+    String obs_ak = context.config.otherConfigs.get("hwYunAk")
+    String obs_sk = context.config.otherConfigs.get("hwYunSk")
+    String obs_endpoint =context.config.otherConfigs.get("hwYunEndpoint")
+    String obs_region = context.config.otherConfigs.get("hwYunRegion")
+    String obs_region_param = """
+              'obs.region' = '${obs_region}',
+    """
 
+    String obs_parent_path = context.config.otherConfigs.get("hwYunBucket")
+    
+    String obs_storage_properties = """
+              'obs.access_key' = '${obs_ak}',
+              'obs.secret_key' = '${obs_sk}',
+              'obs.endpoint' = '${obs_endpoint}'
+    """
+    /***************GCS*******************/
+    String gcs_ak = context.config.otherConfigs.get("GCSAk")
+    String gcs_sk = context.config.otherConfigs.get("GCSSk")
+    String gcs_endpoint = "storage.googleapis.com"
+    
+    String gcs_parent_path = "selectdb-qa-datalake-test";
+    String gcs_storage_old_properties = """
+              'gs.access_key' = '${gcs_ak}',
+              'gs.secret_key' = '${gcs_sk}',
+              'gs.endpoint' = '${gcs_endpoint}'
+    """
+    String gcs_storage_new_properties = """
+              'fs.gcs.support' = 'true',
+              'gs.access_key' = '${gcs_ak}',
+              'gs.secret_key' = '${gcs_sk}'
+            
+    """
     /****************HDFS*******************/
     //simple
     String hdfs_parent_path = "hdfs://${externalEnvIp}:8320/user/iceberg/warehouse"
@@ -220,37 +253,59 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
                   'warehouse' = 'oss://${oss_parent_path}/iceberg-hms-warehouse',
     """
     // has endpoint not region
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + oss_storage_properties, "iceberg_hms_on_oss")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss")
 
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")
 
     //old kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
-    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop+ warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
 
+    /*--------HMS on OBS-----------*/
+    warehouse = """
+                   'warehouse' = 'obs://${obs_parent_path}/iceberg-hms-obs-warehouse',
+    """
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
+            + warehouse + obs_storage_properties, "iceberg_hms_on_obs")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop+
+            warehouse + obs_region_param + obs_storage_properties, "iceberg_hms_on_obs")
+    //old kerberos
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_old")
+    //new kerberos
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + obs_storage_properties, "iceberg_hms_on_obs_kerberos_new")
 
-   /*--------HMS on COS-----------*/
+    /*--------HMS on GCS-----------*/
+    if(context.config.otherConfigs.get("enableGCS")){
+        warehouse = """
+                   'warehouse' = 'gs://${gcs_parent_path}/gcs/iceberg-hms-gcs-warehouse',
+    """
+        testQueryAndInsert(iceberg_hms_type_prop + hms_prop
+                + warehouse + gcs_storage_old_properties, "iceberg_hms_on_gcs_old")
+        testQueryAndInsert(iceberg_hms_type_prop + hms_prop+
+                warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_new")
+
+        //new kerberos
+        testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_new")
+        //old kerberos
+        testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + gcs_storage_new_properties, "iceberg_hms_on_gcs_kerberos_old")
+    }
+   
+    /*--------HMS on COS-----------*/
     warehouse = """
                    'warehouse' = 'cosn://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
 
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + cos_region_param + cos_storage_properties, "iceberg_hms_on_cos")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_region_param + cos_storage_properties, "iceberg_hms_on_cos")
 
     warehouse = """
      'warehouse' = 'cos://${cos_parent_path}/iceberg-hms-cos-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos")
     //kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_old")
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + cos_storage_properties, "iceberg_hms_on_cos_kerberos_new")
-
 
 
     /*--------HMS on S3-----------*/
@@ -258,33 +313,29 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     warehouse = """
        'warehouse' = 's3a://${s3_parent_path}/iceberg-hms-s3-warehouse',
       """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + s3_region_param + s3_storage_properties, "iceberg_hms_on_s3")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_region_param + s3_storage_properties, "iceberg_hms_on_s3")
     //kerberos Docker HMS c
     // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop+ warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_old")
     // testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3_kerberos_new")
     warehouse = """
        'warehouse' = 's3://${s3_parent_path}/iceberg-hms-s3-warehouse',
       """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
- 
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + s3_storage_properties, "iceberg_hms_on_s3")
+
     /*--------HMS on HDFS-----------*/
     warehouse = """
      'warehouse' = '${hdfs_parent_path}/iceberg-hms-hdfs-warehouse',
     """
-    testQueryAndInsert(iceberg_hms_type_prop + hms_prop
-            + warehouse + hdfs_properties, "iceberg_hms_on_hdfs")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + hdfs_properties, "iceberg_hms_on_hdfs")
     warehouse = """
      'warehouse' = 'hdfs://${externalEnvIp}:8520/iceberg-hms-hdfs-warehouse',
     """
     //old kerberos
-   testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop+ warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
+    testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_old_prop_not_include_kerberos_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_old")
     //new  kerberos
     testQueryAndInsert(iceberg_hms_type_prop + hms_kerberos_new_prop + warehouse + hdfs_kerberos_properties, "iceberg_hms_on_hdfs_kerberos_hdfs")
-     
+
 
     /*--------HMS END-----------*/
 
@@ -294,6 +345,31 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
      'type'='iceberg',
      'iceberg.catalog.type'='hadoop',
     """
+    /** OBS **/
+    warehouse = """
+     'warehouse' = 'obs://${obs_parent_path}/iceberg-fs-obs-warehouse',
+    """
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + obs_storage_properties, "iceberg_fs_on_obs")
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + obs_region_param + obs_storage_properties, "iceberg_fs_on_obs_region")
+    //s3
+    warehouse = """
+     'warehouse' = 's3://${obs_parent_path}/iceberg-fs-obs-warehouse',
+    """
+    testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + obs_storage_properties, "iceberg_fs_on_obs_s3")
+    if(context.config.otherConfigs.get("enableGCS")){
+        /** GCS **/
+        warehouse = """
+     'warehouse' = 'gs://${gcs_parent_path}/gcs/iceberg-fs-gcs-warehouse',
+       """
+        testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + gcs_storage_old_properties, "iceberg_fs_on_gcs_old")
+        testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + gcs_storage_new_properties, "iceberg_fs_on_gcs_new")
+        //s3
+        warehouse = """
+        'warehouse' = 's3://${gcs_parent_path}/gcs/iceberg-fs-gcs-warehouse',
+        """
+        testQueryAndInsert(iceberg_file_system_catalog_properties + warehouse + gcs_storage_old_properties, "iceberg_fs_on_gcs_old")
+
+    }
     /**  COS **/
     warehouse = """
      'warehouse' = 'cos://${cos_parent_path}/iceberg-fs-cos-warehouse',
@@ -339,7 +415,8 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     /*--------FILESYSTEM END-----------*/
 
 
-
+    String dlf_uid = context.config.otherConfigs.get("dlf_uid")
+    String dlf_catalog_id = context.config.otherConfigs("dlf_catalog_id")
     String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
     String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
 /**************** DLF *******************/
@@ -358,12 +435,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
     String dlf_region_param = """
             "dlf.region" = "${dlf_region}",
     """
-    String dlf_endpoint = "dlf.cn-beijing.aliyuncs.com"
+    String dlf_endpoint = context.config.otherConfigs.get("dlf_endpoint")
     String dlf_endpoint_properties = """
              "dlf.endpoint" = "${dlf_endpoint}",
     """
     String dlf_oss_properties = """
-               "oss.endpoint" = "oss-cn-beijing.aliyuncs.com",
+               "oss.endpoint" = "${oss_endpoint}",
                "oss.access_key" = "${dlf_access_key}",
                "oss.secret_key" = "${dlf_secret_key}",
     """
@@ -379,15 +456,15 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
             'iceberg.catalog.type'='dlf',
             """
 
-    testQuery(iceberg_dlf_type_properties + dlf_region_param +  dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
+    testQuery(iceberg_dlf_type_properties + dlf_region_param + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
 
-    testQuery(iceberg_dlf_type_properties+dlf_region_param+dlf_endpoint_properties + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
-    testQuery(iceberg_dlf_type_properties+dlf_oss_properties + dlf_region_param + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
-    testQuery(iceberg_dlf_type_properties_no_warehouse+dlf_oss_properties + dlf_region_param + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
+    testQuery(iceberg_dlf_type_properties + dlf_region_param + dlf_endpoint_properties + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
+    testQuery(iceberg_dlf_type_properties + dlf_oss_properties + dlf_region_param + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
+    testQuery(iceberg_dlf_type_properties_no_warehouse + dlf_oss_properties + dlf_region_param + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
 
     // region is required
     shouldFail {
-        testQuery(iceberg_dlf_type_properties+dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
+        testQuery(iceberg_dlf_type_properties + dlf_catalog_base_properties, "iceberg_dlf_catalog", "regression_iceberg", "tb_simple", 2)
     }
 
 

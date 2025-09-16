@@ -427,11 +427,9 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         filterKeyColStatsBuilder.setNdv(ndv);
 
         // compute selectivity
-        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+        double matchedHotValueRatio = matchedHotValues.values().stream().mapToDouble(x -> x).sum();
         double nonHotValueRatio = 1.0 - matchedHotValueRatio
-                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum()
-                / ColumnStatistic.ONE_HUNDRED;
+                - missMatchedHotValues.values().stream().mapToDouble(x -> x).sum();
 
         if (matchedHotValues.isEmpty()) {
             selectivity = nonHotValueRatio * selectivity;
@@ -621,7 +619,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                                 // stats-derive may be applied before type coercion. so we need to try to catch
                                 // comparison exception. for example: boolean compare with int
                                 if (((ComparableLiteral) hot).compareTo((ComparableLiteral) constHand) == 0) {
-                                    selectivity = statsForLeft.getHotValues().get(hot) / ColumnStatistic.ONE_HUNDRED;
+                                    selectivity = statsForLeft.getHotValues().get(hot);
                                     break;
                                 }
                             } catch (Exception e) {
@@ -793,14 +791,12 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         Math.min(StatsMathUtil.divide(newCompareExprStats.ndv, compareExprStats.ndv), 1));
             } else {
                 double nonHotRatio = 1
-                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                        / ColumnStatistic.ONE_HUNDRED;
+                        - compareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                 if (nonHotRatio > 0) {
                     double nonHotSel = nonHotRatio
                             * (newCompareExprStats.ndv - newCompareExprStats.getHotValues().size())
                             / (compareExprStats.ndv - compareExprStats.getHotValues().size());
-                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum()
-                            / ColumnStatistic.ONE_HUNDRED;
+                    double hotSel = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();
                     selectivity = nonHotSel + hotSel;
                 } else {
                     selectivity = newCompareExprStats.getHotValues().values().stream().mapToDouble(x -> x).sum();

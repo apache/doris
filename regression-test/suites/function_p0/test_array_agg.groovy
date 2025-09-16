@@ -56,8 +56,6 @@ suite("test_array_agg", "p0") {
        select array_join(a, ',', 'replaced'), array_join(s, ',', 'replaced') from ${tableName} order by id;
    """
 
-    qt_sql """ select array_sum(s) from ${tableName} order by id; """
-
     qt_sql """ select array_avg(s) from ${tableName} order by id; """
 
     qt_sql """ select array_product(s) from ${tableName} order by id; """

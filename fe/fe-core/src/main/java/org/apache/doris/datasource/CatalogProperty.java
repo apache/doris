@@ -21,9 +21,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.aliyun.odps.table.utils.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -127,12 +129,32 @@ public class CatalogProperty {
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
-                        throw new RuntimeException("Failed to initialize storage properties for catalog", e);
+                        throw new RuntimeException("Failed to initialize storage properties, error: "
+                                + ExceptionUtils.getRootCauseMessage(e), e);
                     }
                 }
             }
         }
         return storagePropertiesMap;
+    }
+
+    public void checkMetaStoreAndStorageProperties(Class msClass) {
+        MetastoreProperties msProperties;
+        List<StorageProperties> storageProperties;
+        try {
+            msProperties = MetastoreProperties.create(getProperties());
+            storageProperties = StorageProperties.createAll(getProperties());
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to initialize Catalog properties, error: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        Preconditions.checkNotNull(storageProperties,
+                "Storage properties are not configured properly");
+        Preconditions.checkNotNull(msProperties, "Metastore properties are not configured properly");
+        Preconditions.checkArgument(
+                msClass.isInstance(msProperties),
+                String.format("Metastore properties type is not correct. Expected %s but got %s",
+                        msClass.getName(), msProperties.getClass().getName()));
     }
 
     /**
@@ -150,7 +172,8 @@ public class CatalogProperty {
                         metastoreProperties = MetastoreProperties.create(getProperties());
                     } catch (UserException e) {
                         LOG.warn("Failed to create metastore properties", e);
-                        throw new RuntimeException("Failed to create metastore properties", e);
+                        throw new RuntimeException("Failed to create metastore properties, error: "
+                                + ExceptionUtils.getRootCauseMessage(e), e);
                     }
                 }
             }

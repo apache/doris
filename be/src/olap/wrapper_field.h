@@ -81,6 +81,7 @@ public:
     char* nullable_cell_ptr() const { return _field_buf; }
     void set_to_max() { _rep->set_to_max(_field_buf + 1); }
     void set_to_min() { _rep->set_to_min(_field_buf + 1); }
+    void set_raw_value(const void* value, size_t size) { memcpy(_field_buf + 1, value, size); }
     void* cell_ptr() const { return _field_buf + 1; }
     void* mutable_cell_ptr() const { return _field_buf + 1; }
     const Field* field() const { return _rep; }

@@ -388,6 +388,43 @@ Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb(
 }
 
 template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (!std::is_same_v<ColumnType, ColumnString>) {
+        return Status::NotSupported(
+                "DataTypeStringSerDeBase only supports ColumnString for "
+                "deserialize_column_from_jsonb_vector");
+    }
+
+    const size_t size = col_from_json.size();
+
+    auto& null_map = column_to.get_null_map_data();
+    auto& col_str = assert_cast<ColumnString&>(column_to.get_nested_column());
+
+    null_map.resize_fill(size, false);
+    col_str.get_offsets().reserve(size);
+    col_str.get_chars().reserve(col_from_json.get_chars().size());
+
+    for (size_t i = 0; i < size; ++i) {
+        const auto& val = col_from_json.get_data_at(i);
+        auto* jsonb_value = handle_jsonb_value(val);
+        if (!jsonb_value) {
+            null_map[i] = true;
+            col_str.insert_default();
+            continue;
+        }
+        if (jsonb_value->isString()) {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            col_str.insert_data(blob->getBlob(), blob->getBlobLen());
+        } else {
+            col_str.insert_value(JsonbToJson {}.to_json_string(jsonb_value));
+        }
+    }
+    return Status::OK();
+}
+
+template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn& column,
                                                         const FormatOptions& options) const {
     auto slice = str.to_slice();

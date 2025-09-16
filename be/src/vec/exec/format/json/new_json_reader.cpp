@@ -58,6 +58,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -244,7 +245,7 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
                                         std::vector<DataTypePtr>* col_types) {
     bool eof = false;
     const uint8_t* json_str = nullptr;
-    std::unique_ptr<uint8_t[]> json_str_ptr;
+    DorisUniqueBufferPtr<uint8_t> json_str_ptr;
     size_t size = 0;
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, &eof, _io_ctx));
@@ -474,7 +475,8 @@ Status NewJsonReader::_read_json_column(RuntimeState* state, Block& block,
     return (this->*_vhandle_json_callback)(state, block, slot_descs, is_empty_row, eof);
 }
 
-Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
+Status NewJsonReader::_read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf,
+                                        size_t* read_size) {
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
         [[fallthrough]];
@@ -482,7 +484,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
         [[fallthrough]];
     case TFileType::FILE_S3: {
         size_t file_size = _file_reader->size();
-        file_buf->reset(new uint8_t[file_size]);
+        *file_buf = make_unique_buffer<uint8_t>(file_size);
         Slice result(file_buf->get(), file_size);
         RETURN_IF_ERROR(_file_reader->read_at(_current_offset, result, read_size, _io_ctx));
         _current_offset += *read_size;
@@ -499,7 +501,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
     return Status::OK();
 }
 
-Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* file_buf,
+Status NewJsonReader::_read_one_message_from_pipe(DorisUniqueBufferPtr<uint8_t>* file_buf,
                                                   size_t* read_size) {
     auto* stream_load_pipe = dynamic_cast<io::StreamLoadPipe*>(_file_reader.get());
 
@@ -515,7 +517,7 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
     uint64_t cur_size = 0;
 
     // second read: continuously read data from the pipe until all data is read.
-    std::unique_ptr<uint8_t[]> read_buf;
+    DorisUniqueBufferPtr<uint8_t> read_buf;
     size_t read_buf_size = 0;
     while (true) {
         RETURN_IF_ERROR(stream_load_pipe->read_one_message(&read_buf, &read_buf_size));
@@ -534,7 +536,7 @@ Status NewJsonReader::_read_one_message_from_pipe(std::unique_ptr<uint8_t[]>* fi
         return Status::OK();
     }
 
-    std::unique_ptr<uint8_t[]> total_buf = std::make_unique<uint8_t[]>(cur_size + *read_size);
+    DorisUniqueBufferPtr<uint8_t> total_buf = make_unique_buffer<uint8_t>(cur_size + *read_size);
 
     // copy the data during the first read
     memcpy(total_buf.get(), file_buf->get(), *read_size);

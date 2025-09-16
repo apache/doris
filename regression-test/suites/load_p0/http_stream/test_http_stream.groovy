@@ -63,6 +63,25 @@ suite("test_http_stream", "p0") {
             }
         }
 
+        // test error sql
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName1} (id, name) select
+                    """
+            time 10000
+            file 'test_http_stream.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("http_stream result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("Nereids parse failed"))
+            }
+        }
+
         qt_sql1 "select id, name from ${tableName1}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName1}"

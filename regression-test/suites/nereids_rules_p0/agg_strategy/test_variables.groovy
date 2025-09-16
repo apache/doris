@@ -20,6 +20,7 @@ suite("agg_strategy_variable") {
     sql "set enable_parallel_result_sink=false"
     sql "set global enable_auto_analyze=false"
     sql "set runtime_filter_mode=OFF"
+    sql "set be_number_for_test=1;"
 
     sql "drop table if exists t_gbykey_10_dstkey_10_1000_id_2"
     sql """create table t_gbykey_10_dstkey_10_1000_id_2(id int, gby_key int, dst_key1 int, dst_key2 int) duplicate key(id) distributed by hash(id)
