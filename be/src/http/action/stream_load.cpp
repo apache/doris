@@ -835,6 +835,9 @@ void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
         if (st.ok()) {
             LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label
                       << ", key: " << key;
+        } else {
+            LOG(WARNING) << "put stream_load_record rocksdb failed. label: " << ctx->label
+                         << ", key: " << key << ", err: " << st;
         }
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
