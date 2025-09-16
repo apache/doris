@@ -19,14 +19,16 @@
 
 #include <parallel_hashmap/phmap.h> // IWYU pragma: export
 
+#include "common/compare.h"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris::vectorized {
 
 /// `Allocator_` implements several interfaces of `std::allocator`
 /// which `phmap::flat_hash_map` will use.
 template <typename T>
-class Allocator_ : private Allocator<true, false, false> {
+class Allocator_ : private Allocator<true, false, false, DefaultMemoryAllocator> {
 public:
     using value_type = T;
     using pointer = T*;
@@ -43,11 +45,11 @@ public:
     friend bool operator==(const Allocator_&, const Allocator_&) { return true; }
 };
 
-template <typename K, typename V, typename Hash = phmap::Hash<K>, typename Eq = phmap::EqualTo<K>,
+template <typename K, typename V, typename Hash = phmap::Hash<K>, typename Eq = doris::EqualTo<K>,
           typename Alloc = Allocator_<phmap::Pair<const K, V>>>
 using flat_hash_map = phmap::flat_hash_map<K, V, Hash, Eq, Alloc>;
 
-template <typename K, typename Hash = phmap::Hash<K>, typename Eq = phmap::EqualTo<K>,
+template <typename K, typename Hash = phmap::Hash<K>, typename Eq = doris::EqualTo<K>,
           typename Alloc = Allocator_<K>>
 using flat_hash_set = phmap::flat_hash_set<K, Hash, Eq, Alloc>;
 

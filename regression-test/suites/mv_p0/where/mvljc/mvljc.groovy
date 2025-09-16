@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mvljc") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
     sql """set enable_nereids_planner=true"""
     sql """
@@ -36,7 +38,7 @@ suite ("mvljc") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("""CREATE MATERIALIZED VIEW mvljc AS SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1;""")
+    createMV ("""CREATE MATERIALIZED VIEW mvljc AS SELECT k1 as a1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1;""")
 
     sql "insert into d_table select 1,1,1,'a';"
     sql "insert into d_table select 2,2,2,'b';"
@@ -45,26 +47,18 @@ suite ("mvljc") {
     sql "analyze table d_table with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;")
-        contains "(mvljc)"
-    }
+    mv_rewrite_success("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;",
+            "mvljc")
     qt_select_mv "SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;"
 
-    explain {
-        sql("SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;")
-        contains "(mvljc)"
-    }
+    mv_rewrite_success("SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;",
+            "mvljc")
     qt_select_mv "SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;")
-        contains "(mvljc)"
-    }
+    mv_rewrite_success("SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 order by 1,2;",
+            "mvljc")
 
-    explain {
-        sql("SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;")
-        contains "(mvljc)"
-    }
+    mv_rewrite_success("SELECT a.k1 + 1 FROM ( SELECT k1, SUM(k2) FROM d_table WHERE k3 < 2 or k2 < 0 GROUP BY k1 ) a, d_table order by 1;",
+            "mvljc")
 }

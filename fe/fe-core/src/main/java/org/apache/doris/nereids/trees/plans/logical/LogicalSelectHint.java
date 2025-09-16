@@ -23,16 +23,15 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -42,11 +41,11 @@ import java.util.stream.Collectors;
  * e.g. LogicalSelectHint (set_var(query_timeout='1800', exec_mem_limit='2147483648'))
  */
 public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements BlockFuncDepsPropagation {
+        implements BlockFuncDepsPropagation, DiffOutputInAsterisk {
 
-    private final Map<String, SelectHint> hints;
+    private final ImmutableList<SelectHint> hints;
 
-    public LogicalSelectHint(Map<String, SelectHint> hints, CHILD_TYPE child) {
+    public LogicalSelectHint(ImmutableList<SelectHint> hints, CHILD_TYPE child) {
         this(hints, Optional.empty(), Optional.empty(), child);
     }
 
@@ -57,19 +56,29 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
      * @param logicalProperties logicalProperties is use for compute output
      * @param child child plan
      */
-    public LogicalSelectHint(Map<String, SelectHint> hints,
+    public LogicalSelectHint(ImmutableList<SelectHint> hints,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_SELECT_HINT, groupExpression, logicalProperties, child);
-        this.hints = ImmutableMap.copyOf(Objects.requireNonNull(hints, "hints can not be null"));
+        this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints can not be null"));
     }
 
-    public Map<String, SelectHint> getHints() {
+    public List<SelectHint> getHints() {
         return hints;
     }
 
-    public boolean isIncludeLeading() {
-        return hints.containsKey("leading");
+    /**
+     * check if current select hint include some hint
+     * @param hintName hint name
+     * @return boolean which indicate have hint
+     */
+    public boolean isIncludeHint(String hintName) {
+        for (SelectHint hint : hints) {
+            if (hint.getHintName().equalsIgnoreCase(hintName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -106,10 +115,15 @@ public class LogicalSelectHint<CHILD_TYPE extends Plan> extends LogicalUnary<CHI
     }
 
     @Override
+    public List<Slot> computeAsteriskOutput() {
+        return child().getAsteriskOutput();
+    }
+
+    @Override
     public String toString() {
-        String hintStr = this.hints.entrySet()
+        String hintStr = this.hints
                 .stream()
-                .map(entry -> entry.getValue().toString())
+                .map(hint -> hint.toString())
                 .collect(Collectors.joining(", "));
         return "LogicalSelectHint (" + hintStr + ")";
     }

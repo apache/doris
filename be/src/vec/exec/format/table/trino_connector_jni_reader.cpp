@@ -18,7 +18,6 @@
 #include "trino_connector_jni_reader.h"
 
 #include <map>
-#include <ostream>
 
 #include "runtime/descriptors.h"
 #include "runtime/types.h"
@@ -35,7 +34,7 @@ class Block;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 const std::string TrinoConnectorJniReader::TRINO_CONNECTOR_OPTION_PREFIX = "trino.";
 
 TrinoConnectorJniReader::TrinoConnectorJniReader(
@@ -43,9 +42,11 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
         RuntimeProfile* profile, const TFileRangeDesc& range)
         : JniReader(file_slot_descs, state, profile) {
     std::vector<std::string> column_names;
+    std::vector<std::string> column_types;
     for (const auto& desc : _file_slot_descs) {
         std::string field = desc->col_name();
         column_names.emplace_back(field);
+        column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params = {
             {"catalog_name", range.table_format_params.trino_connector_params.catalog_name},
@@ -63,7 +64,8 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
              range.table_format_params.trino_connector_params.trino_connector_predicate},
             {"trino_connector_trascation_handle",
              range.table_format_params.trino_connector_params.trino_connector_trascation_handle},
-            {"required_fields", join(column_names, ",")}};
+            {"required_fields", join(column_names, ",")},
+            {"columns_types", join(column_types, "#")}};
 
     // Used to create trino connector options
     for (const auto& kv :
@@ -75,27 +77,10 @@ TrinoConnectorJniReader::TrinoConnectorJniReader(
 }
 
 Status TrinoConnectorJniReader::init_reader(
-        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
+        const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     RETURN_IF_ERROR(_jni_connector->init(colname_to_value_range));
     RETURN_IF_ERROR(_set_spi_plugins_dir());
     return _jni_connector->open(_state, _profile);
-}
-
-Status TrinoConnectorJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(_jni_connector->get_next_block(block, read_rows, eof));
-    if (*eof) {
-        RETURN_IF_ERROR(_jni_connector->close());
-    }
-    return Status::OK();
-}
-
-Status TrinoConnectorJniReader::get_columns(
-        std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-        std::unordered_set<std::string>* missing_cols) {
-    for (auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
 }
 
 Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
@@ -122,11 +107,15 @@ Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     // call: setPluginsDir(String pluginsDir)
     jstring trino_connector_plugin_path =
             env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
+    RETURN_ERROR_IF_EXC(env);
     env->CallStaticVoidMethod(plugin_loader_cls, set_plugins_dir_method,
                               trino_connector_plugin_path);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteLocalRef(trino_connector_plugin_path);
     RETURN_ERROR_IF_EXC(env);
 
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

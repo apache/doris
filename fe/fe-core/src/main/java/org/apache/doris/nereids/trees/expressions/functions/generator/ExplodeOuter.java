@@ -20,31 +20,39 @@ package org.apache.doris.nereids.trees.expressions.functions.generator;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
-import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * explode([1, 2, 3]), generate 3 lines include 1, 2 and 3.
+ * explode_outer([1, 2, 3]), generate three rows include 1, 2 and 3.
+ * explode_outer([1, 2, 3], [4, 5, 6]) generates two columns and three rows
+ * where the first column contains 1, 2, 3, and the second column contains 4, 5, 6.
  */
-public class ExplodeOuter extends TableGeneratingFunction implements BinaryExpression, AlwaysNullable {
-
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(new FollowToAnyDataType(0)).args(ArrayType.of(new AnyDataType(0)))
-    );
+public class ExplodeOuter extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
 
     /**
-     * constructor with 1 argument.
+     * constructor with one or more argument.
      */
-    public ExplodeOuter(Expression arg) {
-        super("explode_outer", arg);
+    public ExplodeOuter(Expression[] args) {
+        super("explode_outer", args);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ExplodeOuter(GeneratorFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -52,17 +60,43 @@ public class ExplodeOuter extends TableGeneratingFunction implements BinaryExpre
      */
     @Override
     public ExplodeOuter withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ExplodeOuter(children.get(0));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new ExplodeOuter(getFunctionParams(children));
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
+    }
+
+    @Override
+    public FunctionSignature customSignature() {
+        List<DataType> arguments = new ArrayList<>();
+        ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
+        for (int i = 0; i < children.size(); i++) {
+            if (children.get(i).getDataType().isNullType()) {
+                arguments.add(ArrayType.of(NullType.INSTANCE));
+                structFields.add(
+                    new StructField("col" + (i + 1), NullType.INSTANCE, true, ""));
+            } else if (children.get(i).getDataType().isArrayType()) {
+                structFields.add(
+                    new StructField("col" + (i + 1),
+                        ((ArrayType) (children.get(i)).getDataType()).getItemType(), true, ""));
+                arguments.add(children.get(i).getDataType());
+            } else {
+                SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
+            }
+        }
+        return FunctionSignature.of(new StructType(structFields.build()), arguments);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitExplodeOuter(this, context);
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        return super.searchSignature(signatures);
     }
 }

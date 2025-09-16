@@ -18,25 +18,20 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/AggregateFunctions/AggregateFunctionGroupArrayIntersect.cpp
 // and modified by Doris
 
-#include <cassert>
 #include <memory>
 
 #include "exprs/hybrid_set.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
-#include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_array.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/data_types/data_type_time_v2.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -44,46 +39,26 @@ class BufferWritable;
 
 namespace doris::vectorized {
 
-/// Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType so that to inherit HybridSet
-template <typename T>
-constexpr PrimitiveType type_to_primitive_type() {
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, Int8>) {
-        return TYPE_TINYINT;
-    } else if constexpr (std::is_same_v<T, Int16>) {
-        return TYPE_SMALLINT;
-    } else if constexpr (std::is_same_v<T, Int32>) {
-        return TYPE_INT;
-    } else if constexpr (std::is_same_v<T, Int64>) {
-        return TYPE_BIGINT;
-    } else if constexpr (std::is_same_v<T, Int128>) {
-        return TYPE_LARGEINT;
-    } else if constexpr (std::is_same_v<T, Float32>) {
-        return TYPE_FLOAT;
-    } else if constexpr (std::is_same_v<T, Float64>) {
-        return TYPE_DOUBLE;
-    } else if constexpr (std::is_same_v<T, DateV2>) {
-        return TYPE_DATEV2;
-    } else if constexpr (std::is_same_v<T, DateTimeV2>) {
-        return TYPE_DATETIMEV2;
-    } else {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Only for changing Numeric type or Date(DateTime)V2 type to PrimitiveType");
-    }
-}
-
-template <typename T>
-class NullableNumericOrDateSet : public HybridSet<type_to_primitive_type<T>(),
-                                                  DynamicContainer<typename PrimitiveTypeTraits<
-                                                          type_to_primitive_type<T>()>::CppType>> {
+template <PrimitiveType T>
+class NullableNumericOrDateSet
+        : public HybridSet<T == TYPE_BOOLEAN ? TYPE_TINYINT : T,
+                           DynamicContainer<typename PrimitiveTypeTraits<
+                                   T == TYPE_BOOLEAN ? TYPE_TINYINT : T>::CppType>> {
 public:
-    NullableNumericOrDateSet() { this->_null_aware = true; }
+    NullableNumericOrDateSet()
+            : HybridSet < T
+                    == TYPE_BOOLEAN
+            ? TYPE_TINYINT
+            : T,
+    DynamicContainer < typename PrimitiveTypeTraits < T == TYPE_BOOLEAN ? TYPE_TINYINT
+                                                                        : T > ::CppType >> (true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionGroupArrayIntersectData {
-    using ColVecType = ColumnVector<T>;
+    using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using NullableNumericOrDateSetType = NullableNumericOrDateSet<T>;
     using Set = std::unique_ptr<NullableNumericOrDateSetType>;
 
@@ -93,7 +68,12 @@ struct AggregateFunctionGroupArrayIntersectData {
     Set value;
     bool init = false;
 
-    void process_col_data(auto& column_data, size_t offset, size_t arr_size, bool& init, Set& set) {
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableNumericOrDateSetType>();
+    }
+
+    void process_col_data(auto& column_data, size_t offset, size_t arr_size, Set& set) {
         const bool is_column_data_nullable = column_data.is_nullable();
 
         const ColumnNullable* col_null = nullptr;
@@ -102,7 +82,8 @@ struct AggregateFunctionGroupArrayIntersectData {
         if (is_column_data_nullable) {
             auto* const_col_data = const_cast<IColumn*>(&column_data);
             col_null = static_cast<ColumnNullable*>(const_col_data);
-            nested_column_data = &assert_cast<const ColVecType&>(col_null->get_nested_column());
+            nested_column_data = &assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                    col_null->get_nested_column());
         } else {
             nested_column_data = &static_cast<const ColVecType&>(column_data);
         }
@@ -111,22 +92,23 @@ struct AggregateFunctionGroupArrayIntersectData {
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
                         is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
+                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
                 set->insert(src_data);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             Set new_set = std::make_unique<NullableNumericOrDateSetType>();
 
             for (size_t i = 0; i < arr_size; ++i) {
                 const bool is_null_element =
                         is_column_data_nullable && col_null->is_null_at(offset + i);
-                const T* src_data =
+                const typename PrimitiveTypeTraits<T>::ColumnItemType* src_data =
                         is_null_element ? nullptr : &(nested_column_data->get_element(offset + i));
 
-                if (set->find(src_data) || (set->contain_null() && src_data == nullptr)) {
+                if ((!is_null_element && set->find(src_data)) ||
+                    (set->contain_null() && is_null_element)) {
                     new_set->insert(src_data);
                 }
             }
@@ -136,10 +118,12 @@ struct AggregateFunctionGroupArrayIntersectData {
 };
 
 /// Puts all values to the hybrid set. Returns an array of unique values. Implemented for numeric/date types.
-template <typename T>
+template <PrimitiveType T>
 class AggregateFunctionGroupArrayIntersect
         : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectData<T>,
-                                              AggregateFunctionGroupArrayIntersect<T>> {
+                                              AggregateFunctionGroupArrayIntersect<T>>,
+          UnaryExpression,
+          NotNullableAggregateFunction {
 private:
     using State = AggregateFunctionGroupArrayIntersectData<T>;
     DataTypePtr argument_type;
@@ -162,31 +146,32 @@ public:
 
     DataTypePtr get_return_type() const override { return argument_type; }
 
-    bool allocates_memory_in_arena() const override { return false; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         auto& data = this->data(place);
-        auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&>(
-                                          assert_cast<const ColumnNullable&>(*columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto& offsets = column.get_offsets();
         const auto offset = offsets[row_num - 1];
         const auto arr_size = offsets[row_num] - offset;
         const auto& column_data = column.get_data();
 
-        data.process_col_data(column_data, offset, arr_size, init, set);
+        data.process_col_data(column_data, offset, arr_size, set);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -197,7 +182,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const void* value = it->get_value();
@@ -205,10 +190,7 @@ public:
                 it->next();
             }
             init = true;
-            return;
-        }
-
-        if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set =
                         std::make_unique<typename State::NullableNumericOrDateSetType>();
@@ -220,8 +202,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -234,34 +216,35 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
-        write_pod_binary(init, buf);
-        write_var_uint(set->size(), buf);
+        buf.write_binary(is_set_contain_null);
+        buf.write_binary(init);
+        buf.write_var_uint(set->size());
         HybridSetBase::IteratorBase* it = set->begin();
 
         while (it->has_next()) {
-            const T* value_ptr = static_cast<const T*>(it->get_value());
-            write_int_binary((*value_ptr), buf);
+            const typename PrimitiveTypeTraits<T>::CppType* value_ptr =
+                    static_cast<const typename PrimitiveTypeTraits<T>::CppType*>(it->get_value());
+            buf.write_binary((*value_ptr));
             it->next();
         }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
-        read_pod_binary(data.init, buf);
+        buf.read_binary(is_set_contain_null);
+        data.value->change_contain_null_value(is_set_contain_null);
+        buf.read_binary(data.init);
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
-        T element;
+        typename PrimitiveTypeTraits<T>::CppType element;
         for (UInt64 i = 0; i < size; ++i) {
-            read_int_binary(element, buf);
+            buf.read_binary(element);
             data.value->insert(static_cast<void*>(&element));
         }
     }
@@ -288,7 +271,9 @@ public:
 
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
-                const auto value = *reinterpret_cast<const T*>(it->get_value());
+                const auto value =
+                        *reinterpret_cast<const typename PrimitiveTypeTraits<T>::ColumnItemType*>(
+                                it->get_value());
                 nested_col.get_data()[old_size + i] = value;
                 if (is_nullable) {
                     col_null->get_null_map_data().push_back(0);
@@ -316,9 +301,9 @@ public:
 /// Generic implementation, it uses serialized representation as object descriptor.
 class NullableStringSet : public StringValueSet<DynamicContainer<StringRef>> {
 public:
-    NullableStringSet() { this->_null_aware = true; }
+    NullableStringSet() : StringValueSet<DynamicContainer<StringRef>>(true) {}
 
-    void change_contains_null_value(bool target_value) { this->_contains_null = target_value; }
+    void change_contain_null_value(bool target_value) { this->_contain_null = target_value; }
 };
 
 struct AggregateFunctionGroupArrayIntersectGenericData {
@@ -328,25 +313,27 @@ struct AggregateFunctionGroupArrayIntersectGenericData {
             : value(std::make_unique<NullableStringSet>()) {}
     Set value;
     bool init = false;
+
+    void reset() {
+        init = false;
+        value = std::make_unique<NullableStringSet>();
+    }
 };
 
 /** Template parameter with true value should be used for columns that store their elements in memory continuously.
  *  For such columns group_array_intersect() can be implemented more efficiently (especially for small numeric arrays).
  */
-template <bool is_plain_column = false>
 class AggregateFunctionGroupArrayIntersectGeneric
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionGroupArrayIntersectGenericData,
-                  AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                              AggregateFunctionGroupArrayIntersectGeneric> {
 private:
     using State = AggregateFunctionGroupArrayIntersectGenericData;
     DataTypePtr input_data_type;
 
 public:
     AggregateFunctionGroupArrayIntersectGeneric(const DataTypes& input_data_type_)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionGroupArrayIntersectGenericData,
-                      AggregateFunctionGroupArrayIntersectGeneric<is_plain_column>>(
+            : IAggregateFunctionDataHelper<AggregateFunctionGroupArrayIntersectGenericData,
+                                           AggregateFunctionGroupArrayIntersectGeneric>(
                       input_data_type_),
               input_data_type(input_data_type_[0]) {}
 
@@ -354,20 +341,22 @@ public:
 
     DataTypePtr get_return_type() const override { return input_data_type; }
 
-    bool allocates_memory_in_arena() const override { return true; }
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         auto& data = this->data(place);
         auto& init = data.init;
         auto& set = data.value;
 
         const bool col_is_nullable = (*columns[0]).is_nullable();
         const ColumnArray& column =
-                col_is_nullable ? assert_cast<const ColumnArray&>(
-                                          assert_cast<const ColumnNullable&>(*columns[0])
-                                                  .get_nested_column())
-                                : assert_cast<const ColumnArray&>(*columns[0]);
+                col_is_nullable
+                        ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                                  assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                          *columns[0])
+                                          .get_nested_column())
+                        : assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
 
         const auto nested_column_data = column.get_data_ptr();
         const auto& offsets = column.get_offsets();
@@ -386,15 +375,9 @@ public:
             const bool is_null_element =
                     is_column_data_nullable && col_null->is_null_at(offset + i);
 
-            StringRef src = StringRef();
-            if constexpr (is_plain_column) {
-                src = nested_column_data->get_data_at(offset + i);
-            } else {
-                const char* begin = nullptr;
-                src = nested_column_data->serialize_value_into_arena(offset + i, *arena, begin);
-            }
+            StringRef src = nested_column_data->get_data_at(offset + i);
 
-            src.data = is_null_element ? nullptr : arena->insert(src.data, src.size);
+            src.data = is_null_element ? nullptr : arena.insert(src.data, src.size);
             return src;
         };
 
@@ -404,12 +387,13 @@ public:
                 set->insert((void*)src.data, src.size);
             }
             init = true;
-        } else if (set->size() != 0 || set->contain_null()) {
+        } else if (!set->empty()) {
             typename State::Set new_set = std::make_unique<NullableStringSet>();
 
             for (size_t i = 0; i < arr_size; ++i) {
                 StringRef src = process_element(i);
-                if (set->find(src.data, src.size) || (set->contain_null() && src.data == nullptr)) {
+                if ((set->find(src.data, src.size) && src.data != nullptr) ||
+                    (set->contain_null() && src.data == nullptr)) {
                     new_set->insert((void*)src.data, src.size);
                 }
             }
@@ -418,7 +402,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         auto& data = this->data(place);
         auto& set = data.value;
         auto& rhs_set = this->data(rhs).value;
@@ -429,7 +413,7 @@ public:
 
         auto& init = data.init;
         if (!init) {
-            set->change_contains_null_value(rhs_set->contain_null());
+            set->change_contain_null_value(rhs_set->contain_null());
             HybridSetBase::IteratorBase* it = rhs_set->begin();
             while (it->has_next()) {
                 const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
@@ -437,7 +421,7 @@ public:
                 it->next();
             }
             init = true;
-        } else if (set->size() != 0) {
+        } else if (!set->empty()) {
             auto create_new_set = [](auto& lhs_val, auto& rhs_val) {
                 typename State::Set new_set = std::make_unique<NullableStringSet>();
                 HybridSetBase::IteratorBase* it = lhs_val->begin();
@@ -448,8 +432,8 @@ public:
                     }
                     it->next();
                 }
-                new_set->change_contains_null_value(lhs_val->contain_null() &&
-                                                    rhs_val->contain_null());
+                new_set->change_contain_null_value(lhs_val->contain_null() &&
+                                                   rhs_val->contain_null());
                 return new_set;
             };
             auto new_set = rhs_set->size() < set->size() ? create_new_set(rhs_set, set)
@@ -462,34 +446,34 @@ public:
         auto& data = this->data(place);
         auto& set = data.value;
         auto& init = data.init;
-        const bool is_set_contains_null = set->contain_null();
+        const bool is_set_contain_null = set->contain_null();
 
-        write_pod_binary(is_set_contains_null, buf);
-        write_pod_binary(init, buf);
-        write_var_uint(set->size(), buf);
+        buf.write_binary(is_set_contain_null);
+        buf.write_binary(init);
+        buf.write_var_uint(set->size());
 
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            write_string_binary(*value, buf);
+            buf.write_binary(*value);
             it->next();
         }
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         auto& data = this->data(place);
-        bool is_set_contains_null;
+        bool is_set_contain_null;
 
-        read_pod_binary(is_set_contains_null, buf);
-        data.value->change_contains_null_value(is_set_contains_null);
-        read_pod_binary(data.init, buf);
+        buf.read_binary(is_set_contain_null);
+        data.value->change_contain_null_value(is_set_contain_null);
+        buf.read_binary(data.init);
         UInt64 size;
-        read_var_uint(size, buf);
+        buf.read_var_uint(size);
 
         StringRef element;
         for (UInt64 i = 0; i < size; ++i) {
-            element = read_string_binary_into(*arena, buf);
+            element = buf.read_binary_into(arena);
             data.value->insert((void*)element.data, element.size);
         }
     }
@@ -513,14 +497,12 @@ public:
         HybridSetBase::IteratorBase* it = set->begin();
         while (it->has_next()) {
             const auto* value = reinterpret_cast<const StringRef*>(it->get_value());
-            if constexpr (is_plain_column) {
-                data_to.insert_data(value->data, value->size);
-            } else {
-                std::ignore = data_to.deserialize_and_insert_from_arena(value->data);
-            }
+            data_to.insert_data(value->data, value->size);
             it->next();
         }
     }
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

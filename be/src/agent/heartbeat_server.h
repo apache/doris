@@ -26,6 +26,7 @@
 #include "common/status.h"
 
 namespace doris {
+class ClusterInfo;
 class ExecEnv;
 class THeartbeatResult;
 class TMasterInfo;
@@ -36,7 +37,7 @@ class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
-    explicit HeartbeatServer(TMasterInfo* master_info);
+    explicit HeartbeatServer(ClusterInfo* cluster_info);
     ~HeartbeatServer() override = default;
 
     void init_cluster_id();
@@ -44,7 +45,7 @@ public:
     // Master send heartbeat to this server
     //
     // Input parameters:
-    // * master_info: The struct of master info, contains host ip and port
+    // * master_info: The struct of master info, contains cluster info from Master FE
     //
     // Output parameters:
     // * heartbeat_result: The result of heartbeat set
@@ -56,10 +57,10 @@ private:
     BaseStorageEngine& _engine;
     int64_t _be_epoch;
 
-    // mutex to protect master_info and _epoch
+    // mutex to protect cluster_info and _epoch
     std::mutex _hb_mtx;
-    // Not owned. Point to the ExecEnv::_master_info
-    TMasterInfo* _master_info = nullptr;
+    // Not owned. Point to the ExecEnv::_cluster_info
+    ClusterInfo* _cluster_info = nullptr;
     int64_t _fe_epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
@@ -67,5 +68,5 @@ private:
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
                                std::unique_ptr<ThriftServer>* heart_beat_server,
-                               uint32_t worker_thread_num, TMasterInfo* local_master_info);
+                               uint32_t worker_thread_num, ClusterInfo* cluster_info);
 } // namespace doris

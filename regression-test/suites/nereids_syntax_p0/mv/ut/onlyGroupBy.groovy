@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("onlyGroupBy") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS onlyGroupBy; """
@@ -33,25 +35,27 @@ suite ("onlyGroupBy") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
+    sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into onlyGroupBy values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view onlyGroupBy_mv as select deptno, count(salary) from onlyGroupBy group by deptno;")
+    createMV("create materialized view onlyGroupBy_mv as select deptno as a1, count(salary) from onlyGroupBy group by deptno;")
 
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table onlyGroupBy with sync;"
+    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='9');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select deptno from onlyGroupBy group by deptno;")
-        contains "(onlyGroupBy_mv)"
-    }
+    mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select deptno from onlyGroupBy group by deptno;")
-        contains "(onlyGroupBy_mv)"
-    }
+    mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

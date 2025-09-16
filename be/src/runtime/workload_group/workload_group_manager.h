@@ -21,48 +21,104 @@
 #include <shared_mutex>
 #include <unordered_map>
 
+#include "common/be_mock_util.h"
 #include "workload_group.h"
 
 namespace doris {
 
 class CgroupCpuCtl;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
 } // namespace pipeline
 
+// In doris, query includes all tasks such as query, load, compaction, schemachange, etc.
+class PausedQuery {
+public:
+    // Use weak ptr to save resource ctx, to make sure if the query is cancelled
+    // the resource will be released
+    std::weak_ptr<ResourceContext> resource_ctx_;
+    std::chrono::system_clock::time_point enqueue_at;
+    size_t last_mem_usage {0};
+    double cache_ratio_ {0.0};
+    int64_t reserve_size_ {0};
+
+    PausedQuery(std::shared_ptr<ResourceContext> resource_ctx_, double cache_ratio,
+                int64_t reserve_size);
+
+    int64_t elapsed_time() const {
+        auto now = std::chrono::system_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - enqueue_at).count();
+    }
+
+    std::string query_id() const { return query_id_; }
+
+    bool operator<(const PausedQuery& other) const { return query_id_ < other.query_id_; }
+
+    bool operator==(const PausedQuery& other) const { return query_id_ == other.query_id_; }
+
+private:
+    std::string query_id_;
+};
+
 class WorkloadGroupMgr {
 public:
-    WorkloadGroupMgr() = default;
-    ~WorkloadGroupMgr() = default;
-
-    WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
-
-    void get_related_workload_groups(const std::function<bool(const WorkloadGroupPtr& ptr)>& pred,
-                                     std::vector<WorkloadGroupPtr>* task_groups);
+    WorkloadGroupMgr();
+    MOCK_FUNCTION ~WorkloadGroupMgr();
 
     void delete_workload_group_by_ids(std::set<uint64_t> id_set);
 
-    WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
+    WorkloadGroupPtr get_group(std::vector<uint64_t>& id_list);
+
+    // This method is used during workload group listener to update internal workload group's id.
+    // This method does not acquire locks, so it should be called in a locked context.
+    void reset_workload_group_id(std::string workload_group_name, uint64_t new_id);
+
+    void do_sweep();
 
     void stop();
 
-    std::atomic<bool> _enable_cpu_hard_limit = false;
+    void refresh_workload_group_memory_state();
 
-    bool enable_cpu_soft_limit() { return !_enable_cpu_hard_limit.load(); }
+    void get_wg_resource_usage(vectorized::Block* block);
 
-    bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
+    void refresh_workload_group_metrics();
 
-    void refresh_wg_memory_info();
+    MOCK_FUNCTION void add_paused_query(const std::shared_ptr<ResourceContext>& resource_ctx,
+                                        int64_t reserve_size, const Status& status);
+
+    void handle_paused_queries();
+
+    friend class WorkloadGroupListener;
+    friend class ExecEnv;
 
 private:
+    Status create_internal_wg();
+
+    WorkloadGroupPtr get_or_create_workload_group(const WorkloadGroupInfo& workload_group_info);
+
+    bool handle_single_query_(const std::shared_ptr<ResourceContext>& requestor,
+                              size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
+    int64_t revoke_memory_from_other_groups_();
+    void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
+
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
-    std::shared_mutex _init_cg_ctl_lock;
-    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
-    bool _is_init_succ = false;
+    std::shared_mutex _clear_cgroup_lock;
+
+    // Save per group paused query list, it should be a global structure, not per
+    // workload group, because we need do some coordinate work globally.
+    std::mutex _paused_queries_lock;
+    std::map<WorkloadGroupPtr, std::set<PausedQuery>> _paused_queries_list;
+    // If any query is cancelled when process memory is not enough, we set this to true.
+    // When there is not query in cancel state, this var is set to false.
+    bool revoking_memory_from_other_query_ = false;
 };
 
 } // namespace doris

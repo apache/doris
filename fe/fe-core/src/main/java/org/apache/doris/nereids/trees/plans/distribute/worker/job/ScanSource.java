@@ -30,6 +30,8 @@ public abstract class ScanSource {
 
     public abstract boolean isEmpty();
 
+    public abstract ScanSource newEmpty();
+
     public abstract void toString(StringBuilder str, String prefix);
 
     @Override

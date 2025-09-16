@@ -18,13 +18,16 @@
 
 suite("test_partial_update_strict_mode", "p0") {
 
+    // NOTE: after https://github.com/apache/doris/pull/41232, the handling of newly inserted rows in partial update
+    // is not controlled by strict mode
+
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
 
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
 
             def tableName = "test_partial_update_strict_mode"
@@ -67,8 +70,8 @@ suite("test_partial_update_strict_mode", "p0") {
                     def json = parseJson(result)
                     assertEquals("Success", json.Status)
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
-                    assertEquals(2, json.NumberFilteredRows)
+                    assertEquals(3, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
                 }
             }
             sql "sync"
@@ -114,11 +117,10 @@ suite("test_partial_update_strict_mode", "p0") {
                 check {result, exception, startTime, endTime ->
                     assertTrue(exception == null)
                     def json = parseJson(result)
-                    assertEquals("Fail", json.Status)
-                    assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
+                    assertEquals("Success", json.Status)
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
-                    assertEquals(2, json.NumberFilteredRows)
+                    assertEquals(3, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
                 }
             }
             sql "sync"
@@ -166,7 +168,6 @@ suite("test_partial_update_strict_mode", "p0") {
                     assertEquals("Fail", json.Status)
                     assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
                     assertEquals(2, json.NumberFilteredRows)
                 }
             }
@@ -212,7 +213,7 @@ suite("test_partial_update_strict_mode", "p0") {
                 check {result, exception, startTime, endTime ->
                     assertTrue(exception == null)
                     def json = parseJson(result)
-                    assertEquals("Fail", json.Status)
+                    assertEquals("Success", json.Status)
                 }
             }
 
@@ -254,7 +255,7 @@ suite("test_partial_update_strict_mode", "p0") {
                     (1,600,"2023-08-03 12:00:01"),
                     (2,500,"2023-07-03 12:00:01"),
                     (4,23,"2023-07-03 12:00:02");"""
-                exception "Insert has filtered data in strict mode"
+                exception "[E-207]the unmentioned column `city` should have default value or be nullable for newly inserted rows in non-strict mode partial update"
             }
             sql "sync;"
             qt_sql """select * from ${tableName5} order by id;"""

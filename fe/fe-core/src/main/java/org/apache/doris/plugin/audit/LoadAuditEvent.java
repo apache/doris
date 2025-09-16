@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.plugin.AuditEvent;
+
 public class LoadAuditEvent extends AuditEvent {
 
     @AuditField(value = "JobId")

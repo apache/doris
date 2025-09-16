@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -127,11 +129,12 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject().when(p -> getOutputQualifiedNames(p)
-                                                .containsAll(ImmutableList.of(
-                                                        "internal.test.student.name",
-                                                        "internal.test.student.id",
-                                                        "internal.test.student.age")))
+                                        logicalOlapScan()
+                                )
+                        ).when(p -> getOutputQualifiedNames(p)
+                                .containsAll(ImmutableList.of(
+                                        "internal.test.student.id",
+                                        "internal.test.student.name")
                                 )
                         )
                 );
@@ -188,7 +191,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -203,7 +206,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -218,7 +221,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -233,7 +236,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -283,9 +286,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                                     "internal.test.student.id",
                                                                     "internal.test.student.name"))),
                                             logicalProject(logicalRelation())
-                                                    .when(p -> getOutputQualifiedNames(p)
-                                                            .containsAll(ImmutableList.of(
-                                                                    "internal.test.score.sid")))
+                                                    .when(p -> p.getProjects().stream().noneMatch(SlotReference.class::isInstance))
                                     )
                         )
                 );
@@ -311,6 +312,19 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                 )))
                             )
                         )
+                );
+    }
+
+    @Test
+    public void pruneUnionAllWithCount() {
+        PlanChecker.from(connectContext)
+                .analyze("select count() from (select 1, 2 union all select id, age from student) t")
+                .customRewrite(new ColumnPruning())
+                .matches(
+                        logicalUnion(
+                                logicalOneRowRelation().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral),
+                                logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
+                        ).when(u -> u.getOutputs().size() == 1 && u.getOutputs().get(0) instanceof SlotReference)
                 );
     }
 

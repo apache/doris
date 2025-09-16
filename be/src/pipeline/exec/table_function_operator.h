@@ -24,19 +24,21 @@
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
 
 class TableFunctionOperatorX;
-class TableFunctionLocalState final : public PipelineXLocalState<> {
+class TableFunctionLocalState MOCK_REMOVE(final) : public PipelineXLocalState<> {
 public:
     using Parent = TableFunctionOperatorX;
     ENABLE_FACTORY_CREATOR(TableFunctionLocalState);
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
+    Status init(RuntimeState* state, LocalStateInfo& infos) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override {
         for (auto* fn : _fns) {
@@ -51,6 +53,8 @@ public:
 private:
     friend class TableFunctionOperatorX;
     friend class StatefulOperatorX<TableFunctionLocalState>;
+
+    MOCK_FUNCTION Status _clone_table_function(RuntimeState* state);
 
     void _copy_output_slots(std::vector<vectorized::MutableColumnPtr>& columns);
     bool _roll_table_functions(int last_eos_idx);
@@ -67,16 +71,25 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
+
+    RuntimeProfile::Counter* _init_function_timer = nullptr;
+    RuntimeProfile::Counter* _process_rows_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
-class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
+class TableFunctionOperatorX MOCK_REMOVE(final)
+        : public StatefulOperatorX<TableFunctionLocalState> {
 public:
     using Base = StatefulOperatorX<TableFunctionLocalState>;
     TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
+
+#ifdef BE_TEST
+    TableFunctionOperatorX() = default;
+#endif
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(doris::RuntimeState* state) override;
-    Status open(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
         auto& local_state = state->get_local_state(operator_id())->cast<TableFunctionLocalState>();
@@ -94,6 +107,7 @@ public:
         }
 
         for (auto* fn : local_state._fns) {
+            SCOPED_TIMER(local_state._init_function_timer);
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         local_state.process_next_child_row();
@@ -147,4 +161,5 @@ private:
     std::vector<int> _child_slot_sizes;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

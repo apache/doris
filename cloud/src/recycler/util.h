@@ -19,10 +19,20 @@
 
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 
 #include <string>
 
+#include "common/defer.h"
+
 namespace doris::cloud {
+
+// The time unit is the same with BE: us
+#define SCOPED_BVAR_LATENCY(bvar_item) \
+    StopWatch sw;                      \
+    DORIS_CLOUD_DEFER {                \
+        bvar_item << sw.elapsed_us();  \
+    };
 
 class TxnKv;
 
@@ -56,9 +66,22 @@ inline std::string segment_path(int64_t tablet_id, const std::string& rowset_id,
     return fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
 }
 
-inline std::string inverted_index_path(int64_t tablet_id, const std::string& rowset_id,
-                                       int64_t segment_id, int64_t index_id) {
-    return fmt::format("data/{}/{}_{}_{}.idx", tablet_id, rowset_id, segment_id, index_id);
+inline std::string delete_bitmap_path(int64_t tablet_id, const std::string& rowset_id) {
+    return fmt::format("data/{}/{}_delete_bitmap.db", tablet_id, rowset_id);
+}
+
+inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& rowset_id,
+                                          int64_t segment_id) {
+    return fmt::format("data/{}/{}_{}.idx", tablet_id, rowset_id, segment_id);
+}
+
+inline std::string inverted_index_path_v1(int64_t tablet_id, const std::string& rowset_id,
+                                          int64_t segment_id, int64_t index_id,
+                                          std::string_view index_path_suffix) {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    return fmt::format("data/{}/{}_{}_{}{}.idx", tablet_id, rowset_id, segment_id, index_id,
+                       suffix);
 }
 
 inline std::string rowset_path_prefix(int64_t tablet_id, const std::string& rowset_id) {
@@ -69,4 +92,9 @@ inline std::string tablet_path_prefix(int64_t tablet_id) {
     return fmt::format("data/{}/", tablet_id);
 }
 
+int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                   TabletIndexPB& tablet_idx);
+
+int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
+                    TabletMetaCloudPB& tablet_meta);
 } // namespace doris::cloud

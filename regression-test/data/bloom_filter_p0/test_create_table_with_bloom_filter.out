@@ -3,56 +3,56 @@
 1	2	4	8	50string	500varchar	c	65535varchar	0.000000	123456789012345678.123456789	111.1	11222323232.1	11345643534234231.1	2013-12-01	1900-01-01T00:00	2013-12-01	1900-01-01T00:00	1900-01-01T00:00:00.111	1900-01-01T00:00:00.111111	1	2	4	8	50string	500varchar_replace	c	65535varchar	12345678901234.123456	123456789012345678.123456789	111.1	11222323232.1	11345643534234231.1	1900-01-01	1900-01-01	1900-01-01	1900-01-01T00:00	1900-01-01T00:00	1900-01-01T00:00	2013-12-01	2013-12-01	2013-12-01	1900-01-01T00:00	1900-01-01T00:00	1900-01-01T00:00	1900-01-01T00:00:00.111	1900-01-01T00:00:00.111	1900-01-01T00:00:00.111	1900-01-01T00:00:00.111111	1900-01-01T00:00:00.111111	1900-01-01T00:00:00.111111	0.4	0.8
 
 -- !desc_tb --
-tinyint_key	TINYINT	No	true	\N	
-smallint_key	SMALLINT	No	true	\N	BLOOM_FILTER
-int_key	INT	No	true	\N	BLOOM_FILTER
-bigint_key	BIGINT	No	true	\N	BLOOM_FILTER
-char_50_key	CHAR(50)	No	true	\N	BLOOM_FILTER
-character_key	VARCHAR(500)	No	true	\N	BLOOM_FILTER
-char_key	CHAR(1)	No	true	\N	BLOOM_FILTER
-character_most_key	VARCHAR(65533)	No	true	\N	BLOOM_FILTER
-decimal_key	DECIMAL(20, 6)	No	true	\N	BLOOM_FILTER
-decimal_most_key	DECIMAL(27, 9)	No	true	\N	BLOOM_FILTER
-decimal32_key	DECIMAL(5, 1)	No	true	\N	BLOOM_FILTER
-decimal64_key	DECIMAL(14, 1)	No	true	\N	BLOOM_FILTER
-decimal128_key	DECIMAL(38, 1)	No	true	\N	BLOOM_FILTER
-date_key	DATE	No	true	\N	BLOOM_FILTER
-datetime_key	DATETIME	No	true	\N	BLOOM_FILTER
-datev2_key	DATE	No	true	\N	BLOOM_FILTER
-datetimev2_key_1	DATETIME	No	true	\N	BLOOM_FILTER
-datetimev2_key_2	DATETIME(3)	No	true	\N	BLOOM_FILTER
-datetimev2_key_3	DATETIME(6)	No	true	\N	BLOOM_FILTER
-tinyint_value	TINYINT	No	false	\N	SUM
-smallint_value	SMALLINT	No	false	\N	SUM
-int_value	INT	No	false	\N	SUM
-bigint_value	BIGINT	No	false	\N	SUM
-char_50_value	CHAR(50)	No	false	\N	REPLACE
-character_value	VARCHAR(500)	No	false	\N	REPLACE
-char_value	CHAR(1)	No	false	\N	REPLACE
-character_most_value	VARCHAR(65533)	No	false	\N	REPLACE
-decimal_value	DECIMAL(20, 6)	No	false	\N	SUM
-decimal_most_value	DECIMAL(27, 9)	No	false	\N	SUM
-decimal32_value	DECIMAL(5, 1)	No	false	\N	SUM
-decimal64_value	DECIMAL(14, 1)	No	false	\N	SUM
-decimal128_value	DECIMAL(38, 1)	No	false	\N	SUM
-date_value_max	DATE	No	false	\N	MAX
-date_value_replace	DATE	No	false	\N	REPLACE
-date_value_min	DATE	No	false	\N	MIN
-datetime_value_max	DATETIME	No	false	\N	MAX
-datetime_value_replace	DATETIME	No	false	\N	REPLACE
-datetime_value_min	DATETIME	No	false	\N	MIN
-datev2_value_max	DATE	No	false	\N	MAX
-datev2_value_replace	DATE	No	false	\N	REPLACE
-datev2_value_min	DATE	No	false	\N	MIN
-datetimev2_value_1_max	DATETIME	No	false	\N	MAX
-datetimev2_value_1_replace	DATETIME	No	false	\N	REPLACE
-datetimev2_value_1_min	DATETIME	No	false	\N	MIN
-datetimev2_value_2_max	DATETIME(3)	No	false	\N	MAX
-datetimev2_value_2_replace	DATETIME(3)	No	false	\N	REPLACE
-datetimev2_value_2_min	DATETIME(3)	No	false	\N	MIN
-datetimev2_value_3_max	DATETIME(6)	No	false	\N	MAX
-datetimev2_value_3_replace	DATETIME(6)	No	false	\N	REPLACE
-datetimev2_value_3_min	DATETIME(6)	No	false	\N	MIN
-float_value	FLOAT	No	false	\N	SUM
-double_value	DOUBLE	No	false	\N	SUM
+tinyint_key	tinyint	No	true	\N	
+smallint_key	smallint	No	true	\N	BLOOM_FILTER
+int_key	int	No	true	\N	BLOOM_FILTER
+bigint_key	bigint	No	true	\N	BLOOM_FILTER
+char_50_key	char(50)	No	true	\N	BLOOM_FILTER
+character_key	varchar(500)	No	true	\N	BLOOM_FILTER
+char_key	char(1)	No	true	\N	BLOOM_FILTER
+character_most_key	varchar(65533)	No	true	\N	BLOOM_FILTER
+decimal_key	decimal(20,6)	No	true	\N	BLOOM_FILTER
+decimal_most_key	decimal(27,9)	No	true	\N	BLOOM_FILTER
+decimal32_key	decimal(5,1)	No	true	\N	BLOOM_FILTER
+decimal64_key	decimal(14,1)	No	true	\N	BLOOM_FILTER
+decimal128_key	decimal(38,1)	No	true	\N	BLOOM_FILTER
+date_key	date	No	true	\N	BLOOM_FILTER
+datetime_key	datetime	No	true	\N	BLOOM_FILTER
+datev2_key	date	No	true	\N	BLOOM_FILTER
+datetimev2_key_1	datetime	No	true	\N	BLOOM_FILTER
+datetimev2_key_2	datetime(3)	No	true	\N	BLOOM_FILTER
+datetimev2_key_3	datetime(6)	No	true	\N	BLOOM_FILTER
+tinyint_value	tinyint	No	false	\N	SUM
+smallint_value	smallint	No	false	\N	SUM
+int_value	int	No	false	\N	SUM
+bigint_value	bigint	No	false	\N	SUM
+char_50_value	char(50)	No	false	\N	REPLACE
+character_value	varchar(500)	No	false	\N	REPLACE
+char_value	char(1)	No	false	\N	REPLACE
+character_most_value	varchar(65533)	No	false	\N	REPLACE
+decimal_value	decimal(20,6)	No	false	\N	SUM
+decimal_most_value	decimal(27,9)	No	false	\N	SUM
+decimal32_value	decimal(5,1)	No	false	\N	SUM
+decimal64_value	decimal(14,1)	No	false	\N	SUM
+decimal128_value	decimal(38,1)	No	false	\N	SUM
+date_value_max	date	No	false	\N	MAX
+date_value_replace	date	No	false	\N	REPLACE
+date_value_min	date	No	false	\N	MIN
+datetime_value_max	datetime	No	false	\N	MAX
+datetime_value_replace	datetime	No	false	\N	REPLACE
+datetime_value_min	datetime	No	false	\N	MIN
+datev2_value_max	date	No	false	\N	MAX
+datev2_value_replace	date	No	false	\N	REPLACE
+datev2_value_min	date	No	false	\N	MIN
+datetimev2_value_1_max	datetime	No	false	\N	MAX
+datetimev2_value_1_replace	datetime	No	false	\N	REPLACE
+datetimev2_value_1_min	datetime	No	false	\N	MIN
+datetimev2_value_2_max	datetime(3)	No	false	\N	MAX
+datetimev2_value_2_replace	datetime(3)	No	false	\N	REPLACE
+datetimev2_value_2_min	datetime(3)	No	false	\N	MIN
+datetimev2_value_3_max	datetime(6)	No	false	\N	MAX
+datetimev2_value_3_replace	datetime(6)	No	false	\N	REPLACE
+datetimev2_value_3_min	datetime(6)	No	false	\N	MIN
+float_value	float	No	false	\N	SUM
+double_value	double	No	false	\N	SUM
 

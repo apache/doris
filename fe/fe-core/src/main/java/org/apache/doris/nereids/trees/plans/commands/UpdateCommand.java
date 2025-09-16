@@ -17,11 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -95,7 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -119,7 +122,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
-        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
         Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
@@ -160,7 +163,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
                 && selectItems.size() < targetTable.getColumns().size()
                 && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10;
+                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
+                && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
 
         List<String> partialUpdateColNames = new ArrayList<>();
         List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
@@ -191,7 +195,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
                 isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
-                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.UPDATE, logicalQuery);
     }
 
     private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
@@ -213,7 +218,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
         if (!ExpressionAnalyzer.sameTableName(tableAlias == null ? tableQualifier.get(2) : tableAlias, tableName)
-                || (dbName != null && ExpressionAnalyzer.compareDbName(tableQualifier.get(1), dbName))) {
+                || (dbName != null
+                && !ExpressionAnalyzer.compareDbNameIgnoreClusterName(tableQualifier.get(1), dbName))) {
             throw new AnalysisException("column in assignment list is invalid, " + String.join(".", columnNameParts));
         }
     }
@@ -225,7 +231,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("target table in update command should be an olapTable");
         }
@@ -238,14 +244,6 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 
@@ -256,5 +254,10 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitUpdateCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.UPDATE;
     }
 }

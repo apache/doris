@@ -101,6 +101,17 @@ public class RemoteFile {
 
     @Override
     public String toString() {
-        return "[name: " + name + ", is file: " + isFile + "]";
+        StringBuilder sb = new StringBuilder();
+        sb.append("RemoteFile [");
+        sb.append("name: ").append(name);
+        sb.append(", isFile: ").append(isFile);
+        sb.append(", isDirectory: ").append(isDirectory);
+        sb.append(", size: ").append(size);
+        sb.append(", blockSize: ").append(blockSize);
+        sb.append(", modificationTime: ").append(modificationTime);
+        sb.append(", path: ").append(path);
+        sb.append("]");
+
+        return sb.toString();
     }
 }

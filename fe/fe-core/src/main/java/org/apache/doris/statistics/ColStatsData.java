@@ -66,6 +66,8 @@ public class ColStatsData {
     public final long dataSizeInBytes;
     @SerializedName("updateTime")
     public final String updateTime;
+    @SerializedName("hotValues")
+    public final String hotValues;
 
     @VisibleForTesting
     public ColStatsData() {
@@ -77,6 +79,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = null;
+        hotValues = null;
     }
 
     public ColStatsData(StatsId statsId) {
@@ -88,6 +91,7 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        hotValues = null;
     }
 
     public ColStatsData(ResultRow row) {
@@ -99,10 +103,11 @@ public class ColStatsData {
         this.maxLit = row.get(11);
         this.dataSizeInBytes = (long) Double.parseDouble(row.getWithDefault(12, "0"));
         this.updateTime = row.get(13);
+        this.hotValues = row.get(14);
     }
 
     public ColStatsData(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId,
-                        ColumnStatistic columnStatistic) {
+                        String hotValues, ColumnStatistic columnStatistic) {
         this.statsId = new StatsId(id, catalogId, dbId, tblId, idxId, colId, partId);
         this.count = Math.round(columnStatistic.count);
         this.ndv = Math.round(columnStatistic.ndv);
@@ -111,6 +116,7 @@ public class ColStatsData {
         this.maxLit = columnStatistic.maxExpr == null ? null : columnStatistic.maxExpr.getStringValue();
         this.dataSizeInBytes = Math.round(columnStatistic.dataSize);
         this.updateTime = columnStatistic.updatedTime;
+        this.hotValues = hotValues;
     }
 
     public String toSQL(boolean roundByParentheses) {
@@ -127,22 +133,17 @@ public class ColStatsData {
         sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
+        sj.add(hotValues == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(hotValues) + "'");
         return sj.toString();
     }
 
     public ColumnStatistic toColumnStatistic() {
-        // For non-empty table, return UNKNOWN if we can't collect ndv value.
-        // Because inaccurate ndv is very misleading.
-        if (count > 0 && ndv == 0 && count != nullCount) {
-            return ColumnStatistic.UNKNOWN;
-        }
         try {
-            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-            columnStatisticBuilder.setCount(count);
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
             columnStatisticBuilder.setNdv(ndv);
             columnStatisticBuilder.setNumNulls(nullCount);
             columnStatisticBuilder.setDataSize(dataSizeInBytes);
-            columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : dataSizeInBytes / count);
+            columnStatisticBuilder.setAvgSizeByte(count == 0 ? 0 : ((double) dataSizeInBytes) / count);
             if (statsId == null) {
                 return ColumnStatistic.UNKNOWN;
             }
@@ -180,10 +181,39 @@ public class ColStatsData {
                 columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
             }
             columnStatisticBuilder.setUpdatedTime(updateTime);
+            if (ndv > 0) {
+                columnStatisticBuilder.setHotValues(StatisticsUtil.getHotValues(hotValues, col.getType(),
+                        (1 / ndv)));
+            }
             return columnStatisticBuilder.build();
         } catch (Exception e) {
             LOG.warn("Failed to convert column statistics.", e);
             return ColumnStatistic.UNKNOWN;
         }
+    }
+
+    public boolean isNull(String value) {
+        // Checking "NULL" as null is a historical bug which treat literal value "NULL" as null. Will fix it soon.
+        return value == null || value.equalsIgnoreCase("NULL");
+    }
+
+    public boolean isValid() {
+        if (ndv > 10 * count) {
+            String message = String.format("ColStatsData ndv too large. %s", toSQL(true));
+            LOG.warn(message);
+            return false;
+        }
+        if (ndv == 0 && (!isNull(minLit) || !isNull(maxLit)) && nullCount != count) {
+            String message = String.format("ColStatsData ndv 0 but min/max is not null and nullCount != count. %s",
+                    toSQL(true));
+            LOG.warn(message);
+            return false;
+        }
+        if (count > 0 && ndv == 0 && isNull(minLit) && isNull(maxLit) && (count > nullCount * 10)) {
+            LOG.warn("count {} not 0, ndv is 0, min and max are all null, null count {} is too small",
+                    count, nullCount);
+            return false;
+        }
+        return true;
     }
 }

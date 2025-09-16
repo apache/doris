@@ -18,13 +18,29 @@
 #include <gtest/gtest.h>
 
 #include "gen_cpp/cloud.pb.h"
+#include "io/fs/s3_file_system.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/storage_policy.h"
 
 namespace doris {
 
 TEST(StorageResourceTest, RemotePath) {
-    StorageResource storage_resource(nullptr); // path v0
+    S3Conf s3_conf {.bucket = "bucket",
+                    .prefix = "prefix",
+                    .client_conf = {
+                            .endpoint = "endpoint",
+                            .region = "region",
+                            .ak = "ak",
+                            .sk = "sk",
+                            .token = "",
+                            .bucket = "",
+                            .role_arn = "",
+                            .external_id = "",
+                    }};
+    auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+    ASSERT_TRUE(res.has_value()) << res.error();
+
+    StorageResource storage_resource(res.value()); // path v0
     EXPECT_EQ(storage_resource.remote_tablet_path(10005), "data/10005");
 
     constexpr std::string_view rowset_id_str = "0200000000001cc2224124562e7dfd4834d031b13c0210be";
@@ -42,7 +58,7 @@ TEST(StorageResourceTest, RemotePath) {
               "data/10005/10006.13.meta");
 
     cloud::StorageVaultPB storage_vault_pb;
-    storage_resource = StorageResource(nullptr, storage_vault_pb.path_format()); // path v0
+    storage_resource = StorageResource(res.value(), storage_vault_pb.path_format()); // path v0
     EXPECT_EQ(storage_resource.remote_tablet_path(10005), "data/10005");
     EXPECT_EQ(storage_resource.remote_segment_path(10005, rowset_id_str, 5),
               "data/10005/0200000000001cc2224124562e7dfd4834d031b13c0210be_5.dat");
@@ -52,7 +68,7 @@ TEST(StorageResourceTest, RemotePath) {
     auto* path_format = storage_vault_pb.mutable_path_format();
     path_format->set_path_version(1);
     path_format->set_shard_num(1000);
-    storage_resource = StorageResource(nullptr, storage_vault_pb.path_format()); // path v1
+    storage_resource = StorageResource(res.value(), storage_vault_pb.path_format()); // path v1
     EXPECT_EQ(storage_resource.remote_tablet_path(10005), "data/611/10005");
     EXPECT_EQ(storage_resource.remote_segment_path(10005, rowset_id_str, 5),
               "data/611/10005/0200000000001cc2224124562e7dfd4834d031b13c0210be/5.dat");
@@ -62,7 +78,7 @@ TEST(StorageResourceTest, RemotePath) {
               "data/611/10005/10006.13.meta");
 
     path_format->set_path_version(2);
-    ASSERT_DEATH(StorageResource(nullptr, storage_vault_pb.path_format()), "unknown");
+    ASSERT_DEATH(StorageResource(res.value(), storage_vault_pb.path_format()), "unknown");
 }
 
 } // namespace doris

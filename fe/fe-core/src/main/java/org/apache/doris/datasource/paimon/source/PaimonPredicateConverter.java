@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
@@ -85,8 +86,40 @@ public class PaimonPredicateConverter {
                 default:
                     return null;
             }
+        } else if (dorisExpr instanceof InPredicate) {
+            return doInPredicate((InPredicate) dorisExpr);
         } else {
             return binaryExprDesc(dorisExpr);
+        }
+    }
+
+    private Predicate doInPredicate(InPredicate predicate) {
+        SlotRef slotRef = convertDorisExprToSlotRef(predicate.getChild(0));
+        if (slotRef == null) {
+            return null;
+        }
+        String colName = slotRef.getColumnName();
+        int idx = fieldNames.indexOf(colName);
+        DataType dataType = paimonFieldTypes.get(idx);
+        List<Object> valueList = new ArrayList<>();
+        for (int i = 1; i < predicate.getChildren().size(); i++) {
+            if (!(predicate.getChild(i) instanceof LiteralExpr)) {
+                return null;
+            }
+            LiteralExpr literalExpr = convertDorisExprToLiteralExpr(predicate.getChild(i));
+            Object value = dataType.accept(new PaimonValueConverter(literalExpr));
+            if (value == null) {
+                return null;
+            }
+            valueList.add(value);
+        }
+
+        if (predicate.isNotIn()) {
+            // not in
+            return builder.notIn(idx, valueList);
+        } else {
+            // in
+            return builder.in(idx, valueList);
         }
     }
 

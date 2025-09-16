@@ -37,10 +37,10 @@ suite("test_select_column_auth","p0,auth") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
     }
-
     sql """create database ${dbName}"""
+    sql("""use ${dbName}""")
     sql """
         CREATE TABLE IF NOT EXISTS ${dbName}.`${tableName}` (
             id BIGINT,
@@ -54,8 +54,23 @@ suite("test_select_column_auth","p0,auth") {
 
     sql """create view ${dbName}.${mv_name} as select * from ${dbName}.${tableName};"""
     sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
-    sleep(5 * 1000)
-    sql """create materialized view ${mtmv_name} as select username from ${dbName}.${tableName}"""
+
+    for (int i = 0; i < 20; ++i) {
+        def r = sql_return_maparray """show alter table rollup where TableName='${tableName}' order by createtime desc limit 1"""
+        if (r.size() > 0) {
+             if ( r[0]["State"] == "FINISHED") {
+                 break
+             } else if (r[0]["State"] == "CANCELLED") {
+                 assertTrue(1==0)
+             } else {
+                 sleep(1000)
+             }
+        }
+        sleep(1000)
+    }
+    sleep(1000)
+    
+    createMV("""create materialized view ${mtmv_name} as select username as username_new from ${dbName}.${tableName}""")
     sleep(5 * 1000)
     sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
@@ -69,65 +84,71 @@ suite("test_select_column_auth","p0,auth") {
         (3, "333");
         """
     sql """refresh MATERIALIZED VIEW ${dbName}.${mtmv_name} auto"""
+    waitingMTMVTaskFinishedByMvName(mtmv_name, dbName)
+
     sql """grant select_priv on regression_test to ${user}"""
 
     // table column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${tableName}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${tableName}"
     }
 
     // view column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${mv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mv_name} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${mv_name}"
     }
 
     // mtmv column
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "select username from ${dbName}.${mtmv_name}"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "select username from ${dbName}.${mtmv_name}"
     }
 
 
     // mtmv hit
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         sql "SET enable_materialized_view_rewrite=true"
         try {
             sql "select username, sum(id) from ${dbName}.${tableName} group by username"
         } catch (Exception e) {
             log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+            assertTrue(e.getMessage().contains("denied"))
         }
     }
     sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
     sql """grant select_priv(sum_id) on ${dbName}.${mtmv_name} to ${user}"""
     sql """grant select_priv(id) on ${dbName}.${tableName} to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        def show_grants = sql """show grants;"""
+        logger.info("show grants:" + show_grants.toString())
+        // If exec on fe follower, wait meta data is ready on follower
+        Thread.sleep(2000)
         sql "SET enable_materialized_view_rewrite=true"
         explain {
             sql("""select username, sum(id) from ${dbName}.${tableName} group by username""")

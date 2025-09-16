@@ -39,14 +39,12 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class FlushToken;
 class MemTable;
-class MemTracker;
 class Schema;
 class StorageEngine;
 class TupleDescriptor;
@@ -72,7 +70,7 @@ public:
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -86,9 +84,9 @@ public:
     Status cancel_with_status(const Status& st);
 
 private:
-    void _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
+    Status _build_current_tablet_schema(int64_t index_id,
+                                        const OlapTableSchemaParam* table_schema_param,
+                                        const TabletSchema& ori_tablet_schema);
 
     void _update_profile(RuntimeProfile* profile);
 

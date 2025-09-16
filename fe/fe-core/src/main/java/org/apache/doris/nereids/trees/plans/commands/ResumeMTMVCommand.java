@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
@@ -29,7 +30,7 @@ import java.util.Objects;
 /**
  * resume mtmv
  */
-public class ResumeMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class ResumeMTMVCommand extends Command implements ForwardWithSync {
     private final ResumeMTMVInfo resumeMTMVInfo;
 
     public ResumeMTMVCommand(ResumeMTMVInfo resumeMTMVInfo) {
@@ -46,5 +47,10 @@ public class ResumeMTMVCommand extends Command implements ForwardWithSync, NotAl
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitResumeMTMVCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RESUME;
     }
 }

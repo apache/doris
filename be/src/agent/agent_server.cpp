@@ -33,24 +33,22 @@
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
 #include "agent/workload_sched_policy_listener.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
-
-using std::string;
-using std::vector;
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
-AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
-        : _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
-    MasterServerClient::create(master_info);
+AgentServer::AgentServer(ExecEnv* exec_env, const ClusterInfo* cluster_info)
+        : _cluster_info(cluster_info), _topic_subscriber(new TopicSubscriber()) {
+    MasterServerClient::create(cluster_info);
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
@@ -108,7 +106,7 @@ private:
 void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     for (const auto& path : exec_env->store_paths()) {
         try {
-            string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
+            std::string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
             if (std::filesystem::exists(dpp_download_path)) {
                 std::filesystem::remove_all(dpp_download_path);
@@ -146,6 +144,9 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::PUSH_STORAGE_POLICY] = std::make_unique<TaskWorkerPool>(
             "PUSH_STORAGE_POLICY", 1, [&engine](auto&& task) { return push_storage_policy_callback(engine, task); });
 
+    _workers[TTaskType::PUSH_INDEX_POLICY] = std::make_unique<TaskWorkerPool>(
+            "PUSH_INDEX_POLICY", 1, [](auto&& task) { return push_index_policy_callback(task); });
+
     _workers[TTaskType::PUSH_COOLDOWN_CONF] = std::make_unique<TaskWorkerPool>(
             "PUSH_COOLDOWN_CONF", 1, [&engine](auto&& task) { return push_cooldown_conf_callback(engine, task); });
 
@@ -168,8 +169,8 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
     _workers[TTaskType::ALTER] = std::make_unique<TaskWorkerPool>(
             "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
 
-    _workers[TTaskType::CLONE] = std::make_unique<TaskWorkerPool>(
-            "CLONE", config::clone_worker_count, [&engine, &master_info = _master_info](auto&& task) { return clone_callback(engine, master_info, task); });
+    _workers[TTaskType::CLONE] = std::make_unique<PriorTaskWorkerPool>(
+            "CLONE", config::clone_worker_count,config::clone_worker_count, [&engine, &cluster_info = _cluster_info](auto&& task) { return clone_callback(engine, cluster_info, task); });
 
     _workers[TTaskType::STORAGE_MEDIUM_MIGRATE] = std::make_unique<TaskWorkerPool>(
             "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
@@ -187,14 +188,19 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "UPDATE_VISIBLE_VERSION", 1, [&engine](auto&& task) { return visible_version_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); }));
+            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds, [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+            "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds, [&engine, &cluster_info = _cluster_info] { report_disk_callback(engine, cluster_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
+            "REPORT_OLAP_TABLET", _cluster_info, config::report_tablet_interval_seconds,[&engine, &cluster_info = _cluster_info] { report_tablet_callback(engine, cluster_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_INDEX_POLICY", _cluster_info, config::report_index_policy_interval_seconds,[&cluster_info = _cluster_info] { report_index_policy_callback(cluster_info); }));
     // clang-format on
+
+    exec_env->storage_engine().to_local().workers = &_workers;
 }
 
 void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_env) {
@@ -211,13 +217,50 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
             [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
-    _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_TASK", _master_info, config::report_task_interval_seconds,
-            [&master_info = _master_info] { report_task_callback(master_info); }));
+    // cloud, drop tablet just clean clear_cache, so just one thread do it
+    _workers[TTaskType::DROP] = std::make_unique<TaskWorkerPool>(
+            "DROP_TABLE", 1, [&engine](auto&& task) { return drop_tablet_callback(engine, task); });
+
+    _workers[TTaskType::PUSH_INDEX_POLICY] = std::make_unique<TaskWorkerPool>(
+            "PUSH_INDEX_POLICY", 1, [](auto&& task) { return push_index_policy_callback(task); });
+
+    _workers[TTaskType::DOWNLOAD] = std::make_unique<TaskWorkerPool>(
+            "DOWNLOAD", config::download_worker_count,
+            [&engine, exec_env](auto&& task) { return download_callback(engine, exec_env, task); });
+
+    _workers[TTaskType::MOVE] = std::make_unique<TaskWorkerPool>(
+            "MOVE", 1,
+            [&engine, exec_env](auto&& task) { return move_dir_callback(engine, exec_env, task); });
+
+    _workers[TTaskType::RELEASE_SNAPSHOT] = std::make_unique<TaskWorkerPool>(
+            "RELEASE_SNAPSHOT", config::release_snapshot_worker_count,
+            [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
+
+    _workers[TTaskType::ALTER_INVERTED_INDEX] = std::make_unique<TaskWorkerPool>(
+            "ALTER_INVERTED_INDEX", config::alter_index_worker_count,
+            [&engine](auto&& task) { return alter_cloud_index_callback(engine, task); });
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
-            [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+            "REPORT_TASK", _cluster_info, config::report_task_interval_seconds,
+            [&cluster_info = _cluster_info] { report_task_callback(cluster_info); }));
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _cluster_info, config::report_disk_state_interval_seconds,
+            [&engine, &cluster_info = _cluster_info] {
+                report_disk_callback(engine, cluster_info);
+            }));
+
+    if (config::enable_cloud_tablet_report) {
+        _report_workers.push_back(std::make_unique<ReportWorker>(
+                "REPORT_OLAP_TABLET", _cluster_info, config::report_tablet_interval_seconds,
+                [&engine, &cluster_info = _cluster_info] {
+                    report_tablet_callback(engine, cluster_info);
+                }));
+    }
+
+    _report_workers.push_back(std::make_unique<ReportWorker>(
+            "REPORT_INDEX_POLICY", _cluster_info, config::report_index_policy_interval_seconds,
+            [&cluster_info = _cluster_info] { report_index_policy_callback(cluster_info); }));
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
@@ -226,8 +269,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                                const std::vector<TAgentTaskRequest>& tasks) {
     Status ret_st;
 
-    // TODO check master_info here if it is the same with that of heartbeat rpc
-    if (_master_info.network_address.hostname.empty() || _master_info.network_address.port == 0) {
+    // TODO check cluster_info here if it is the same with that of heartbeat rpc
+    if (_cluster_info->master_fe_addr.hostname.empty() || _cluster_info->master_fe_addr.port == 0) {
         Status ret_st = Status::Cancelled("Have not get FE Master heartbeat yet");
         ret_st.to_thrift(&agent_result.status);
         return;

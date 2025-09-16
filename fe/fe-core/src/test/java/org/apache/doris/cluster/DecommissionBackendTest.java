@@ -17,7 +17,6 @@
 
 package org.apache.doris.cluster;
 
-import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -25,20 +24,28 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.RebalancerTestUtil;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.DecommissionBackendOp;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 public class DecommissionBackendTest extends TestWithFeService {
     @Override
@@ -58,7 +65,7 @@ public class DecommissionBackendTest extends TestWithFeService {
 
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
-        FeConstants.default_scheduler_interval_millisecond = 1000;
+        FeConstants.default_scheduler_interval_millisecond = 100;
         Config.tablet_checker_interval_ms = 100;
         Config.tablet_schedule_interval_ms = 100;
         Config.tablet_repair_delay_factor_second = 1;
@@ -74,7 +81,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 1. create connect context
         connectContext = createDefaultCtx();
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -98,18 +105,20 @@ public class DecommissionBackendTest extends TestWithFeService {
         }
 
         Assertions.assertNotNull(srcBackend);
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // For now, we have pre-built internal table: analysis_job and column_statistics
         Assertions.assertEquals(tabletNum,
@@ -117,14 +126,14 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 6. add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
     }
 
     @Test
     public void testDecommissionBackendById() throws Exception {
         // 1. create connect context
         connectContext = createDefaultCtx();
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -151,98 +160,25 @@ public class DecommissionBackendTest extends TestWithFeService {
         Assertions.assertNotNull(srcBackend);
 
         // decommission backend by id
-        String decommissionByIdStmtStr = "alter system decommission backend \"" + srcBackend.getId() + "\"";
-        AlterSystemStmt decommissionByIdStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionByIdStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionByIdStmt);
+        // "alter system decommission backend \"" + srcBackend.getId() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-                && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+                && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
-    }
-
-    @Test
-    public void testDecommissionBackendWithDropTable() throws Exception {
-        // 1. create connect context
-        connectContext = createDefaultCtx();
-
-        SystemInfoService infoService = Env.getCurrentSystemInfo();
-
-        ImmutableMap<Long, Backend> idToBackendRef = infoService.getIdToBackend();
-        Assertions.assertEquals(backendNum(), idToBackendRef.size());
-
-        // 2. create database db3
-        createDatabase("db3");
-        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
-
-        long availableBeNum = infoService.getAllBackendIds(true).stream()
-                .filter(beId -> infoService.checkBackendScheduleAvailable(beId)).count();
-
-        // 3. create table tbl1 tbl2
-        createTable("create table db3.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '"
-                + availableBeNum + "');");
-        createTable("create table db3.tbl2(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
-        RebalancerTestUtil.updateReplicaPathHash();
-
-        // 4. query tablet num
-        int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
-        Assertions.assertTrue(tabletNum > 0);
-
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db2");
-        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
-        Assertions.assertNotNull(tbl);
-        long backendId = tbl.getPartitions().iterator().next()
-                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL).iterator().next()
-                .getTablets().iterator().next()
-                .getReplicas().iterator().next()
-                .getBackendId();
-
-        Backend srcBackend = infoService.getBackend(backendId);
-        Assertions.assertNotNull(srcBackend);
-
-        // 5. drop table tbl1
-        dropTable("db3.tbl1", false);
-
-        // 6. execute decommission
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:" + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
-        Assertions.assertTrue(srcBackend.isDecommissioned());
-
-        long startTimestamp = System.currentTimeMillis();
-        while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
-            Thread.sleep(1000);
-        }
-
-        // BE has been dropped successfully
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
-
-        // tbl1 has been dropped successfully
-        final String sql = "show create table db3.tbl1;";
-        Assertions.assertThrows(AnalysisException.class, () -> showCreateTable(sql));
-
-        // TabletInvertedIndex still holds these tablets of srcBackend, but they are all in recycled status
-        List<Long> tabletList = Env.getCurrentInvertedIndex().getTabletIdsByBackendId(srcBackend.getId());
-        Assertions.assertFalse(tabletList.isEmpty());
-        Assertions.assertTrue(Env.getCurrentRecycleBin().allTabletsInRecycledStatus(tabletList));
-
-        // recover tbl1, because tbl1 has more than one replica, so it still can be recovered
-        Assertions.assertDoesNotThrow(() -> recoverTable("db3.tbl1"));
-        Assertions.assertDoesNotThrow(() -> showCreateTable(sql));
-        dropTable("db3.tbl1", false);
-
-        addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
     }
 
     @Test
@@ -250,7 +186,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 1. create connect context
         connectContext = createDefaultCtx();
 
-        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getIdToBackend();
+        ImmutableMap<Long, Backend> idToBackendRef = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
         Assertions.assertEquals(backendNum(), idToBackendRef.size());
 
         // 2. create database db1
@@ -313,19 +249,20 @@ public class DecommissionBackendTest extends TestWithFeService {
         // 4. query tablet num
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
 
-        String decommissionStmtStr = "alter system decommission backend \"127.0.0.1:"
-                + srcBackend.getHeartbeatPort() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterCluster(decommissionStmt);
+        // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+        String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+        DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+        AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+        command.doRun(connectContext, new StmtExecutor(connectContext, ""));
 
         Assertions.assertTrue(srcBackend.isDecommissioned());
         long startTimestamp = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTimestamp < 90000
-            && Env.getCurrentSystemInfo().getIdToBackend().containsKey(srcBackend.getId())) {
+            && Env.getCurrentSystemInfo().getAllBackendsByAllCluster().containsKey(srcBackend.getId())) {
             Thread.sleep(1000);
         }
 
-        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
 
         // For now, we have pre-built internal table: analysis_job and column_statistics
         Assertions.assertEquals(tabletNum,
@@ -337,6 +274,95 @@ public class DecommissionBackendTest extends TestWithFeService {
 
         // 6. add backend
         addNewBackend();
-        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getIdToBackend().size());
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
+
+        dropDatabase("db4");
     }
+
+    @Test
+    public void testDecommissionBackendWithLeakyTablets() throws Exception {
+        // 1. create connect context
+        connectContext = createDefaultCtx();
+
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
+
+        // 2. create database db5
+        createDatabase("db5");
+        System.out.println(Env.getCurrentInternalCatalog().getDbNames());
+
+        // 3. create table tbl1
+        createTable("create table db5.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        RebalancerTestUtil.updateReplicaPathHash();
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db5");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
+        Assertions.assertNotNull(tbl);
+
+        Partition partition = tbl.getPartitions().iterator().next();
+        Tablet tablet = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                .iterator().next().getTablets().iterator().next();
+        Assertions.assertNotNull(tablet);
+        Backend srcBackend = Env.getCurrentSystemInfo().getBackend(tablet.getReplicas().get(0).getBackendId());
+        Assertions.assertNotNull(srcBackend);
+
+        TabletInvertedIndex invertIndex = Env.getCurrentInvertedIndex();
+        long fakeTabletId =  123123123L;
+        TabletMeta fakeTabletMeta = new TabletMeta(1234567L, 1234568L, 1234569L, 1234570L, 0, TStorageMedium.HDD);
+        Replica fakeReplica = new Replica(1234571L, srcBackend.getId(), 0, Replica.ReplicaState.NORMAL);
+
+        Supplier<List<Long>> getNotInRecycleBinTablets = () -> {
+            List<Long> tabletIds = Lists.newArrayList();
+            for (long tabletId : invertIndex.getTabletIdsByBackendId(srcBackend.getId())) {
+                TabletMeta tabletMeta = invertIndex.getTabletMeta(tabletId);
+                if (tabletMeta == null || !Env.getCurrentRecycleBin().isRecyclePartition(
+                        tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId())) {
+                    tabletIds.add(tabletId);
+                }
+            }
+            return tabletIds;
+        };
+        try {
+            Config.decommission_skip_leaky_tablet_second = 3600;
+
+            // add leaky tablet
+            invertIndex.addTablet(fakeTabletId, fakeTabletMeta);
+            invertIndex.addReplica(fakeTabletId, fakeReplica);
+
+            // "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+            String hostPort = srcBackend.getHost() + ":" + srcBackend.getHeartbeatPort();
+            DecommissionBackendOp op = new DecommissionBackendOp(ImmutableList.of(hostPort));
+            AlterSystemCommand command = new AlterSystemCommand(op, PlanType.ALTER_SYSTEM_DECOMMISSION_BACKEND);
+            command.doRun(connectContext, new StmtExecutor(connectContext, ""));
+
+            Assertions.assertTrue(srcBackend.isDecommissioned());
+
+            long startTimestamp = System.currentTimeMillis();
+
+            List<Long> expectTabletIds = Lists.newArrayList(fakeTabletId);
+            while (System.currentTimeMillis() - startTimestamp < 90000
+                    && !expectTabletIds.equals(getNotInRecycleBinTablets.get())) {
+                Thread.sleep(1000);
+            }
+
+            Assertions.assertEquals(expectTabletIds, getNotInRecycleBinTablets.get());
+            Thread.sleep(5000);
+            Assertions.assertEquals(expectTabletIds, getNotInRecycleBinTablets.get());
+            Assertions.assertNotNull(Env.getCurrentSystemInfo().getBackend(srcBackend.getId()));
+            // skip leaky tablets, decommission succ
+            Config.decommission_skip_leaky_tablet_second = 1;
+            Thread.sleep(4000);
+            Assertions.assertNull(Env.getCurrentSystemInfo().getBackend(srcBackend.getId()));
+        } finally {
+            invertIndex.deleteTablet(fakeTabletId);
+        }
+
+        Assertions.assertEquals(backendNum() - 1, Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
+
+        // 6. add backend
+        addNewBackend();
+        Assertions.assertEquals(backendNum(), Env.getCurrentSystemInfo().getAllBackendsByAllCluster().size());
+
+        dropDatabase("db5");
+    }
+
 }

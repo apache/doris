@@ -32,18 +32,17 @@ public class EsExternalDatabase extends ExternalDatabase<EsExternalTable> {
      * @param extCatalog External data source this database belongs to.
      * @param id database id.
      * @param name database name.
+     * @param remoteName remote database name.
      */
-    public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.ES);
+    public EsExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
+        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.ES);
     }
 
     @Override
-    protected EsExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
-        return new EsExternalTable(tblId, tableName, name, (EsExternalCatalog) extCatalog);
-    }
-
-    public void addTableForTest(EsExternalTable tbl) {
-        idToTbl.put(tbl.getId(), tbl);
-        tableNameToId.put(tbl.getName(), tbl.getId());
+    public EsExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog,
+            ExternalDatabase db) {
+        return new EsExternalTable(tblId, localTableName, remoteTableName, (EsExternalCatalog) extCatalog,
+                (EsExternalDatabase) db);
     }
 }

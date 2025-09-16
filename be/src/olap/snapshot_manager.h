@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -32,6 +34,55 @@ class TSnapshotRequest;
 struct RowsetId;
 class StorageEngine;
 class MemTrackerLimiter;
+
+class LocalSnapshotLockGuard;
+
+// A simple lock to protect the local snapshot path.
+class LocalSnapshotLock {
+    friend class LocalSnapshotLockGuard;
+
+public:
+    LocalSnapshotLock() = default;
+    ~LocalSnapshotLock() = default;
+    LocalSnapshotLock(const LocalSnapshotLock&) = delete;
+    LocalSnapshotLock& operator=(const LocalSnapshotLock&) = delete;
+
+    static LocalSnapshotLock& instance() {
+        static LocalSnapshotLock instance;
+        return instance;
+    }
+
+    // Acquire the lock for the specified path. It will block if the lock is already held by another.
+    LocalSnapshotLockGuard acquire(const std::string& path);
+
+private:
+    void release(const std::string& path);
+
+    class LocalSnapshotContext {
+    public:
+        bool _is_locked = false;
+        size_t _waiting_count = 0;
+        std::condition_variable _cv;
+
+        LocalSnapshotContext() = default;
+        LocalSnapshotContext(const LocalSnapshotContext&) = delete;
+        LocalSnapshotContext& operator=(const LocalSnapshotContext&) = delete;
+    };
+
+    std::mutex _lock;
+    std::unordered_map<std::string, LocalSnapshotContext> _local_snapshot_contexts;
+};
+
+class LocalSnapshotLockGuard {
+public:
+    LocalSnapshotLockGuard(std::string path) : _snapshot_path(std::move(path)) {}
+    LocalSnapshotLockGuard(const LocalSnapshotLockGuard&) = delete;
+    LocalSnapshotLockGuard& operator=(const LocalSnapshotLockGuard&) = delete;
+    ~LocalSnapshotLockGuard() { LocalSnapshotLock::instance().release(_snapshot_path); }
+
+private:
+    std::string _snapshot_path;
+};
 
 class SnapshotManager {
 public:
@@ -53,7 +104,7 @@ public:
 
     Result<std::vector<PendingRowsetGuard>> convert_rowset_ids(const std::string& clone_dir,
                                                                int64_t tablet_id,
-                                                               int64_t replica_id,
+                                                               int64_t replica_id, int64_t table_id,
                                                                int64_t partition_id,
                                                                int32_t schema_hash);
 
@@ -72,6 +123,7 @@ private:
                                       const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     Status _create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                  const TabletSharedPtr& target_tablet,
                                   const TSnapshotRequest& request, std::string* snapshot_path,
                                   bool* allow_incremental_clone);
 

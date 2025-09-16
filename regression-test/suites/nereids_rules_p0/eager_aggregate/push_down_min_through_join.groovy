@@ -20,6 +20,8 @@ suite("push_down_min_through_join") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set be_number_for_test=1"
+    sql "set disable_join_reorder=true"
 
     sql """
         DROP TABLE IF EXISTS min_t;
@@ -47,7 +49,7 @@ suite("push_down_min_through_join") {
     sql "insert into min_t values (8, null, 'c')"
     sql "insert into min_t values (9, 3, null)"
     sql "insert into min_t values (10, null, null)"
-
+    sql "analyze table min_t with sync;"
     qt_groupby_pushdown_basic """
         explain shape plan select min(t1.score) from min_t t1, min_t t2 where t1.id = t2.id group by t1.name;
     """

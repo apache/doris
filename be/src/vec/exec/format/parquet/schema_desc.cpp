@@ -23,12 +23,19 @@
 #include <ostream>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "runtime/define_primitive_type.h"
 #include "util/slice.h"
 #include "util/string_util.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/exec/format/table/table_format_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
     return schema.num_children > 0;
@@ -109,7 +116,7 @@ std::string FieldSchema::debug_string() const {
     std::stringstream ss;
     ss << "FieldSchema(name=" << name << ", R=" << repetition_level << ", D=" << definition_level;
     if (children.size() > 0) {
-        ss << ", type=" << type.type << ", children=[";
+        ss << ", type=" << data_type->get_name() << ", children=[";
         for (int i = 0; i < children.size(); ++i) {
             if (i != 0) {
                 ss << ", ";
@@ -131,6 +138,7 @@ Status FieldDescriptor::parse_from_thrift(const std::vector<tparquet::SchemaElem
     auto& root_schema = t_schemas[0];
     _fields.resize(root_schema.num_children);
     _next_schema_pos = 1;
+
     for (int i = 0; i < root_schema.num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &_fields[i]));
         if (_name_to_field.find(_fields[i].name) != _name_to_field.end()) {
@@ -167,11 +175,10 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
-        node_field->name = to_lower(t_schema.name);
-        node_field->type.type = TYPE_ARRAY;
-        node_field->type.add_sub_type(child->type);
-        node_field->is_nullable = false;
+        node_field->name = t_schema.name;
+        node_field->data_type = std::make_shared<DataTypeArray>(make_nullable(child->data_type));
         _next_schema_pos = curr_pos + 1;
+        node_field->field_id = t_schema.__isset.field_id ? t_schema.field_id : -1;
     } else {
         bool is_optional = is_optional_node(t_schema);
         if (is_optional) {
@@ -185,221 +192,167 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
-    physical_field->name = to_lower(physical_schema.name);
+    physical_field->name = physical_schema.name;
     physical_field->parquet_schema = physical_schema;
-    physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
     _physical_fields.push_back(physical_field);
-    physical_field->physical_column_index = _physical_fields.size() - 1;
-    physical_field->type = get_doris_type(physical_schema);
+    physical_field->physical_column_index = cast_set<int>(_physical_fields.size() - 1);
+    auto type = get_doris_type(physical_schema, is_nullable);
+    physical_field->data_type = type.first;
+    physical_field->is_type_compatibility = type.second;
+    physical_field->field_id = physical_schema.__isset.field_id ? physical_schema.field_id : -1;
 }
 
-TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
-    type.type = INVALID_TYPE;
-    if (physical_schema.__isset.logicalType) {
-        type = convert_to_doris_type(physical_schema.logicalType);
-    } else if (physical_schema.__isset.converted_type) {
-        type = convert_to_doris_type(physical_schema);
+std::pair<DataTypePtr, bool> FieldDescriptor::get_doris_type(
+        const tparquet::SchemaElement& physical_schema, bool nullable) {
+    std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
+    try {
+        if (physical_schema.__isset.logicalType) {
+            ans = convert_to_doris_type(physical_schema.logicalType, nullable);
+        } else if (physical_schema.__isset.converted_type) {
+            ans = convert_to_doris_type(physical_schema, nullable);
+        }
+    } catch (...) {
+        // ignore
     }
-    // use physical type instead
-    if (type.type == INVALID_TYPE) {
+    if (ans.first->get_primitive_type() == PrimitiveType::INVALID_TYPE) {
         switch (physical_schema.type) {
         case tparquet::Type::BOOLEAN:
-            type = TypeDescriptor(TYPE_BOOLEAN);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, nullable);
             break;
         case tparquet::Type::INT32:
-            type = TypeDescriptor(TYPE_INT);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_INT, nullable);
             break;
         case tparquet::Type::INT64:
-            type = TypeDescriptor(TYPE_BIGINT);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, nullable);
             break;
         case tparquet::Type::INT96:
             // in most cases, it's a nano timestamp
-            type = TypeDescriptor(TYPE_DATETIMEV2);
+            ans.first =
+                    DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 6);
             break;
         case tparquet::Type::FLOAT:
-            type = TypeDescriptor(TYPE_FLOAT);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
             break;
         case tparquet::Type::DOUBLE:
-            type = TypeDescriptor(TYPE_DOUBLE);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, nullable);
             break;
         case tparquet::Type::BYTE_ARRAY:
             [[fallthrough]];
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            type = TypeDescriptor(TYPE_STRING);
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
             break;
         default:
+            throw Exception(Status::InternalError("Not supported parquet logicalType{}",
+                                                  physical_schema.type));
             break;
         }
     }
-    return type;
+    return ans;
 }
 
-// Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
-static bool is_valid_avro_name(const std::string& name) {
-    int length = name.length();
-    char first = name[0];
-    if (!isalpha(first) && first != '_') {
-        return false;
-    }
-
-    for (int i = 1; i < length; i++) {
-        char character = name[i];
-        if (!isalpha(character) && !isdigit(character) && character != '_') {
-            return false;
-        }
-    }
-    return true;
-}
-
-// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
-static void sanitize_avro_name(std::ostringstream& buf, char character) {
-    if (isdigit(character)) {
-        buf << '_' << character;
-    } else {
-        std::stringstream ss;
-        ss << std::hex << (int)character;
-        std::string hex_str = ss.str();
-        buf << "_x" << doris::to_lower(hex_str);
-    }
-}
-
-// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
-static std::string sanitize_avro_name(const std::string& name) {
-    std::ostringstream buf;
-    int length = name.length();
-    char first = name[0];
-    if (!isalpha(first) && first != '_') {
-        sanitize_avro_name(buf, first);
-    } else {
-        buf << first;
-    }
-
-    for (int i = 1; i < length; i++) {
-        char character = name[i];
-        if (!isalpha(character) && !isdigit(character) && character != '_') {
-            sanitize_avro_name(buf, character);
-        } else {
-            buf << character;
-        }
-    }
-    return buf.str();
-}
-
-void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_columns) {
-    for (const std::string& col : read_columns) {
-        if (!is_valid_avro_name(col)) {
-            std::string sanitize_name = sanitize_avro_name(col);
-            auto it = _name_to_field.find(sanitize_name);
-            if (it != _name_to_field.end()) {
-                FieldSchema* schema = const_cast<FieldSchema*>(it->second);
-                schema->name = col;
-                _name_to_field.emplace(col, schema);
-                _name_to_field.erase(sanitize_name);
-            }
-        }
-    }
-}
-
-TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
-    TypeDescriptor type;
+std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
+        tparquet::LogicalType logicalType, bool nullable) {
+    std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
+    bool& is_type_compatibility = ans.second;
     if (logicalType.__isset.STRING) {
-        type = TypeDescriptor(TYPE_STRING);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.DECIMAL) {
-        type = TypeDescriptor::create_decimalv3_type(logicalType.DECIMAL.precision,
-                                                     logicalType.DECIMAL.scale);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_DECIMAL128I, nullable,
+                                                                 logicalType.DECIMAL.precision,
+                                                                 logicalType.DECIMAL.scale);
     } else if (logicalType.__isset.DATE) {
-        type = TypeDescriptor(TYPE_DATEV2);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, nullable);
     } else if (logicalType.__isset.INTEGER) {
         if (logicalType.INTEGER.isSigned) {
-            if (logicalType.INTEGER.bitWidth <= 32) {
-                type = TypeDescriptor(TYPE_INT);
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_TINYINT, nullable);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, nullable);
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_INT, nullable);
             } else {
-                type = TypeDescriptor(TYPE_BIGINT);
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, nullable);
             }
         } else {
-            if (logicalType.INTEGER.bitWidth <= 16) {
-                type = TypeDescriptor(TYPE_INT);
+            is_type_compatibility = true;
+            if (logicalType.INTEGER.bitWidth <= 8) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, nullable);
+            } else if (logicalType.INTEGER.bitWidth <= 16) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_INT, nullable);
+            } else if (logicalType.INTEGER.bitWidth <= 32) {
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, nullable);
             } else {
-                type = TypeDescriptor(TYPE_BIGINT);
+                ans.first = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, nullable);
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type = TypeDescriptor(TYPE_TIME);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
     } else if (logicalType.__isset.TIMESTAMP) {
-        type = TypeDescriptor(TYPE_DATETIMEV2);
-        const auto& time_unit = logicalType.TIMESTAMP.unit;
-        if (time_unit.__isset.MILLIS) {
-            type.scale = 3;
-        } else if (time_unit.__isset.MICROS) {
-            type.scale = 6;
-        } else if (time_unit.__isset.NANOS) {
-            // will lose precision
-            type.scale = 6;
-        } else {
-            // default precision
-            type.scale = 6;
-        }
+        ans.first = DataTypeFactory::instance().create_data_type(
+                TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else {
-        type = TypeDescriptor(INVALID_TYPE);
+        throw Exception(Status::InternalError("Not supported parquet logicalType"));
     }
-    return type;
+    return ans;
 }
 
-TypeDescriptor FieldDescriptor::convert_to_doris_type(
-        const tparquet::SchemaElement& physical_schema) {
-    TypeDescriptor type;
+std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
+        const tparquet::SchemaElement& physical_schema, bool nullable) {
+    std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
+    bool& is_type_compatibility = ans.second;
     switch (physical_schema.converted_type) {
     case tparquet::ConvertedType::type::UTF8:
-        type = TypeDescriptor(TYPE_STRING);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
         break;
     case tparquet::ConvertedType::type::DECIMAL:
-        type = TypeDescriptor::create_decimalv3_type(physical_schema.precision,
-                                                     physical_schema.scale);
+        ans.first = DataTypeFactory::instance().create_data_type(
+                TYPE_DECIMAL128I, nullable, physical_schema.precision, physical_schema.scale);
         break;
     case tparquet::ConvertedType::type::DATE:
-        type = TypeDescriptor(TYPE_DATEV2);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, nullable);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
         [[fallthrough]];
     case tparquet::ConvertedType::type::TIME_MICROS:
-        type = TypeDescriptor(TYPE_TIMEV2);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
-        type = TypeDescriptor(TYPE_DATETIMEV2);
-        type.scale = 3;
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 3);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
-        type = TypeDescriptor(TYPE_DATETIMEV2);
-        type.scale = 6;
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 6);
         break;
     case tparquet::ConvertedType::type::INT_8:
-        type = TypeDescriptor(TYPE_TINYINT);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TINYINT, nullable);
         break;
     case tparquet::ConvertedType::type::UINT_8:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
-        type = TypeDescriptor(TYPE_SMALLINT);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, nullable);
         break;
     case tparquet::ConvertedType::type::UINT_16:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
-        type = TypeDescriptor(TYPE_INT);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_INT, nullable);
         break;
     case tparquet::ConvertedType::type::UINT_32:
-        [[fallthrough]];
-    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
         [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
-        type = TypeDescriptor(TYPE_BIGINT);
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, nullable);
+        break;
+    case tparquet::ConvertedType::type::UINT_64:
+        is_type_compatibility = true;
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, nullable);
         break;
     default:
-        LOG(WARNING) << "Not supported parquet ConvertedType: " << physical_schema.converted_type;
-        type = TypeDescriptor(INVALID_TYPE);
-        break;
+        throw Exception(Status::InternalError("Not supported parquet ConvertedType: {}",
+                                              physical_schema.converted_type));
     }
-    return type;
+    return ans;
 }
 
 Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElement>& t_schemas,
@@ -439,10 +392,10 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
         // produce a non-null list<struct>
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, struct_field));
 
-        group_field->name = to_lower(group_schema.name);
-        group_field->type.type = TYPE_ARRAY;
-        group_field->type.add_sub_type(struct_field->type);
-        group_field->is_nullable = false;
+        group_field->name = group_schema.name;
+        group_field->data_type =
+                std::make_shared<DataTypeArray>(make_nullable(struct_field->data_type));
+        group_field->field_id = group_schema.__isset.field_id ? group_schema.field_id : -1;
     } else {
         RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos, group_field));
     }
@@ -507,10 +460,13 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
         _next_schema_pos = curr_pos + 2;
     }
 
-    list_field->name = to_lower(first_level.name);
-    list_field->type.type = TYPE_ARRAY;
-    list_field->type.add_sub_type(list_field->children[0].type);
-    list_field->is_nullable = is_optional;
+    list_field->name = first_level.name;
+    list_field->data_type =
+            std::make_shared<DataTypeArray>(make_nullable(list_field->children[0].data_type));
+    if (is_optional) {
+        list_field->data_type = make_nullable(list_field->data_type);
+    }
+    list_field->field_id = first_level.__isset.field_id ? first_level.field_id : -1;
 
     return Status::OK();
 }
@@ -570,11 +526,18 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     // produce MAP<STRUCT<KEY, VALUE>>
     RETURN_IF_ERROR(parse_struct_field(t_schemas, curr_pos + 1, map_kv_field));
 
-    map_field->name = to_lower(map_schema.name);
-    map_field->type.type = TYPE_MAP;
-    map_field->type.add_sub_type(map_kv_field->type.children[0]);
-    map_field->type.add_sub_type(map_kv_field->type.children[1]);
-    map_field->is_nullable = is_optional;
+    map_field->name = map_schema.name;
+    map_field->data_type = std::make_shared<DataTypeMap>(
+            make_nullable(assert_cast<const DataTypeStruct*>(
+                                  remove_nullable(map_kv_field->data_type).get())
+                                  ->get_element(0)),
+            make_nullable(assert_cast<const DataTypeStruct*>(
+                                  remove_nullable(map_kv_field->data_type).get())
+                                  ->get_element(1)));
+    if (is_optional) {
+        map_field->data_type = make_nullable(map_field->data_type);
+    }
+    map_field->field_id = map_schema.__isset.field_id ? map_schema.field_id : -1;
 
     return Status::OK();
 }
@@ -594,18 +557,24 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     for (int i = 0; i < num_children; ++i) {
         RETURN_IF_ERROR(parse_node_field(t_schemas, _next_schema_pos, &struct_field->children[i]));
     }
-    struct_field->name = to_lower(struct_schema.name);
-    struct_field->is_nullable = is_optional;
-    struct_field->type.type = TYPE_STRUCT;
+    struct_field->name = struct_schema.name;
+
+    struct_field->field_id = struct_schema.__isset.field_id ? struct_schema.field_id : -1;
+    DataTypes res_data_types;
+    std::vector<String> names;
     for (int i = 0; i < num_children; ++i) {
-        struct_field->type.add_sub_type(struct_field->children[i].type,
-                                        struct_field->children[i].name);
+        res_data_types.push_back(make_nullable(struct_field->children[i].data_type));
+        names.push_back(struct_field->children[i].name);
+    }
+    struct_field->data_type = std::make_shared<DataTypeStruct>(res_data_types, names);
+    if (is_optional) {
+        struct_field->data_type = make_nullable(struct_field->data_type);
     }
     return Status::OK();
 }
 
 int FieldDescriptor::get_column_index(const std::string& column) const {
-    for (size_t i = 0; i < _fields.size(); i++) {
+    for (int32_t i = 0; i < _fields.size(); i++) {
         if (_fields[i].name == column) {
             return i;
         }
@@ -618,6 +587,7 @@ const FieldSchema* FieldDescriptor::get_column(const std::string& name) const {
     if (it != _name_to_field.end()) {
         return it->second;
     }
+    throw Exception(Status::InternalError("Name {} not found in FieldDescriptor!", name));
     return nullptr;
 }
 
@@ -640,5 +610,6 @@ std::string FieldDescriptor::debug_string() const {
     ss << "]";
     return ss.str();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

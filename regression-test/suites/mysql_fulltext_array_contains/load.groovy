@@ -16,7 +16,6 @@
 // under the License.
 
 suite("load") {
-    sql """ ADMIN SET FRONTEND CONFIG ("enable_create_inverted_index_for_array" = "true"); """
     def test_basic_tables=["articles_uk_array", "articles_dk_array"]
     def test_fulltext_tables=["fulltext_t1_uk_array", "fulltext_t1_dk_array"]
 

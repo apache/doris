@@ -84,30 +84,17 @@ suite("test_schema_change") {
 
     waitBrokerLoadJob(loadLabel)
     sql "sync"
-    rowCount = sql "select count(*) from ${tableName}"
+    def rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)
     assertEquals(rowCount[0][0], 15000000)
 
     sql """ alter table ${tableName} drop column C_NAME"""
 
-    def waitSchemaChangeJob = { String tbName /* param */ ->
-        int tryTimes = 20
-        while (tryTimes-- > 0) {
-            def jobResult = sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
-            def jobState = jobResult[0][9].toString()
-            if ('cancelled'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                throw new IllegalStateException("${tbName}'s job has been cancelled")
-            }
-            if ('finished'.equalsIgnoreCase(jobState)) {
-                logger.info("jobResult:{}", jobResult)
-                break
-            }
-            sleep(60000)
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
 
-    waitSchemaChangeJob(tableName)
     sql """ DESC ${tableName}"""
     rowCount = sql "select count(*) from ${tableName}"
     logger.info("rowCount:{}", rowCount)

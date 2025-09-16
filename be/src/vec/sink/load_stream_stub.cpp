@@ -19,6 +19,7 @@
 
 #include <sstream>
 
+#include "common/cast_set.h"
 #include "olap/rowset/rowset_writer.h"
 #include "runtime/query_context.h"
 #include "util/brpc_client_cache.h"
@@ -28,6 +29,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
                                                  size_t size) {
@@ -46,7 +48,7 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             stub->_is_eos.store(true);
         }
 
-        Status st = Status::create(response.status());
+        Status st = Status::create<false>(response.status());
 
         std::stringstream ss;
         ss << "on_received_messages, " << *this << ", stream_id=" << id;
@@ -63,13 +65,11 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
         if (response.failed_tablets_size() > 0) {
             ss << ", failed tablet ids:";
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                ss << " " << pb.id() << ":" << st;
+                ss << " " << pb.id() << ":" << Status::create(pb.status());
             }
             std::lock_guard<bthread::Mutex> lock(stub->_failed_tablets_mutex);
             for (auto pb : response.failed_tablets()) {
-                Status st = Status::create(pb.status());
-                stub->_failed_tablets.emplace(pb.id(), st);
+                stub->_failed_tablets.emplace(pb.id(), Status::create(pb.status()));
             }
         }
         if (response.tablet_schemas_size() > 0) {
@@ -92,7 +92,7 @@ int LoadStreamReplyHandler::on_received_messages(brpc::StreamId id, butil::IOBuf
             TRuntimeProfileTree tprofile;
             const uint8_t* buf =
                     reinterpret_cast<const uint8_t*>(response.load_stream_profile().data());
-            uint32_t len = response.load_stream_profile().size();
+            uint32_t len = cast_set<uint32_t>(response.load_stream_profile().size());
             auto status = deserialize_thrift_msg(buf, &len, false, &tprofile);
             if (status.ok()) {
                 // TODO
@@ -114,9 +114,7 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
         LOG(WARNING) << "stub is not exist when on_closed, " << *this;
         return;
     }
-    std::lock_guard<bthread::Mutex> lock(stub->_close_mutex);
     stub->_is_closed.store(true);
-    stub->_close_cv.notify_all();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
@@ -135,7 +133,7 @@ LoadStreamStub::LoadStreamStub(PUniqueId load_id, int64_t src_id,
           _is_incremental(incremental) {};
 
 LoadStreamStub::~LoadStreamStub() {
-    if (_is_init.load() && !_is_closed.load()) {
+    if (_is_open.load() && !_is_closed.load()) {
         auto ret = brpc::StreamClose(_stream_id);
         LOG(INFO) << *this << " is deconstructed, close " << (ret == 0 ? "success" : "failed");
     }
@@ -149,19 +147,20 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
                             int64_t idle_timeout_ms, bool enable_profile) {
     std::unique_lock<bthread::Mutex> lock(_open_mutex);
     if (_is_init.load()) {
-        return Status::OK();
+        return _status;
     }
+    _is_init.store(true);
     _dst_id = node_info.id;
-    std::string host_port = get_host_port(node_info.host, node_info.brpc_port);
     brpc::StreamOptions opt;
-    opt.max_buf_size = config::load_stream_max_buf_size;
+    opt.max_buf_size = cast_set<int>(config::load_stream_max_buf_size);
     opt.idle_timeout_ms = idle_timeout_ms;
     opt.messages_in_batch = config::load_stream_messages_in_batch;
     opt.handler = new LoadStreamReplyHandler(_load_id, _dst_id, shared_from_this());
     brpc::Controller cntl;
     if (int ret = brpc::StreamCreate(&_stream_id, cntl, &opt)) {
         delete opt.handler;
-        return Status::Error<true>(ret, "Failed to create stream");
+        _status = Status::Error<true>(ret, "Failed to create stream");
+        return _status;
     }
     cntl.set_timeout_ms(config::open_load_stream_timeout_ms);
     POpenLoadStreamRequest request;
@@ -174,7 +173,8 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     } else if (total_streams > 0) {
         request.set_total_streams(total_streams);
     } else {
-        return Status::InternalError("total_streams should be greator than 0");
+        _status = Status::InternalError("total_streams should be greator than 0");
+        return _status;
     }
     request.set_idle_timeout_ms(idle_timeout_ms);
     schema.to_protobuf(request.mutable_schema());
@@ -183,8 +183,11 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     POpenLoadStreamResponse response;
     // set connection_group "streaming" to distinguish with non-streaming connections
-    const auto& stub =
-            client_cache->get_new_client_no_cache(host_port, "baidu_std", "single", "streaming");
+    const auto& stub = client_cache->get_client(node_info.host, node_info.brpc_port);
+    if (stub == nullptr) {
+        return Status::InternalError("failed to init brpc client to {}:{}", node_info.host,
+                                     node_info.brpc_port);
+    }
     stub->open_load_stream(&cntl, &request, &response, nullptr);
     for (const auto& resp : response.tablet_schemas()) {
         auto tablet_schema = std::make_unique<TabletSchema>();
@@ -195,23 +198,26 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     }
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
-        return Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
-                                     cntl.ErrorText());
+        _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
+                                        cntl.ErrorText());
+        return _status;
     }
-    LOG(INFO) << "open load stream to " << host_port << ", " << *this;
-    _is_init.store(true);
-    return Status::OK();
+    LOG(INFO) << "open load stream to host=" << node_info.host << ", port=" << node_info.brpc_port
+              << ", " << *this;
+    _is_open.store(true);
+    _status = Status::OK();
+    return _status;
 }
 
 // APPEND_DATA
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
+                                   int32_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos, FileType file_type) {
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+    if (!_is_open.load()) {
+        add_failed_tablet(tablet_id, _status);
+        return _status;
+    }
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -228,13 +234,12 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, const SegmentStatistics& segment_stat,
-                                   TabletSchemaSPtr flush_schema) {
-    DBUG_EXECUTE_IF("LoadStreamStub.only_send_segment_0", {
-        if (segment_id != 0) {
-            return Status::OK();
-        }
-    });
+                                   int32_t segment_id, const SegmentStatistics& segment_stat) {
+    if (!_is_open.load()) {
+        add_failed_tablet(tablet_id, _status);
+        return _status;
+    }
+    DBUG_EXECUTE_IF("LoadStreamStub.skip_send_segment", { return Status::OK(); });
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -244,14 +249,14 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_segment_id(segment_id);
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
-    if (flush_schema != nullptr) {
-        flush_schema->to_schema_pb(header.mutable_flush_schema());
-    }
     return _encode_and_send(header);
 }
 
 // CLOSE_LOAD
 Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+    if (!_is_open.load()) {
+        return _status;
+    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
@@ -259,11 +264,20 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
-    return _encode_and_send(header);
+    _status = _encode_and_send(header);
+    if (!_status.ok()) {
+        LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;
+        return _status;
+    }
+    _is_closing.store(true);
+    return Status::OK();
 }
 
 // GET_SCHEMA
 Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
+    if (!_is_open.load()) {
+        return _status;
+    }
     PStreamHeader header;
     *header.mutable_load_id() = _load_id;
     header.set_src_id(_src_id);
@@ -284,6 +298,9 @@ Status LoadStreamStub::get_schema(const std::vector<PTabletID>& tablets) {
 
 Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, int64_t tablet_id,
                                        int64_t timeout_ms) {
+    if (!_is_open.load()) {
+        return _status;
+    }
     if (_tablet_schema_for_index->contains(index_id)) {
         return Status::OK();
     }
@@ -297,7 +314,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     watch.start();
     while (!_tablet_schema_for_index->contains(index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
@@ -307,48 +324,44 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     return Status::OK();
 }
 
-Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
+Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
-    if (!_is_init.load()) {
-        return Status::InternalError("stream {} is not opened, {}", _stream_id, to_string());
+    DBUG_EXECUTE_IF("LoadStreamStub::close_finish_check.close_failed",
+                    { return Status::InternalError("close failed"); });
+    *is_closed = true;
+    if (!_is_open.load()) {
+        // we don't need to close wait on non-open streams
+        return Status::OK();
+    }
+    if (state->get_query_ctx()->is_cancelled()) {
+        return state->get_query_ctx()->exec_status();
+    }
+    if (!_is_closing.load()) {
+        *is_closed = false;
+        return _status;
     }
     if (_is_closed.load()) {
-        return _check_cancel();
-    }
-    DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
-    std::unique_lock<bthread::Mutex> lock(_close_mutex);
-    auto timeout_sec = timeout_ms / 1000;
-    while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
-        //the query maybe cancel, so need check after wait 1s
-        timeout_sec = timeout_sec - 1;
-        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
-                  << ", is_closed=" << _is_closed.load()
-                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
-        int ret = _close_cv.wait_for(lock, 1000000);
-        if (ret != 0 && timeout_sec <= 0) {
-            return Status::InternalError("stream close_wait timeout, error={}, timeout_ms={}, {}",
-                                         ret, timeout_ms, to_string());
+        RETURN_IF_ERROR(check_cancel());
+        if (!_is_eos.load()) {
+            return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
+        return Status::OK();
     }
-    RETURN_IF_ERROR(_check_cancel());
-    if (!_is_eos.load()) {
-        return Status::InternalError("stream closed without eos, {}", to_string());
-    }
+    *is_closed = false;
     return Status::OK();
 }
 
 void LoadStreamStub::cancel(Status reason) {
     LOG(WARNING) << *this << " is cancelled because of " << reason;
+    if (_is_open.load()) {
+        brpc::StreamClose(_stream_id);
+    }
     {
         std::lock_guard<bthread::Mutex> lock(_cancel_mutex);
-        _cancel_reason = reason;
+        _cancel_st = reason;
         _is_cancelled.store(true);
     }
-    {
-        std::lock_guard<bthread::Mutex> lock(_close_mutex);
-        _is_closed.store(true);
-        _close_cv.notify_all();
-    }
+    _is_closed.store(true);
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
@@ -364,6 +377,7 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    add_bytes_written(buf.size());
     return _send_with_buffer(buf, eos || get_schema);
 }
 
@@ -407,12 +421,34 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
         switch (hdr.opcode()) {
         case PStreamHeader::ADD_SEGMENT:
         case PStreamHeader::APPEND_DATA: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.append_data_failed", {
+                add_failed_tablet(hdr.tablet_id(), st);
+                return;
+            });
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.add_segment_failed", {
+                add_failed_tablet(hdr.tablet_id(), st);
+                return;
+            });
             add_failed_tablet(hdr.tablet_id(), st);
         } break;
         case PStreamHeader::CLOSE_LOAD: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.close_load_failed", {
+                brpc::StreamClose(_stream_id);
+                return;
+            });
             brpc::StreamClose(_stream_id);
         } break;
         case PStreamHeader::GET_SCHEMA: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.get_schema_failed", {
+                // Just log and let wait_for_schema timeout
+                std::ostringstream oss;
+                for (const auto& tablet : hdr.tablets()) {
+                    oss << " " << tablet.tablet_id();
+                }
+                LOG(WARNING) << "failed to send GET_SCHEMA request, tablet_id:" << oss.str() << ", "
+                             << *this;
+                return;
+            });
             // Just log and let wait_for_schema timeout
             std::ostringstream oss;
             for (const auto& tablet : hdr.tablets()) {
@@ -430,11 +466,11 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         int ret;
         {
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
-                int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
+                int64_t delay_ms = dp->param<int64_t>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
             });
             brpc::StreamWriteOptions options;
@@ -470,6 +506,60 @@ inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamStub& stub) 
     ostr << "LoadStreamStub load_id=" << print_id(stub._load_id) << ", src_id=" << stub._src_id
          << ", dst_id=" << stub._dst_id << ", stream_id=" << stub._stream_id;
     return ostr;
+}
+
+Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache,
+                             const NodeInfo& node_info, int64_t txn_id,
+                             const OlapTableSchemaParam& schema,
+                             const std::vector<PTabletID>& tablets_for_schema, int total_streams,
+                             int64_t idle_timeout_ms, bool enable_profile) {
+    bool get_schema = true;
+    auto status = Status::OK();
+    for (auto& stream : _streams) {
+        Status st;
+        if (get_schema) {
+            st = stream->open(client_cache, node_info, txn_id, schema, tablets_for_schema,
+                              total_streams, idle_timeout_ms, enable_profile);
+        } else {
+            st = stream->open(client_cache, node_info, txn_id, schema, {}, total_streams,
+                              idle_timeout_ms, enable_profile);
+        }
+        if (st.ok()) {
+            get_schema = false;
+        } else {
+            LOG(WARNING) << "open stream failed: " << st << "; stream: " << *stream;
+            status = st;
+            // no break here to try get schema from the rest streams
+        }
+    }
+    // only mark open when all streams open success
+    _open_success.store(status.ok());
+    // cancel all streams if open failed
+    if (!status.ok()) {
+        cancel(status);
+    }
+    return status;
+}
+
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+    if (!_open_success.load()) {
+        return Status::InternalError("streams not open");
+    }
+    bool first = true;
+    auto status = Status::OK();
+    for (auto& stream : _streams) {
+        Status st;
+        if (first) {
+            st = stream->close_load(tablets_to_commit);
+            first = false;
+        } else {
+            st = stream->close_load({});
+        }
+        if (!st.ok()) {
+            LOG(WARNING) << "close_load failed: " << st << "; stream: " << *stream;
+        }
+    }
+    return status;
 }
 
 } // namespace doris

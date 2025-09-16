@@ -21,6 +21,7 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct DecimalScaleParams {
     enum ScaleType {
@@ -32,19 +33,23 @@ struct DecimalScaleParams {
     ScaleType scale_type = ScaleType::NOT_INIT;
     int64_t scale_factor = 1;
 
-    template <typename DecimalPrimitiveType>
-    static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal32>) {
+    template <PrimitiveType DecimalPrimitiveType>
+    static inline constexpr typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppNativeType
+    get_scale_factor(int32_t n) {
+        if constexpr (DecimalPrimitiveType == TYPE_DECIMAL32) {
             return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal64>) {
+        } else if constexpr (DecimalPrimitiveType == TYPE_DECIMAL64) {
             return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128V2>) {
+        } else if constexpr (DecimalPrimitiveType == TYPE_DECIMALV2) {
             return common::exp10_i128(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128V3>) {
+        } else if constexpr (DecimalPrimitiveType == TYPE_DECIMAL128I) {
             return common::exp10_i128(n);
+        } else if constexpr (DecimalPrimitiveType == TYPE_DECIMAL256) {
+            return common::exp10_i256(n);
         } else {
-            static_assert(!sizeof(DecimalPrimitiveType),
-                          "All types must be matched with if constexpr.");
+            static_assert(
+                    !sizeof(typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppNativeType),
+                    "All types must be matched with if constexpr.");
         }
     }
 };
@@ -131,7 +136,7 @@ public:
     }
 
 private:
-    uint32_t _get_idx(const std::string& key) {
+    uint32_t _get_idx(const std::string& key) const {
         return (uint32_t)std::hash<std::string>()(key) % _num_shards;
     }
 
@@ -139,4 +144,5 @@ private:
     KVCache<std::string>** _shards = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

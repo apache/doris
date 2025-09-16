@@ -17,18 +17,18 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public abstract class ShowStmt extends StatementBase {
+public abstract class ShowStmt extends StatementBase implements NotFallbackInParser {
     public abstract ShowResultSetMetaData getMetaData();
-
-    public SelectStmt toSelectStmt(Analyzer analyzer) throws AnalysisException {
-        return null;
-    }
 
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
     }
 }

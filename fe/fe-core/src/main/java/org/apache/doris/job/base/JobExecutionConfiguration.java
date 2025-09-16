@@ -49,6 +49,10 @@ public class JobExecutionConfiguration {
      */
     private Integer maxConcurrentTaskNum;
 
+    public void initParams() {
+        initTimerDefinition();
+    }
+
     public void checkParams() {
         if (executeType == null) {
             throw new IllegalArgumentException("executeType cannot be null");
@@ -57,9 +61,7 @@ public class JobExecutionConfiguration {
         if (executeType == JobExecuteType.INSTANT || executeType == JobExecuteType.MANUAL) {
             return;
         }
-
-        checkTimerDefinition(immediate);
-
+        checkTimerDefinition();
         if (executeType == JobExecuteType.ONE_TIME) {
             validateStartTimeMs();
             return;
@@ -80,12 +82,18 @@ public class JobExecutionConfiguration {
         }
     }
 
-    private void checkTimerDefinition(boolean immediate) {
+    private void checkTimerDefinition() {
         if (timerDefinition == null) {
             throw new IllegalArgumentException(
                     "timerDefinition cannot be null when executeType is not instant or manual");
         }
-        timerDefinition.checkParams(immediate);
+        timerDefinition.checkParams();
+    }
+
+    private void initTimerDefinition() {
+        if (timerDefinition != null) {
+            timerDefinition.initParams();
+        }
     }
 
     private void validateStartTimeMs() {
@@ -138,12 +146,6 @@ public class JobExecutionConfiguration {
             }
             long intervalValue = timerDefinition.getIntervalUnit().getIntervalMs(timerDefinition.getInterval());
             long jobStartTimeMs = timerDefinition.getStartTimeMs();
-            if (isImmediate()) {
-                jobStartTimeMs += intervalValue;
-                if (jobStartTimeMs > endTimeMs) {
-                    return delayTimeSeconds;
-                }
-            }
             return getExecutionDelaySeconds(startTimeMs, endTimeMs, jobStartTimeMs,
                     intervalValue, currentTimeMs);
         }
@@ -157,7 +159,7 @@ public class JobExecutionConfiguration {
             return 0L;
         }
 
-        return (startTimeMs - currentTimeMs) / 1000;
+        return (startTimeMs * 1000 / 1000 - currentTimeMs) / 1000;
     }
 
     // Returns a list of delay times in seconds for executing the job within the specified window
@@ -173,16 +175,21 @@ public class JobExecutionConfiguration {
 
         long firstTriggerTime = windowStartTimeMs + (intervalMs - ((windowStartTimeMs - startTimeMs)
                 % intervalMs)) % intervalMs;
-        if (firstTriggerTime < currentTimeMs) {
-            firstTriggerTime += intervalMs;
+        // should filter result which smaller than start time
+        if (firstTriggerTime < startTimeMs) {
+            firstTriggerTime = startTimeMs;
         }
-
+        if (firstTriggerTime < currentTimeMs) {
+            // Calculate how many intervals to add to get the largest trigger time < currentTimeMs
+            long intervalsToAdd = (currentTimeMs - firstTriggerTime) / intervalMs;
+            firstTriggerTime += intervalsToAdd * intervalMs;
+        }
         if (firstTriggerTime > windowEndTimeMs) {
             return timestamps; // Return an empty list if there won't be any trigger time
         }
 
         // Calculate the trigger time list
-        for (long triggerTime = firstTriggerTime; triggerTime <= windowEndTimeMs; triggerTime += intervalMs) {
+        for (long triggerTime = firstTriggerTime; triggerTime < windowEndTimeMs; triggerTime += intervalMs) {
             if (null == timerDefinition.getEndTimeMs()
                     || triggerTime < timerDefinition.getEndTimeMs()) {
                 timerDefinition.setLatestSchedulerTimeMs(triggerTime);

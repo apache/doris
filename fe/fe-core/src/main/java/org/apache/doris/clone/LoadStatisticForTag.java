@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BackendLoadStatistic.LoadScore;
+import org.apache.doris.clone.PartitionRebalancer.TabletMove;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -50,6 +51,7 @@ public class LoadStatisticForTag {
 
     private final SystemInfoService infoService;
     private final TabletInvertedIndex invertedIndex;
+    private final Rebalancer rebalancer;
 
     private final Tag tag;
 
@@ -68,10 +70,11 @@ public class LoadStatisticForTag {
             = Maps.newHashMap();
 
     public LoadStatisticForTag(Tag tag, SystemInfoService infoService,
-            TabletInvertedIndex invertedIndex) {
+            TabletInvertedIndex invertedIndex, Rebalancer rebalancer) {
         this.tag = tag;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
+        this.rebalancer = rebalancer;
     }
 
     public Tag getTag() {
@@ -166,10 +169,13 @@ public class LoadStatisticForTag {
             // Multimap<skew -> PartitionBalanceInfo>
             //                  PartitionBalanceInfo: <pid -> <partitionReplicaCount, beId>>
             // Only count available bes here, aligned with the beByTotalReplicaCountMaps.
-            skewMaps = invertedIndex.buildPartitionInfoBySkew(beLoadStatistics.stream()
+            List<Long> availableBeIds = beLoadStatistics.stream()
                     .filter(BackendLoadStatistic::isAvailable)
                     .map(BackendLoadStatistic::getBeId)
-                    .collect(Collectors.toList()));
+                    .collect(Collectors.toList());
+            Map<Long, Pair<TabletMove, Long>> movesInProgress = rebalancer == null ? Maps.newHashMap()
+                    : ((PartitionRebalancer) rebalancer).getMovesInProgress();
+            skewMaps = invertedIndex.buildPartitionInfoBySkew(availableBeIds, movesInProgress);
         }
     }
 

@@ -228,16 +228,33 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """insert into test_insert_order(gameid,did,cid,bid,aid,pname) select 'g2',4,3,2,1,'p2'""";
     qt_sql """select * from test_insert_order order by gameid, aid, bid, cid, did;"""
 
-    //clean
-    qt_sql """select current_catalog()"""
-    sql "switch internal"
-    qt_sql """select current_catalog()"""
-    sql "use regression_test_jdbc_catalog_p0"
-    sql """ drop table if exists test_doris_jdbc_doris_in_tb """
-    sql """ drop table if exists bowen_hll_test """
-    sql """ drop table if exists base """
-    sql """ drop table if exists all_null_tbl """
-    sql """ drop table if exists arr """
-    sql """ drop table if exists test_insert_order """
+    // test query tvf
+    qt_sql """desc function query("catalog" = "doris_jdbc_catalog", "query" = "select * from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql1 """ select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql2 """ select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql3 """ select varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql4 """ select tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base");"""
+
+    order_qt_sql5 """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+    order_qt_sql6 """ with tmp as (select varchar_col,tinyint_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col,varchar_col from tmp;"""
+
+    order_qt_sql7 """ with tmp as (select tinyint_col,varchar_col from query("catalog" = "doris_jdbc_catalog", "query" = "select varchar_col,tinyint_col from regression_test_jdbc_catalog_p0.base")) select tinyint_col from tmp;"""
+
+    // //clean
+    // qt_sql """select current_catalog()"""
+    // sql "switch internal"
+    // qt_sql """select current_catalog()"""
+    // sql "use regression_test_jdbc_catalog_p0"
+    // sql """ drop table if exists test_doris_jdbc_doris_in_tb """
+    // sql """ drop table if exists bowen_hll_test """
+    // sql """ drop table if exists base """
+    // sql """ drop table if exists all_null_tbl """
+    // sql """ drop table if exists arr """
+    // sql """ drop table if exists test_insert_order """
 
 }

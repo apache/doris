@@ -48,41 +48,55 @@ public class QueueToken implements Comparable<QueueToken> {
 
     private long tokenId = 0;
 
-    private TokenState tokenState;
+    private volatile TokenState tokenState;
 
     private long queueWaitTimeout = 0;
 
     private long queueStartTime = -1;
     private long queueEndTime = -1;
+    private final int querySlotCount;
+
+    private volatile String queueMsg = "";
+
+    QueryQueue queryQueue = null;
 
     // Object is just a placeholder, it's meaningless now
     private CompletableFuture<Object> future;
-    private QueryQueue queue;
 
-    public QueueToken(TokenState tokenState, long queueWaitTimeout, QueryQueue queryQueue) {
+    public QueueToken(long queueWaitTimeout, int querySlotCount, QueryQueue queryQueue) {
         this.tokenId = tokenIdGenerator.addAndGet(1);
-        this.tokenState = tokenState;
         this.queueWaitTimeout = queueWaitTimeout;
-        this.queue = queryQueue;
         this.queueStartTime = System.currentTimeMillis();
+        this.querySlotCount = querySlotCount;
+        this.queryQueue = queryQueue;
         this.future = new CompletableFuture<>();
+    }
+
+    public void setQueueMsg(String msg) {
+        this.queueMsg = msg;
+    }
+
+    public void setTokenState(TokenState tokenState) {
+        this.tokenState = tokenState;
+    }
+
+    public String getQueueMsg() {
+        return queueMsg;
     }
 
     public void get(String queryId, int queryTimeout) throws UserException {
         if (isReadyToRun()) {
             return;
         }
-        long waitTimeout = Math.min(queueWaitTimeout, queryTimeout);
+        long waitTimeout = queueWaitTimeout > 0 ? Math.min(queueWaitTimeout, queryTimeout) : queryTimeout;
+        waitTimeout = waitTimeout <= 0 ? 4096 : waitTimeout;
         try {
             future.get(waitTimeout, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            queue.removeToken(this);
             throw new UserException("query queue timeout, timeout: " + waitTimeout + " ms ");
         } catch (CancellationException e) {
-            queue.removeToken(this);
             throw new UserException("query is cancelled");
         } catch (Throwable t) {
-            queue.removeToken(this);
             String errMsg = String.format("error happens when query {} queue", queryId);
             LOG.error(errMsg, t);
             throw new RuntimeException(errMsg, t);
@@ -92,7 +106,12 @@ public class QueueToken implements Comparable<QueueToken> {
     public void complete() {
         this.queueEndTime = System.currentTimeMillis();
         this.tokenState = TokenState.READY_TO_RUN;
+        this.setQueueMsg("RUNNING");
         future.complete(null);
+    }
+
+    public void notifyWaitQuery() {
+        this.queryQueue.notifyWaitQuery();
     }
 
     public void cancel() {
@@ -105,10 +124,6 @@ public class QueueToken implements Comparable<QueueToken> {
 
     public long getQueueEndTime() {
         return queueEndTime;
-    }
-
-    public TokenState getTokenState() {
-        return tokenState;
     }
 
     public boolean isReadyToRun() {
@@ -132,5 +147,9 @@ public class QueueToken implements Comparable<QueueToken> {
 
     public long getTokenId() {
         return tokenId;
+    }
+
+    public int getQuerySlotCount() {
+        return querySlotCount;
     }
 }

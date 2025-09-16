@@ -17,10 +17,14 @@
 
 #pragma once
 
+#include <pthread.h>
+
 #include <atomic>
 #include <condition_variable>
+#include <iostream>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -37,9 +41,11 @@ private:
     std::vector<std::thread> _worker_thread_group; // multi thread pool
     std::atomic<bool> _is_running;
     size_t _pool_size;
+    std::string _pool_name;
 
 public:
-    SimpleThreadPool(size_t size) : _is_running(false), _pool_size(size) {
+    SimpleThreadPool(size_t size, const std::string& name = "")
+            : _is_running(false), _pool_size(size), _pool_name(name) {
         _job_queue = std::make_shared<SimpleSyncQueue<JobType>>(_pool_size * 2);
     }
 
@@ -85,8 +91,11 @@ public:
     int start() {
         _is_running = true;
         _worker_thread_group.clear();
+        _pool_name = _pool_name.empty() ? "simple_thread_pool" : _pool_name;
         for (size_t i = 0; i < _pool_size; ++i) {
             _worker_thread_group.emplace_back(&SimpleThreadPool::work, this);
+            std::string name = _pool_name + "_" + std::to_string(i);
+            pthread_setname_np(_worker_thread_group.back().native_handle(), name.c_str());
         }
         return 0;
     }
@@ -154,8 +163,10 @@ private:
             }
             try {
                 job();
+            } catch (const std::exception& e) {
+                std::cerr << "exception happened when execute job. err: " << e.what() << std::endl;
             } catch (...) {
-                // do nothing
+                std::cerr << "exception happened when execute job." << std::endl;
             }
         }
     }

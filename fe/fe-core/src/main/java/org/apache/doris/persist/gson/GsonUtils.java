@@ -47,6 +47,7 @@ import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LikePredicate;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MapLiteral;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.MaxLiteral;
@@ -60,6 +61,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
@@ -70,7 +72,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Function;
@@ -117,6 +118,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
@@ -124,7 +126,7 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -144,6 +146,7 @@ import org.apache.doris.datasource.iceberg.IcebergGlueExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergS3TablesExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -157,6 +160,7 @@ import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -168,7 +172,9 @@ import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalCatalog;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
+import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.fs.PersistentFileSystem;
+import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -179,11 +185,12 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.BulkLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob;
+import org.apache.doris.load.loadv2.IngestionLoadJob.IngestionLoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
@@ -197,6 +204,7 @@ import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
@@ -237,24 +245,28 @@ import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.internal.Streams;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /*
  * Some utilities about Gson.
@@ -309,6 +321,7 @@ public class GsonUtils {
             .registerSubtype(StringLiteral.class, StringLiteral.class.getSimpleName())
             .registerSubtype(IntLiteral.class, IntLiteral.class.getSimpleName())
             .registerSubtype(LargeIntLiteral.class, LargeIntLiteral.class.getSimpleName())
+            .registerSubtype(LiteralExpr.class, LiteralExpr.class.getSimpleName())
             .registerSubtype(DecimalLiteral.class, DecimalLiteral.class.getSimpleName())
             .registerSubtype(FloatLiteral.class, FloatLiteral.class.getSimpleName())
             .registerSubtype(NullLiteral.class, NullLiteral.class.getSimpleName())
@@ -345,7 +358,8 @@ public class GsonUtils {
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
-            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName())
+            .registerSubtype(AIResource.class, AIResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;
@@ -374,7 +388,9 @@ public class GsonUtils {
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(LoadJobStateUpdateInfo.class, "clazz")
-            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName());
+            .registerSubtype(SparkLoadJobStateUpdateInfo.class, SparkLoadJobStateUpdateInfo.class.getSimpleName())
+            .registerSubtype(IngestionLoadJobStateUpdateInfo.class,
+                    IngestionLoadJobStateUpdateInfo.class.getSimpleName());
 
     // runtime adapter for class "Policy"
     private static RuntimeTypeAdapterFactory<Policy> policyTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
@@ -401,6 +417,8 @@ public class GsonUtils {
                 .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergDLFExternalCatalog.class, IcebergDLFExternalCatalog.class.getSimpleName())
                 .registerSubtype(IcebergHadoopExternalCatalog.class, IcebergHadoopExternalCatalog.class.getSimpleName())
+                .registerSubtype(IcebergS3TablesExternalCatalog.class,
+                        IcebergS3TablesExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonExternalCatalog.class, PaimonExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
@@ -408,7 +426,8 @@ public class GsonUtils {
                 .registerSubtype(
                             TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
-                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+                .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
+                .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName());
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -434,6 +453,7 @@ public class GsonUtils {
             RuntimeTypeAdapterFactory.of(MTMVSnapshotIf.class, "clazz")
                     .registerSubtype(MTMVMaxTimestampSnapshot.class, MTMVMaxTimestampSnapshot.class.getSimpleName())
                     .registerSubtype(MTMVTimestampSnapshot.class, MTMVTimestampSnapshot.class.getSimpleName())
+                    .registerSubtype(MTMVSnapshotIdSnapshot.class, MTMVSnapshotIdSnapshot.class.getSimpleName())
                     .registerSubtype(MTMVVersionSnapshot.class, MTMVVersionSnapshot.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
@@ -476,7 +496,8 @@ public class GsonUtils {
             .registerSubtype(MysqlTable.class, MysqlTable.class.getSimpleName())
             .registerSubtype(OdbcTable.class, OdbcTable.class.getSimpleName())
             .registerSubtype(SchemaTable.class, SchemaTable.class.getSimpleName())
-            .registerSubtype(View.class, View.class.getSimpleName());
+            .registerSubtype(View.class, View.class.getSimpleName())
+            .registerSubtype(Dictionary.class, Dictionary.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
@@ -554,13 +575,15 @@ public class GsonUtils {
             .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
             .registerSubtype(OFSFileSystem.class, OFSFileSystem.class.getSimpleName())
             .registerSubtype(ObjFileSystem.class, ObjFileSystem.class.getSimpleName())
-            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName());
+            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
+            .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
                     .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
-                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
+                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName())
+                    .registerSubtype(CloudRestoreJob.class, CloudRestoreJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
@@ -569,8 +592,8 @@ public class GsonUtils {
                     .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
                     .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
                     .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
-                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
-                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName());
+                    .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName())
+                    .registerSubtype(IngestionLoadJob.class, IngestionLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PartitionItem> partitionItemTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(PartitionItem.class, "clazz")
@@ -579,17 +602,21 @@ public class GsonUtils {
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.
+    //
+    // ATTN:
+    // Since GsonBuilder.create() adds all registered factories to GSON in reverse order, if you
+    // need to ensure the search order of two RuntimeTypeAdapterFactory instances, be sure to
+    // register them in reverse priority order.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .setObjectToNumberStrategy(ToNumberPolicy.LONG_OR_DOUBLE)
             .addSerializationExclusionStrategy(
-                    new HiddenAnnotationExclusionStrategy()).enableComplexMapKeySerialization()
+                    new HiddenAnnotationExclusionStrategy()).serializeSpecialFloatingPointValues()
+            .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
-            // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
-            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
@@ -641,7 +668,7 @@ public class GsonUtils {
     public static final Gson GSON = GSON_BUILDER.create();
 
     // ATTN: the order between creating GSON and GSON_PRETTY_PRINTING is very important.
-    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER;
+    private static final GsonBuilder GSON_BUILDER_PRETTY_PRINTING = GSON_BUILDER.setPrettyPrinting();
     public static final Gson GSON_PRETTY_PRINTING = GSON_BUILDER_PRETTY_PRINTING.create();
 
     /*
@@ -765,38 +792,6 @@ public class GsonUtils {
                 table.put(rowKey, columnKey, value);
             }
             return table;
-        }
-    }
-
-    private static class ExprAdapterFactory implements TypeAdapterFactory {
-
-        private static final String EXPR_PROP = "expr";
-
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            final Class<T> rawType = (Class<T>) type.getRawType();
-            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader in) throws IOException {
-                    if (Expr.class.isAssignableFrom(rawType)
-                            && Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_133) {
-                        JsonElement json = Streams.parse(in);
-                        String base64Str = json.getAsJsonObject().get(EXPR_PROP).getAsString();
-                        try (DataInputStream dataInputStream = new DataInputStream(
-                                new ByteArrayInputStream(Base64.getDecoder().decode(base64Str)))) {
-                            return (T) Expr.readIn(dataInputStream);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    } else {
-                        return delegate.read(in);
-                    }
-                }
-            };
         }
     }
 
@@ -963,4 +958,26 @@ public class GsonUtils {
         }
     }
 
+    public static void toJsonCompressed(DataOutput out, Object src) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
+            try (OutputStreamWriter writer = new OutputStreamWriter(gzipStream)) {
+                GsonUtils.GSON.toJson(src, writer);
+            }
+        }
+        Text text = new Text(byteStream.toByteArray());
+        text.write(out);
+    }
+
+    public static <T> T fromJsonCompressed(DataInput in, Class<T> clazz) throws IOException {
+        Text text = new Text();
+        text.readFields(in);
+
+        ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+        try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+            try (InputStreamReader reader = new InputStreamReader(gzipStream)) {
+                return GsonUtils.GSON.fromJson(reader, clazz);
+            }
+        }
+    }
 }

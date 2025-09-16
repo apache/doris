@@ -33,6 +33,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
@@ -49,14 +50,14 @@ public class Avg extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecision, SupportWindowAnalytic {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
+            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD),
             FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DecimalV3Type.WILDCARD).args(DecimalV3Type.WILDCARD)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(LargeIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -77,11 +78,17 @@ public class Avg extends NullableAggregateFunction
         super("avg", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Avg(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (((!argType.isNumericType() && !argType.isNullType()) || argType.isOnlyMetricType())) {
-            throw new AnalysisException("avg requires a numeric parameter: " + toSql());
+        if (!argType.isNumericType() && !argType.isBooleanType()
+                && !argType.isNullType() && !argType.isStringLikeType()) {
+            throw new AnalysisException("avg requires a numeric, boolean or string parameter: " + this.toSql());
         }
     }
 
@@ -136,12 +143,12 @@ public class Avg extends NullableAggregateFunction
     @Override
     public Avg withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Avg(distinct, alwaysNullable, children.get(0));
+        return new Avg(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Avg(distinct, alwaysNullable, children.get(0));
+        return new Avg(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
@@ -152,5 +159,13 @@ public class Avg extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        if (getArgument(0).getDataType() instanceof NullType) {
+            return FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE);
+        }
+        return ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 }

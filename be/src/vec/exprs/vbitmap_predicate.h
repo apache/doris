@@ -60,7 +60,7 @@ public:
 
     const std::string& expr_name() const override;
 
-    void set_filter(std::shared_ptr<BitmapFilterFuncBase>& filter);
+    void set_filter(std::shared_ptr<BitmapFilterFuncBase> filter);
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const override {
         return _filter;
@@ -72,6 +72,6 @@ public:
 
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
-    std::string _expr_name;
+    inline static const std::string EXPR_NAME = "bitmap_predicate";
 };
 } // namespace doris::vectorized

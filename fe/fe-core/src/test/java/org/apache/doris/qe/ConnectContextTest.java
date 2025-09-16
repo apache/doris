@@ -17,12 +17,14 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
@@ -30,6 +32,8 @@ import org.junit.Test;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public class ConnectContextTest {
     @Mocked
@@ -72,7 +76,7 @@ public class ConnectContextTest {
         Assert.assertEquals("testDb", ctx.getDatabase());
 
         // User
-        ctx.setQualifiedUser("testUser");
+        ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         Assert.assertEquals("testUser", ctx.getQualifiedUser());
 
         // Serializer
@@ -99,8 +103,8 @@ public class ConnectContextTest {
 
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000);
-        Assert.assertEquals(14, row.size());
+        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.empty());
+        Assert.assertEquals(15, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));
         Assert.assertEquals("testUser", row.get(2));
@@ -176,13 +180,13 @@ public class ConnectContextTest {
         // sleep no time out
         Assert.assertFalse(ctx.isKilled());
         ctx.setExecutor(executor);
-        long now = ctx.getExecTimeout() * 1000L - 1;
+        long now = ctx.getExecTimeoutS() * 1000L - 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
         // Timeout
         ctx.setExecutor(executor);
-        now = ctx.getExecTimeout() * 1000L + 1;
+        now = ctx.getExecTimeoutS() * 1000L + 1;
         ctx.checkTimeout(now);
         Assert.assertFalse(ctx.isKilled());
 
@@ -201,5 +205,97 @@ public class ConnectContextTest {
         ctx.setThreadLocalInfo();
         Assert.assertNotNull(ConnectContext.get());
         Assert.assertEquals(ctx, ConnectContext.get());
+    }
+
+    @Test
+    public void testGetMaxExecMemByte() {
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
+        context.setEnv(env);
+        long sessionValue = 2097153L;
+        long propertyValue = 2097154L;
+        // only session
+        context.getSessionVariable().setMaxExecMemByte(sessionValue);
+        long result = context.getMaxExecMemByte();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getExecMemLimit(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getMaxExecMemByte();
+        Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testGetQueryTimeoutS() {
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
+        context.setEnv(env);
+        int sessionValue = 1;
+        int propertyValue = 2;
+        // only session
+        context.getSessionVariable().setQueryTimeoutS(sessionValue);
+        long result = context.getQueryTimeoutS();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getQueryTimeout(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getQueryTimeoutS();
+        Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testInsertQueryTimeoutS() {
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("a", "%"));
+        context.setEnv(env);
+        int sessionValue = 1;
+        int propertyValue = 2;
+        // only session
+        context.getSessionVariable().setInsertTimeoutS(sessionValue);
+        long result = context.getInsertTimeoutS();
+        Assert.assertEquals(sessionValue, result);
+        // has property
+        new Expectations() {
+            {
+                auth.getInsertTimeout(anyString);
+                minTimes = 0;
+                result = propertyValue;
+            }
+        };
+        result = context.getInsertTimeoutS();
+        Assert.assertEquals(propertyValue, result);
+    }
+
+    @Test
+    public void testResetQueryId() {
+        ConnectContext context = new ConnectContext();
+        Assert.assertNull(context.queryId);
+        Assert.assertNull(context.lastQueryId);
+
+        UUID uuid = UUID.randomUUID();
+        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        context.setQueryId(queryId);
+        Assert.assertEquals(queryId, context.queryId);
+        Assert.assertNull(context.lastQueryId);
+
+        context.resetQueryId();
+        Assert.assertNull(context.queryId);
+        Assert.assertEquals(queryId, context.lastQueryId);
+
+        UUID uuid2 = UUID.randomUUID();
+        TUniqueId queryId2 = new TUniqueId(uuid2.getMostSignificantBits(), uuid2.getLeastSignificantBits());
+        context.setQueryId(queryId2);
+        Assert.assertEquals(queryId2, context.queryId);
+        Assert.assertEquals(queryId, context.lastQueryId);
     }
 }

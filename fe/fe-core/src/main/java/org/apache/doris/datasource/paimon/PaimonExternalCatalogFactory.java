@@ -35,9 +35,10 @@ public class PaimonExternalCatalogFactory {
         metastoreType = metastoreType.toLowerCase();
         switch (metastoreType) {
             case PaimonExternalCatalog.PAIMON_HMS:
-                return new PaimonHMSExternalCatalog(catalogId, name, resource, props, comment);
             case PaimonExternalCatalog.PAIMON_FILESYSTEM:
-                return new PaimonFileExternalCatalog(catalogId, name, resource, props, comment);
+            case PaimonExternalCatalog.PAIMON_DLF:
+            case PaimonExternalCatalog.PAIMON_REST:
+                return new PaimonExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + PaimonExternalCatalog.PAIMON_CATALOG_TYPE
                         + " value: " + metastoreType);

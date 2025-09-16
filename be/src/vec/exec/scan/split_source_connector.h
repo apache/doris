@@ -22,6 +22,7 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /*
  * Multiple scanners within a scan node share a split source.
@@ -43,6 +44,49 @@ public:
     virtual int num_scan_ranges() = 0;
 
     virtual TFileScanRangeParams* get_params() = 0;
+
+protected:
+    template <typename T>
+    void _merge_ranges(std::vector<T>& merged_ranges, const std::vector<T>& scan_ranges) {
+        if (scan_ranges.size() <= _max_scanners) {
+            merged_ranges = scan_ranges;
+            return;
+        }
+
+        // There is no need for the number of scanners to exceed the number of threads in thread pool.
+        // scan_ranges is sorted by path(as well as partition path) in FE, so merge scan ranges in order.
+        // In the insert statement, reading data in partition order can reduce the memory usage of BE
+        // and prevent the generation of smaller tables.
+        merged_ranges.resize(_max_scanners);
+        int num_ranges = static_cast<int>(scan_ranges.size()) / _max_scanners;
+        int num_add_one = static_cast<int>(scan_ranges.size()) - num_ranges * _max_scanners;
+        int scan_index = 0;
+        int range_index = 0;
+        for (int i = 0; i < num_add_one; ++i) {
+            merged_ranges[scan_index] = scan_ranges[range_index++];
+            auto& ranges =
+                    merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+            for (int j = 0; j < num_ranges; j++) {
+                auto& tmp_merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                ranges.insert(ranges.end(), tmp_merged_ranges.begin(), tmp_merged_ranges.end());
+            }
+        }
+        for (int i = num_add_one; i < _max_scanners; ++i) {
+            merged_ranges[scan_index] = scan_ranges[range_index++];
+            auto& ranges =
+                    merged_ranges[scan_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+            for (int j = 0; j < num_ranges - 1; j++) {
+                auto& tmp_merged_ranges =
+                        scan_ranges[range_index++].scan_range.ext_scan_range.file_scan_range.ranges;
+                ranges.insert(ranges.end(), tmp_merged_ranges.begin(), tmp_merged_ranges.end());
+            }
+        }
+        LOG(INFO) << "Merge " << scan_ranges.size() << " scan ranges to " << merged_ranges.size();
+    }
+
+protected:
+    int _max_scanners;
 };
 
 /**
@@ -59,12 +103,14 @@ private:
     int _range_index = 0;
 
 public:
-    LocalSplitSourceConnector(const std::vector<TScanRangeParams>& scan_ranges)
-            : _scan_ranges(scan_ranges) {}
+    LocalSplitSourceConnector(const std::vector<TScanRangeParams>& scan_ranges, int max_scanners) {
+        _max_scanners = max_scanners;
+        _merge_ranges<TScanRangeParams>(_scan_ranges, scan_ranges);
+    }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
-    int num_scan_ranges() override { return _scan_ranges.size(); }
+    int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
     TFileScanRangeParams* get_params() override {
         if (_scan_ranges.size() > 0 &&
@@ -72,7 +118,8 @@ public:
             // for compatibility.
             return &_scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params;
         }
-        LOG(FATAL) << "Unreachable, params is got by file_scan_range_params_map";
+        throw Exception(
+                Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
     }
 };
 
@@ -88,7 +135,7 @@ private:
     std::mutex _range_lock;
     RuntimeState* _state;
     RuntimeProfile::Counter* _get_split_timer;
-    int64 _split_source_id;
+    int64_t _split_source_id;
     int _num_splits;
 
     std::vector<TScanRangeLocations> _scan_ranges;
@@ -98,11 +145,13 @@ private:
 
 public:
     RemoteSplitSourceConnector(RuntimeState* state, RuntimeProfile::Counter* get_split_timer,
-                               int64 split_source_id, int num_splits)
+                               int64_t split_source_id, int num_splits, int max_scanners)
             : _state(state),
               _get_split_timer(get_split_timer),
               _split_source_id(split_source_id),
-              _num_splits(num_splits) {}
+              _num_splits(num_splits) {
+        _max_scanners = max_scanners;
+    }
 
     Status get_next(bool* has_next, TFileRangeDesc* range) override;
 
@@ -113,8 +162,10 @@ public:
     int num_scan_ranges() override { return _num_splits; }
 
     TFileScanRangeParams* get_params() override {
-        LOG(FATAL) << "Unreachable, params is got by file_scan_range_params_map";
+        throw Exception(
+                Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

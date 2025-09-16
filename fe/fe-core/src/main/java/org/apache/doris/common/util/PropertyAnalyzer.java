@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -34,14 +35,16 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
@@ -55,11 +58,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import lombok.val;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -83,6 +88,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SCHEMA_VERSION = "schema_version";
     public static final String PROPERTIES_PARTITION_ID = "partition_id";
     public static final String PROPERTIES_VISIBLE_VERSION = "visible_version";
+    public static final String PROPERTIES_IN_ATOMIC_RESTORE = "in_atomic_restore";
 
     public static final String PROPERTIES_BF_COLUMNS = "bloom_filter_columns";
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
@@ -94,6 +100,16 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_TIMEOUT = "timeout";
     public static final String PROPERTIES_COMPRESSION = "compression";
+
+    // row store page size, default 16KB
+    public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
+    public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
+
+    public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
+    public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
+
+    public static final String PROPERTIES_STORAGE_DICT_PAGE_SIZE = "storage_dict_page_size";
+    public static final long STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE = 262144L;
 
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
@@ -138,6 +154,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column"; // deprecated
@@ -180,6 +198,9 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION =
             "enable_nondeterministic_function";
+
+    public static final String PROPERTIES_USE_FOR_REWRITE =
+            "use_for_rewrite";
     public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
     public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     public static final String PROPERTIES_WORKLOAD_GROUP = "workload_group";
@@ -195,6 +216,7 @@ public class PropertyAnalyzer {
     // For the detail design, see the [DISP-018](https://cwiki.apache.org/confluence/
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
+    public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -213,6 +235,11 @@ public class PropertyAnalyzer {
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
             = Config.enable_mow_light_delete;
 
+    public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
+    public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
+    public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
+    public static final String USE_CATALOG_AUTO_ANALYZE_POLICY = "base_on_catalog";
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -221,6 +248,17 @@ public class PropertyAnalyzer {
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
     public static final long TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD_DEFAULT_VALUE = 5;
     public static final long TIME_SERIES_COMPACTION_LEVEL_THRESHOLD_DEFAULT_VALUE = 1;
+
+    public static final String PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT = "variant_max_subcolumns_count";
+
+    public static final String PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE = "variant_enable_typed_paths_to_sparse";
+    public static final String PROPERTIES_TDE_ALGORITHM = "tde_algorithm";
+    public static final String AES256 = "AES256";
+    public static final String SM4 = "SM4";
+    public static final String PLAINTEXT = "PLAINTEXT";
+
+    public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
+            "variant_max_sparse_column_statistics_size";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -314,6 +352,7 @@ public class PropertyAnalyzer {
         String newStoragePolicy = oldStoragePolicy;
         boolean hasStoragePolicy = false;
         boolean storageMediumSpecified = false;
+        boolean isBeingSynced = false;
 
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
@@ -329,11 +368,18 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                try {
+                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                } catch (AnalysisException e) {
+                    LOG.warn("dateLiteral failed, use max cool down time", e);
+                    cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+                }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 hasStoragePolicy = true;
                 newStoragePolicy = value;
+            } else if (key.equalsIgnoreCase(PROPERTIES_IS_BEING_SYNCED)) {
+                isBeingSynced = Boolean.parseBoolean(value);
             }
         } // end for properties
 
@@ -361,6 +407,12 @@ public class PropertyAnalyzer {
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        }
+
+        // when isBeingSynced property is set to true, the storage policy will be ignored
+        if (isBeingSynced) {
+            hasStoragePolicy = false;
+            newStoragePolicy = "";
         }
 
         if (hasStoragePolicy && !"".equals(newStoragePolicy)) {
@@ -614,6 +666,9 @@ public class PropertyAnalyzer {
             }
 
             String[] bfColumnArr = bfColumnsStr.split(COMMA_SEPARATOR);
+            if (bfColumnArr.length == 0) {
+                return bfColumns;
+            }
             Set<String> bfColumnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             for (String bfColumn : bfColumnArr) {
                 bfColumn = bfColumn.trim();
@@ -622,11 +677,8 @@ public class PropertyAnalyzer {
                     if (column.getName().equalsIgnoreCase(bfColumn)) {
                         PrimitiveType type = column.getDataType();
 
-                        // tinyint/float/double columns don't support
                         // key columns and none/replace aggregate non-key columns support
-                        if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
-                                || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isComplexType()) {
+                        if (!column.isSupportBloomFilter()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
@@ -739,6 +791,24 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (null == value) {
+            return false;
+        }
+        properties.remove(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED
+                + " must be `true` or `false`");
+    }
+
     public static Boolean analyzeEnableSingleReplicaCompaction(Map<String, String> properties)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
@@ -845,7 +915,8 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
-    public static String analyzeCompactionPolicy(Map<String, String> properties) throws AnalysisException {
+    public static String analyzeCompactionPolicy(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return SIZE_BASED_COMPACTION_POLICY;
         }
@@ -860,6 +931,9 @@ public class PropertyAnalyzer {
             }
         }
 
+        if (keysType == KeysType.UNIQUE_KEYS && compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)) {
+            throw new AnalysisException("Time series compaction policy is not supported for unique key table");
+        }
         return compactionPolicy;
     }
 
@@ -1012,6 +1086,67 @@ public class PropertyAnalyzer {
         }
     }
 
+    public static long alignTo4K(long size) {
+        return (size + 4095) & ~4095;
+    }
+
+    // analyzeRowStorePageSize will parse the row_store_page_size from properties
+    public static long analyzeRowStorePageSize(Map<String, String> properties) throws AnalysisException {
+        long rowStorePageSize = ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_ROW_STORE_PAGE_SIZE)) {
+            String rowStorePageSizeStr = properties.get(PROPERTIES_ROW_STORE_PAGE_SIZE);
+            try {
+                rowStorePageSize = alignTo4K(Long.parseLong(rowStorePageSizeStr));
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid row store page size: " + rowStorePageSizeStr);
+            }
+
+            if (rowStorePageSize <= 0) {
+                throw new AnalysisException("Row store page size should larger than 0.");
+            }
+
+            properties.remove(PROPERTIES_ROW_STORE_PAGE_SIZE);
+        }
+
+        return rowStorePageSize;
+    }
+
+    public static long analyzeStoragePageSize(Map<String, String> properties) throws AnalysisException {
+        long storagePageSize = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_PAGE_SIZE)) {
+            String storagePageSizeStr = properties.get(PROPERTIES_STORAGE_PAGE_SIZE);
+            try {
+                storagePageSize = Long.parseLong(storagePageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage page size: " + storagePageSizeStr);
+            }
+            if (storagePageSize < 4096 || storagePageSize > 10485760) {
+                throw new AnalysisException("Storage page size must be between 4KB and 10MB.");
+            }
+            storagePageSize = alignTo4K(storagePageSize);
+            properties.remove(PROPERTIES_STORAGE_PAGE_SIZE);
+        }
+        return storagePageSize;
+    }
+
+    public static long analyzeStorageDictPageSize(Map<String, String> properties) throws AnalysisException {
+        long storageDictPageSize = STORAGE_DICT_PAGE_SIZE_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            String storageDictPageSizeStr = properties.get(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+            try {
+                storageDictPageSize = Long.parseLong(storageDictPageSizeStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid storage dict page size: " + storageDictPageSizeStr);
+            }
+            if (storageDictPageSize < 0 || storageDictPageSize > 104857600) {
+                throw new AnalysisException("Storage dict page size must be between 0 and 100MB.");
+            }
+            storageDictPageSize = alignTo4K(storageDictPageSize);
+            properties.remove(PROPERTIES_STORAGE_DICT_PAGE_SIZE);
+        }
+        return storageDictPageSize;
+    }
+
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
@@ -1045,6 +1180,8 @@ public class PropertyAnalyzer {
         } else {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
@@ -1054,9 +1191,13 @@ public class PropertyAnalyzer {
             return TInvertedIndexFileStorageFormat.V1;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v2")) {
             return TInvertedIndexFileStorageFormat.V2;
+        } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("v3")) {
+            return TInvertedIndexFileStorageFormat.V3;
         } else if (invertedIndexFileStorageFormat.equalsIgnoreCase("default")) {
             if (Config.inverted_index_storage_format.equalsIgnoreCase("V1")) {
                 return TInvertedIndexFileStorageFormat.V1;
+            } else if (Config.inverted_index_storage_format.equalsIgnoreCase("V3")) {
+                return TInvertedIndexFileStorageFormat.V3;
             } else {
                 return TInvertedIndexFileStorageFormat.V2;
             }
@@ -1093,14 +1234,78 @@ public class PropertyAnalyzer {
         return storagePolicy;
     }
 
-    public static String analyzeStorageVault(Map<String, String> properties) {
-        String storageVault = null;
+    public static boolean hasStoragePolicy(Map<String, String> properties) {
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static String analyzeStorageVaultName(Map<String, String> properties) {
+        String storageVaultName = null;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_NAME)) {
-            storageVault = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
+            storageVaultName = properties.get(PROPERTIES_STORAGE_VAULT_NAME);
             properties.remove(PROPERTIES_STORAGE_VAULT_NAME);
         }
 
-        return storageVault;
+        return storageVaultName;
+    }
+
+    /**
+     * @param properties, db
+     * @return <storageVaultName, storageVaultId>
+     * @throws AnalysisException
+     */
+    public static Pair<String, String> analyzeStorageVault(Map<String, String> properties, Database db)
+            throws AnalysisException {
+        String storageVaultName = analyzeStorageVaultName(properties);
+        String storageVaultId = null;
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            // If user does not specify one storage vault then FE would check db's storage vault then the default vault
+            // the storage vault inherit order is as follows: table -> db -> default
+            if (db.getDbProperties() != null) {
+                Map<String, String> dbProperties = new HashMap<>(db.getDbProperties().getProperties());
+                storageVaultName = PropertyAnalyzer.analyzeStorageVaultName(dbProperties);
+            }
+
+            if (!Strings.isNullOrEmpty(storageVaultName)) {
+                storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+                LOG.info("Using database[{}] storage vault: name={}, id={}",
+                        db.getName(), storageVaultName, storageVaultId);
+            } else {
+                // continue to check default vault
+                Pair<String, String> info = Env.getCurrentEnv().getStorageVaultMgr().getDefaultStorageVault();
+                if (info == null || Strings.isNullOrEmpty(info.first) || Strings.isNullOrEmpty(info.second)) {
+                    throw new AnalysisException("No default storage vault."
+                            + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                            + " and pick one set default vault with `SET <vault_name> AS DEFAULT STORAGE VAULT`");
+                }
+                storageVaultName = info.first;
+                LOG.info("Using default storage vault, name:{} id:{}", info.first, info.second);
+            }
+        }
+
+        if (Strings.isNullOrEmpty(storageVaultName)) {
+            throw new AnalysisException("Invalid Storage Vault. "
+                    + " You can use `SHOW STORAGE VAULT` to get all available vaults,"
+                    + " and pick one to set the table property `\"storage_vault_name\" = \"<vault_name>\"`");
+        }
+
+        storageVaultId = Env.getCurrentEnv().getStorageVaultMgr().getVaultIdByName(storageVaultName);
+        if (Strings.isNullOrEmpty(storageVaultId)) {
+            throw new AnalysisException("Storage vault '" + storageVaultName + "' does not exist. "
+                    + "You can use `SHOW STORAGE VAULT` to get all available vaults, "
+                    + "or create a new one with `CREATE STORAGE VAULT`.");
+        }
+
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_VAULT_ID)) {
+            Preconditions.checkArgument(storageVaultId.equals(properties.get(PROPERTIES_STORAGE_VAULT_ID)),
+                    "storageVaultId check failed, %s-%s", storageVaultId, properties.get(PROPERTIES_STORAGE_VAULT_ID));
+            properties.remove(PROPERTIES_STORAGE_VAULT_ID);
+        }
+
+        return Pair.of(storageVaultName, storageVaultId);
     }
 
     // analyze property like : "type" = "xxx";
@@ -1126,11 +1331,14 @@ public class PropertyAnalyzer {
         if (typeStr != null && keysType != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
-        PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
+
+        Type type = DataType.convertFromString(typeStr.toLowerCase()).toCatalogDataType();
+
         if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
-        return ScalarType.createType(type);
+
+        return type;
     }
 
     public static String analyzeSequenceMapCol(Map<String, String> properties, KeysType keysType)
@@ -1186,7 +1394,7 @@ public class PropertyAnalyzer {
             tagMap.put(tag.type, tag.value);
             iter.remove();
         }
-        if (tagMap.isEmpty() && defaultValue != null) {
+        if (defaultValue != null && !tagMap.containsKey(defaultValue.type)) {
             tagMap.put(defaultValue.type, defaultValue.value);
         }
         return tagMap;
@@ -1417,14 +1625,33 @@ public class PropertyAnalyzer {
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE + " must be `true` or `false`");
     }
 
-    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties)
-            throws AnalysisException {
+    public static boolean analyzeUniqueKeySkipBitmapColumn(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
-        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        String value = properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
         if (value == null) {
             return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN);
+        if (value.equals("true")) {
+            return true;
+        } else if (value.equals("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN
+                + " must be `true` or `false`");
+    }
+
+    public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
+            boolean enableUniqueKeyMergeOnWrite)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
+        if (value == null) {
+            return enableUniqueKeyMergeOnWrite ? Config.enable_mow_light_delete : false;
         }
         properties.remove(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
         if (value.equals("true")) {
@@ -1501,16 +1728,6 @@ public class PropertyAnalyzer {
         // "access_controller.properties.prop2" = "yyy",
         // )
         // 1. get access controller class
-        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
-        if (!Strings.isNullOrEmpty(acClass)) {
-            // 2. check if class exists
-            try {
-                Class.forName(acClass);
-            } catch (ClassNotFoundException e) {
-                throw new AnalysisException("failed to find class " + acClass, e);
-            }
-        }
-
         if (isAlter) {
             // The 'use_meta_cache' property can not be modified
             if (properties.containsKey(ExternalCatalog.USE_META_CACHE)) {
@@ -1572,7 +1789,7 @@ public class PropertyAnalyzer {
 
     private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
             String ctl, String database, Map<String, String> properties) {
-        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        // if table contain `replication_allocation` or `replication_num`,not need rewrite by db
         if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
             return properties;
@@ -1617,5 +1834,96 @@ public class PropertyAnalyzer {
             properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
         }
         return properties;
+    }
+
+    public static Map<String, String> addEnableUniqueKeySkipBitmapPropertyIfNotExists(Map<String, String> properties) {
+        if (properties != null && !properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN,
+                    Boolean.toString(Config.enable_skip_bitmap_column_by_default));
+        }
+        return properties;
+    }
+
+    public static int analyzeVariantMaxSubcolumnsCount(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSubcoumnsCount = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
+            String maxSubcoumnsCountStr = properties.get(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+            try {
+                maxSubcoumnsCount = Integer.parseInt(maxSubcoumnsCountStr);
+                if (maxSubcoumnsCount < 0 || maxSubcoumnsCount > 100000) {
+                    throw new AnalysisException("varaint max counts count must between 0 and 100000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("varaint max counts count format error");
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT);
+        }
+        return maxSubcoumnsCount;
+    }
+
+    public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
+                        boolean defaultValue) throws AnalysisException {
+        boolean enableTypedPathsToSparse = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
+            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            try {
+                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
+            } catch (Exception e) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            }
+            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+        }
+        return enableTypedPathsToSparse;
+    }
+
+    public static int analyzeVariantMaxSparseColumnStatisticsSize(Map<String, String> properties, int defuatValue)
+                                                                                throws AnalysisException {
+        int maxSparseColumnStatisticsSize = defuatValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
+            String maxSparseColumnStatisticsSizeStr =
+                    properties.get(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+            try {
+                maxSparseColumnStatisticsSize = Integer.parseInt(maxSparseColumnStatisticsSizeStr);
+                if (maxSparseColumnStatisticsSize < 0 || maxSparseColumnStatisticsSize > 50000) {
+                    throw new AnalysisException("variant_max_sparse_column_statistics_size must between 0 and 50000 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException("variant_max_sparse_column_statistics_size format error:" + e.getMessage());
+            }
+
+            properties.remove(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE);
+        }
+        return maxSparseColumnStatisticsSize;
+    }
+
+    public static TEncryptionAlgorithm analyzeTDEAlgorithm(Map<String, String> properties) throws AnalysisException {
+        String name;
+        //if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+        //    name = Config.doris_tde_algorithm;
+        //} else if (!PLAINTEXT.equals(Config.doris_tde_algorithm)) {
+        //    throw new AnalysisException("Cannot create a table on encrypted FE,"
+        //            + " please set Config.doris_tde_algorithm to PLAINTEXT");
+        //} else {
+        //    name = properties.remove(PROPERTIES_TDE_ALGORITHM);
+        //}
+        //
+        if (properties == null || !properties.containsKey(PROPERTIES_TDE_ALGORITHM)) {
+            name = Config.doris_tde_algorithm;
+        } else {
+            throw new AnalysisException("Do not support tde_algorithm property currently");
+        }
+
+        if (AES256.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.AES256;
+        }
+        if (SM4.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.SM4;
+        }
+        if (PLAINTEXT.equalsIgnoreCase(name)) {
+            return TEncryptionAlgorithm.PLAINTEXT;
+        }
+        throw new AnalysisException("Invalid tde algorithm: " + name + ", only support AES256 and SM4 currently");
     }
 }

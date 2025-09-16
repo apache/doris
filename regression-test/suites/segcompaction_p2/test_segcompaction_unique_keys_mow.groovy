@@ -27,26 +27,6 @@ suite("test_segcompaction_unique_keys_mow") {
 
 
     try {
-        String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -90,9 +70,6 @@ suite("test_segcompaction_unique_keys_mow") {
                 "AWS_REGION" = "$region",
                 "provider" = "${getS3Provider()}"
             )
-            properties(
-                "use_new_load_scan_node" = "true"
-            )
             """
 
         def max_try_milli_secs = 3600000
@@ -115,8 +92,20 @@ suite("test_segcompaction_unique_keys_mow") {
 
         qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47; """
 
-        String[][] tablets = sql """ show tablets from ${tableName}; """
+        def row_count = sql """ SELECT count(*) FROM ${tableName}; """
+        logger.info("row_count: " + row_count)
+        assertEquals(4999989, row_count[0][0])
 
+        def result = sql """ select col_0, count(*) a from ${tableName} group by col_0 having a > 1; """
+        logger.info("duplicated keys: " + result)
+        assertTrue(result.size() == 0, "There are duplicate keys in the table")
+
+        def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+        for (def tablet in tablets) {
+            def (code, out, err) = curl("GET", tablet.CompactionStatus)
+            logger.info("Show tablet status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+        }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

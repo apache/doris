@@ -123,6 +123,40 @@ suite("test_javaudf_int") {
         qt_select_global_3 """ SELECT java_udf_int_test_global(3) result FROM ${tableName} ORDER BY result; """
         qt_select_global_4 """ SELECT abs(java_udf_int_test_global(3)) result FROM ${tableName} ORDER BY result; """
 
+        sql """ CREATE FUNCTION java_udf_int_test_not_nullable(int) RETURNS int PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.IntTest",
+            "always_nullable"="false",
+            "type"="JAVA_UDF"
+        ); """
+
+        test {
+            sql """ SELECT java_udf_int_test_not_nullable(NULL); """
+            exception "but the return type is not nullable"
+        }
+
+        sql """ CREATE FUNCTION java_udf_largeint_test_not_nullable(largeint) RETURNS largeint PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.LargeintTest",
+            "always_nullable"="false",
+            "type"="JAVA_UDF"
+        ); """
+
+        test {
+            sql """ SELECT java_udf_largeint_test_not_nullable(NULL); """
+            exception "but the return type is not nullable"
+        }
+
+        test {
+            sql """ CREATE FUNCTION java_udf_largeint_test_not_nullable(largeint) RETURNS string PROPERTIES (
+                "file"="file://${jarPath}",
+                "symbol"="org.apache.doris.udf.LargeintTest",
+                "always_nullable"="false",
+                "type"="JAVA_UDF"
+            ); """
+            exception "but create function command type is STRING"
+        }
+
     } finally {
         try_sql("DROP GLOBAL FUNCTION IF EXISTS java_udf_int_test_global(int);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_tinyint_test(tinyint);")
@@ -130,6 +164,8 @@ suite("test_javaudf_int") {
         try_sql("DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_largeint_test(largeint);")
         try_sql("DROP FUNCTION IF EXISTS java_udf_int_test(int);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_int_test_not_nullable(int);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_largeint_test_not_nullable(largeint);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

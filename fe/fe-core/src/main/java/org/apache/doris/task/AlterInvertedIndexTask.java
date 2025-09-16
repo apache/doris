@@ -45,12 +45,13 @@ public class AlterInvertedIndexTask extends AgentTask {
     private List<Index> existIndexes;
     private boolean isDropOp = false;
     private long jobId;
+    private int schemaVersion;
 
     public AlterInvertedIndexTask(long backendId, long dbId, long tableId,
             long partitionId, long indexId, long tabletId, int schemaHash,
             List<Index> existIndexes, List<Index> alterInvertedIndexes,
             List<Column> schemaColumns, boolean isDropOp, long taskSignature,
-            long jobId) {
+            long jobId, int schemaVersion) {
         super(null, backendId, TTaskType.ALTER_INVERTED_INDEX, dbId, tableId,
                 partitionId, indexId, tabletId, taskSignature);
         this.tabletId = tabletId;
@@ -60,6 +61,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         this.schemaColumns = schemaColumns;
         this.isDropOp = isDropOp;
         this.jobId = jobId;
+        this.schemaVersion = schemaVersion;
     }
 
     public long getTabletId() {
@@ -96,6 +98,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         TAlterInvertedIndexReq req = new TAlterInvertedIndexReq();
         req.setTabletId(tabletId);
         req.setSchemaHash(schemaHash);
+        req.setSchemaVersion(schemaVersion);
         req.setIsDropOp(isDropOp);
         // set jonId for debugging in BE
         req.setJobId(jobId);
@@ -103,7 +106,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (!alterInvertedIndexes.isEmpty()) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : alterInvertedIndexes) {
-                tIndexes.add(index.toThrift());
+                tIndexes.add(index.toThrift(index.getColumnUniqueIds(schemaColumns)));
             }
             req.setAlterInvertedIndexes(tIndexes);
         }
@@ -111,7 +114,7 @@ public class AlterInvertedIndexTask extends AgentTask {
         if (existIndexes != null) {
             List<TOlapTableIndex> indexDesc = new ArrayList<TOlapTableIndex>();
             for (Index index : existIndexes) {
-                TOlapTableIndex tIndex = index.toThrift();
+                TOlapTableIndex tIndex = index.toThrift(index.getColumnUniqueIds(schemaColumns));
                 indexDesc.add(tIndex);
             }
             req.setIndexesDesc(indexDesc);

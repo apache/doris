@@ -20,11 +20,11 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -43,7 +42,8 @@ import java.util.Optional;
 /**
  * plan for table generator, the statement like: SELECT * FROM tbl LATERAL VIEW EXPLODE(c1) g as (gc1);
  */
-public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Generate {
+public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements Generate, DiffOutputInAsterisk {
 
     private final List<Function> generators;
     private final List<Slot> generatorOutput;
@@ -131,10 +131,19 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     }
 
     @Override
+    public List<Slot> computeAsteriskOutput() {
+        return ImmutableList.<Slot>builder()
+                .addAll(child().getAsteriskOutput())
+                .addAll(generatorOutput)
+                .build();
+    }
+
+    @Override
     public String toString() {
-        return Utils.toSqlString("LogicalGenerate",
+        return Utils.toSqlStringSkipNull("LogicalGenerate",
                 "generators", generators,
-                "generatorOutput", generatorOutput
+                "generatorOutput", generatorOutput,
+                "stats", statistics
         );
     }
 
@@ -154,11 +163,6 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public int hashCode() {
         return Objects.hash(generators, generatorOutput);
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ImmutableSet.of();
     }
 
     @Override

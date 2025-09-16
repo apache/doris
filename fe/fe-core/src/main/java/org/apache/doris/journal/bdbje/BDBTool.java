@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LogUtils;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.meta.MetaContext;
 
@@ -61,6 +62,7 @@ public class BDBTool {
         envConfig.setAllowCreate(false);
         envConfig.setReadOnly(true);
         envConfig.setCachePercent(20);
+        envConfig.setConfigParam(EnvironmentConfig.LOG_CHECKSUM_READ, "false");
 
         Environment env = null;
         try {
@@ -155,16 +157,30 @@ public class BDBTool {
             try {
                 entity.readFields(in);
             } catch (Exception e) {
-                LOG.warn("", e);
+                LOG.warn("Fail to read journal entity", e);
                 LogUtils.stderr("Fail to read journal entity for key: " + key + ". reason: " + e.getMessage());
-                System.exit(-1);
             }
             LogUtils.stdout("key: " + key);
-            LogUtils.stdout("op code: " + entity.getOpCode());
-            LogUtils.stdout("value: " + entity.getData().toString());
+            LogUtils.stdout("op code: " + String.valueOf(entity.getOpCode()));
+            LogUtils.stdout("num bytes: " + String.valueOf(retData.length));
+            LogUtils.stdout("bytes: " + escape(retData));
+            Writable data = entity.getData();
+            LogUtils.stdout("value: " + (data == null ? "null" : data.toString()));
         } else if (status == OperationStatus.NOTFOUND) {
             LogUtils.stdout("key: " + key);
             LogUtils.stdout("value: NOT FOUND");
         }
+    }
+
+    private static String escape(byte[] data) {
+        StringBuilder buf = new StringBuilder();
+        for (byte b : data) {
+            if (b >= 0x20 && b <= 0x7e) {
+                buf.append((char) b);
+            } else {
+                buf.append(String.format("\\0x%02x", b & 0xFF));
+            }
+        }
+        return buf.toString();
     }
 }

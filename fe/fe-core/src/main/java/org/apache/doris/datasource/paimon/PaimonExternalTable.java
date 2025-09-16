@@ -17,11 +17,30 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CacheException;
+import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.systable.SupportedSysTables;
+import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.mtmv.MTMVBaseTableIf;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
+import org.apache.doris.mtmv.MTMVSnapshotIf;
+import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -30,30 +49,39 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.Snapshot;
+import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.TableSchema;
-import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
-import org.apache.paimon.types.DecimalType;
-import org.apache.paimon.types.MapType;
-import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.DataTypeRoot;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-public class PaimonExternalTable extends ExternalTable {
+public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
 
-    public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
-        super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
+    private final Table paimonTable;
+
+    public PaimonExternalTable(long id, String name, String remoteName, PaimonExternalCatalog catalog,
+            PaimonExternalDatabase db) {
+        super(id, name, remoteName, catalog, db, TableType.PAIMON_EXTERNAL_TABLE);
+        this.paimonTable = catalog.getPaimonTable(getOrBuildNameMapping());
     }
 
     public String getPaimonCatalogType() {
@@ -67,101 +95,49 @@ public class PaimonExternalTable extends ExternalTable {
         }
     }
 
-    public Table getPaimonTable() {
+    public Table getPaimonTable(Optional<MvccSnapshot> snapshot) {
+        return getOrFetchSnapshotCacheValue(snapshot).getSnapshot().getTable();
+    }
+
+    private PaimonSnapshotCacheValue getPaimonSnapshotCacheValue(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
         makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
-    }
-
-    @Override
-    public Optional<SchemaCacheValue> initSchema() {
-        Table paimonTable = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName, name);
-        TableSchema schema = ((FileStoreTable) paimonTable).schema();
-        List<DataField> columns = schema.fields();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-        for (DataField field : columns) {
-            tmpSchema.add(new Column(field.name().toLowerCase(),
-                    paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
-                    field.id()));
+        if (tableSnapshot.isPresent() || (scanParams.isPresent() && scanParams.get().isTag())) {
+            // If a snapshot is specified,
+            // use the specified snapshot and the corresponding schema(not the latest
+            // schema).
+            try {
+                Snapshot snapshot = PaimonUtil.getPaimonSnapshot(paimonTable, tableSnapshot, scanParams);
+                return new PaimonSnapshotCacheValue(PaimonPartitionInfo.EMPTY,
+                        new PaimonSnapshot(snapshot.id(), snapshot.schemaId(), paimonTable));
+            } catch (Exception e) {
+                LOG.warn("Failed to get Paimon snapshot for table {}", paimonTable.name(), e);
+                throw new RuntimeException(
+                        "Failed to get Paimon snapshot: " + (e.getMessage() == null ? "unknown cause" : e.getMessage()),
+                        e);
+            }
+        } else {
+            // Otherwise, use the latest snapshot and the latest schema.
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                    .getPaimonSnapshot(this);
         }
-        return Optional.of(new PaimonSchemaCacheValue(tmpSchema, paimonTable));
-    }
-
-    private Type paimonPrimitiveTypeToDorisType(org.apache.paimon.types.DataType dataType) {
-        switch (dataType.getTypeRoot()) {
-            case BOOLEAN:
-                return Type.BOOLEAN;
-            case INTEGER:
-                return Type.INT;
-            case BIGINT:
-                return Type.BIGINT;
-            case FLOAT:
-                return Type.FLOAT;
-            case DOUBLE:
-                return Type.DOUBLE;
-            case SMALLINT:
-                return Type.SMALLINT;
-            case TINYINT:
-                return Type.TINYINT;
-            case VARCHAR:
-            case BINARY:
-            case CHAR:
-            case VARBINARY:
-                return Type.STRING;
-            case DECIMAL:
-                DecimalType decimal = (DecimalType) dataType;
-                return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
-            case DATE:
-                return ScalarType.createDateV2Type();
-            case TIMESTAMP_WITHOUT_TIME_ZONE:
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
-                int scale = 3; // default
-                if (dataType instanceof org.apache.paimon.types.TimestampType) {
-                    scale = ((org.apache.paimon.types.TimestampType) dataType).getPrecision();
-                    if (scale > 6) {
-                        scale = 6;
-                    }
-                }
-                return ScalarType.createDatetimeV2Type(scale);
-            case ARRAY:
-                ArrayType arrayType = (ArrayType) dataType;
-                Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType());
-                return org.apache.doris.catalog.ArrayType.create(innerType, true);
-            case MAP:
-                MapType mapType = (MapType) dataType;
-                return new org.apache.doris.catalog.MapType(
-                        paimonTypeToDorisType(mapType.getKeyType()), paimonTypeToDorisType(mapType.getValueType()));
-            case ROW:
-                RowType rowType = (RowType) dataType;
-                List<DataField> fields = rowType.getFields();
-                return new org.apache.doris.catalog.StructType(fields.stream()
-                        .map(field -> new org.apache.doris.catalog.StructField(field.name(),
-                                paimonTypeToDorisType(field.type())))
-                        .collect(Collectors.toCollection(ArrayList::new)));
-            case TIME_WITHOUT_TIME_ZONE:
-                return Type.UNSUPPORTED;
-            default:
-                LOG.warn("Cannot transform unknown type: " + dataType.getTypeRoot());
-                return Type.UNSUPPORTED;
-        }
-    }
-
-    protected Type paimonTypeToDorisType(org.apache.paimon.types.DataType type) {
-        return paimonPrimitiveTypeToDorisType(type);
     }
 
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType()) || PaimonExternalCatalog.PAIMON_FILESYSTEM
-                .equals(getPaimonCatalogType())) {
+        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_REST.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            throw new IllegalArgumentException("Currently only supports hms/filesystem catalog,not support :"
+            throw new IllegalArgumentException(
+                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :"
                     + getPaimonCatalogType());
         }
     }
@@ -175,22 +151,192 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public long fetchRowCount() {
         makeSureInitialized();
-        try {
-            long rowCount = 0;
-            Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-            Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
-                    .orElse(null);
-            if (paimonTable == null) {
-                return -1;
-            }
-            List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
-            for (Split split : splits) {
-                rowCount += split.rowCount();
-            }
-            return rowCount;
-        } catch (Exception e) {
-            LOG.warn("Fail to collect row count for db {} table {}", dbName, name, e);
+        long rowCount = 0;
+        List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
+        for (Split split : splits) {
+            rowCount += split.rowCount();
         }
-        return -1;
+        if (rowCount == 0) {
+            LOG.info("Paimon table {} row count is 0, return -1", name);
+        }
+        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
+    }
+
+    @Override
+    public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
+    }
+
+    @Override
+    public Map<String, PartitionItem> getAndCopyPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return Maps.newHashMap(getNameToPartitionItems(snapshot));
+    }
+
+    @Override
+    public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
+        if (isPartitionInvalid(snapshot)) {
+            return PartitionType.UNPARTITIONED;
+        }
+        return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
+    }
+
+    @Override
+    public Set<String> getPartitionColumnNames(Optional<MvccSnapshot> snapshot) {
+        return getPartitionColumns(snapshot).stream()
+                .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+    }
+
+    @Override
+    public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        if (isPartitionInvalid(snapshot)) {
+            return Collections.emptyList();
+        }
+        return getPaimonSchemaCacheValue(snapshot).getPartitionColumns();
+    }
+
+    public boolean isPartitionInvalid(Optional<MvccSnapshot> snapshot) {
+        PaimonSnapshotCacheValue paimonSnapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
+        return paimonSnapshotCacheValue.getPartitionInfo().isPartitionInvalid();
+    }
+
+    @Override
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        Partition paimonPartition = getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartition()
+                .get(partitionName);
+        if (paimonPartition == null) {
+            throw new AnalysisException("can not find partition: " + partitionName);
+        }
+        return new MTMVTimestampSnapshot(paimonPartition.lastFileCreationTime());
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
+            throws AnalysisException {
+        return getTableSnapshot(snapshot);
+    }
+
+    public Map<String, Partition> getPartitionSnapshot(
+            Optional<MvccSnapshot> snapshot) {
+
+        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo()
+                .getNameToPartition();
+    }
+
+    @Override
+    public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        PaimonSnapshotCacheValue paimonSnapshot = getOrFetchSnapshotCacheValue(snapshot);
+        return new MTMVSnapshotIdSnapshot(paimonSnapshot.getSnapshot().getSnapshotId());
+    }
+
+    @Override
+    public long getNewestUpdateVersionOrTime() {
+        return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty()).getPartitionInfo().getNameToPartition()
+                .values().stream()
+                .mapToLong(Partition::lastFileCreationTime).max().orElse(0);
+    }
+
+    @Override
+    public boolean isPartitionColumnAllowNull() {
+        // Paimon will write to the 'null' partition regardless of whether it is' null or 'null'.
+        // The logic is inconsistent with Doris' empty partition logic, so it needs to return false.
+        // However, when Spark creates Paimon tables, specifying 'not null' does not take effect.
+        // In order to successfully create the materialized view, false is returned here.
+        // The cost is that Paimon partition writes a null value, and the materialized view cannot detect this data.
+        return true;
+    }
+
+    @Override
+    public MvccSnapshot loadSnapshot(Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams) {
+        return new PaimonMvccSnapshot(getPaimonSnapshotCacheValue(tableSnapshot, scanParams));
+    }
+
+    @Override
+    public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        return getOrFetchSnapshotCacheValue(snapshot).getPartitionInfo().getNameToPartitionItem();
+    }
+
+    @Override
+    public boolean supportInternalPartitionPruned() {
+        return true;
+    }
+
+    @Override
+    public List<Column> getFullSchema() {
+        return getPaimonSchemaCacheValue(MvccUtil.getSnapshotFromContext(this)).getSchema();
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
+        makeSureInitialized();
+        PaimonSchemaCacheKey paimonSchemaCacheKey = (PaimonSchemaCacheKey) key;
+        try {
+            Table table = ((PaimonExternalCatalog) getCatalog()).getPaimonTable(getOrBuildNameMapping());
+            TableSchema tableSchema = ((DataTable) table).schemaManager().schema(paimonSchemaCacheKey.getSchemaId());
+            List<DataField> columns = tableSchema.fields();
+            List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());
+            Set<String> partitionColumnNames = Sets.newHashSet(tableSchema.partitionKeys());
+            List<Column> partitionColumns = Lists.newArrayList();
+            for (DataField field : columns) {
+                Column column = new Column(field.name().toLowerCase(),
+                        PaimonUtil.paimonTypeToDorisType(field.type()), true, null, true, field.description(), true,
+                        -1);
+                PaimonUtil.updatePaimonColumnUniqueId(column, field);
+                if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                    column.setWithTZExtraInfo();
+                }
+                dorisColumns.add(column);
+                if (partitionColumnNames.contains(field.name())) {
+                    partitionColumns.add(column);
+                }
+            }
+            return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
+        } catch (Exception e) {
+            throw new CacheException("failed to initSchema for: %s.%s.%s.%s",
+                    null, getCatalog().getName(), key.getNameMapping().getLocalDbName(),
+                    key.getNameMapping().getLocalTblName(),
+                    paimonSchemaCacheKey.getSchemaId());
+        }
+    }
+
+    private PaimonSchemaCacheValue getPaimonSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        PaimonSnapshotCacheValue snapshotCacheValue = getOrFetchSnapshotCacheValue(snapshot);
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getPaimonMetadataCache()
+                .getPaimonSchemaCacheValue(getOrBuildNameMapping(), snapshotCacheValue.getSnapshot().getSchemaId());
+    }
+
+    private PaimonSnapshotCacheValue getOrFetchSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            return ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue();
+        } else {
+            return getPaimonSnapshotCacheValue(Optional.empty(), Optional.empty());
+        }
+    }
+
+    @Override
+    public List<SysTable> getSupportedSysTables() {
+        makeSureInitialized();
+        return SupportedSysTables.PAIMON_SUPPORTED_SYS_TABLES;
+    }
+
+    @Override
+    public String getComment() {
+        return paimonTable.comment().isPresent() ? paimonTable.comment().get() : "";
+    }
+
+    public Map<String, String> getTableProperties() {
+
+        if (paimonTable instanceof DataTable) {
+            DataTable dataTable = (DataTable) paimonTable;
+            Map<String, String> properties = new LinkedHashMap<>(dataTable.coreOptions().toMap());
+
+            if (!dataTable.primaryKeys().isEmpty()) {
+                properties.put(CoreOptions.PRIMARY_KEY.key(), String.join(",", dataTable.primaryKeys()));
+            }
+
+            return properties;
+        } else {
+            return Collections.emptyMap();
+        }
     }
 }

@@ -17,7 +17,24 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.Scope;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.CollectOneLevelRelation;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -30,21 +47,29 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -119,10 +144,26 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
      */
-    public static List<NamedExpression> mergeProjections(List<NamedExpression> childProjects,
-            List<NamedExpression> parentProjects) {
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        try {
+            return Optional.of(mergeProjections(childProjects, parentProjects));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
+     */
+    public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
         Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
         return ExpressionUtils.replaceNamedExpressions(parentProjects, replaceMap);
     }
@@ -131,6 +172,31 @@ public class PlanUtils {
             List<Expression> targetExpression) {
         Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(childProjects);
         return ExpressionUtils.replace(targetExpression, replaceMap);
+    }
+
+    /**
+     * replace targetExpressions with project.
+     * if the target expression contains a slot which is an alias and its origin expression contains
+     * unique function and the slot exits multiple times, then can not replace.
+     * for example, target expressions: [a, a + 10],  child project: [ t + random() as a ],
+     * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
+     * it will calculate random two times, this is error.
+     */
+    public static boolean canMergeWithProjections(List<? extends NamedExpression> childProjects,
+            List<? extends Expression> targetExpressions) {
+        Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+        for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
+            if (kv.getValue().containsUniqueFunction()) {
+                uniqueFunctionSlots.add(kv.getKey());
+            }
+        }
+        if (uniqueFunctionSlots.isEmpty()) {
+            return true;
+        }
+
+        Set<Slot> counterSet = Sets.newHashSet();
+        return targetExpressions.stream().noneMatch(target -> target.anyMatch(
+                e -> (e instanceof Slot) && uniqueFunctionSlots.contains(e) && !counterSet.add((Slot) e)));
     }
 
     public static Plan skipProjectFilterLimit(Plan plan) {
@@ -179,6 +245,30 @@ public class PlanUtils {
         return output.build();
     }
 
+    /** fastGetChildrenOutput */
+    public static List<Slot> fastGetChildrenAsteriskOutputs(List<Plan> children) {
+        switch (children.size()) {
+            case 1: return children.get(0).getAsteriskOutput();
+            case 0: return ImmutableList.of();
+            default: {
+            }
+        }
+
+        int outputNum = 0;
+        // child.output is cached by AbstractPlan.logicalProperties,
+        // we can compute output num without the overhead of re-compute output
+        for (Plan child : children) {
+            List<Slot> output = child.getAsteriskOutput();
+            outputNum += output.size();
+        }
+        // generate output list only copy once and without resize the list
+        Builder<Slot> output = ImmutableList.builderWithExpectedSize(outputNum);
+        for (Plan child : children) {
+            output.addAll(child.getAsteriskOutput());
+        }
+        return output.build();
+    }
+
     /** fastGetInputSlots */
     public static Set<Slot> fastGetInputSlots(List<? extends Expression> expressions) {
         switch (expressions.size()) {
@@ -221,8 +311,8 @@ public class PlanUtils {
      */
     public static boolean isColumnRef(Expression expr) {
         return expr instanceof SlotReference
-                && ((SlotReference) expr).getColumn().isPresent()
-                && ((SlotReference) expr).getTable().isPresent();
+                && ((SlotReference) expr).getOriginalColumn().isPresent()
+                && ((SlotReference) expr).getOriginalTable().isPresent();
     }
 
     /**
@@ -296,5 +386,64 @@ public class PlanUtils {
                 OutermostPlanFinderContext ctx) {
             return null;
         }
+    }
+
+    /**
+     * translate to legacy expr, which do not need complex expression and table columns
+     */
+    public static Expr translateToLegacyExpr(Expression expression, TableIf table, ConnectContext ctx) {
+        LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                PhysicalProperties.ANY);
+        ExpressionAnalyzer analyzer = new CustomExpressionAnalyzer(table, cascadesContext);
+        expression = analyzer.analyze(expression);
+
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(cascadesContext);
+        ExpressionToExpr translator = new ExpressionToExpr();
+        return expression.accept(translator, translatorContext);
+    }
+
+    private static class CustomExpressionAnalyzer extends ExpressionAnalyzer {
+        private Map<String, DataType> columnTypes = new CaseInsensitiveMap();
+
+        public CustomExpressionAnalyzer(TableIf table, CascadesContext cascadesContext) {
+            super(null, new Scope(ImmutableList.of()), cascadesContext, false, false);
+            if (table != null) {
+                for (Column column : table.getFullSchema()) {
+                    columnTypes.put(column.getName(), DataType.fromCatalogType(column.getType()));
+                }
+            }
+        }
+
+        @Override
+        public Expression visitUnboundSlot(UnboundSlot unboundSlot, ExpressionRewriteContext context) {
+            DataType dataType = columnTypes.getOrDefault(unboundSlot.getName(), VarcharType.MAX_VARCHAR_TYPE);
+            return new SlotReference(unboundSlot.getName(), dataType);
+        }
+    }
+
+    private static class ExpressionToExpr extends ExpressionTranslator {
+        @Override
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
+            slotRef.setLabel(slotReference.getName());
+            slotRef.setCol(slotReference.getName());
+            slotRef.disableTableName();
+            return slotRef;
+        }
+    }
+
+    /**
+     * table collect
+     */
+    public static Map<List<String>, TableIf> tableCollect(String sql, ConnectContext connectContext) {
+        ImmutableList<RewriteJob> rewriteJobs = ImmutableList.of(Rewriter.topDown(new CollectOneLevelRelation()));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        CascadesContext cascadesContext = CascadesContext.initContext(
+                statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
+        Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
+        return statementContext.getTables();
     }
 }

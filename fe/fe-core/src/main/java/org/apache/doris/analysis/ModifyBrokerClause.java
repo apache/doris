@@ -51,6 +51,15 @@ public class ModifyBrokerClause extends AlterClause {
         this.hostPorts = hostPorts;
     }
 
+    public ModifyBrokerClause(ModifyOp op, String brokerName,
+            List<String> hostPorts, Set<Pair<String, Integer>> hostPortPairs) {
+        super(AlterOpType.ALTER_OTHER);
+        this.op = op;
+        this.brokerName = brokerName;
+        this.hostPorts = hostPorts;
+        this.hostPortPairs = hostPortPairs;
+    }
+
     public static ModifyBrokerClause createAddBrokerClause(String brokerName, List<String> hostPorts) {
         return new ModifyBrokerClause(ModifyOp.OP_ADD, brokerName, hostPorts);
     }
@@ -82,7 +91,7 @@ public class ModifyBrokerClause extends AlterClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         validateBrokerName();
 
         if (op != ModifyOp.OP_DROP_ALL) {

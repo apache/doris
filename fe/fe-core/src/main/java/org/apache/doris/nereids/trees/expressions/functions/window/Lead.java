@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
@@ -42,9 +43,11 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
 
     static {
         List<FunctionSignature> signatures = Lists.newArrayList();
-        trivialTypes.forEach(t ->
-                signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE, t))
-        );
+        trivialTypes.forEach(t -> {
+            signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE, t));
+            signatures.add(FunctionSignature.ret(t).args(t, BigIntType.INSTANCE));
+            signatures.add(FunctionSignature.ret(t).args(t));
+        });
         SIGNATURES = ImmutableList.copyOf(signatures);
     }
 
@@ -54,27 +57,32 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
         super("lead", child, offset, defaultValue);
     }
 
-    private Lead(List<Expression> children) {
-        super("lead", children);
+    public Lead(Expression child, Expression offset) {
+        this(child, offset, new NullLiteral(child.getDataType()));
+    }
+
+    public Lead(Expression child) {
+        this(child, new BigIntLiteral(1L), new NullLiteral(child.getDataType()));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Lead(WindowFunctionParams functionParams) {
+        super(functionParams);
     }
 
     public Expression getOffset() {
-        if (children().size() <= 1) {
-            throw new AnalysisException("Not set offset of Lead(): " + this.toSql());
-        }
+        Preconditions.checkArgument(children.size() == 3);
         return child(1);
     }
 
     public Expression getDefaultValue() {
-        if (children.size() <= 2) {
-            throw new AnalysisException("Not set default value of Lead(): " + this.toSql());
-        }
+        Preconditions.checkArgument(children.size() == 3);
         return child(2);
     }
 
     @Override
     public boolean nullable() {
-        if (children.size() == 3 && child(2) instanceof NullLiteral) {
+        if (children.size() == 3 && child(2).nullable()) {
             return true;
         }
         return child(0).nullable();
@@ -91,7 +99,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
             return;
         }
         if (children().size() >= 2) {
-            checkValidParams(getOffset(), true);
+            checkValidParams(getOffset());
             if (getOffset() instanceof Literal) {
                 if (((Literal) getOffset()).getDouble() < 0) {
                     throw new AnalysisException(
@@ -100,9 +108,6 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
             } else {
                 throw new AnalysisException(
                     "The offset parameter of LAG must be a constant positive integer: " + this.toSql());
-            }
-            if (children().size() >= 3) {
-                checkValidParams(getDefaultValue(), false);
             }
         }
     }
@@ -115,7 +120,7 @@ public class Lead extends WindowFunction implements TernaryExpression, Explicitl
     @Override
     public Lead withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1 && children.size() <= 3);
-        return new Lead(children);
+        return new Lead(getFunctionParams(children));
     }
 
     @Override

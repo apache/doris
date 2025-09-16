@@ -195,7 +195,7 @@ suite("test_current_timestamp") {
             DISTRIBUTED BY HASH(id)
             PROPERTIES("replication_num" = "1");
         """
-        exception "errCode = 2, detailMessage = default value precision: CURRENT_TIMESTAMP(3) can not be greater than type precision: DATETIME(1)"
+        exception "errCode = 2, detailMessage = default value precision: CURRENT_TIMESTAMP(3) can not be greater than type precision: datetimev2(1)"
     }
 
     // test create

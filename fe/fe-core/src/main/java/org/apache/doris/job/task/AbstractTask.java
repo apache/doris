@@ -23,11 +23,14 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.RandomUtils;
+
+import java.util.UUID;
 
 @Data
 @Log4j2
@@ -63,12 +66,16 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onFail() throws JobException {
+    public boolean onFail() throws JobException {
+        if (TaskStatus.CANCELED.equals(status)) {
+            return false;
+        }
         status = TaskStatus.FAILED;
         if (!isCallable()) {
-            return;
+            return false;
         }
         Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
+        return true;
     }
 
     @Override
@@ -109,36 +116,42 @@ public abstract class AbstractTask implements Task {
     protected abstract void closeOrReleaseResources();
 
     @Override
-    public void onSuccess() throws JobException {
+    public boolean onSuccess() throws JobException {
         if (TaskStatus.CANCELED.equals(status)) {
-            return;
+            return false;
         }
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
-            return;
+            return false;
         }
         Job job = Env.getCurrentEnv().getJobManager().getJob(getJobId());
         if (null == job) {
             log.info("job is null, job id is {}", jobId);
-            return;
+            return false;
         }
         job.onTaskSuccess(this);
+        return true;
     }
 
     /**
      * Cancels the ongoing task, updating its status to {@link TaskStatus#CANCELED} and releasing associated resources.
      * This method encapsulates the core cancellation logic, calling the abstract method
-     * {@link #executeCancelLogic()} for task-specific actions.
+     * {@link #executeCancelLogic(boolean)} for task-specific actions.
      *
      * @throws JobException If an error occurs during the cancellation process, a new JobException is thrown wrapping
      *                      the original exception.
      */
     @Override
-    public void cancel() throws JobException {
+    public boolean cancel(boolean needWaitCancelComplete) throws JobException {
+        if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status) || TaskStatus.CANCELED.equals(
+                status)) {
+            return false;
+        }
         try {
-            executeCancelLogic();
             status = TaskStatus.CANCELED;
+            executeCancelLogic(needWaitCancelComplete);
+            return true;
         } catch (Exception e) {
             log.warn("cancel task failed, job id is {}, task id is {}", jobId, taskId, e);
             throw new JobException(e);
@@ -153,7 +166,12 @@ public abstract class AbstractTask implements Task {
      *
      * @throws Exception Any exception that might occur during the cancellation process in the subclass.
      */
-    protected abstract void executeCancelLogic() throws Exception;
+    protected abstract void executeCancelLogic(boolean needWaitCancelComplete) throws Exception;
+
+    public static TUniqueId generateQueryId() {
+        UUID taskId = UUID.randomUUID();
+        return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
+    }
 
     @Override
     public void before() throws JobException {
@@ -167,11 +185,19 @@ public abstract class AbstractTask implements Task {
             run();
             onSuccess();
         } catch (Exception e) {
+            if (TaskStatus.CANCELED.equals(status)) {
+                return;
+            }
             this.errMsg = e.getMessage();
             onFail();
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         } finally {
-            closeOrReleaseResources();
+            // The cancel logic will call the closeOrReleased Resources method by itself.
+            // If it is also called here,
+            // it may result in the inability to obtain relevant information when canceling the task
+            if (!TaskStatus.CANCELED.equals(status)) {
+                closeOrReleaseResources();
+            }
         }
     }
 

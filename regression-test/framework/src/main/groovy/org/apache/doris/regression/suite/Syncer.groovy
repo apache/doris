@@ -25,6 +25,7 @@ import org.apache.doris.regression.json.PartitionRecords
 import org.apache.doris.regression.suite.client.BackendClientImpl
 import org.apache.doris.regression.suite.client.FrontendClientImpl
 import org.apache.doris.regression.util.SyncerUtils
+import org.apache.doris.regression.util.S3RepoValidate
 import org.apache.doris.thrift.TBeginTxnResult
 import org.apache.doris.thrift.TBinlog
 import org.apache.doris.regression.json.BinlogData
@@ -379,7 +380,7 @@ class Syncer {
         String checkSQL = "SHOW BACKUP FROM ${dbName}"
         def records = suite.sql(checkSQL)
         def allDone = true
-        for (row in records) {
+        for (def row in records) {
             logger.info("BACKUP row is ${row}")
             String state = (row[3] as String);
             if (state != "FINISHED" && state != "CANCELLED") {
@@ -402,7 +403,7 @@ class Syncer {
 
     String getSnapshotTimestamp(String repoName, String snapshotName) {
         def filterShowSnapshot = { records, name ->
-            for (row in records) {
+            for (def row in records) {
                 logger.info("Snapshot row is ${row}")
                 if (row[0] == name && row[1] != "null") {
                     return row
@@ -429,7 +430,7 @@ class Syncer {
         String checkSQL = "SHOW RESTORE FROM ${dbName}"
         def records = suite.sql(checkSQL)
         def allDone = true
-        for (row in records) {
+        for (def row in records) {
             logger.info("Restore row is ${row}")
             String state = row[4]
             if (state != "FINISHED" && state != "CANCELLED") {
@@ -437,6 +438,36 @@ class Syncer {
             }
         }
         allDone
+    }
+
+    Boolean checkRestoreError(String dbName = null, String message = null) {
+        if (dbName == null) {
+            dbName = context.db
+        }
+        String checkSQL = "SHOW RESTORE FROM ${dbName}"
+        def records = suite.sql(checkSQL)
+        def haveError = false
+        def expectMessage = (message == null)
+        for (def row in records) {
+            logger.info("Restore row is ${row}")
+            String mess = row[19]
+            haveError = mess != "[OK]"
+            if (haveError && message != null) {
+                expectMessage = mess.contains(message)
+            }
+        }
+        (haveError && expectMessage)
+    }
+
+    void waitRestoreError(String dbName = null, String message = null) {
+        int count = 0;
+        while (!checkRestoreError(dbName, message)) {
+            if (++count >= 600) {  // 30min
+                logger.error('RESTORE task is timeouted')
+                throw new Exception("RESTORE task is timeouted after 30mins")
+            }
+            Thread.sleep(3000)
+        }
     }
 
     void waitAllRestoreFinish(String dbName = null) {
@@ -486,6 +517,8 @@ class Syncer {
                             logger.error("TGetSnapshotResult meta is unset.")
                         } else if (!result.isSetJobInfo()) {
                             logger.error("TGetSnapshotResult job info is unset.")
+                        } else if (!result.isSetExpiredAt()) {
+                            logger.error("TGetSnapshotResult expiredAt is unset.")
                         } else {
                             isCheckedOK = true
                         }
@@ -698,8 +731,13 @@ class Syncer {
                 // step 3.2: get partition/indexId/tabletId
                 partitionSQl += "/" + meta.indexId.toString()
                 sqlInfo = sendSql.call(partitionSQl, toSrc)
+                Map<Long, Long> replicaMap = Maps.newHashMap()
                 for (List<Object> row : sqlInfo) {
-                    meta.tabletMeta.put(row[0] as Long, row[2] as Long)
+                    Long tabletId = row[0] as Long
+                    if (!meta.tabletMeta.containsKey(tabletId)) {
+                        meta.tabletMeta.put(tabletId, new TabletMeta())
+                    }
+                    meta.tabletMeta[tabletId].replicas.put(row[1] as Long, row[2] as Long)
                 }
                 if (meta.tabletMeta.isEmpty()) {
                     logger.error("Target cluster get (partitionId/indexId)-(${info.key}/${meta.indexId}) tabletIds fault.")
@@ -814,49 +852,57 @@ class Syncer {
                     while (srcTabletIter.hasNext()) {
                         Entry srcTabletMap = srcTabletIter.next()
                         Entry tarTabletMap = tarTabletIter.next()
+                        TabletMeta srcTabletMeta = srcTabletMap.value
+                        TabletMeta tarTabletMeta = tarTabletMap.value
 
-                        BackendClientImpl srcClient = context.sourceBackendClients.get(srcTabletMap.value)
-                        if (srcClient == null) {
-                            logger.error("Can't find src tabletId-${srcTabletMap.key} -> beId-${srcTabletMap.value}")
-                            return false
-                        }
-                        BackendClientImpl tarClient = context.targetBackendClients.get(tarTabletMap.value)
-                        if (tarClient == null) {
-                            logger.error("Can't find target tabletId-${tarTabletMap.key} -> beId-${tarTabletMap.value}")
-                            return false
-                        }
-
-                        tarPartition.value.version = srcPartition.value.version
-                        long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
-                        long version = fakeVersion == -1 ? partitionRecord.version : fakeVersion
-
-                        TIngestBinlogRequest request = new TIngestBinlogRequest()
-                        TUniqueId uid = new TUniqueId(-1, -1)
-                        request.setTxnId(txnId)
-                        request.setRemoteTabletId(srcTabletMap.key)
-                        request.setBinlogVersion(version)
-                        request.setRemoteHost(srcClient.address.hostname)
-                        request.setRemotePort(srcClient.httpPort.toString())
-                        request.setPartitionId(partitionId)
-                        request.setLocalTabletId(tarTabletMap.key)
-                        request.setLoadId(uid)
-                        logger.info("request -> ${request}")
-                        TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
-                        if (!checkIngestBinlog(result)) {
-                            logger.error("Ingest binlog error! result: ${result}")
-                            return false
-                        }
-
-                        if (context.txnInsert) {
-                            List<TTabletCommitInfo> tabletCommitInfos = subTxnIdToTabletCommitInfos.get(txnId)
-                            if (tabletCommitInfos == null) {
-                                tabletCommitInfos = new ArrayList<TTabletCommitInfo>()
-                                subTxnIdToTabletCommitInfos.put(txnId, tabletCommitInfos)
-                                subTxnIdToTableId.put(txnId, tarTableMeta.id)
+                        Iterator srcReplicaIter = srcTabletMeta.replicas.iterator()
+                        Iterator tarReplicaIter = tarTabletMeta.replicas.iterator()
+                        while (srcReplicaIter.hasNext()) {
+                            Entry srcReplicaMap = srcReplicaIter.next()
+                            Entry tarReplicaMap = tarReplicaIter.next()
+                            BackendClientImpl srcClient = context.sourceBackendClients.get(srcReplicaMap.value)
+                            if (srcClient == null) {
+                                logger.error("Can't find src tabletId-${srcReplicaMap.key} -> beId-${srcReplicaMap.value}")
+                                return false
                             }
-                            tabletCommitInfos.add(new TTabletCommitInfo(tarTabletMap.key, tarTabletMap.value))
-                        } else {
-                            addCommitInfo(tarTabletMap.key, tarTabletMap.value)
+                            BackendClientImpl tarClient = context.targetBackendClients.get(tarReplicaMap.value)
+                            if (tarClient == null) {
+                                logger.error("Can't find target tabletId-${tarReplicaMap.key} -> beId-${tarReplicaMap.value}")
+                                return false
+                            }
+
+                            tarPartition.value.version = srcPartition.value.version
+                            long partitionId = fakePartitionId == -1 ? tarPartition.key : fakePartitionId
+                            long version = fakeVersion == -1 ? partitionRecord.version : fakeVersion
+
+                            TIngestBinlogRequest request = new TIngestBinlogRequest()
+                            TUniqueId uid = new TUniqueId(-1, -1)
+                            request.setTxnId(txnId)
+                            request.setRemoteTabletId(srcTabletMap.key)
+                            request.setBinlogVersion(version)
+                            request.setRemoteHost(srcClient.address.hostname)
+                            request.setRemotePort(srcClient.httpPort.toString())
+                            request.setPartitionId(partitionId)
+                            request.setLocalTabletId(tarTabletMap.key)
+                            request.setLoadId(uid)
+                            logger.info("request -> ${request}")
+                            TIngestBinlogResult result = tarClient.client.ingestBinlog(request)
+                            if (!checkIngestBinlog(result)) {
+                                logger.error("Ingest binlog error! result: ${result}")
+                                return false
+                            }
+
+                            if (context.txnInsert) {
+                                List<TTabletCommitInfo> tabletCommitInfos = subTxnIdToTabletCommitInfos.get(txnId)
+                                if (tabletCommitInfos == null) {
+                                    tabletCommitInfos = new ArrayList<TTabletCommitInfo>()
+                                    subTxnIdToTabletCommitInfos.put(txnId, tabletCommitInfos)
+                                    subTxnIdToTableId.put(txnId, tarTableMeta.id)
+                                }
+                                tabletCommitInfos.add(new TTabletCommitInfo(tarTabletMap.key, tarReplicaMap.value))
+                            } else {
+                                addCommitInfo(tarTabletMap.key, tarReplicaMap.value)
+                            }
                         }
                     }
                 }
@@ -891,13 +937,13 @@ class Syncer {
         "doris_build_backup_restore/${id}"
     }
 
-    void createS3Repository(String name, boolean readOnly = false) {
+    void createS3Repository(String name, boolean readOnly = false, String prefix = null) {
         String ak = suite.getS3AK()
         String sk = suite.getS3SK()
         String endpoint = suite.getS3Endpoint()
         String region = suite.getS3Region()
         String bucket = suite.getS3BucketName()
-        String prefix = externalStoragePrefix()
+        prefix = prefix == null ? externalStoragePrefix() : prefix
 
         suite.try_sql "DROP REPOSITORY `${name}`"
         suite.sql """
@@ -909,10 +955,22 @@ class Syncer {
             "s3.endpoint" = "http://${endpoint}",
             "s3.region" = "${region}",
             "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
-            "delete_if_exists" = "true"
+            "s3.secret_key" = "${sk}"
         )
             """
+    }
+
+    String createS3ValidateRepository(String suiteName, String validateVersion, boolean readOnly = false) {
+        S3RepoValidate s3RepoValidate = new S3RepoValidate(suite, validateVersion, context.config)
+        String repoName = s3RepoValidate.findMatchingRepoName(suiteName)
+        if (repoName == null) {
+            String errorMsg = "No matching repository found for ${suiteName}, version: ${validateVersion}"
+            logger.error(errorMsg)
+            throw new Exception(errorMsg)
+        }
+        String prefix = "${context.config.validateBackupPrefix}/${s3RepoValidate.version}"
+        createS3Repository(repoName, readOnly, prefix)
+        return repoName
     }
 
     void createHdfsRepository(String name, boolean readOnly = false) {
@@ -930,6 +988,29 @@ class Syncer {
         (
             "fs.defaultFS" = "${hdfsFs}",
             "hadoop.username" = "${hdfsUser}"
+        )
+        """
+    }
+
+    void createS3RepositoryWithRole(String name, boolean readOnly = false) {
+        String roleArn = suite.context.config.awsRoleArn
+        String externalId = suite.context.config.awsExternalId
+        String endpoint = suite.context.config.awsEndpoint
+        String region = suite.context.config.awsRegion
+        String bucket = suite.context.config.awsBucket
+        String prefix = suite.context.config.awsPrefix
+
+        suite.try_sql "DROP REPOSITORY `${name}`"
+        suite.sql """
+        CREATE ${readOnly ? "READ ONLY" : ""} REPOSITORY `${name}`
+        WITH S3
+        ON LOCATION "s3://${bucket}/${prefix}/aws_iam_role_p0/${name}"
+        PROPERTIES
+        (
+            "s3.endpoint" = "${endpoint}",
+            "s3.region" = "${region}",
+            "s3.role_arn" = "${roleArn}",
+            "s3.external_id" = "${externalId}"
         )
         """
     }

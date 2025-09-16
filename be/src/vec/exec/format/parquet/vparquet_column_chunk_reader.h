@@ -30,7 +30,6 @@
 #include "level_decoder.h"
 #include "util/slice.h"
 #include "vec/columns/column_string.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exec/format/parquet/parquet_common.h"
 #include "vparquet_page_reader.h"
@@ -49,7 +48,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
 class ColumnStr;
@@ -183,11 +182,6 @@ public:
                 ->read_dict_values_to_column(doris_column);
     }
 
-    Status get_dict_codes(const ColumnString* column_string, std::vector<int32_t>* dict_codes) {
-        return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]->get_dict_codes(
-                column_string, dict_codes);
-    }
-
     MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         return _decoders[static_cast<int>(tparquet::Encoding::RLE_DICTIONARY)]
                 ->convert_dict_column_to_string_column(dict_column);
@@ -221,7 +215,7 @@ private:
     size_t _chunk_parsed_values = 0;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
-    std::unique_ptr<uint8_t[]> _decompress_buf;
+    DorisUniqueBufferPtr<uint8_t> _decompress_buf;
     size_t _decompress_buf_size = 0;
     Slice _v2_rep_levels;
     Slice _v2_def_levels;
@@ -233,5 +227,8 @@ private:
     std::unordered_map<int, std::unique_ptr<Decoder>> _decoders;
     Statistics _statistics;
 };
+#include "common/compile_check_end.h"
+
+bool has_dict_page(const tparquet::ColumnMetaData& column);
 
 } // namespace doris::vectorized

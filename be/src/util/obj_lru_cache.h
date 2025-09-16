@@ -25,9 +25,9 @@ namespace doris {
 // A common object cache depends on an Sharded LRU Cache.
 // It has a certain capacity, which determin how many objects it can cache.
 // Caller must hold a CacheHandle instance when visiting the cached object.
-class ObjLRUCache : public LRUCachePolicyTrackingManual {
+class ObjLRUCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     struct ObjKey {
         ObjKey(const std::string& key_) : key(key_) {}
@@ -72,9 +72,10 @@ public:
         bool valid() { return _cache != nullptr && _handle != nullptr; }
 
         LRUCachePolicy* cache() const { return _cache; }
+
         template <typename T>
-        void* data() const {
-            return (void*)((ObjValue<T>*)_cache->value(_handle))->value;
+        const T* data() const {
+            return ((ObjValue<T>*)_cache->value(_handle))->value;
         }
 
     private:
@@ -94,11 +95,12 @@ public:
         if (_enabled) {
             const std::string& encoded_key = key.key;
             auto* obj_value = new ObjValue<T>(value);
-            auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, obj_value, 1,
-                                                                sizeof(T), CachePriority::NORMAL);
+            auto* handle = LRUCachePolicy::insert(encoded_key, obj_value, 1, sizeof(T),
+                                                  CachePriority::NORMAL);
             *cache_handle = CacheHandle {this, handle};
         } else {
-            cache_handle = nullptr;
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                   "ObjLRUCache disable, can not insert.");
         }
     }
 
@@ -106,8 +108,10 @@ public:
 
     bool exceed_prune_limit() override;
 
+    bool enabled() const { return _enabled; }
+
 private:
-    bool _enabled;
+    const bool _enabled;
 };
 
 } // namespace doris

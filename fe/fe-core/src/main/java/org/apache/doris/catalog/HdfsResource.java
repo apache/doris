@@ -23,6 +23,7 @@ import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.thrift.THdfsConf;
 import org.apache.doris.thrift.THdfsParams;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -73,13 +74,13 @@ public class HdfsResource extends Resource {
     }
 
     @Override
-    protected void setProperties(Map<String, String> properties) throws DdlException {
+    protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         // `dfs.client.read.shortcircuit` and `dfs.domain.socket.path` should be both set to enable short circuit read.
         // We should disable short circuit read if they are not both set because it will cause performance down.
+        this.properties = Maps.newHashMap(newProperties);
         if (!(enableShortCircuitRead(properties))) {
-            properties.put(HADOOP_SHORT_CIRCUIT, "false");
+            this.properties.put(HADOOP_SHORT_CIRCUIT, "false");
         }
-        this.properties = properties;
     }
 
     @Override

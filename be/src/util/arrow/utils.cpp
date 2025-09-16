@@ -20,22 +20,21 @@
 #include <arrow/pretty_print.h>
 #include <arrow/status.h>
 
-#include "gutil/strings/substitute.h"
-
 namespace doris {
 
 Status to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
         return Status::OK();
     } else {
-        return Status::InvalidArgument(status.ToString());
+        return Status::InternalError(status.ToString());
     }
 }
 
 arrow::Status to_arrow_status(const Status& status) {
-    if (status.ok()) {
+    if (LIKELY(status.ok())) {
         return arrow::Status::OK();
     } else {
+        LOG(WARNING) << status.to_string();
         // The length of exception msg returned to the ADBC Client cannot larger than 8192,
         // otherwise ADBC Client will receive:
         // `INTERNAL: http2 exception Header size exceeded max allowed size (8192)`.

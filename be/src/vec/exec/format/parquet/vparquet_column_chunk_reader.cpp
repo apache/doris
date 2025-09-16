@@ -21,6 +21,7 @@
 #include <glog/logging.h>
 #include <string.h>
 
+#include <cstdint>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -28,6 +29,7 @@
 #include "util/block_compression.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/exec/format/parquet/decoder.h"
 #include "vec/exec/format/parquet/level_decoder.h"
 #include "vec/exec/format/parquet/schema_desc.h"
@@ -44,7 +46,7 @@ struct IOContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
                                      tparquet::ColumnChunk* column_chunk, FieldSchema* field_schema,
                                      const tparquet::OffsetIndex* offset_index,
@@ -59,16 +61,15 @@ ColumnChunkReader::ColumnChunkReader(io::BufferedStreamReader* reader,
           _io_ctx(io_ctx) {}
 
 Status ColumnChunkReader::init() {
-    size_t start_offset = _metadata.__isset.dictionary_page_offset
-                                  ? _metadata.dictionary_page_offset
-                                  : _metadata.data_page_offset;
+    size_t start_offset = has_dict_page(_metadata) ? _metadata.dictionary_page_offset
+                                                   : _metadata.data_page_offset;
     size_t chunk_size = _metadata.total_compressed_size;
     // create page reader
     _page_reader = create_page_reader(_stream_reader, _io_ctx, start_offset, chunk_size,
                                       _metadata.num_values, _offset_index);
     // get the block compression codec
     RETURN_IF_ERROR(get_block_compression_codec(_metadata.codec, &_block_compress_codec));
-    if (_metadata.__isset.dictionary_page_offset) {
+    if (has_dict_page(_metadata)) {
         // seek to the directory page
         _page_reader->seek_to_page(_metadata.dictionary_page_offset);
         // Parse dictionary data when reading
@@ -209,7 +210,7 @@ Status ColumnChunkReader::load_page_data() {
         _page_decoder = _decoders[static_cast<int>(encoding)].get();
     }
     // Reset page data for each page
-    _page_decoder->set_data(&_page_data);
+    RETURN_IF_ERROR(_page_decoder->set_data(&_page_data));
 
     _state = DATA_LOADED;
     return Status::OK();
@@ -233,7 +234,7 @@ Status ColumnChunkReader::_decode_dict_page() {
 
     // Prepare dictionary data
     int32_t uncompressed_size = header->uncompressed_page_size;
-    std::unique_ptr<uint8_t[]> dict_data(new uint8_t[uncompressed_size]);
+    auto dict_data = make_unique_buffer<uint8_t>(uncompressed_size);
     if (_block_compress_codec != nullptr) {
         Slice compressed_data;
         RETURN_IF_ERROR(_page_reader->get_page_data(compressed_data));
@@ -266,7 +267,7 @@ Status ColumnChunkReader::_decode_dict_page() {
 void ColumnChunkReader::_reserve_decompress_buf(size_t size) {
     if (size > _decompress_buf_size) {
         _decompress_buf_size = BitUtil::next_power_of_two(size);
-        _decompress_buf.reset(new uint8_t[_decompress_buf_size]);
+        _decompress_buf = make_unique_buffer<uint8_t>(_decompress_buf_size);
     }
 }
 
@@ -334,4 +335,25 @@ int32_t ColumnChunkReader::_get_type_length() {
         return -1;
     }
 }
+
+/**
+ * Checks if the given column has a dictionary page.
+ *
+ * This function determines the presence of a dictionary page by checking the
+ * dictionary_page_offset field in the column metadata. The dictionary_page_offset
+ * must be set and greater than 0, and it must be less than the data_page_offset.
+ *
+ * The reason for these checks is based on the implementation in the Java version
+ * of ORC, where dictionary_page_offset is used to indicate the absence of a dictionary.
+ * Additionally, Parquet may write an empty row group, in which case the dictionary page
+ * content would be empty, and thus the dictionary page should not be read.
+ *
+ * See https://github.com/apache/arrow/pull/2667/files
+ */
+bool has_dict_page(const tparquet::ColumnMetaData& column) {
+    return column.__isset.dictionary_page_offset && column.dictionary_page_offset > 0 &&
+           column.dictionary_page_offset < column.data_page_offset;
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

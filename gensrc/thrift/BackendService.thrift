@@ -32,12 +32,18 @@ struct TExportTaskRequest {
 
 struct TTabletStat {
     1: required i64 tablet_id
-    // local data size
+    // local data size = local inverted index file size + local segment file size
     2: optional i64 data_size
     3: optional i64 row_count
     4: optional i64 total_version_count
+    // remote data size = remote inverted index file size + remote segment file size
     5: optional i64 remote_data_size
     6: optional i64 visible_version_count
+    7: optional i64 visible_version
+    8: optional i64 local_index_size = 0      // .idx
+    9: optional i64 local_segment_size = 0    // .dat
+    10: optional i64 remote_index_size = 0    // .idx
+    11: optional i64 remote_segment_size = 0  // .dat
 }
 
 struct TTabletStatResult {
@@ -180,11 +186,16 @@ enum TDownloadType {
     S3 = 1,
 }
 
+enum TWarmUpEventType {
+    LOAD = 0,
+    QUERY = 1,
+}
+
 enum TWarmUpTabletsRequestType {
     SET_JOB = 0,
     SET_BATCH = 1,
     GET_CURRENT_JOB_STATE_AND_LEASE = 2,
-    CLEAR_JOB = 3,
+    CLEAR_JOB = 3
 }
 
 struct TJobMeta {
@@ -199,6 +210,7 @@ struct TWarmUpTabletsRequest {
     2: required i64 batch_id
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
+    5: optional TWarmUpEventType event
 }
 
 struct TWarmUpTabletsResponse {
@@ -233,12 +245,12 @@ struct TQueryIngestBinlogRequest {
 }
 
 enum TIngestBinlogStatus {
-    ANALYSIS_ERROR,
-    UNKNOWN,
-    NOT_FOUND,
-    OK,
-    FAILED,
-    DOING
+    ANALYSIS_ERROR = 0,
+    UNKNOWN = 1,
+    NOT_FOUND = 2,
+    OK = 3,
+    FAILED = 4,
+    DOING = 5
 }
 
 struct TQueryIngestBinlogResult {
@@ -247,40 +259,54 @@ struct TQueryIngestBinlogResult {
 }
 
 enum TTopicInfoType {
-    WORKLOAD_GROUP
-    MOVE_QUERY_TO_GROUP
-    WORKLOAD_SCHED_POLICY
+    WORKLOAD_GROUP = 0,
+    MOVE_QUERY_TO_GROUP = 1,
+    WORKLOAD_SCHED_POLICY = 2
+}
+
+enum TWgSlotMemoryPolicy {
+    NONE = 0,
+    FIXED = 1,
+    DYNAMIC = 2
 }
 
 struct TWorkloadGroupInfo {
   1: optional i64 id
   2: optional string name
   3: optional i64 version
-  4: optional i64 cpu_share
-  5: optional i32 cpu_hard_limit
-  6: optional string mem_limit
-  7: optional bool enable_memory_overcommit
-  8: optional bool enable_cpu_hard_limit
+  4: optional i32 min_cpu_percent
+  5: optional i32 max_cpu_percent
+  6: optional string mem_limit  // deprecated
+  7: optional bool enable_memory_overcommit // deprecated
+  8: optional bool enable_cpu_hard_limit    // deprecated
   9: optional i32 scan_thread_num
   10: optional i32 max_remote_scan_thread_num
   11: optional i32 min_remote_scan_thread_num
-  12: optional i32 spill_threshold_low_watermark
-  13: optional i32 spill_threshold_high_watermark
+  12: optional i32 memory_low_watermark
+  13: optional i32 memory_high_watermark
+  14: optional i64 read_bytes_per_second
+  15: optional i64 remote_read_bytes_per_second
+  16: optional string tag // deprecated
+  17: optional i32 total_query_slot_count
+  18: optional i32 write_buffer_ratio
+  19: optional TWgSlotMemoryPolicy slot_memory_policy
+  20: optional i32 min_memory_percent
+  21: optional i32 max_memory_percent
 }
 
 enum TWorkloadMetricType {
-    QUERY_TIME
-    BE_SCAN_ROWS
-    BE_SCAN_BYTES
-    QUERY_BE_MEMORY_BYTES
+    QUERY_TIME = 0,
+    BE_SCAN_ROWS = 1,
+    BE_SCAN_BYTES = 2,
+    QUERY_BE_MEMORY_BYTES = 3
 }
 
 enum TCompareOperator {
-    EQUAL
-    GREATER
-    GREATER_EQUAL
-    LESS
-    LESS_EQUAL
+    EQUAL = 0,
+    GREATER = 1,
+    GREATER_EQUAL = 2,
+    LESS = 3,
+    LESS_EQUAL = 4
 }
 
 struct TWorkloadCondition {
@@ -290,8 +316,8 @@ struct TWorkloadCondition {
 }
 
 enum TWorkloadActionType {
-    MOVE_QUERY_TO_GROUP
-    CANCEL_QUERY
+    MOVE_QUERY_TO_GROUP = 0,
+    CANCEL_QUERY = 1
 }
 
 struct TWorkloadAction {
@@ -326,11 +352,24 @@ struct TPublishTopicResult {
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
+    2: optional string req_type // "stats" or "profile"
 }
 
 struct TGetRealtimeExecStatusResponse {
     1: optional Status.TStatus status
     2: optional FrontendService.TReportExecStatusParams report_exec_status_params
+    // query_stats is for getting real-time query statistics of a certain query
+    3: optional FrontendService.TQueryStatistics query_stats
+}
+
+struct TDictionaryStatus {
+    1: optional i64 dictionary_id
+    2: optional i64 version_id
+    3: optional i64 dictionary_memory_size
+}
+
+struct TDictionaryStatusList {
+    1: optional list<TDictionaryStatus> dictionary_status_list
 }
 
 service BackendService {
@@ -343,11 +382,6 @@ service BackendService {
     // Cancellation is asynchronous.
     PaloInternalService.TCancelPlanFragmentResult cancel_plan_fragment(
         1:PaloInternalService.TCancelPlanFragmentParams params);
-
-    // Called by sender to transmit single row batch. Returns error indication
-    // if params.fragmentId or params.destNodeId are unknown or if data couldn't be read.
-    PaloInternalService.TTransmitDataResult transmit_data(
-        1:PaloInternalService.TTransmitDataParams params);
 
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
@@ -401,4 +435,7 @@ service BackendService {
     TPublishTopicResult publish_topic_info(1:TPublishTopicRequest topic_request);
 
     TGetRealtimeExecStatusResponse get_realtime_exec_status(1:TGetRealtimeExecStatusRequest request);
+
+    // if empty, return all dictionary status.
+    TDictionaryStatusList get_dictionary_status(1:list<i64> dictionary_ids);
 }

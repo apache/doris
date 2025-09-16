@@ -32,17 +32,17 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/plugin/cloud_plugin_downloader.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"
-#include "util/spinlock.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -272,8 +272,8 @@ Status UserFunctionCache::_download_lib(const std::string& url,
         return Status::InternalError("fail to open file");
     }
 
-    std::string real_url = _get_real_url(url);
-
+    std::string real_url;
+    RETURN_IF_ERROR(_get_real_url(url, &real_url));
     Md5Digest digest;
     HttpClient client;
     int64_t file_size = 0;
@@ -297,11 +297,10 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     digest.digest();
     if (!iequal(digest.hex(), entry->checksum)) {
         fmt::memory_buffer error_msg;
-        fmt::format_to(
-                error_msg,
-                " The checksum is not equal of {} ({}). The init info of first create entry is:"
-                "{} But download file check_sum is: {}, file_size is: {}.",
-                url, real_url, entry->debug_string(), digest.hex(), file_size);
+        fmt::format_to(error_msg,
+                       " The checksum is not equal of {}. The init info of first create entry is:"
+                       "{} But download file check_sum is: {}, file_size is: {}.",
+                       url, entry->debug_string(), digest.hex(), file_size);
         std::string error(fmt::to_string(error_msg));
         LOG(WARNING) << error;
         return Status::InternalError(error);
@@ -321,13 +320,6 @@ Status UserFunctionCache::_download_lib(const std::string& url,
     // check download
     entry->is_downloaded = true;
     return Status::OK();
-}
-
-std::string UserFunctionCache::_get_real_url(const std::string& url) {
-    if (url.find(":/") == std::string::npos) {
-        return "file://" + config::jdbc_drivers_dir + "/" + url;
-    }
-    return url;
 }
 
 std::string UserFunctionCache::_get_file_name_from_url(const std::string& url) const {
@@ -393,4 +385,43 @@ std::vector<std::string> UserFunctionCache::_split_string_by_checksum(const std:
 
     return result;
 }
+
+Status UserFunctionCache::_get_real_url(const std::string& url, std::string* result_url) {
+    if (url.find(":/") == std::string::npos) {
+        return _check_and_return_default_java_udf_url(url, result_url);
+    }
+    *result_url = url;
+    return Status::OK();
+}
+
+Status UserFunctionCache::_check_and_return_default_java_udf_url(const std::string& url,
+                                                                 std::string* result_url) {
+    const char* doris_home = std::getenv("DORIS_HOME");
+    std::string default_url = std::string(doris_home) + "/plugins/java_udf";
+
+    std::filesystem::path file = default_url + "/" + url;
+
+    // In cloud mode, always try cloud download first (prioritize cloud mode)
+    if (config::is_cloud_mode()) {
+        std::string target_path = default_url + "/" + url;
+        std::string downloaded_path;
+        Status status = CloudPluginDownloader::download_from_cloud(
+                CloudPluginDownloader::PluginType::JAVA_UDF, url, target_path, &downloaded_path);
+        if (status.ok() && !downloaded_path.empty()) {
+            *result_url = "file://" + downloaded_path;
+            return Status::OK();
+        } else {
+            LOG(WARNING) << "Failed to download Java UDF from cloud: " << status.to_string();
+            return Status::RuntimeError(
+                    "Cannot download Java UDF from cloud: {}. "
+                    "Please retry later or check your UDF has been uploaded to cloud.",
+                    url);
+        }
+    }
+
+    // Return the file path regardless of whether it exists (original UDF behavior)
+    *result_url = "file://" + default_url + "/" + url;
+    return Status::OK();
+}
+
 } // namespace doris

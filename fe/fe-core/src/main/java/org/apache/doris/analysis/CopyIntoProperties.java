@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -70,7 +71,7 @@ public class CopyIntoProperties extends CopyProperties {
 
     public Map<String, String> getExecProperties() {
         Map<String, String> results = getKeysProperties(EXEC_PROPERTIES);
-        results.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, String.valueOf(getMaxFilterRatio()));
+        results.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, String.valueOf(getMaxFilterRatio()));
         return results;
     }
 
@@ -84,7 +85,7 @@ public class CopyIntoProperties extends CopyProperties {
         return result;
     }
 
-    protected void mergeProperties(StageProperties stageProperties) {
+    public void mergeProperties(StageProperties stageProperties) {
         Map<String, String> properties = stageProperties.getDefaultPropertiesWithoutPrefix();
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!this.properties.containsKey(entry.getKey())) {

@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -26,7 +26,9 @@ import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -99,6 +101,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
+        // could not change varchar to char cuz varchar max length is larger than char
 
         schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
 
@@ -159,13 +162,123 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
 
         // Currently, we do not support schema change between complex types with subtypes.
-        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = false;
-        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = false;
-        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = false;
+        schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.STRUCT.ordinal()][PrimitiveType.STRUCT.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.MAP.ordinal()][PrimitiveType.MAP.ordinal()] = true;
     }
 
     static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
         return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
+    }
+
+    /**
+     * Used for checking type length changing.
+     * Currently, type length is only meaningful for string types{@link Type#isStringType()},
+     * see {@link ScalarType#len}.
+     */
+    public static void checkForTypeLengthChange(Type src, Type dst) throws DdlException {
+        final int srcTypeLen = src.getLength();
+        final int dstTypeLen = dst.getLength();
+        if (srcTypeLen < 0 || dstTypeLen < 0) {
+            // type length is negative means that it is meaningless, just return
+            return;
+        }
+        if (srcTypeLen > dstTypeLen) {
+            throw new DdlException(
+                    String.format("Shorten type length is prohibited, srcType=%s, dstType=%s", src.toSql(),
+                            dst.toSql()));
+        }
+    }
+
+    // This method defines the char type
+    // to support the schema-change behavior of length growth.
+    // return true if the checkType and other are both char-type otherwise return false,
+    // which used in checkSupportSchemaChangeForComplexType
+    private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
+        if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
+                && other.getPrimitiveType() == PrimitiveType.VARCHAR) {
+            // currently nested types only support light schema change for internal fields, for string types,
+            // only varchar can do light schema change
+            checkForTypeLengthChange(checkType, other);
+            return true;
+        } else {
+            // types equal can return true
+            return checkType.equals(other);
+        }
+    }
+
+    private static void validateStructFieldCompatibility(StructField originalField, StructField newField)
+            throws DdlException {
+        // check field name
+        if (!originalField.getName().equals(newField.getName())) {
+            throw new DdlException(
+                    "Cannot rename struct field from '" + originalField.getName() + "' to '" + newField.getName()
+                            + "'");
+        }
+
+        Type originalType = originalField.getType();
+        Type newType = newField.getType();
+
+        // deal with type change
+        if (!originalType.equals(newType)) {
+            checkSupportSchemaChangeForComplexType(originalType, newType, true);
+        }
+    }
+
+    // This method defines the complex type which is struct, array, map if nested char-type
+    // to support the schema-change behavior of length growth.
+    public static void checkSupportSchemaChangeForComplexType(Type checkType, Type other, boolean nested)
+            throws DdlException {
+        if (checkType.isStructType() && other.isStructType()) {
+            StructType thisStructType = (StructType) checkType;
+            StructType otherStructType = (StructType) other;
+
+            // now we only support add new field for struct type
+            if (thisStructType.getFields().size() > otherStructType.getFields().size()) {
+                throw new DdlException("Cannot reduce struct fields from " + checkType.toSql() + " to "
+                        + other.toSql());
+            }
+
+            Set<String> existingNames = new HashSet<>();
+            List<StructField> originalFields = thisStructType.getFields();
+            List<StructField> newFields = otherStructType.getFields();
+
+            // check each original field compatibility
+            for (int i = 0; i < originalFields.size(); i++) {
+                StructField originalField = originalFields.get(i);
+                StructField newField = newFields.get(i);
+
+                validateStructFieldCompatibility(originalField, newField);
+                existingNames.add(originalField.getName());
+            }
+
+            // check new field name is not conflict with old field name
+            for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
+                // to check new field name is not conflict with old field name
+                String newFieldName = otherStructType.getFields().get(i).getName();
+                if (existingNames.contains(newFieldName)) {
+                    throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
+                }
+            }
+        } else if (checkType.isArrayType()) {
+            if (!other.isArrayType()) {
+                throw new DdlException("Cannot change " + checkType.toSql() + " to " + other.toSql());
+            }
+            checkSupportSchemaChangeForComplexType(((ArrayType) checkType).getItemType(),
+                    ((ArrayType) other).getItemType(), true);
+        } else if (checkType.isMapType() && other.isMapType()) {
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getKeyType(),
+                    ((MapType) other).getKeyType(), true);
+            checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
+                    ((MapType) other).getValueType(), true);
+        } else {
+            // only support char-type schema change behavior for nested complex type
+            // if nested is false, we do not check return value.
+            if (nested && !checkSupportSchemaChangeForCharType(checkType, other)) {
+                throw new DdlException(
+                        "Cannot change " + checkType.toSql() + " to " + other.toSql() + " in nested types");
+            }
+        }
     }
 
     public static void write(DataOutput out, Type type) throws IOException {
@@ -176,42 +289,6 @@ public abstract class ColumnType {
     }
 
     public static Type read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_133) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
-        } else {
-            PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
-            if (primitiveType == PrimitiveType.ARRAY) {
-                Type itermType = read(in);
-                boolean containsNull = in.readBoolean();
-                return ArrayType.create(itermType, containsNull);
-            } else if (primitiveType == PrimitiveType.MAP) {
-                Type keyType = read(in);
-                Type valueType = read(in);
-                boolean keyContainsNull = in.readBoolean();
-                boolean valueContainsNull = in.readBoolean();
-                return new MapType(keyType, valueType, keyContainsNull, valueContainsNull);
-            } else if (primitiveType == PrimitiveType.STRUCT) {
-                int size = in.readInt();
-                ArrayList<StructField> fields = new ArrayList<>();
-                for (int i = 0; i < size; ++i) {
-                    String name = Text.readString(in);
-                    Type type = read(in);
-                    String comment = Text.readString(in);
-                    int pos = in.readInt();
-                    boolean containsNull = in.readBoolean();
-                    StructField field = new StructField(name, type, comment, containsNull);
-                    field.setPosition(pos);
-                    fields.add(field);
-                }
-                return new StructType(fields);
-            } else {
-                int scale = in.readInt();
-                int precision = in.readInt();
-                int len = in.readInt();
-                // Useless, just for back compatible
-                in.readBoolean();
-                return ScalarType.createType(primitiveType, len, precision, scale);
-            }
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Type.class);
     }
 }

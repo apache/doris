@@ -118,10 +118,11 @@ suite("test_array_export", "export") {
     }
 
     def select_out_file = {exportTable, HdfsPath, outFormat, BrokerName, HdfsUserName, HdfsPasswd->
-        sql """
+
+        def sqlString = """
             SELECT * FROM ${exportTable}
             INTO OUTFILE "${HdfsPath}"
-            FORMAT AS "${outFormat}"
+            FORMAT AS ${outFormat}
             PROPERTIES
             (
                 "broker.name" = "${BrokerName}",
@@ -131,12 +132,14 @@ suite("test_array_export", "export") {
                 "broker.password"="${HdfsPasswd}"
             )
         """
+        logger.info("sqlString: ${sqlString}")
+        sql sqlString
     }
 
     def check_export_result = {checklabel->
         max_try_milli_secs = 15000
         while(max_try_milli_secs) {
-            result = sql "show export where label='${checklabel}'"
+            def result = sql "show export where label='${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 break
             } else {
@@ -171,7 +174,7 @@ suite("test_array_export", "export") {
         } else {
             throw new IllegalStateException("""${outFilePath} already exists! """)
         }
-        result = sql """
+        def result = sql """
             SELECT * FROM ${tableName} t ORDER BY k1 INTO OUTFILE "file://${outFile}/";
         """
         def url = result[0][3]
@@ -203,27 +206,27 @@ suite("test_array_export", "export") {
             path.delete();
         }
         if (csvFiles != "") {
-            cmd = "rm -rf ${csvFiles}"
+            def cmd = "rm -rf ${csvFiles}"
             sshExec("root", urlHost, cmd)
         }
     }
     
     
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfsDataDir = getHdfsDataDir()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfsDataDir = getHdfsDataDir()
 
         // case2: test "select ...into outfile 'hdfs_path'"
         try {
             create_test_table.call(tableName)
 
-            resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def resultCount = sql "select count(*) from ${tableName}"
+            def currentTotalRows = resultCount[0][0]
 
-            label = UUID.randomUUID().toString().replaceAll("-", "")
-            select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
+            def result = select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
             result = downloadExportFromHdfs(label + "/export-data")
             check_download_result(result, currentTotalRows)
         } finally {
@@ -234,13 +237,13 @@ suite("test_array_export", "export") {
         try {
             create_test_table.call(tableName)
 
-            resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def resultCount = sql "select count(*) from ${tableName}"
+            def currentTotalRows = resultCount[0][0]
 
-            label = UUID.randomUUID().toString().replaceAll("-", "")
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
             export_to_hdfs.call(tableName, label, hdfsDataDir + "/" + label, '', brokerName, hdfsUser, hdfsPasswd)
             check_export_result(label)
-            result = downloadExportFromHdfs(label + "/export-data")
+            def result = downloadExportFromHdfs(label + "/export-data")
             check_download_result(result, currentTotalRows)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -23,11 +23,12 @@
 #include <cstdint>
 #include <memory>
 
+#include "absl/strings/substitute.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -41,6 +42,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
@@ -57,7 +59,7 @@ const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 struct AggregateJavaUdafData {
 public:
     AggregateJavaUdafData() = default;
-    AggregateJavaUdafData(int64_t num_args) { argument_size = num_args; }
+    AggregateJavaUdafData(int64_t num_args) { cast_set(argument_size, num_args); }
 
     ~AggregateJavaUdafData() = default;
 
@@ -115,8 +117,8 @@ public:
     }
 
     Status add(int64_t places_address, bool is_single_place, const IColumn** columns,
-               int row_num_start, int row_num_end, const DataTypes& argument_types,
-               int place_offset) {
+               int64_t row_num_start, int64_t row_num_end, const DataTypes& argument_types,
+               int64_t place_offset) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
 
@@ -132,11 +134,15 @@ public:
                 {"meta_address", std::to_string((long)input_table.get())},
                 {"required_fields", input_table_schema.first},
                 {"columns_types", input_table_schema.second}};
-        jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+        jobject input_map = nullptr;
+        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
         // invoke add batch
-        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
-                              row_num_end, places_address, place_offset, input_map);
-        env->DeleteLocalRef(input_map);
+        // Keep consistent with the function signature of executor_add_batch_id.
+        env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place,
+                              cast_set<int>(row_num_start), cast_set<int>(row_num_end),
+                              places_address, cast_set<int>(place_offset), input_map);
+        RETURN_ERROR_IF_EXC(env);
+        env->DeleteGlobalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -144,10 +150,11 @@ public:
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf merge function");
         serialize_data = rhs.serialize_data;
-        long len = serialize_data.length();
+        jsize len = cast_set<jsize>(serialize_data.length()); // jsize needs to be used.
         jbyteArray arr = env->NewByteArray(len);
         env->SetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_merge_id, place, arr);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
         jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
         env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
         env->DeleteLocalRef(arr);
@@ -165,7 +172,7 @@ public:
         int len = env->GetArrayLength(arr);
         serialize_data.resize(len);
         env->GetByteArrayRegion(arr, 0, len, reinterpret_cast<jbyte*>(serialize_data.data()));
-        write_binary(serialize_data, buf);
+        buf.write_binary(serialize_data);
         jbyte* pBytes = env->GetByteArrayElements(arr, nullptr);
         env->ReleaseByteArrayElements(arr, pBytes, JNI_ABORT);
         env->DeleteLocalRef(arr);
@@ -179,7 +186,7 @@ public:
         return JniUtil::GetJniExceptionMsg(env);
     }
 
-    void read(BufferReadable& buf) { read_binary(serialize_data, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
         JNIEnv* env = nullptr;
@@ -199,12 +206,13 @@ public:
         std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                                   {"required_fields", output_table_schema.first},
                                                   {"columns_types", output_table_schema.second}};
-        jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+        jobject output_map = nullptr;
+        RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
         long output_address =
                 env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
+        RETURN_ERROR_IF_EXC(env);
+        env->DeleteGlobalRef(output_map);
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-        env->DeleteLocalRef(output_map);
-
         return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
@@ -216,7 +224,7 @@ private:
             if (!s.ok()) {
                 LOG(WARNING) << "Failed to register function " << func_name << ": "
                              << s.to_string();
-                return Status::InternalError(strings::Substitute(
+                return Status::InternalError(absl::Substitute(
                         "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
             }
             return s;
@@ -255,7 +263,9 @@ private:
 };
 
 class AggregateJavaUdaf final
-        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
+        : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
     AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types_,
@@ -287,16 +297,12 @@ public:
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(argument_types.size());
         if (_first_created) {
-            Status status = Status::OK();
-            SAFE_CREATE(RETURN_IF_STATUS_ERROR(status,
-                                               this->data(place).init_udaf(_fn, _local_location)),
-                        {
-                            static_cast<void>(this->data(place).destroy());
-                            this->data(place).~Data();
-                        });
+            Status status = this->data(place).init_udaf(_fn, _local_location);
             _first_created = false;
             _exec_place = place;
             if (UNLIKELY(!status.ok())) {
+                static_cast<void>(this->data(place).destroy());
+                this->data(place).~Data();
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, status.to_string());
             }
         }
@@ -321,7 +327,7 @@ public:
     DataTypePtr get_return_type() const override { return _return_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, row_num, row_num + 1,
@@ -332,7 +338,7 @@ public:
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                   const IColumn** columns, Arena* /*arena*/, bool /*agg_many*/) const override {
+                   const IColumn** columns, Arena&, bool /*agg_many*/) const override {
         int64_t places_address = reinterpret_cast<int64_t>(places);
         Status st = this->data(_exec_place)
                             .add(places_address, false, columns, 0, batch_size, argument_types,
@@ -343,7 +349,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* /*arena*/) const override {
+                                Arena&) const override {
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, 0, batch_size, argument_types, 0);
@@ -354,13 +360,22 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena&, UInt8* current_window_empty,
+                                UInt8* current_window_has_inited) const override {
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         int64_t places_address = reinterpret_cast<int64_t>(place);
         Status st = this->data(_exec_place)
                             .add(places_address, true, columns, frame_start, frame_end,
                                  argument_types, 0);
+        if (frame_start >= frame_end) {
+            if (!*current_window_has_inited) {
+                *current_window_empty = true;
+            }
+        } else {
+            *current_window_empty = false;
+            *current_window_has_inited = true;
+        }
         if (UNLIKELY(!st.ok())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, st.to_string());
         }
@@ -374,7 +389,7 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         Status st =
                 this->data(_exec_place).merge(this->data(rhs), reinterpret_cast<int64_t>(place));
         if (UNLIKELY(!st.ok())) {
@@ -396,7 +411,7 @@ public:
     // and during destory about deserialize, because haven't done init_udaf,
     // so it's can't call ~Data, only to change _destory_deserialize flag.
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -416,3 +431,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

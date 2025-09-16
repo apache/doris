@@ -54,16 +54,17 @@
 #include <filesystem>
 #include <fstream>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/env_config.h"
 #include "gflags/gflags.h"
-#include "gutil/stringprintf.h"
-#include "gutil/strings/substitute.h"
+#include "util/cgroup_util.h"
 #include "util/pretty_printer.h"
 
 using boost::algorithm::contains;
 using boost::algorithm::trim;
 namespace fs = std::filesystem;
+#include "common/compile_check_avoid_begin.h"
 using std::max;
 
 DECLARE_bool(abort_on_config_error);
@@ -73,21 +74,21 @@ DEFINE_int32(num_cores, 0,
              " according to /proc/cpuinfo.");
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
-void WarnIfFileNotEqual(const string& filename, const string& expected,
-                        const string& warning_text) {
+void WarnIfFileNotEqual(const std::string& filename, const std::string& expected,
+                        const std::string& warning_text) {
     std::ifstream file(filename);
-    if (!file) return;
-    string line;
+    if (!file) {
+        return;
+    }
+    std::string line;
     getline(file, line);
     if (line != expected) {
         LOG(ERROR) << "Expected " << expected << ", actual " << line << std::endl << warning_text;
     }
 }
-} // namespace doris
-
-namespace doris {
 
 bool CpuInfo::initialized_ = false;
 int64_t CpuInfo::hardware_flags_ = 0;
@@ -98,74 +99,23 @@ int CpuInfo::max_num_cores_ = 1;
 std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
 std::unique_ptr<int[]> CpuInfo::core_to_numa_node_;
-std::vector<vector<int>> CpuInfo::numa_node_to_cores_;
+std::vector<std::vector<int>> CpuInfo::numa_node_to_cores_;
 std::vector<int> CpuInfo::numa_node_core_idx_;
 
 static struct {
-    string name;
+    std::string name;
     int64_t flag;
 } flag_mappings[] = {
-        {"ssse3", CpuInfo::SSSE3},   {"sse4_1", CpuInfo::SSE4_1}, {"sse4_2", CpuInfo::SSE4_2},
-        {"popcnt", CpuInfo::POPCNT}, {"avx", CpuInfo::AVX},       {"avx2", CpuInfo::AVX2},
+        {.name = "ssse3", .flag = CpuInfo::SSSE3},   {.name = "sse4_1", .flag = CpuInfo::SSE4_1},
+        {.name = "sse4_2", .flag = CpuInfo::SSE4_2}, {.name = "popcnt", .flag = CpuInfo::POPCNT},
+        {.name = "avx", .flag = CpuInfo::AVX},       {.name = "avx2", .flag = CpuInfo::AVX2},
 };
-
-int cgroup_bandwidth_quota(int physical_cores) {
-    namespace fs = std::filesystem;
-    fs::path cpu_max = "/sys/fs/cgroup/cpu.max";
-    fs::path cfs_quota = "/sys/fs/cgroup/cpu/cpu.cfs_quota_us";
-    fs::path cfs_period = "/sys/fs/cgroup/cpu/cpu.cfs_period_us";
-
-    int64_t quota, period;
-    char byte_buffer[1000];
-    int64_t read_bytes;
-
-    if (fs::exists(cpu_max)) {
-        // cgroup v2
-        // https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
-        std::ifstream file(cpu_max);
-        file.read(byte_buffer, 999);
-        read_bytes = file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 " %" SCNd64 "", &quota, &period) != 2) {
-            return physical_cores;
-        }
-    } else if (fs::exists(cfs_quota) && fs::exists(cfs_period)) {
-        // cgroup v1
-        // https://www.kernel.org/doc/html/latest/scheduler/sched-bwc.html#management
-
-        // Read the quota, this indicates how many microseconds the CPU can be utilized by this cgroup per period
-        std::ifstream quota_file(cfs_quota);
-        quota_file.read(byte_buffer, 999);
-        read_bytes = quota_file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 "", &quota) != 1) {
-            return physical_cores;
-        }
-
-        // Read the time period, a cgroup can utilize the CPU up to quota microseconds every period
-        std::ifstream period_file(cfs_period);
-        period_file.read(byte_buffer, 999);
-        read_bytes = period_file.gcount();
-        byte_buffer[read_bytes] = '\0';
-        if (sscanf(byte_buffer, "%" SCNd64 "", &period) != 1) {
-            return physical_cores;
-        }
-    } else {
-        // No cgroup quota
-        return physical_cores;
-    }
-    if (quota > 0 && period > 0) {
-        return int64_t(ceil(double(quota) / double(period)));
-    } else {
-        return physical_cores;
-    }
-}
 
 // Helper function to parse for hardware flags.
 // values contains a list of space-separated flags.  check to see if the flags we
 // care about are present.
 // Returns a bitmap of flags.
-int64_t ParseCPUFlags(const string& values) {
+int64_t ParseCPUFlags(const std::string& values) {
     int64_t flags = 0;
     for (auto& flag_mapping : flag_mappings) {
         if (contains(values, flag_mapping.name)) {
@@ -176,10 +126,12 @@ int64_t ParseCPUFlags(const string& values) {
 }
 
 void CpuInfo::init() {
-    if (initialized_) return;
-    string line;
-    string name;
-    string value;
+    if (initialized_) {
+        return;
+    }
+    std::string line;
+    std::string name;
+    std::string value;
 
     float max_mhz = 0;
     int physical_num_cores = 0;
@@ -190,9 +142,9 @@ void CpuInfo::init() {
     while (cpuinfo) {
         getline(cpuinfo, line);
         size_t colon = line.find(':');
-        if (colon != string::npos) {
+        if (colon != std::string::npos) {
             name = line.substr(0, colon - 1);
-            value = line.substr(colon + 1, string::npos);
+            value = line.substr(colon + 1, std::string::npos);
             trim(name);
             trim(value);
             if (name == "flags") {
@@ -202,7 +154,7 @@ void CpuInfo::init() {
                 // that when impala is running, the core will not be in a lower power state.
                 // TODO: is there a more robust way to do this, such as
                 // Window's QueryPerformanceFrequency()
-                float mhz = atof(value.c_str());
+                float mhz = std::stof(value);
                 max_mhz = max(mhz, max_mhz);
             } else if (name == "processor") {
                 ++physical_num_cores;
@@ -212,7 +164,12 @@ void CpuInfo::init() {
         }
     }
 
-    int num_cores = cgroup_bandwidth_quota(physical_num_cores);
+#ifdef __APPLE__
+    size_t len = sizeof(max_num_cores_);
+    sysctlbyname("hw.physicalcpu", &physical_num_cores, &len, nullptr, 0);
+#endif
+
+    int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
     } else {
@@ -230,7 +187,6 @@ void CpuInfo::init() {
     }
 
 #ifdef __APPLE__
-    size_t len = sizeof(max_num_cores_);
     sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
 #else
     max_num_cores_ = get_nprocs_conf();
@@ -271,8 +227,10 @@ void CpuInfo::_init_numa() {
     fs::directory_iterator dir_it("/sys/devices/system/node");
     max_num_numa_nodes_ = 0;
     for (; dir_it != fs::directory_iterator(); ++dir_it) {
-        const string filename = dir_it->path().filename().string();
-        if (filename.find("node") == 0) ++max_num_numa_nodes_;
+        const std::string filename = dir_it->path().filename().string();
+        if (filename.starts_with("node")) {
+            ++max_num_numa_nodes_;
+        }
     }
     if (max_num_numa_nodes_ == 0) {
         LOG(WARNING) << "Could not find nodes in /sys/devices/system/node";
@@ -284,8 +242,7 @@ void CpuInfo::_init_numa() {
     for (int core = 0; core < max_num_cores_; ++core) {
         bool found_numa_node = false;
         for (int node = 0; node < max_num_numa_nodes_; ++node) {
-            if (fs::exists(
-                        strings::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
+            if (fs::exists(absl::Substitute("/sys/devices/system/cpu/cpu$0/node$1", core, node))) {
                 core_to_numa_node_[core] = node;
                 found_numa_node = true;
                 break;
@@ -317,7 +274,7 @@ void CpuInfo::_init_numa_node_to_cores() {
     numa_node_core_idx_.resize(max_num_cores_);
     for (int core = 0; core < max_num_cores_; ++core) {
         std::vector<int>* cores_of_node = &numa_node_to_cores_[core_to_numa_node_[core]];
-        numa_node_core_idx_[core] = cores_of_node->size();
+        numa_node_core_idx_[core] = static_cast<int>(cores_of_node->size());
         cores_of_node->push_back(core);
     }
 }
@@ -331,9 +288,9 @@ void CpuInfo::verify_cpu_requirements() {
 
 void CpuInfo::verify_performance_governor() {
     for (int cpu_id = 0; cpu_id < CpuInfo::num_cores(); ++cpu_id) {
-        const string governor_file = strings::Substitute(
-                "/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
-        const string warning_text = strings::Substitute(
+        const std::string governor_file =
+                absl::Substitute("/sys/devices/system/cpu/cpu$0/cpufreq/scaling_governor", cpu_id);
+        const std::string warning_text = absl::Substitute(
                 "WARNING: CPU $0 is not using 'performance' governor. Note that changing the "
                 "governor to 'performance' will reset the no_turbo setting to 0.",
                 cpu_id);
@@ -368,7 +325,9 @@ int CpuInfo::get_current_core() {
     // so that we can build and run with degraded perf.
 #ifdef HAVE_SCHED_GETCPU
     int cpu = sched_getcpu();
-    if (cpu < 0) return 0;
+    if (cpu < 0) {
+        return 0;
+    }
     if (cpu >= max_num_cores_) {
         LOG_FIRST_N(WARNING, 5) << "sched_getcpu() return value " << cpu
                                 << ", which is greater than get_nprocs_conf() retrun value "
@@ -424,17 +383,17 @@ std::string CpuInfo::debug_string() {
     long cache_line_sizes[NUM_CACHE_LEVELS];
     _get_cache_info(cache_sizes, cache_line_sizes);
 
-    string L1 = strings::Substitute(
+    std::string L1 = absl::Substitute(
             "L1 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L1_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L1_CACHE]), TUnit::BYTES));
-    string L2 = strings::Substitute(
+    std::string L2 = absl::Substitute(
             "L2 Cache: $0 (Line: $1)",
             PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L2_CACHE]), TUnit::BYTES),
             PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L2_CACHE]), TUnit::BYTES));
-    string L3 =
+    std::string L3 =
             cache_sizes[L3_CACHE]
-                    ? strings::Substitute(
+                    ? absl::Substitute(
                               "L3 Cache: $0 (Line: $1)",
                               PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L3_CACHE]),
                                                    TUnit::BYTES),
@@ -462,5 +421,5 @@ std::string CpuInfo::debug_string() {
     stream << std::endl;
     return stream.str();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

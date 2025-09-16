@@ -120,6 +120,17 @@ public class LogicalPlanBuilder {
         return from(join);
     }
 
+    public LogicalPlanBuilder markJoinWithMarkConjuncts(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+        ImmutableList<EqualTo> markConjuncts = ImmutableList.of(
+                new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, Collections.emptyList(),
+                Collections.emptyList(), new ArrayList<>(markConjuncts),
+                new DistributeHint(DistributeType.NONE), Optional.of(new MarkJoinSlotReference("fake")),
+                this.plan, right, null);
+        return from(join);
+    }
+
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
         ImmutableList<EqualTo> hashConjuncts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));

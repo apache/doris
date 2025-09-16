@@ -17,19 +17,23 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -43,6 +47,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
     }
@@ -292,7 +297,8 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
-                                + "or maybe all be on same host.\n"
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable(
@@ -302,7 +308,8 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class,
                         "Failed to find enough backend, please check the replication num,replication tag and storage medium and avail capacity of backends "
-                                + "or maybe all be on same host.\n"
+                                + "or maybe all be on same host."
+                                + Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation((short) 1)) + "\n"
                                 + "Create failed replications:\n"
                                 + "replication tag: {\"location\" : \"default\"}, replication num: 1, storage medium: SSD",
                         () -> createTable("create table test.tb7_1(key1 int, key2 varchar(10))\n"
@@ -358,7 +365,7 @@ public class CreateTableTest extends TestWithFeService {
          */
         // single partition column with single key
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "Syntax error", () -> createTable("create table test.tbl9\n"
+                .expectThrowsWithMsg(AnalysisException.class, "input", () -> createTable("create table test.tbl9\n"
                         + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
                         + "partition by list(k1)\n"
                         + "(\n"
@@ -370,17 +377,16 @@ public class CreateTableTest extends TestWithFeService {
 
         // single partition column with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[2] is not equal to partition column size[1]",
-                        () -> createTable("create table test.tbl10\n"
-                                + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
-                                + "partition by list(k1)\n"
-                                + "(\n"
-                                + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
-                                + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
-                                + "partition p3 values in ((\"7\", \"8\"))\n"
-                                + ")\n"
-                                + "distributed by hash(k2) buckets 1\n"
-                                + "properties('replication_num' = '1');"));
+                        .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class,
+                                        "partition item's size out of partition columns: Index 1 out of bounds for length 1",
+                                        () -> createTable("create table test.tbl10\n"
+                                                        + "(k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int)\n"
+                                                        + "partition by list(k1)\n" + "(\n"
+                                                        + "partition p1 values in (\"1\", \"3\", \"5\"),\n"
+                                                        + "partition p2 values in (\"2\", \"4\", \"6\"),\n"
+                                                        + "partition p3 values in ((\"7\", \"8\"))\n" + ")\n"
+                                                        + "distributed by hash(k2) buckets 1\n"
+                                                        + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
         ExceptionChecker
@@ -397,7 +403,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(IllegalArgumentException.class, "partition key desc list size[3] is not equal to partition column size[2]",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "partition item's size out of partition columns: Index 2 out of bounds for length 2",
                         () -> createTable("create table test.tbl12\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -411,7 +417,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // multi partition columns with multi keys
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "Syntax error",
+                .expectThrowsWithMsg(AnalysisException.class, "input",
                         () -> createTable("create table test.tbl13\n"
                                 + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
                                 + "partition by list(k1, k2)\n"
@@ -428,7 +434,7 @@ public class CreateTableTest extends TestWithFeService {
          */
         // list contain less than
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl14 (\n"
                                 + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -442,7 +448,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // range contain in
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl15 (\n"
                                 + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -456,7 +462,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // list contain both
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl15 (\n"
                                 + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -470,7 +476,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // range contain both
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
+                .expectThrowsWithMsg(AnalysisException.class, "invalid",
                         () -> createTable("CREATE TABLE test.tbl16 (\n"
                                 + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                                 + ")\n"
@@ -566,8 +572,7 @@ public class CreateTableTest extends TestWithFeService {
                             + ");"));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Create aggregate keys table with value columns of which aggregate type"
-                    + " is REPLACE should not contain random distribution desc",
+                "should",
                 () -> createTable("CREATE TABLE test.tbl22\n"
                     + "(\n"
                     + "  `k1` bigint(20) NULL COMMENT \"\",\n"
@@ -593,7 +598,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // create z-order sort table, default col_num
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         ()  -> createTable(
                                 "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -602,7 +607,7 @@ public class CreateTableTest extends TestWithFeService {
 
         // create z-order sort table, define sort_col_num
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         ()  -> createTable(
                                 "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -611,7 +616,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + " 'data_sort.col_num' = '2');"));
         // create z-order sort table, only 1 sort column
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -619,7 +624,7 @@ public class CreateTableTest extends TestWithFeService {
                                 + " 'data_sort.col_num' = '1');"));
         // create z-order sort table, sort column is empty
         ExceptionChecker
-                .expectThrowsWithMsg(AnalysisException.class, "only support lexical method now!",
+                .expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "only support lexical method now!",
                         () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
                                 + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
                                 + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
@@ -738,7 +743,7 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithInMemory() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Not support set 'in_memory'='true' now!",
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.AnalysisException.class, "Not support set 'in_memory'='true' now!",
                 () -> {
                     createTable("create table test.test_inmemory(k1 INT, k2 INT) duplicate key (k1) "
                             + "distributed by hash(k1) buckets 1 properties('replication_num' = '1','in_memory'='true');");
@@ -746,7 +751,7 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateTableWithStringLen() throws DdlException  {
+    public void testCreateTableWithStringLen() throws DdlException {
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
                     + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
@@ -760,7 +765,7 @@ public class CreateTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreateTableWithForceReplica() throws DdlException  {
+    public void testCreateTableWithForceReplica() throws DdlException {
         try {
             Config.force_olap_table_replication_num = 1;
             // no need to specify replication_num, the table can still be created.
@@ -784,6 +789,20 @@ public class CreateTableTest extends TestWithFeService {
         } finally {
             Config.force_olap_table_replication_num = -1;
         }
+    }
+
+    @Test
+    public void testCreateTableDetailMsg() throws Exception {
+        Map<Tag, Short> allocMap = Maps.newHashMap();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, "group_a"),  (short) 6);
+        Assert.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
+                Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)));
+
+        allocMap.clear();
+        allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
+        String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
+        Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
     }
 
     @Test
@@ -920,8 +939,8 @@ public class CreateTableTest extends TestWithFeService {
 
     @Test
     public void testCreateTableWithNerieds() throws Exception {
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                "Failed to check min load replica num",
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.common.DdlException.class,
+                                "Failed to check min load replica num",
                 () -> createTable("create table test.tbl_min_load_replica_num_2_nereids\n"
                         + "(k1 int, k2 int)\n"
                         + "duplicate key(k1)\n"
@@ -962,12 +981,104 @@ public class CreateTableTest extends TestWithFeService {
                         + "distributed by hash(k1) buckets 10", true));
 
         createDatabaseWithSql("create database db2 properties('replication_num' = '4')");
-        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "replication num should be less than the number of available backends. "
                         + "replication num is 4, available backend num is 3",
                 () -> createTable("create table db2.tbl_4_replica\n"
                         + "(k1 int, k2 int)\n"
                         + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n", true));
+    }
+
+    @Test
+    public void testCreateTableTrimPropertyKey() throws Exception {
+        String sql = "create table test.tbl_trim_property_key\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"min_load_replica_num \" = \"1\",\n"
+                + "\" dynamic_partition.enable\" = \"true\",\n"
+                + "\" dynamic_partition.time_unit \" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");";
+        createTable(sql);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key");
+        Assert.assertEquals(1, table.getMinLoadReplicaNum());
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid dynamic partition properties: dynamic_partition. enable",
+                () -> createTable("create table test.tbl_trim_property_key_invalid\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"dynamic_partition. enable\" = \"true\",\n"
+                        + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                        + "\"dynamic_partition.end\" = \"3\",\n"
+                        + "\"dynamic_partition.prefix\" = \"p\",\n"
+                        + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");"));
+    }
+
+    @Test
+    public void testCreateTableTrimPropertyKeyWithNereids() throws Exception {
+        String sql = "create table test.tbl_trim_property_key_with_nereids\n"
+                + "(`uuid` varchar(255) NULL,\n"
+                + "`action_datetime` date NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(uuid)\n"
+                + "PARTITION BY RANGE(action_datetime)()\n"
+                + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"min_load_replica_num \" = \"1\",\n"
+                + "\" dynamic_partition.enable\" = \"true\",\n"
+                + "\" dynamic_partition.time_unit \" = \"DAY\",\n"
+                + "\"dynamic_partition.end\" = \"3\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.start\" = \"-3\"\n"
+                + ");";
+        createTable(sql, true);
+        Database db =
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key_with_nereids");
+        Assert.assertEquals(1, table.getMinLoadReplicaNum());
+        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid dynamic partition properties: dynamic_partition. enable",
+                () -> createTable("create table test.tbl_trim_property_key_invalid\n"
+                        + "(`uuid` varchar(255) NULL,\n"
+                        + "`action_datetime` date NULL\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(uuid)\n"
+                        + "PARTITION BY RANGE(action_datetime)()\n"
+                        + "DISTRIBUTED BY HASH(uuid) BUCKETS 3\n"
+                        + "PROPERTIES\n"
+                        + "(\n"
+                        + "\"dynamic_partition. enable\" = \"true\",\n"
+                        + "\"dynamic_partition.time_unit\" = \"DAY\",\n"
+                        + "\"dynamic_partition.end\" = \"3\",\n"
+                        + "\"dynamic_partition.prefix\" = \"p\",\n"
+                        + "\"dynamic_partition.start\" = \"-3\"\n"
+                        + ");", true));
     }
 }

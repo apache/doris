@@ -17,25 +17,30 @@
 
 package org.apache.doris.lakesoul;
 
-import org.apache.doris.common.jni.vec.ScanPredicate;
 import org.apache.doris.lakesoul.arrow.LakeSoulArrowJniScanner;
-import org.apache.doris.lakesoul.parquet.ParquetFilter;
 
 import com.dmetasoul.lakesoul.LakeSoulArrowReader;
 import com.dmetasoul.lakesoul.lakesoul.io.NativeIOReader;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
+import com.dmetasoul.lakesoul.lakesoul.io.substrait.SubstraitUtil;
+import com.lakesoul.shaded.com.fasterxml.jackson.core.type.TypeReference;
+import com.lakesoul.shaded.com.fasterxml.jackson.databind.ObjectMapper;
+import com.lakesoul.shaded.io.substrait.proto.Plan;
+import com.lakesoul.shaded.org.apache.arrow.vector.VectorSchemaRoot;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Field;
+import com.lakesoul.shaded.org.apache.arrow.vector.types.pojo.Schema;
+import com.lakesoul.shaded.org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
+    private static final Logger LOG = LoggerFactory.getLogger(LakeSoulJniScanner.class);
 
     private final Map<String, String> params;
 
@@ -60,6 +65,8 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
         withAllocator(nativeIOReader.getAllocator());
         nativeIOReader.setBatchSize(batchSize);
 
+        LOG.info("opening LakeSoulJniScanner with params={}", params);
+
         // add files
         for (String file : params.get(LakeSoulUtils.FILE_NAMES).split(LakeSoulUtils.LIST_DELIM)) {
             nativeIOReader.addFile(file);
@@ -72,19 +79,43 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
                     Arrays.stream(primaryKeys.split(LakeSoulUtils.LIST_DELIM)).collect(Collectors.toList()));
         }
 
-        Schema schema = Schema.fromJSON(params.get(LakeSoulUtils.SCHEMA_JSON));
+        String options = params.getOrDefault(LakeSoulUtils.OPTIONS, "{}");
+        Map<String, String> optionsMap = new ObjectMapper().readValue(
+                options, new TypeReference<Map<String, String>>() {}
+        );
+        String base64Predicate = optionsMap.get(LakeSoulUtils.SUBSTRAIT_PREDICATE);
+        if (base64Predicate != null) {
+            Plan predicate = SubstraitUtil.decodeBase64String(base64Predicate);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("push predicate={}", predicate);
+            }
+            nativeIOReader.addFilterProto(predicate);
+        }
+
+        for (String key : LakeSoulUtils.OBJECT_STORE_OPTIONS) {
+            String value = optionsMap.get(key);
+            if (key != null) {
+                nativeIOReader.setObjectStoreOption(key, value);
+            }
+        }
+
+        Schema tableSchema = Schema.fromJSON(params.get(LakeSoulUtils.SCHEMA_JSON));
         String[] requiredFieldNames = params.get(LakeSoulUtils.REQUIRED_FIELDS).split(LakeSoulUtils.LIST_DELIM);
 
         List<Field> requiredFields = new ArrayList<>();
         for (String fieldName : requiredFieldNames) {
-            requiredFields.add(schema.findField(fieldName));
+            String name = fieldName.strip();
+            if (StringUtils.isEmpty(name)) {
+                continue;
+            }
+            requiredFields.add(tableSchema.findField(fieldName));
         }
 
         requiredSchema = new Schema(requiredFields);
 
         nativeIOReader.setSchema(requiredSchema);
 
-        HashSet<String> partitionColumn = new HashSet<>();
+        List<Field> partitionFields = new ArrayList<>();
         for (String partitionKV : params.getOrDefault(LakeSoulUtils.PARTITION_DESC, "")
                 .split(LakeSoulUtils.LIST_DELIM)) {
             if (partitionKV.isEmpty()) {
@@ -94,16 +125,14 @@ public class LakeSoulJniScanner extends LakeSoulArrowJniScanner {
             if (kv.length != 2) {
                 throw new IllegalArgumentException("Invalid partition column = " + partitionKV);
             }
-            partitionColumn.add(kv[0]);
+            nativeIOReader.setDefaultColumnValue(kv[0], kv[1]);
+            partitionFields.add(tableSchema.findField(kv[0]));
+        }
+        if (!partitionFields.isEmpty()) {
+            nativeIOReader.setPartitionSchema(new Schema(partitionFields));
         }
 
         initTableInfo(params);
-
-        for (ScanPredicate predicate : predicates) {
-            if (!partitionColumn.contains(predicate.columName)) {
-                nativeIOReader.addFilter(ParquetFilter.toParquetFilter(predicate).toString());
-            }
-        }
 
         nativeIOReader.initializeReader();
         lakesoulArrowReader = new LakeSoulArrowReader(nativeIOReader, awaitTimeout);

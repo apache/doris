@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -35,7 +35,7 @@ import java.util.List;
  * ScalarFunction 'second_timestamp'.
  */
 public class SecondTimestamp extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT));
@@ -44,10 +44,15 @@ public class SecondTimestamp extends ScalarFunction
         super("second_timestamp", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SecondTimestamp(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public SecondTimestamp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new SecondTimestamp(children.get(0));
+        return new SecondTimestamp(getFunctionParams(children));
     }
 
     @Override

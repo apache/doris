@@ -20,6 +20,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("count_star") {
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
             create table d_table(
@@ -38,61 +40,42 @@ suite ("count_star") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
 
-    createMV ("create materialized view kstar as select k1,k4,count(*) from d_table group by k1,k4;")
+    createMV ("create materialized view kstar as select k1 as a1,k4 as a2,count(*) from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select 3,2,null,'c';"
     sql "insert into d_table values(2,1,1,'a'),(2,1,1,'a');"
 
+
+    sql """set enable_stats=true;"""
     sql "analyze table d_table with sync;"
-    sql """set enable_stats=false;"""
-    
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
+
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
-        contains "(kstar)"
-    }
+    mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k1=1 group by k1,k4 order by 1,2;"
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
     qt_select_mv "select k1,k4,count(*) from d_table where k3=1 group by k1,k4 order by 1,2;"
 
     qt_select_mv "select count(*) from d_table;"
 
-    explain {
-        sql("select count(*) from d_table where k3=1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
     qt_select_mv "select count(*) from d_table where k3=1;"
 
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k4,count(*) from d_table group by k1,k4;")
-        contains "(kstar)"
-    }
+    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;")
-        contains "(kstar)"
-    }
 
-    explain {
-        sql("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;")
-        contains "(d_table)"
-    }
+    mv_rewrite_success_without_check_chosen("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
 
-    explain {
-        sql("select count(*) from d_table where k3=1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_success_without_check_chosen("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
+
+    mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")
+
+    mv_rewrite_fail("select count(*) from d_table where k3=1;", "kstar")
+
 }

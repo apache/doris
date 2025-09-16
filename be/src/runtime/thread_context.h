@@ -19,20 +19,18 @@
 
 #include <bthread/bthread.h>
 #include <bthread/types.h>
-#include <gen_cpp/Types_types.h>
-#include <stdint.h>
 
 #include <memory>
-#include <ostream>
 #include <string>
 #include <thread>
 
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/macros.h"
+#include "common/macros.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/defer_op.h" // IWYU pragma: keep
 
 // Used to tracking query/load/compaction/e.g. execution thread memory usage.
@@ -40,56 +38,47 @@
 // including MemTracker, QueryID, etc. Use CONSUME_THREAD_MEM_TRACKER/RELEASE_THREAD_MEM_TRACKER in the code segment where
 // the macro is located to record the memory into MemTracker.
 // Not use it in rpc done.run(), because bthread_setspecific may have errors when UBSAN compiles.
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
+
 // Attach to query/load/compaction/e.g. when thread starts.
 // This will save some info about a working thread in the thread context.
 // Looking forward to tracking memory during thread execution into MemTrackerLimiter.
 #define SCOPED_ATTACH_TASK(arg1) auto VARNAME_LINENUM(attach_task) = AttachTask(arg1)
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
-    auto VARNAME_LINENUM(attach_task) = AttachTask(arg1, arg2)
+
+// If the current thread is not executing a Task, such as a StorageEngine thread,
+// use SCOPED_INIT_THREAD_CONTEXT to initialize ThreadContext.
+#define SCOPED_INIT_THREAD_CONTEXT() \
+    auto VARNAME_LINENUM(scoped_tls_itc) = doris::ScopedInitThreadContext()
+
+// Switch resource context in thread context, used after SCOPED_ATTACH_TASK.
+// If just want to switch mem tracker, use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER first.
+#define SCOPED_SWITCH_RESOURCE_CONTEXT(arg1) \
+    auto VARNAME_LINENUM(switch_resource_context) = doris::SwitchResourceContext(arg1)
 
 // Switch MemTrackerLimiter for count memory during thread execution.
 // Used after SCOPED_ATTACH_TASK, in order to count the memory into another
 // MemTrackerLimiter instead of the MemTrackerLimiter added by the attach task.
 #define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
-    auto VARNAME_LINENUM(switch_mem_tracker) = SwitchThreadMemTrackerLimiter(arg1)
+    auto VARNAME_LINENUM(switch_mem_tracker) = doris::SwitchThreadMemTrackerLimiter(arg1)
 
 // Looking forward to tracking memory during thread execution into MemTracker.
 // Usually used to record query more detailed memory, including ExecNode operators.
 #define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumer(mem_tracker)
 
-#define DEFER_RELEASE_RESERVED() \
-    Defer VARNAME_LINENUM(defer) {[&]() { doris::thread_context()->release_reserved_memory(); }};
+#define DEFER_RELEASE_RESERVED()   \
+    Defer VARNAME_LINENUM(defer) { \
+            [&]() { doris::thread_context()->thread_mem_tracker_mgr->shrink_reserved(); }};
 
-#define ORPHAN_TRACKER_CHECK()                                                  \
-    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check || \
-           doris::thread_context()->thread_mem_tracker()->label() != "Orphan")  \
-            << doris::memory_orphan_check_msg
-
-#define MEMORY_ORPHAN_CHECK()                                                 \
-    DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check) \
-            << doris::memory_orphan_check_msg;
-#else
-// thread context need to be initialized, required by Allocator and elsewhere.
-#define SCOPED_ATTACH_TASK(arg1, ...) \
-    auto VARNAME_LINENUM(scoped_tls_at) = doris::ScopedInitThreadContext()
-#define SCOPED_ATTACH_TASK_WITH_ID(arg1, arg2) \
-    auto VARNAME_LINENUM(scoped_tls_atwi) = doris::ScopedInitThreadContext()
-#define SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(arg1) \
-    auto VARNAME_LINENUM(scoped_tls_stmtl) = doris::ScopedInitThreadContext()
-#define SCOPED_CONSUME_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(scoped_tls_cmt) = doris::ScopedInitThreadContext()
-#define DEFER_RELEASE_RESERVED() (void)0
-#define ORPHAN_TRACKER_CHECK() (void)0
-#define MEMORY_ORPHAN_CHECK() (void)0
-#endif
-
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
-// Count a code segment memory (memory malloc - memory free) to int64_t
-// Usage example: int64_t scope_mem = 0; { SCOPED_MEM_COUNT_BY_HOOK(&scope_mem); xxx; xxx; }
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
-    auto VARNAME_LINENUM(scope_mem_count) = doris::ScopeMemCountByHook(scope_mem)
+// Count a code segment memory
+// Usage example:
+//      int64_t peak_mem = 0;
+//      {
+//          SCOPED_PEAK_MEM(&peak_mem);
+//          xxxx
+//      }
+//      LOG(INFO) << *peak_mem;
+#define SCOPED_PEAK_MEM(peak_mem) \
+    auto VARNAME_LINENUM(scope_peak_mem) = doris::ScopedPeakMem(peak_mem)
 
 // Count a code segment memory (memory malloc - memory free) to MemTracker.
 // Compared to count `scope_mem`, MemTracker is easier to observe from the outside and is thread-safe.
@@ -97,50 +86,76 @@
 //                { SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(_mem_tracker.get()); xxx; xxx; }
 #define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
     auto VARNAME_LINENUM(add_mem_consumer) = doris::AddThreadMemTrackerConsumerByHook(mem_tracker)
-#else
-#define SCOPED_MEM_COUNT_BY_HOOK(scope_mem) \
-    auto VARNAME_LINENUM(scoped_tls_mcbh) = doris::ScopedInitThreadContext()
-#define SCOPED_CONSUME_MEM_TRACKER_BY_HOOK(mem_tracker) \
-    auto VARNAME_LINENUM(scoped_tls_cmtbh) = doris::ScopedInitThreadContext()
-#endif
 
 #define SCOPED_SKIP_MEMORY_CHECK() \
     auto VARNAME_LINENUM(scope_skip_memory_check) = doris::ScopeSkipMemoryCheck()
 
-#define SKIP_LARGE_MEMORY_CHECK(...)                                       \
-    do {                                                                   \
-        doris::ThreadLocalHandle::create_thread_local_if_not_exits();      \
-        doris::thread_context()->skip_large_memory_check++;                \
-        DEFER({                                                            \
-            doris::thread_context()->skip_large_memory_check--;            \
-            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero(); \
-        });                                                                \
-        __VA_ARGS__;                                                       \
+#define SKIP_LARGE_MEMORY_CHECK(...)                                                    \
+    do {                                                                                \
+        doris::ThreadLocalHandle::create_thread_local_if_not_exits();                   \
+        doris::thread_context()->thread_mem_tracker_mgr->skip_large_memory_check++;     \
+        DEFER({                                                                         \
+            doris::thread_context()->thread_mem_tracker_mgr->skip_large_memory_check--; \
+            doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();              \
+        });                                                                             \
+        __VA_ARGS__;                                                                    \
     } while (0)
+
+#define LIMIT_LOCAL_SCAN_IO(data_dir, bytes_read)                                            \
+    std::shared_ptr<IOThrottle> iot = nullptr;                                               \
+    auto* t_ctx = doris::thread_context();                                                   \
+    if (t_ctx->is_attach_task() && t_ctx->resource_ctx()->workload_group() != nullptr) {     \
+        iot = t_ctx->resource_ctx()->workload_group()->get_local_scan_io_throttle(data_dir); \
+    }                                                                                        \
+    if (iot) {                                                                               \
+        iot->acquire(-1);                                                                    \
+    }                                                                                        \
+    Defer defer {                                                                            \
+        [&]() {                                                                              \
+            if (iot) {                                                                       \
+                iot->update_next_io_time(*bytes_read);                                       \
+                t_ctx->resource_ctx()->workload_group()->update_local_scan_io(data_dir,      \
+                                                                              *bytes_read);  \
+            }                                                                                \
+        }                                                                                    \
+    }
+
+#define LIMIT_REMOTE_SCAN_IO(bytes_read)                                                     \
+    std::shared_ptr<IOThrottle> iot = nullptr;                                               \
+    auto* t_ctx = doris::thread_context();                                                   \
+    if (t_ctx->is_attach_task() && t_ctx->resource_ctx()->workload_group() != nullptr) {     \
+        iot = t_ctx->resource_ctx()->workload_group()->get_remote_scan_io_throttle();        \
+    }                                                                                        \
+    if (iot) {                                                                               \
+        iot->acquire(-1);                                                                    \
+    }                                                                                        \
+    Defer defer {                                                                            \
+        [&]() {                                                                              \
+            if (iot) {                                                                       \
+                iot->update_next_io_time(*bytes_read);                                       \
+                t_ctx->resource_ctx()->workload_group()->update_remote_scan_io(*bytes_read); \
+            }                                                                                \
+        }                                                                                    \
+    }
 
 namespace doris {
 
 class ThreadContext;
 class MemTracker;
 class RuntimeState;
-class QueryThreadContext;
+class SwitchResourceContext;
 
 extern bthread_key_t btls_key;
+
+static std::string NO_THREAD_CONTEXT_MSG =
+        "Current thread not exist ThreadContext, usually after the thread is started, using "
+        "SCOPED_ATTACH_TASK macro to create a ThreadContext and bind a Task.";
 
 // Is true after ThreadContext construction.
 inline thread_local bool pthread_context_ptr_init = false;
 inline thread_local constinit ThreadContext* thread_context_ptr = nullptr;
 // use mem hook to consume thread mem tracker.
 inline thread_local bool use_mem_hook = false;
-
-static std::string memory_orphan_check_msg =
-        "If you crash here, it means that SCOPED_ATTACH_TASK and "
-        "SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER are not used correctly. starting position of "
-        "each thread is expected to use SCOPED_ATTACH_TASK to bind a MemTrackerLimiter belonging "
-        "to Query/Load/Compaction/Other Tasks, otherwise memory alloc using Doris Allocator in the "
-        "thread will crash. If you want to switch MemTrackerLimiter during thread execution, "
-        "please use SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER, do not repeat Attach. Of course, you "
-        "can modify enable_memory_orphan_check=false in be.conf to avoid this crash.";
 
 // The thread context saves some info about a working thread.
 // 2 required info:
@@ -151,87 +166,63 @@ static std::string memory_orphan_check_msg =
 //   4. ThreadMemTrackerMgr
 //
 // There may be other optional info to be added later.
+//
+// Note: Keep the class simple and only add properties.
 class ThreadContext {
 public:
     ThreadContext() { thread_mem_tracker_mgr = std::make_unique<ThreadMemTrackerMgr>(); }
 
     ~ThreadContext() = default;
 
-    void attach_task(const TUniqueId& task_id,
-                     const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
+    void attach_task(const std::shared_ptr<ResourceContext>& rc) {
         // will only attach_task at the beginning of the thread function, there should be no duplicate attach_task.
-        DCHECK(mem_tracker);
-        // Orphan is thread default tracker.
-        DCHECK(thread_mem_tracker()->label() == "Orphan")
-                << ", thread mem tracker label: " << thread_mem_tracker()->label()
-                << ", attach mem tracker label: " << mem_tracker->label();
-        _task_id = task_id;
-        thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
-        thread_mem_tracker_mgr->set_query_id(_task_id);
+        DCHECK(resource_ctx_ == nullptr);
+        resource_ctx_ = rc;
+        thread_mem_tracker_mgr->attach_limiter_tracker(rc->memory_context()->mem_tracker(),
+                                                       rc->workload_group());
         thread_mem_tracker_mgr->enable_wait_gc();
-        thread_mem_tracker_mgr->reset_query_cancelled_flag(false);
     }
 
     void detach_task() {
-        _task_id = TUniqueId();
+        resource_ctx_.reset();
         thread_mem_tracker_mgr->detach_limiter_tracker();
-        thread_mem_tracker_mgr->set_query_id(TUniqueId());
         thread_mem_tracker_mgr->disable_wait_gc();
     }
 
-    [[nodiscard]] const TUniqueId& task_id() const { return _task_id; }
+    bool is_attach_task() { return resource_ctx_ != nullptr; }
+
+    std::shared_ptr<ResourceContext> resource_ctx() {
+#ifndef BE_TEST
+        DCHECK(is_attach_task());
+#endif
+        if (is_attach_task()) {
+            return resource_ctx_;
+        } else {
+            auto ctx = ResourceContext::create_shared();
+            ctx->memory_context()->set_mem_tracker(
+                    doris::ExecEnv::GetInstance()->orphan_mem_tracker());
+            return ctx;
+        }
+    }
 
     static std::string get_thread_id() {
         std::stringstream ss;
         ss << std::this_thread::get_id();
         return ss.str();
     }
-    // After thread_mem_tracker_mgr is initialized, the current thread Hook starts to
-    // consume/release mem_tracker.
-    // Note that the use of shared_ptr will cause a crash. The guess is that there is an
+    // Note that if set global Memory Hook, After thread_mem_tracker_mgr is initialized,
+    // the current thread Hook starts to consume/release mem_tracker.
+    // the use of shared_ptr will cause a crash. The guess is that there is an
     // intermediate state during the copy construction of shared_ptr. Shared_ptr is not equal
     // to nullptr, but the object it points to is not initialized. At this time, when the memory
     // is released somewhere, the hook is triggered to cause the crash.
     std::unique_ptr<ThreadMemTrackerMgr> thread_mem_tracker_mgr;
-    [[nodiscard]] MemTrackerLimiter* thread_mem_tracker() const {
-        return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
-    }
-
-    QueryThreadContext query_thread_context();
-
-    void consume_memory(const int64_t size) const {
-#ifdef USE_MEM_TRACKER
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
-               thread_mem_tracker()->label() != "Orphan")
-                << doris::memory_orphan_check_msg;
-#endif
-        thread_mem_tracker_mgr->consume(size, skip_large_memory_check);
-    }
-
-    bool try_reserve_memory(const int64_t size) const {
-#ifdef USE_MEM_TRACKER
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
-               thread_mem_tracker()->label() != "Orphan")
-                << doris::memory_orphan_check_msg;
-#endif
-        return thread_mem_tracker_mgr->try_reserve(size);
-    }
-
-    void release_reserved_memory() const {
-#ifdef USE_MEM_TRACKER
-        DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check ||
-               thread_mem_tracker()->label() != "Orphan")
-                << doris::memory_orphan_check_msg;
-#endif
-        thread_mem_tracker_mgr->release_reserved();
-    }
 
     int thread_local_handle_count = 0;
-    int skip_memory_check = 0;
-    int skip_large_memory_check = 0;
 
 private:
-    TUniqueId _task_id;
+    friend class SwitchResourceContext;
+    std::shared_ptr<ResourceContext> resource_ctx_;
 };
 
 class ThreadLocalHandle {
@@ -259,7 +250,7 @@ public:
                 // The brpc server should respond as quickly as possible.
                 bthread_context->thread_mem_tracker_mgr->disable_wait_gc();
                 // set the data so that next time bthread_getspecific in the thread returns the data.
-                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || k_doris_exit);
+                CHECK(0 == bthread_setspecific(btls_key, bthread_context) || doris::k_doris_exit);
             }
             DCHECK(bthread_context != nullptr);
             bthread_context->thread_local_handle_count++;
@@ -283,8 +274,7 @@ public:
             DCHECK(bthread_context != nullptr);
             bthread_context->thread_local_handle_count--;
         } else {
-            LOG(FATAL) << "__builtin_unreachable";
-            __builtin_unreachable();
+            throw Exception(Status::FatalError("__builtin_unreachable"));
         }
     }
 };
@@ -301,56 +291,31 @@ static ThreadContext* thread_context() {
         // in bthread
         // bthread switching pthread may be very frequent, remember not to use lock or other time-consuming operations.
         auto* bthread_context = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
-        DCHECK(bthread_context != nullptr);
+        DCHECK(bthread_context != nullptr && bthread_context->thread_local_handle_count > 0);
         return bthread_context;
     }
     // It means that use thread_context() but this thread not attached a query/load using SCOPED_ATTACH_TASK macro.
-    LOG(FATAL) << "__builtin_unreachable, " << doris::memory_orphan_check_msg;
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("{}", doris::NO_THREAD_CONTEXT_MSG));
 }
 
-// belong to one query object member, not be shared by multiple queries.
-class QueryThreadContext {
+class ScopedPeakMem {
 public:
-    QueryThreadContext() = default;
-    QueryThreadContext(const TUniqueId& query_id,
-                       const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : query_id(query_id), query_mem_tracker(mem_tracker) {}
-
-    // Not thread safe, generally be called in class constructor, shared_ptr use_count may be
-    // wrong when called by multiple threads, cause crash after object be destroyed prematurely.
-    void init_unlocked() {
-#ifndef BE_TEST
-        ORPHAN_TRACKER_CHECK();
-        query_id = doris::thread_context()->task_id();
-        query_mem_tracker = doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-#else
-        query_id = TUniqueId();
-        query_mem_tracker = doris::ExecEnv::GetInstance()->orphan_mem_tracker();
-#endif
-    }
-
-    TUniqueId query_id;
-    std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
-};
-
-class ScopeMemCountByHook {
-public:
-    explicit ScopeMemCountByHook(int64_t* scope_mem) {
+    explicit ScopedPeakMem(int64_t* peak_mem)
+            : _peak_mem(peak_mem),
+              _mem_tracker("ScopedPeakMem:" + UniqueId::gen_uid().to_string()) {
         ThreadLocalHandle::create_thread_local_if_not_exits();
-        _scope_mem = scope_mem;
-        thread_context()->thread_mem_tracker_mgr->start_count_scope_mem();
-        use_mem_hook = true;
+        thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(&_mem_tracker);
     }
 
-    ~ScopeMemCountByHook() {
-        use_mem_hook = false;
-        *_scope_mem += thread_context()->thread_mem_tracker_mgr->stop_count_scope_mem();
+    ~ScopedPeakMem() {
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+        *_peak_mem += _mem_tracker.peak_consumption();
         ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 
 private:
-    int64_t* _scope_mem = nullptr;
+    int64_t* _peak_mem;
+    MemTracker _mem_tracker;
 };
 
 // only hold thread context in scope.
@@ -363,43 +328,43 @@ public:
 
 class AttachTask {
 public:
-    explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker,
-                        const TUniqueId& task_id);
+    // you must use ResourceCtx or MemTracker initialization.
+    explicit AttachTask() = delete;
 
+    explicit AttachTask(const std::shared_ptr<ResourceContext>& rc);
+
+    // Shortcut attach task, initialize an empty resource context, and set the memory tracker.
     explicit AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
+    // is query or load, initialize with memory tracker, query id and workload group wptr.
     explicit AttachTask(RuntimeState* runtime_state);
 
-    explicit AttachTask(const QueryThreadContext& query_thread_context);
+    explicit AttachTask(QueryContext* query_ctx);
+
+    void init(const std::shared_ptr<ResourceContext>& rc);
 
     ~AttachTask();
 };
 
-class SwitchThreadMemTrackerLimiter {
+class SwitchResourceContext {
 public:
-    explicit SwitchThreadMemTrackerLimiter(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
-        DCHECK(mem_tracker);
-        ThreadLocalHandle::create_thread_local_if_not_exits();
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(mem_tracker);
-    }
+    explicit SwitchResourceContext(const std::shared_ptr<ResourceContext>& rc);
 
-    explicit SwitchThreadMemTrackerLimiter(const QueryThreadContext& query_thread_context) {
-        ThreadLocalHandle::create_thread_local_if_not_exits();
-        DCHECK(thread_context()->task_id() == query_thread_context.query_id);
-        DCHECK(query_thread_context.query_mem_tracker);
-        _old_mem_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
-        thread_context()->thread_mem_tracker_mgr->attach_limiter_tracker(
-                query_thread_context.query_mem_tracker);
-    }
-
-    ~SwitchThreadMemTrackerLimiter() {
-        thread_context()->thread_mem_tracker_mgr->detach_limiter_tracker(_old_mem_tracker);
-        ThreadLocalHandle::del_thread_local_if_count_is_zero();
-    }
+    ~SwitchResourceContext();
 
 private:
-    std::shared_ptr<MemTrackerLimiter> _old_mem_tracker;
+    std::shared_ptr<ResourceContext> old_resource_ctx_ {nullptr};
+};
+
+class SwitchThreadMemTrackerLimiter {
+public:
+    explicit SwitchThreadMemTrackerLimiter(
+            const std::shared_ptr<doris::MemTrackerLimiter>& mem_tracker);
+
+    ~SwitchThreadMemTrackerLimiter();
+
+private:
+    bool is_switched_ {false};
 };
 
 class AddThreadMemTrackerConsumer {
@@ -431,54 +396,16 @@ class ScopeSkipMemoryCheck {
 public:
     explicit ScopeSkipMemoryCheck() {
         ThreadLocalHandle::create_thread_local_if_not_exits();
-        doris::thread_context()->skip_memory_check++;
+        doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check++;
     }
 
     ~ScopeSkipMemoryCheck() {
-        doris::thread_context()->skip_memory_check--;
+        doris::thread_context()->thread_mem_tracker_mgr->skip_memory_check--;
         ThreadLocalHandle::del_thread_local_if_count_is_zero();
     }
 };
 
 // Basic macros for mem tracker, usually do not need to be modified and used.
-#if defined(USE_MEM_TRACKER) && !defined(BE_TEST)
-// used to fix the tracking accuracy of caches.
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker)                                            \
-    do {                                                                                         \
-        ORPHAN_TRACKER_CHECK();                                                                  \
-        doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw()->transfer_to( \
-                size, tracker);                                                                  \
-    } while (0)
-
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker)                                            \
-    do {                                                                                           \
-        ORPHAN_TRACKER_CHECK();                                                                    \
-        tracker->transfer_to(                                                                      \
-                size, doris::thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_raw()); \
-    } while (0)
-
-// Mem Hook to consume thread mem tracker
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size)           \
-    do {                                                   \
-        if (doris::use_mem_hook) {                         \
-            doris::thread_context()->consume_memory(size); \
-        }                                                  \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) CONSUME_THREAD_MEM_TRACKER_BY_HOOK(-size)
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)           \
-    do {                                                                   \
-        if (doris::use_mem_hook) {                                         \
-            doris::thread_context()->consume_memory(size_fn(__VA_ARGS__)); \
-        }                                                                  \
-    } while (0)
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...)            \
-    do {                                                                    \
-        if (doris::use_mem_hook) {                                          \
-            doris::thread_context()->consume_memory(-size_fn(__VA_ARGS__)); \
-        }                                                                   \
-    } while (0)
-
-// if use mem hook, avoid repeated consume.
 // must call create_thread_local_if_not_exits() before use thread_context().
 #define CONSUME_THREAD_MEM_TRACKER(size)                                                           \
     do {                                                                                           \
@@ -487,25 +414,22 @@ public:
         }                                                                                          \
         if (doris::pthread_context_ptr_init) {                                                     \
             DCHECK(bthread_self() == 0);                                                           \
-            doris::thread_context_ptr->consume_memory(size);                                       \
+            doris::thread_context_ptr->thread_mem_tracker_mgr->consume(size);                      \
         } else if (bthread_self() != 0) {                                                          \
-            static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key))               \
-                    ->consume_memory(size);                                                        \
+            auto* bthread_context =                                                                \
+                    static_cast<doris::ThreadContext*>(bthread_getspecific(doris::btls_key));      \
+            DCHECK(bthread_context != nullptr);                                                    \
+            if (bthread_context != nullptr) {                                                      \
+                bthread_context->thread_mem_tracker_mgr->consume(size);                            \
+            } else {                                                                               \
+                doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size); \
+            }                                                                                      \
         } else if (doris::ExecEnv::ready()) {                                                      \
-            MEMORY_ORPHAN_CHECK();                                                                 \
-            doris::ExecEnv::GetInstance()->orphan_mem_tracker_raw()->consume_no_update_peak(size); \
+            DCHECK(doris::k_doris_exit || !doris::config::enable_memory_orphan_check)              \
+                    << doris::NO_THREAD_CONTEXT_MSG;                                               \
+            doris::ExecEnv::GetInstance()->orphan_mem_tracker()->consume_no_update_peak(size);     \
         }                                                                                          \
     } while (0)
 #define RELEASE_THREAD_MEM_TRACKER(size) CONSUME_THREAD_MEM_TRACKER(-size)
 
-#else
-#define THREAD_MEM_TRACKER_TRANSFER_TO(size, tracker) (void)0
-#define THREAD_MEM_TRACKER_TRANSFER_FROM(size, tracker) (void)0
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK(size) (void)0
-#define CONSUME_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...) (void)0
-#define RELEASE_THREAD_MEM_TRACKER_BY_HOOK_WITH_FN(size_fn, ...) (void)0
-#define CONSUME_THREAD_MEM_TRACKER(size) (void)0
-#define RELEASE_THREAD_MEM_TRACKER(size) (void)0
-#endif
 } // namespace doris

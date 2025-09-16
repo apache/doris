@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.CancelExportStmt;
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -32,11 +30,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 
@@ -51,6 +52,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -66,8 +68,8 @@ public class ExportMgr {
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
-    // lock for export job
-    // lock is private and must use after db lock
+    // lock for protecting export jobs.
+    // need to be added when creating or cancelling export job.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public ExportMgr() {
@@ -94,8 +96,6 @@ public class ExportMgr {
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
-        long jobId = Env.getCurrentEnv().getNextId();
-        job.setId(jobId);
         writeLock();
         try {
             if (dbTolabelToExportJobId.containsKey(job.getDbId())
@@ -107,31 +107,100 @@ public class ExportMgr {
                 }
             }
             unprotectAddJob(job);
-            job.getTaskExecutors().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-                job.getTaskIdToExecutor().put(taskId, executor);
-            });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
             writeUnlock();
         }
+        // delete existing files
+        if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+            if (job.getBrokerDesc() == null) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
+            String fullPath = job.getExportPath();
+            BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                    job.getBrokerDesc());
+        }
+        // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
+        try {
+            for (int i = 0; i < job.getCopiedTaskExecutors().size(); i++) {
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(job.getCopiedTaskExecutors().get(i));
+            }
+        } catch (Exception e) {
+            // If there happens exceptions in `addMemoryTask`
+            // we must update the state of export job to `CANCELLED`
+            // because we have added this export in `ExportMgr`
+            job.updateExportJobState(ExportJobState.CANCELLED, 0L, null,
+                    ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
+        }
         LOG.info("add export job. {}", job);
     }
 
-    public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
+    private List<ExportJob> getWaitingCancelJobs(
+            String label, String state,
+            Expression operator)
+            throws AnalysisException {
+        Predicate<ExportJob> jobFilter = buildCancelJobFilter(label, state, operator);
+        readLock();
+        try {
+            return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    @VisibleForTesting
+    public static Predicate<ExportJob> buildCancelJobFilter(
+            String label, String state,
+            Expression operator)
+            throws AnalysisException {
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
+
+        return job -> {
+            boolean labelFilter = true;
+            boolean stateFilter = true;
+            if (StringUtils.isNotEmpty(label)) {
+                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
+                    job.getLabel().equalsIgnoreCase(label);
+            }
+            if (StringUtils.isNotEmpty(state)) {
+                stateFilter = job.getState().name().equalsIgnoreCase(state);
+            }
+
+            if (operator != null && operator instanceof Or) {
+                return labelFilter || stateFilter;
+            }
+
+            return labelFilter && stateFilter;
+        };
+    }
+
+    /**
+     * used for Nereids planner
+     */
+    public void cancelExportJob(
+            String label,
+            String state,
+            Expression operator, String dbName)
+            throws DdlException, AnalysisException {
         // List of export jobs waiting to be cancelled
-        List<ExportJob> matchExportJobs = getWaitingCancelJobs(stmt);
+        List<ExportJob> matchExportJobs = getWaitingCancelJobs(label, state, operator);
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("Export job(s) do not exist");
         }
         matchExportJobs = matchExportJobs.stream()
-                .filter(job -> !job.isFinalState()).collect(Collectors.toList());
+            .filter(job -> !job.isFinalState()).collect(Collectors.toList());
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
 
         // check auth
-        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, dbName, matchExportJobs);
+        // Must add lock to protect export job.
+        // Because job may be cancelled when generating task executors,
+        // the cancel process may clear the task executor list at same time,
+        // which will cause ConcurrentModificationException
+        writeLock();
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -140,12 +209,14 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        } finally {
+            writeUnlock();
         }
     }
 
     public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
         if (jobs.size() > 1) {
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), ctlName, dbName,
                             PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
@@ -156,7 +227,7 @@ public class ExportMgr {
             if (tableName == null) {
                 return;
             }
-            if (Env.getCurrentEnv().getAccessManager()
+            if (!Env.getCurrentEnv().getAccessManager()
                     .checkTblPriv(ConnectContext.get(), ctlName, dbName,
                             tableName.getTbl(),
                             PrivPredicate.SELECT)) {
@@ -170,42 +241,6 @@ public class ExportMgr {
         exportIdToJob.put(job.getId(), job);
         dbTolabelToExportJobId.computeIfAbsent(job.getDbId(),
                 k -> Maps.newHashMap()).put(job.getLabel(), job.getId());
-    }
-
-    private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
-        Predicate<ExportJob> jobFilter = buildCancelJobFilter(stmt);
-        readLock();
-        try {
-            return getJobs().stream().filter(jobFilter).collect(Collectors.toList());
-        } finally {
-            readUnlock();
-        }
-    }
-
-    @VisibleForTesting
-    public static Predicate<ExportJob> buildCancelJobFilter(CancelExportStmt stmt) throws AnalysisException {
-        String label = stmt.getLabel();
-        String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
-                CaseSensibility.LABEL.getCaseSensibility());
-
-        return job -> {
-            boolean labelFilter = true;
-            boolean stateFilter = true;
-            if (StringUtils.isNotEmpty(label)) {
-                labelFilter = label.contains("%") ? matcher.match(job.getLabel()) :
-                        job.getLabel().equalsIgnoreCase(label);
-            }
-            if (StringUtils.isNotEmpty(state)) {
-                stateFilter = job.getState().name().equalsIgnoreCase(state);
-            }
-
-            if (stmt.getOperator() != null && CompoundPredicate.Operator.OR.equals(stmt.getOperator())) {
-                return labelFilter || stateFilter;
-            }
-
-            return labelFilter && stateFilter;
-        };
     }
 
     public ExportJob getJob(long jobId) {
@@ -375,8 +410,8 @@ public class ExportMgr {
         }
         infoMap.put("db", job.getTableName().getDb());
         infoMap.put("tbl", job.getTableName().getTbl());
-        if (job.getWhereExpr() != null) {
-            infoMap.put("where expr", job.getWhereExpr().toSql());
+        if (!StringUtils.isEmpty(job.getWhereStr())) {
+            infoMap.put("where expr", job.getWhereStr());
         }
         infoMap.put("partitions", partitions);
         infoMap.put("broker", job.getBrokerDesc().getName());
@@ -439,6 +474,23 @@ public class ExportMgr {
                     }
                 }
             }
+
+            if (exportIdToJob.size() > Config.max_export_history_job_num) {
+                List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
+                jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
+                while (exportIdToJob.size() > Config.max_export_history_job_num) {
+                    // Remove the oldest job
+                    Map.Entry<Long, ExportJob> oldestEntry = jobList.remove(0);
+                    exportIdToJob.remove(oldestEntry.getKey());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(oldestEntry.getValue().getDbId());
+                    if (labelJobs != null) {
+                        labelJobs.remove(oldestEntry.getValue().getLabel());
+                        if (labelJobs.isEmpty()) {
+                            dbTolabelToExportJobId.remove(oldestEntry.getValue().getDbId());
+                        }
+                    }
+                }
+            }
         } finally {
             writeUnlock();
         }
@@ -454,8 +506,9 @@ public class ExportMgr {
     }
 
     public void replayUpdateJobState(ExportJobStateTransfer stateTransfer) {
-        readLock();
+        writeLock();
         try {
+            LOG.info("replay update export job: {}, {}", stateTransfer.getJobId(), stateTransfer.getState());
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
             job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
@@ -463,7 +516,7 @@ public class ExportMgr {
             job.setFailMsg(stateTransfer.getFailMsg());
             job.setOutfileInfo(stateTransfer.getOutFileInfo());
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 

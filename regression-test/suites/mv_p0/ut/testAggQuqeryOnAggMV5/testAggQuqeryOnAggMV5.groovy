@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQuqeryOnAggMV5") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
 
@@ -33,36 +35,32 @@ suite ("testAggQuqeryOnAggMV5") {
         """
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view emps_mv as select deptno, commission, sum(salary) from emps group by deptno, commission;")
+    createMV("create materialized view emps_mv as select deptno as a1, commission as a2, sum(salary) from emps group by deptno, commission;")
 
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql """analyze table emps with sync;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;",
+            "emps_mv")
     qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>10 order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from emps group by deptno) a where sum_salary>0;",
+            "emps_mv")
 }

@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("aggOnAggMV11") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggOnAggMV11; """
@@ -33,39 +35,36 @@ suite ("aggOnAggMV11") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
+    sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV11 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV11 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into aggOnAggMV11 values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view aggOnAggMV11_mv as select deptno, count(salary) from aggOnAggMV11 group by deptno;")
+    createMV("create materialized view aggOnAggMV11_mv as select deptno as a1, count(salary) from aggOnAggMV11 group by deptno;")
 
     sleep(3000)
 
     sql """insert into aggOnAggMV11 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggOnAggMV11 with sync;"
+    sql """alter table aggOnAggMV11 modify column time_col set stats ('row_count'='7');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggOnAggMV11 order by empid;")
-        contains "(aggOnAggMV11)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
     order_qt_select_star "select * from aggOnAggMV11 order by empid;"
 
-    explain {
-        sql("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;")
-        contains "(aggOnAggMV11)"
-    }
+    mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
+            "aggOnAggMV11_mv")
     order_qt_select_mv "select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggOnAggMV11 order by empid;")
-        contains "(aggOnAggMV11)"
-    }
 
-    explain {
-        sql("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;")
-        contains "(aggOnAggMV11)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV11 order by empid;", "aggOnAggMV11_mv")
+
+    mv_rewrite_fail("select deptno, count(salary) + count(1) from aggOnAggMV11 group by deptno;",
+            "aggOnAggMV11_mv")
 }

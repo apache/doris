@@ -17,10 +17,19 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
+import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.ResultRow;
 
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
@@ -37,6 +46,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -47,6 +57,15 @@ import java.util.stream.Stream;
  * Utils for Nereids.
  */
 public class Utils {
+    public static final boolean enableAssert;
+
+    static {
+        boolean enabled = false;
+        // if run jvm with -ea or -enableassertions, the assert statement will be executed
+        assert enabled = true;
+        enableAssert = enabled;
+    }
+
     /**
      * Quoted string if it contains special character or all characters are digit.
      *
@@ -55,8 +74,16 @@ public class Utils {
      */
     public static String quoteIfNeeded(String part) {
         // We quote strings except the ones which consist of digits only.
-        return part.matches("\\w*[\\w&&[^\\d]]+\\w*")
-                ? part : part.replace("`", "``");
+        StringBuilder quote = new StringBuilder(part.length());
+        for (int i = 0; i < part.length(); i++) {
+            char c = part.charAt(i);
+            if (c == '`') {
+                quote.append("``");
+            } else {
+                quote.append(c);
+            }
+        }
+        return quote.toString();
     }
 
     /**
@@ -177,46 +204,94 @@ public class Utils {
         return stringBuilder.append(" )").toString();
     }
 
-    private static String toStringOrNull(Object obj) {
+    /**
+     * same as toSqlString, but skip null obj
+     */
+    public static String toSqlStringSkipNull(String planName, Object... variables) {
+        Preconditions.checkState(variables.length % 2 == 0);
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(planName).append(" ( ");
+
+        if (variables.length == 0) {
+            return stringBuilder.append(" )").toString();
+        }
+
+        for (int i = 0; i < variables.length - 1; i += 2) {
+            if (!skipEmptyOrNull(variables[i + 1])) {
+                if (i != 0) {
+                    stringBuilder.append(", ");
+                }
+                stringBuilder.append(toStringOrNull(variables[i])).append("=").append(toStringOrNull(variables[i + 1]));
+            }
+        }
+
+        return stringBuilder.append(" )").toString();
+    }
+
+    private static boolean skipEmptyOrNull(Object obj) {
+        if (obj == null) {
+            return true;
+        }
+        if ("".equals(obj.toString())) {
+            return true;
+        }
+        return false;
+    }
+
+    public static String toStringOrNull(Object obj) {
         return obj == null ? "null" : obj.toString();
     }
 
     /**
-     * Get the correlated columns that belong to the subquery,
-     * that is, the correlated columns that can be resolved within the subquery.
+     * Get the unCorrelated exprs that belong to the subquery,
+     * that is, the unCorrelated exprs that can be resolved within the subquery.
      * eg:
-     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = t2.d));
-     * correlatedPredicates : t1.c = t2.d
-     * correlatedSlots : t1.c
-     * return t2.d
+     * select * from t1 where t1.a = (select sum(t2.b) from t2 where t1.c = abs(t2.d));
+     * correlatedPredicates : t1.c = abs(t2.d)
+     * unCorrelatedExprs : abs(t2.d)
+     * return abs(t2.d)
      */
-    public static List<Expression> getCorrelatedSlots(List<Expression> correlatedPredicates,
-            List<Expression> correlatedSlots) {
-        return ExpressionUtils.getInputSlotSet(correlatedPredicates).stream()
-                .filter(slot -> !correlatedSlots.contains(slot)).collect(Collectors.toList());
-    }
+    public static List<Expression> getUnCorrelatedExprs(List<Expression> correlatedPredicates,
+                                                        List<Slot> correlatedSlots) {
+        List<Expression> unCorrelatedExprs = new ArrayList<>();
+        correlatedPredicates.forEach(predicate -> {
+            if (!(predicate instanceof BinaryExpression) && (!(predicate instanceof Not)
+                    || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate "
+                                + predicate.toString());
+            }
 
-    private static List<Expression> collectCorrelatedSlotsFromChildren(
-            BinaryExpression binaryExpression, List<Expression> correlatedSlots) {
-        List<Expression> slots = new ArrayList<>();
-        if (binaryExpression.left().anyMatch(correlatedSlots::contains)) {
-            if (binaryExpression.right() instanceof SlotReference) {
-                slots.add(binaryExpression.right());
-            } else if (binaryExpression.right() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.right()).child());
+            BinaryExpression binaryExpression;
+            if (predicate instanceof Not) {
+                binaryExpression = (BinaryExpression) ((Not) predicate).child();
+            } else {
+                binaryExpression = (BinaryExpression) predicate;
             }
-        } else {
-            if (binaryExpression.left() instanceof SlotReference) {
-                slots.add(binaryExpression.left());
-            } else if (binaryExpression.left() instanceof Cast) {
-                slots.add(((Cast) binaryExpression.left()).child());
+            Expression left = binaryExpression.left();
+            Expression right = binaryExpression.right();
+            Set<Slot> leftInputSlots = left.getInputSlots();
+            Set<Slot> rightInputSlots = right.getInputSlots();
+            boolean correlatedToLeft = !leftInputSlots.isEmpty()
+                    && leftInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && rightInputSlots.stream().noneMatch(correlatedSlots::contains);
+            boolean correlatedToRight = !rightInputSlots.isEmpty()
+                    && rightInputSlots.stream().allMatch(correlatedSlots::contains)
+                    && leftInputSlots.stream().noneMatch(correlatedSlots::contains);
+            if (!correlatedToLeft && !correlatedToRight) {
+                throw new AnalysisException(
+                        "Unsupported correlated subquery with correlated predicate " + predicate);
+            } else if (correlatedToLeft && !rightInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(right);
+            } else if (correlatedToRight && !leftInputSlots.isEmpty()) {
+                unCorrelatedExprs.add(left);
             }
-        }
-        return slots;
+        });
+        return unCorrelatedExprs;
     }
 
     public static Map<Boolean, List<Expression>> splitCorrelatedConjuncts(
-            Set<Expression> conjuncts, List<Expression> slots) {
+            Set<Expression> conjuncts, List<Slot> slots) {
         return conjuncts.stream().collect(Collectors.partitioningBy(
                 expr -> expr.anyMatch(slots::contains)));
     }
@@ -289,6 +364,71 @@ public class Utils {
                                         .collect(ImmutableList.toImmutableList())
                         )
                 ).collect(ImmutableList.toImmutableList());
+    }
+
+    /** getAllCombinations */
+    public static <T> List<List<T>> getAllCombinations(List<T> list, int itemNum) {
+        List<List<T>> result = Lists.newArrayList();
+        generateCombinations(list, itemNum, 0, Lists.newArrayList(), result);
+        return result;
+    }
+
+    private static <T> void generateCombinations(
+            List<T> list, int n, int start, List<T> current, List<List<T>> result) {
+        if (current.size() == n) {
+            result.add(new ArrayList<>(current));
+            return;
+        }
+
+        for (int i = start; i < list.size(); i++) {
+            current.add(list.get(i));
+            generateCombinations(list, n, i + 1, current, result);
+            current.remove(current.size() - 1);
+        }
+    }
+
+    public static <T> List<List<T>> allPermutations(List<T> list) {
+        List<List<T>> result = new ArrayList<>();
+        generatePermutations(new ArrayList<>(list), new ArrayList<>(), result);
+        return result;
+    }
+
+    private static <T> void generatePermutations(List<T> list, List<T> current, List<List<T>> result) {
+        if (!current.isEmpty()) {
+            result.add(new ArrayList<>(current));
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            T element = list.remove(i);
+            current.add(element);
+            generatePermutations(list, current, result);
+            current.remove(current.size() - 1);
+            list.add(i, element);
+        }
+    }
+
+    /** permutations */
+    public static <T> List<List<T>> permutations(List<T> list) {
+        list = new ArrayList<>(list);
+        List<List<T>> result = new ArrayList<>();
+        if (list.isEmpty()) {
+            result.add(new ArrayList<>());
+            return result;
+        }
+
+        T firstElement = list.get(0);
+        List<T> rest = list.subList(1, list.size());
+        List<List<T>> recursivePermutations = permutations(rest);
+
+        for (List<T> smallerPermutated : recursivePermutations) {
+            for (int index = 0; index <= smallerPermutated.size(); index++) {
+                List<T> temp = new ArrayList<>(smallerPermutated);
+                temp.add(index, firstElement);
+                result.add(temp);
+            }
+        }
+
+        return result;
     }
 
     public static <T> List<T> copyRequiredList(List<T> list) {
@@ -479,5 +619,38 @@ public class Utils {
             }
         }
         return newStr.toString();
+    }
+
+    /**
+     * Builds a logical plan for a SQL query.
+     *
+     * @param selectList the list of columns and their aliases to be selected
+     * @param tableName the name of the table from which to select
+     * @param whereClause the where clause to filter the results
+     * @return the logical plan representing the SQL query
+     */
+    public static LogicalPlan buildLogicalPlan(List<AliasInfo> selectList, TableNameInfo tableName,
+            String whereClause) {
+        StringJoiner columnJoiner = new StringJoiner(", ");
+        for (AliasInfo aliasInfo : selectList) {
+            columnJoiner.add(aliasInfo.toString());
+        }
+        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        return new NereidsParser().parseSingle(sql);
+    }
+
+    /**
+     * Execute a logical plan and return the results.
+     *
+     * @param ctx the context in which to execute the plan
+     * @param executor the executor to use to execute the plan
+     * @param plan the plan to execute
+     * @return the results of executing the plan
+     */
+    public static List<List<String>> executePlan(ConnectContext ctx, StmtExecutor executor, LogicalPlan plan) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, ctx.getStatementContext());
+        executor.setParsedStmt(adapter);
+        List<ResultRow> resultRows = executor.executeInternalQuery();
+        return resultRows.stream().map(ResultRow::getValues).collect(Collectors.toList());
     }
 }

@@ -81,7 +81,8 @@ suite("test_group_commit_insert_into_lineitem_scheme_change") {
         }
     }
     def insert_table = "test_lineitem_scheme_change"
-    def batch = 100;
+    // Set batch to 90 to avoid JDBC driver bug. Larger batch size may trigger JDBC send COM_STMT_FETCH command.
+    def batch = 90;
     def count = 0;
     def total = 0;
 
@@ -181,6 +182,9 @@ PROPERTIES (
                 if (e.getMessage().contains("is blocked on schema change")) {
                     Thread.sleep(10000)
                 }
+                Thread.sleep(2000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
             }
             i++;
             if (i >= 30) {
@@ -257,21 +261,11 @@ PROPERTIES (
     }
 
     def getAlterTableState = { table_name ->
-        def retry = 0
-        while (true) {
-            def state = sql "show alter table column where tablename = '${table_name}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            logger.info("state:" + state[0][9]);
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 60) {
-                return false
-            }
-            Thread.sleep(5000)
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${table_name}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def truncate = { table_name ->

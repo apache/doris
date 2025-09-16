@@ -28,13 +28,13 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 
-import com.google.common.collect.Maps;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class DistributeHintTest extends TPCHTestBase {
@@ -85,15 +85,15 @@ public class DistributeHintTest extends TPCHTestBase {
     }
 
     private Plan generateLeadingHintPlan(int tableNum, Plan childPlan) {
-        Map<String, SelectHint> hints = Maps.newLinkedHashMap();
+        ImmutableList.Builder<SelectHint> hints = ImmutableList.builder();
         List<String> leadingParameters = new ArrayList<String>();
         for (int i = 0; i < tableNum; i++) {
             leadingParameters.add(String.valueOf(i));
         }
         Collections.shuffle(leadingParameters);
         System.out.println("LeadingHint: " + leadingParameters.toString());
-        hints.put("leading", new SelectHintLeading("leading", leadingParameters));
-        return new LogicalSelectHint<>(hints, childPlan);
+        hints.add(new SelectHintLeading("Leading", leadingParameters, ImmutableMap.of()));
+        return new LogicalSelectHint<>(hints.build(), childPlan);
     }
 
     private void randomTest(int tableNum, int edgeNum, boolean withJoinHint, boolean withLeading) {

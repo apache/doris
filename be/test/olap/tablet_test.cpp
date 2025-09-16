@@ -27,7 +27,6 @@
 #include <memory>
 
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/numbers.h"
 #include "http/action/pad_rowset_action.h"
 #include "http/http_request.h"
 #include "io/fs/local_file_system.h"

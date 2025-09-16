@@ -29,6 +29,7 @@
 
 #include "common/config.h"
 #include "common/object_pool.h"
+#include "vec/aggregate_functions/aggregate_function_ai_agg.h"
 #include "vec/aggregate_functions/aggregate_function_java_udaf.h"
 #include "vec/aggregate_functions/aggregate_function_rpc.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -44,6 +45,8 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
 
+static constexpr int64_t BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK = 8;
+
 namespace doris {
 class RowDescriptor;
 namespace vectorized {
@@ -54,6 +57,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
@@ -63,16 +67,14 @@ AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
             argument_types, return_type);
 }
 
-AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
+AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, const bool without_key,
+                               const bool is_window_function)
         : _fn(desc.fn),
           _is_merge(desc.agg_expr.is_merge_agg),
-          _return_type(TypeDescriptor::from_thrift(desc.fn.ret_type)) {
-    bool nullable = true;
-    if (desc.__isset.is_nullable) {
-        nullable = desc.is_nullable;
-    }
-    _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
-
+          _without_key(without_key),
+          _is_window_function(is_window_function),
+          _data_type(DataTypeFactory::instance().create_data_type(
+                  desc.fn.ret_type, desc.__isset.is_nullable ? desc.is_nullable : true)) {
     if (desc.agg_expr.__isset.param_types) {
         const auto& param_types = desc.agg_expr.param_types;
         for (const auto& param_type : param_types) {
@@ -83,8 +85,11 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
 }
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
+                              const bool without_key, const bool is_window_function,
                               AggFnEvaluator** result) {
-    *result = pool->add(AggFnEvaluator::create_unique(desc.nodes[0]).release());
+    *result =
+            pool->add(AggFnEvaluator::create_unique(desc.nodes[0], without_key, is_window_function)
+                              .release());
     auto& agg_fn_evaluator = *result;
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {
@@ -136,6 +141,14 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(_input_exprs_ctx->root()->expr_name());
     }
 
+    std::vector<std::string> column_names;
+    for (const auto& expr_ctx : _input_exprs_ctxs) {
+        const auto& root = expr_ctx->root();
+        if (!root->expr_name().empty() && !root->is_constant()) {
+            column_names.emplace_back(root->expr_name());
+        }
+    }
+
     const DataTypes& argument_types =
             _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
 
@@ -158,8 +171,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         if (argument_types[0]->is_nullable()) {
             return Status::InternalError("Agg state function input type must be not nullable");
         }
-        if (argument_types[0]->get_type_as_type_descriptor().type !=
-            PrimitiveType::TYPE_AGG_STATE) {
+        if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
             return Status::InternalError(
                     "Agg state function input type must be agg_state but get {}",
                     argument_types[0]->get_family_name());
@@ -173,7 +185,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                         "Union function return type must be not nullable, real={}",
                         _data_type->get_name());
             }
-            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Union function return type must be AGG_STATE, real={}",
                         _data_type->get_name());
@@ -194,15 +206,27 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                          _fn.name.function_name);
         }
     } else {
+        const bool is_foreach =
+                AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) ||
+                AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name);
+        // Here, only foreachv1 needs special treatment, and v2 can follow the normal code logic.
         if (AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
-                    state->be_exec_version(), state->enable_decima256());
+                    state->be_exec_version(),
+                    {.enable_decimal256 = state->enable_decimal256(),
+                     .is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
+                     .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                    state->be_exec_version(), state->enable_decima256());
+                    state->be_exec_version(),
+                    {.enable_decimal256 = state->enable_decimal256(),
+                     .is_window_function = _is_window_function,
+                     .is_foreach = is_foreach,
+                     .column_names = std::move(column_names)});
         }
     }
     if (_function == nullptr) {
@@ -212,6 +236,20 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
                                                    _sort_description, state);
+    }
+
+    if (_fn.name.function_name == "ai_agg") {
+        _function->set_query_context(state->get_query_ctx());
+    }
+
+    // Foreachv2, like foreachv1, does not check the return type,
+    // because its return type is related to the internal agg.
+    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name) &&
+        !AggregateFunctionSimpleFactory::is_foreachv2(_fn.name.function_name)) {
+        if (state->be_exec_version() >= BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK) {
+            RETURN_IF_ERROR(
+                    _function->verify_result_type(_without_key, argument_types, _data_type));
+        }
     }
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     return Status::OK();
@@ -229,35 +267,35 @@ void AggFnEvaluator::destroy(AggregateDataPtr place) {
     _function->destroy(place);
 }
 
-Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena* arena) {
+Status AggFnEvaluator::execute_single_add(Block* block, AggregateDataPtr place, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_single_place(block->rows(), place, _agg_columns.data(), arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add(Block* block, size_t offset, AggregateDataPtr* places,
-                                         Arena* arena, bool agg_many) {
+                                         Arena& arena, bool agg_many) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch(block->rows(), places, offset, _agg_columns.data(), arena, agg_many);
     return Status::OK();
 }
 
 Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
-                                                  AggregateDataPtr* places, Arena* arena) {
+                                                  AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
-                                               const size_t num_rows, Arena* arena) {
+                                               const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
 
 Status AggFnEvaluator::streaming_agg_serialize_to_column(Block* block, MutableColumnPtr& dst,
-                                                         const size_t num_rows, Arena* arena) {
+                                                         const size_t num_rows, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->streaming_agg_serialize_to_column(_agg_columns.data(), dst, num_rows, arena);
     return Status::OK();
@@ -320,9 +358,10 @@ AggFnEvaluator* AggFnEvaluator::clone(RuntimeState* state, ObjectPool* pool) {
 AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
         : _fn(evaluator._fn),
           _is_merge(evaluator._is_merge),
+          _without_key(evaluator._without_key),
+          _is_window_function(evaluator._is_window_function),
           _argument_types_with_sort(evaluator._argument_types_with_sort),
           _real_argument_types(evaluator._real_argument_types),
-          _return_type(evaluator._return_type),
           _intermediate_slot_desc(evaluator._intermediate_slot_desc),
           _output_slot_desc(evaluator._output_slot_desc),
           _sort_description(evaluator._sort_description),
@@ -351,11 +390,11 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
     }
 }
 
-Status AggFnEvaluator::check_agg_fn_output(int key_size,
+Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
                                            const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
-    for (int i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
+    for (uint32_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
         auto&& [name, column_type] = name_and_types[i];
         auto agg_return_type = agg_fn[j]->function()->get_return_type();
         if (!column_type->equals(*agg_return_type)) {
@@ -370,4 +409,12 @@ Status AggFnEvaluator::check_agg_fn_output(int key_size,
     }
     return Status::OK();
 }
+
+bool AggFnEvaluator::is_blockable() const {
+    return _function->is_blockable() ||
+           std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -20,67 +20,43 @@
 
 #include "vec/aggregate_functions/aggregate_function_group_array_intersect.h"
 
-namespace doris::vectorized {
+#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
 
-IAggregateFunction* create_with_extra_types(const DataTypePtr& nested_type,
-                                            const DataTypes& argument_types) {
-    WhichDataType which(nested_type);
-    if (which.idx == TypeIndex::Date || which.idx == TypeIndex::DateTime) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "We don't support array<date> or array<datetime> for "
-                        "group_array_intersect(), please use array<datev2> or array<datetimev2>.");
-    } else if (which.idx == TypeIndex::DateV2) {
-        return new AggregateFunctionGroupArrayIntersect<DateV2>(argument_types);
-    } else if (which.idx == TypeIndex::DateTimeV2) {
-        return new AggregateFunctionGroupArrayIntersect<DateTimeV2>(argument_types);
-    } else {
-        /// Check that we can use plain version of AggregateFunctionGroupArrayIntersectGeneric
-        if (nested_type->is_value_unambiguously_represented_in_contiguous_memory_region())
-            return new AggregateFunctionGroupArrayIntersectGeneric<true>(argument_types);
-        else
-            return new AggregateFunctionGroupArrayIntersectGeneric<false>(argument_types);
-    }
-}
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 inline AggregateFunctionPtr create_aggregate_function_group_array_intersect_impl(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
     const auto& nested_type = remove_nullable(
             dynamic_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
-    AggregateFunctionPtr res = nullptr;
-
-    WhichDataType which(nested_type);
-#define DISPATCH(TYPE)                                                                  \
-    if (which.idx == TypeIndex::TYPE)                                                   \
-        res = creator_without_type::create<AggregateFunctionGroupArrayIntersect<TYPE>>( \
-                argument_types, result_is_nullable);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
+    AggregateFunctionPtr res = creator_with_type_list<
+            TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_DATEV2,
+            TYPE_DATETIMEV2>::create<AggregateFunctionGroupArrayIntersect>(argument_types,
+                                                                           result_is_nullable,
+                                                                           attr);
 
     if (!res) {
-        res = AggregateFunctionPtr(create_with_extra_types(nested_type, argument_types));
+        res = AggregateFunctionPtr(new AggregateFunctionGroupArrayIntersectGeneric(argument_types));
     }
-
-    if (!res) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Illegal type {} of argument for aggregate function {}",
-                        argument_types[0]->get_name(), name);
-    }
-
     return res;
 }
 
 AggregateFunctionPtr create_aggregate_function_group_array_intersect(
-        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
-    assert_unary(name, argument_types);
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 1);
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
 
-    if (!WhichDataType(argument_type).is_array())
+    if (argument_type->get_primitive_type() != TYPE_ARRAY) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Aggregate function groupArrayIntersect accepts only array type argument. "
                         "Provided argument type: " +
                                 argument_type->get_name());
+    }
     return create_aggregate_function_group_array_intersect_impl(name, {argument_type},
-                                                                result_is_nullable);
+                                                                result_is_nullable, attr);
 }
 
 void register_aggregate_function_group_array_intersect(AggregateFunctionSimpleFactory& factory) {

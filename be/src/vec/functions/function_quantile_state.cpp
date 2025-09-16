@@ -20,13 +20,10 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstddef>
 #include <memory>
-#include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -39,7 +36,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -118,7 +114,7 @@ public:
                     continue;
                 }
             }
-            double value = (double)col->get_data()[i];
+            auto value = (double)col->get_data()[i];
             res_data[i].set_compression(compression);
             res_data[i].add_value(value);
         }
@@ -126,11 +122,11 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
-        auto compression_arg = check_and_get_column_const<ColumnFloat32>(
-                block.get_by_position(arguments.back()).column);
+        const auto* compression_arg = check_and_get_column_const<ColumnFloat32>(
+                block.get_by_position(arguments.back()).column.get());
         float compression = 2048;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
@@ -139,15 +135,11 @@ public:
                 compression = compression_arg_val;
             }
         }
-        WhichDataType which(data_type);
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);
 
         Status status = Status::OK();
-        if (which.is_nullable()) {
-            const DataTypePtr& nested_data_type =
-                    static_cast<const DataTypeNullable*>(data_type.get())->get_nested_type();
-            WhichDataType nested_which(nested_data_type);
+        if (data_type->is_nullable()) {
             RETURN_IF_ERROR(execute_internal<true>(column, data_type, column_result, compression));
         } else {
             RETURN_IF_ERROR(execute_internal<false>(column, data_type, column_result, compression));
@@ -175,29 +167,29 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnFloat64::create();
         auto& res = res_data_column->get_data();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map = data_null_map->get_data();
 
         auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
+        if (const auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             VectorizedUtils::update_null_map(null_map, nullable->get_null_map_data());
             column = nullable->get_nested_column_ptr();
         }
-        auto str_col = assert_cast<const ColumnQuantileState*>(column.get());
-        auto& col_data = str_col->get_data();
-        auto percent_arg = check_and_get_column_const<ColumnFloat32>(
-                block.get_by_position(arguments.back()).column);
+        const auto* str_col = assert_cast<const ColumnQuantileState*>(column.get());
+        const auto& col_data = str_col->get_data();
+        const auto* percent_arg = check_and_get_column_const<ColumnFloat32>(
+                block.get_by_position(arguments.back()).column.get());
 
         if (!percent_arg) {
-            return Status::InternalError(
+            return Status::InvalidArgument(
                     "Second argument to {} must be a constant float describing type", get_name());
         }
-        float percent_arg_value = percent_arg->get_value<Float32>();
+        auto percent_arg_value = percent_arg->get_value<Float32>();
         if (percent_arg_value < 0 || percent_arg_value > 1) {
-            return Status::InternalError(
+            return Status::InvalidArgument(
                     "the input argument of percentage: {} is not valid, must be in range [0,1] ",
                     percent_arg_value);
         }

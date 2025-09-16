@@ -67,17 +67,7 @@ suite("test_array_with_large_dataset", "p2"){
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 16
             PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1",
-            "min_load_replica_num" = "-1",
-            "is_being_synced" = "false",
-            "storage_medium" = "hdd",
-            "storage_format" = "V2",
-            "inverted_index_storage_format" = "V1",
-            "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false",
-            "group_commit_interval_ms" = "10000",
-            "group_commit_data_bytes" = "134217728"
+            "replication_allocation" = "tag.location.default: 1"
     );
     """
     

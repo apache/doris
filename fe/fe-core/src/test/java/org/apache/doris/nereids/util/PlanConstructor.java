@@ -23,6 +23,8 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -39,6 +41,7 @@ public class PlanConstructor {
     public static final OlapTable student;
     public static final OlapTable score;
     public static final OlapTable course;
+    public static final OlapTable salary;
 
     private static final IdGenerator<RelationId> RELATION_ID_GENERATOR = RelationId.createGenerator();
 
@@ -59,6 +62,17 @@ public class PlanConstructor {
                         new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
                         new Column("teacher", Type.STRING, true, AggregateType.NONE, "", "")),
                 KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
+        salary = new OlapTable(3L, "salary",
+                ImmutableList.of(
+                        new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
+                        new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
+                        new Column("salary",
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL128,
+                                        ScalarType.MAX_DECIMAL128_PRECISION, 2),
+                                false, AggregateType.NONE, "", ""),
+                        new Column("age", Type.BIGINT, false, AggregateType.NONE, "", "")),
+                KeysType.PRIMARY_KEYS, new PartitionInfo(), null);
+
         student.setIndexMeta(-1,
                 "student",
                 student.getFullSchema(),
@@ -74,6 +88,12 @@ public class PlanConstructor {
         course.setIndexMeta(-1,
                 "course",
                 course.getFullSchema(),
+                0, 0, (short) 0,
+                TStorageType.COLUMN,
+                KeysType.PRIMARY_KEYS);
+        salary.setIndexMeta(-1,
+                "salary",
+                salary.getFullSchema(),
                 0, 0, (short) 0,
                 TStorageType.COLUMN,
                 KeysType.PRIMARY_KEYS);
@@ -113,7 +133,7 @@ public class PlanConstructor {
             int hashColumn, List<Long> selectedPartitions) {
         return new LogicalOlapScan(RelationId.createGenerator().getNextId(),
                 newOlapTable(tableId, tableName, hashColumn), ImmutableList.of("db"),
-                selectedPartitions, ImmutableList.of(), Optional.empty());
+                selectedPartitions, ImmutableList.of(), Optional.empty(), ImmutableList.of());
     }
 
     public static RelationId getNextRelationId() {

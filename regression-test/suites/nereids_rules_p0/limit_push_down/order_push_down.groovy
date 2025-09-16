@@ -26,7 +26,7 @@ suite("order_push_down") {
     sql 'set be_number_for_test=3'
     sql "set disable_nereids_rules='push_down_top_n_distinct_through_union'"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
+    sql 'set enable_two_phase_read_opt = true'
 
     //`limit 1 offset 1 + sort, project`:
     qt_limit_offset_sort_project """ explain shape plan SELECT t1.id FROM t1 ORDER BY id LIMIT 1 OFFSET 1; """
@@ -84,7 +84,7 @@ suite("order_push_down") {
     // `LIMIT` with Set Operation and `ORDER BY`:
     qt_limit_outside_order_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id) u  LIMIT 1;"""
     // `LIMIT` with Set Operation and `ORDER BY`:
-    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL SELECT t2.id FROM t2 ORDER BY id LIMIT 1) u;"""
+    qt_limit_inside_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 UNION ALL (SELECT t2.id FROM t2 ORDER BY id LIMIT 1)) u;"""
 
     // `LIMIT` with Set Operation and `OFFSET` with `ORDER BY`:
     qt_limit_offset_set_operation """explain shape plan SELECT * FROM (SELECT t1.id FROM t1 INTERSECT SELECT t2.id FROM t2) u ORDER BY id LIMIT 1 OFFSET 1;"""

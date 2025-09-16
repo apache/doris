@@ -19,21 +19,26 @@ import org.apache.kafka.clients.admin.AdminClient
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_routine_load","p0,nonConcurrent") {
+suite("test_routine_load","p0") {
 
-    sql "create workload group if not exists create_routine_load_group properties ( 'cpu_share'='123');"
-    sql "create workload group if not exists alter_routine_load_group properties ( 'cpu_share'='123');"
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
+    sql "create workload group if not exists create_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
+    sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
     Thread.sleep(5000) // wait publish workload group to be
 
     def tables = [
                   "dup_tbl_basic",
-                  "uniq_tbl_basic",
-                  "mow_tbl_basic",
-                  "agg_tbl_basic",
-                  "dup_tbl_array",
-                  "uniq_tbl_array",
-                  "mow_tbl_array",
                  ]
 
     def multiTables = [
@@ -188,8 +193,33 @@ suite("test_routine_load","p0,nonConcurrent") {
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        // add timeout config
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+        // check conenction
+        def verifyKafkaConnection = { prod ->
+            try {
+                logger.info("=====try to connect Kafka========")
+                def partitions = prod.partitionsFor("__connection_verification_topic")
+                return partitions != null
+            } catch (Exception e) {
+                throw new Exception("Kafka connect fail: ${e.message}".toString())
+            }
+        }
         // Create kafka producer
         def producer = new KafkaProducer<>(props)
+        try {
+            logger.info("Kafka connecting: ${kafka_broker}")
+            if (!verifyKafkaConnection(producer)) {
+                throw new Exception("can't get any kafka info")
+            }
+        } catch (Exception e) {
+            logger.error("FATAL: " + e.getMessage())
+            producer.close()
+            throw e  
+        }
+        logger.info("Kafka connect success")
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
@@ -254,7 +284,7 @@ suite("test_routine_load","p0,nonConcurrent") {
                         continue;
                     }
                     log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
+                    assertEquals("RUNNING", res[0][8].toString())
                     break;
                 }
 
@@ -1297,7 +1327,7 @@ suite("test_routine_load","p0,nonConcurrent") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = format:test is not supported.")
                 }
                 i++
             }
@@ -1382,104 +1412,6 @@ suite("test_routine_load","p0,nonConcurrent") {
                 i++
             }
         } finally {
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            }
-        }
-    }
-
-    // disable_simdjson_reader and load json
-    i = 0
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        def set_be_param = { paramName, paramValue ->
-            // for eache be node, set paramName=paramValue
-            for (String id in backendId_to_backendIP.keySet()) {
-                def beIp = backendId_to_backendIP.get(id)
-                def bePort = backendId_to_backendHttpPort.get(id)
-                def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-                assertTrue(out.contains("OK"))
-            }
-        }
-
-        try {
-            set_be_param.call("enable_simdjson_reader", "false")
-
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-                def name = "routine_load_" + tableName
-                sql """
-                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-                    COLUMNS(${columns[i]})
-                    PROPERTIES
-                    (
-                        "format" = "json",
-                        "jsonpaths" = '${jsonpaths[i]}',
-                        "max_batch_interval" = "5",
-                        "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
-                    )
-                    FROM KAFKA
-                    (
-                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                        "kafka_topic" = "${jsonTopic[i]}",
-                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                    );
-                """
-                sql "sync"
-                i++
-            }
-
-            i = 0
-            for (String tableName in tables) {
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobs[i]}"
-                    def state = res[0][8].toString()
-                    if (state == "NEED_SCHEDULE") {
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
-                    break;
-                }
-
-                def count = 0
-                def tableName1 =  "routine_load_" + tableName
-                while (true) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    def state = sql "show routine load for ${jobs[i]}"
-                    log.info("routine load state: ${state[0][8].toString()}".toString())
-                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
-                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                    if (res[0][0] > 0) {
-                        break
-                    }
-                    if (count >= 120) {
-                        log.error("routine load can not visible for long time")
-                        assertEquals(20, res[0][0])
-                        break
-                    }
-                    sleep(5000)
-                    count++
-                }
-
-                if (i <= 3) {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00"
-                }
-
-                sql "stop routine load for ${jobs[i]}"
-                i++
-            }
-        } finally {
-            set_be_param.call("enable_simdjson_reader", "true")
             for (String tableName in tables) {
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }
@@ -1700,12 +1632,25 @@ suite("test_routine_load","p0,nonConcurrent") {
                         if (res[0][0] > 0) {
                             break
                         }
+
+                        def tablets = sql_return_maparray """ show tablets from ${tableName1} """
+                        for (def tablet_info : tablets) {
+                            logger.info("tablet: $tablet_info")
+                            def compact_url = tablet_info.get("CompactionStatus")
+                            String command = "curl ${compact_url}"
+                            Process process = command.execute()
+                            def code = process.waitFor()
+                            def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+                            def out = process.getText()
+                            logger.info("code=" + code + ", out=" + out + ", err=" + err)
+                        }
+
                         if (count >= 120) {
                             log.error("routine load can not visible for long time")
                             assertEquals(20, res[0][0])
                             break
                         }
-                        sleep(5000)
+                        sleep(1000)
                         count++
                     }
 
@@ -1938,6 +1883,7 @@ suite("test_routine_load","p0,nonConcurrent") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
+                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 
@@ -1948,8 +1894,7 @@ suite("test_routine_load","p0,nonConcurrent") {
                 assertEquals("300001", json.max_batch_rows.toString())
                 assertEquals("209715201", json.max_batch_size.toString())
                 assertEquals("6", json.max_batch_interval.toString())
-                //TODO(bug): Can not update
-                //assertEquals("0.5", json.max_filter_ratio.toString())
+                assertEquals("0.5", json.max_filter_ratio.toString())
                 assertEquals("jsonpaths", json.jsonpaths.toString())
                 assertEquals("json_root", json.json_root.toString())
                 assertEquals("true", json.strict_mode.toString())

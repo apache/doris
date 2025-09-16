@@ -26,12 +26,14 @@
 #include <ostream>
 #include <utility>
 
+#include "absl/strings/substitute.h"
+#include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/table_connector.h"
-#include "gutil/strings/substitute.h"
 #include "jni.h"
 #include "runtime/descriptors.h"
+#include "runtime/plugin/cloud_plugin_downloader.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "runtime/user_function_cache.h"
@@ -46,6 +48,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 const char* JDBC_EXECUTOR_FACTORY_CLASS = "org/apache/doris/jdbc/JdbcExecutorFactory";
 const char* JDBC_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* JDBC_EXECUTOR_STMT_WRITE_SIGNATURE = "(Ljava/util/Map;)I";
@@ -77,10 +80,13 @@ Status JdbcConnector::close(Status /*unused*/) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_close_id);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_factory_clazz);
+    RETURN_ERROR_IF_EXC(env);
     env->DeleteGlobalRef(_executor_clazz);
     RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
     env->DeleteGlobalRef(_executor_obj);
+    RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
@@ -95,26 +101,27 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, JDBC_EXECUTOR_FACTORY_CLASS,
                                                    &_executor_factory_clazz));
 
-    _executor_factory_ctor_id =
-            env->GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
-                                   "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;");
-    if (_executor_factory_ctor_id == nullptr) {
-        return Status::InternalError("Failed to find method ID for getExecutorClass");
-    }
+    JNI_CALL_METHOD_CHECK_EXCEPTION(
+            , _executor_factory_ctor_id, env,
+            GetStaticMethodID(_executor_factory_clazz, "getExecutorClass",
+                              "(Lorg/apache/doris/thrift/TOdbcTableType;)Ljava/lang/String;"));
 
-    jobject jtable_type = _get_java_table_type(env, _conn_param.table_type);
+    jobject jtable_type = nullptr;
+    RETURN_IF_ERROR(_get_java_table_type(env, _conn_param.table_type, &jtable_type));
 
-    jstring executor_name = (jstring)env->CallStaticObjectMethod(
-            _executor_factory_clazz, _executor_factory_ctor_id, jtable_type);
-    if (executor_name == nullptr) {
-        return Status::InternalError("getExecutorClass returned null");
-    }
-    const char* executor_name_str = env->GetStringUTFChars(executor_name, nullptr);
+    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
+            jobject, executor_name, env,
+            CallStaticObjectMethod(_executor_factory_clazz, _executor_factory_ctor_id,
+                                   jtable_type));
+
+    const char* executor_name_str = env->GetStringUTFChars((jstring)executor_name, nullptr);
 
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, executor_name_str, &_executor_clazz));
-    env->DeleteLocalRef(jtable_type);
-    env->ReleaseStringUTFChars(executor_name, executor_name_str);
-    env->DeleteLocalRef(executor_name);
+
+    env->DeleteGlobalRef(jtable_type);
+    RETURN_ERROR_IF_EXC(env);
+    env->ReleaseStringUTFChars((jstring)executor_name, executor_name_str);
+    RETURN_ERROR_IF_EXC(env);
 
 #undef GET_BASIC_JAVA_CLAZZ
     RETURN_IF_ERROR(_register_func_id(env));
@@ -122,23 +129,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
     {
-        std::string local_location;
-        std::hash<std::string> hash_str;
-        auto* function_cache = UserFunctionCache::instance();
-        if (_conn_param.resource_name.empty()) {
-            // for jdbcExternalTable, _conn_param.resource_name == ""
-            // so, we use _conn_param.driver_path as key of jarpath
-            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
-            RETURN_IF_ERROR(function_cache->get_jarpath(
-                    std::abs((int64_t)hash_str(_conn_param.driver_path)), _conn_param.driver_path,
-                    _conn_param.driver_checksum, &local_location));
-        } else {
-            SCOPED_RAW_TIMER(&_jdbc_statistic._load_jar_timer);
-            RETURN_IF_ERROR(function_cache->get_jarpath(
-                    std::abs((int64_t)hash_str(_conn_param.resource_name)), _conn_param.driver_path,
-                    _conn_param.driver_checksum, &local_location));
-        }
-        VLOG_QUERY << "driver local path = " << local_location;
+        std::string driver_path;
+        RETURN_IF_ERROR(_get_real_url(_conn_param.driver_path, &driver_path));
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
@@ -147,7 +139,8 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_jdbc_user(_conn_param.user);
         ctor_params.__set_jdbc_password(_conn_param.passwd);
         ctor_params.__set_jdbc_driver_class(_conn_param.driver_class);
-        ctor_params.__set_driver_path(local_location);
+        ctor_params.__set_driver_path(driver_path);
+        ctor_params.__set_jdbc_driver_checksum(_conn_param.driver_checksum);
         if (state == nullptr) {
             ctor_params.__set_batch_size(read ? 1 : 0);
         } else {
@@ -162,6 +155,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
         ctor_params.__set_connection_pool_cache_clear_time(
                 config::jdbc_connection_pool_cache_clear_time_sec);
         ctor_params.__set_connection_pool_keep_alive(_conn_param.connection_pool_keep_alive);
+        ctor_params.__set_is_tvf(_conn_param.is_tvf);
 
         jbyteArray ctor_params_bytes;
         // Pushed frame will be popped when jni_frame goes out-of-scope.
@@ -190,14 +184,19 @@ Status JdbcConnector::test_connection() {
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
 
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_test_connection_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::clean_datasource() {
+    if (!_is_open) {
+        return Status::OK();
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_clean_datasource_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::query() {
@@ -222,8 +221,10 @@ Status JdbcConnector::query() {
             return Status::InternalError("GetJniExceptionMsg meet error, query={}, msg={}",
                                          _conn_param.query_string, status.to_string());
         }
-        if (colunm_count != materialize_num) {
-            return Status::InternalError("input and output column num not equal of jdbc query.");
+        if (colunm_count < materialize_num) {
+            return Status::InternalError(
+                    "JDBC query returned fewer columns ({}) than required ({}).", colunm_count,
+                    materialize_num);
         }
     }
 
@@ -232,14 +233,26 @@ Status JdbcConnector::query() {
 }
 
 Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
+    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer); // Timer for the entire method
+
     if (!_is_open) {
         return Status::InternalError("get_next before open of jdbc connector.");
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_data_timer);
+
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    jboolean has_next =
-            env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz, _executor_has_next_id);
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._jni_setup_timer); // Timer for setting up JNI environment
+        RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    } // _jni_setup_timer stops when going out of this scope
+
+    jboolean has_next = JNI_FALSE;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._has_next_timer); // Timer for hasNext check
+        has_next = env->CallNonvirtualBooleanMethod(_executor_obj, _executor_clazz,
+                                                    _executor_has_next_id);
+        RETURN_ERROR_IF_EXC(env);
+    } // _has_next_timer stops here
+
     if (has_next != JNI_TRUE) {
         *eos = true;
         return Status::OK();
@@ -250,28 +263,45 @@ Status JdbcConnector::get_next(bool* eos, Block* block, int batch_size) {
     auto column_size = _tuple_desc->slots().size();
     auto slots = _tuple_desc->slots();
 
-    jobject map = _get_reader_params(block, env, column_size);
-    SCOPED_RAW_TIMER(&_jdbc_statistic._get_block_address_timer);
-    long address =
-            env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteLocalRef(map);
+    jobject map = nullptr;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._prepare_params_timer); // Timer for preparing params
+        RETURN_IF_ERROR(_get_reader_params(block, env, column_size, &map));
+    } // _prepare_params_timer stops here
 
-    std::vector<size_t> all_columns;
-    for (size_t i = 0; i < column_size; ++i) {
+    long address = 0;
+    {
+        SCOPED_RAW_TIMER(
+                &_jdbc_statistic
+                         ._read_and_fill_vector_table_timer); // Timer for getBlockAddress call
+        address =
+                env->CallLongMethod(_executor_obj, _executor_get_block_address_id, batch_size, map);
+    } // _get_block_address_timer stops here
+
+    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    env->DeleteGlobalRef(map);
+    RETURN_ERROR_IF_EXC(env);
+
+    std::vector<uint32_t> all_columns;
+    for (uint32_t i = 0; i < column_size; ++i) {
         all_columns.push_back(i);
     }
-    SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer);
-    Status fill_block_status = JniConnector::fill_block(block, all_columns, address);
+
+    Status fill_block_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._fill_block_timer); // Timer for fill_block
+        fill_block_status = JniConnector::fill_block(block, all_columns, address);
+    } // _fill_block_timer stops here
+
     if (!fill_block_status) {
         return fill_block_status;
     }
 
-    Status cast_status = _cast_string_to_special(block, env, column_size);
-
-    if (!cast_status) {
-        return cast_status;
-    }
+    Status cast_status;
+    {
+        SCOPED_RAW_TIMER(&_jdbc_statistic._cast_timer); // Timer for casting process
+        cast_status = _cast_string_to_special(block, env, column_size);
+    } // _cast_timer stops here
 
     return JniUtil::GetJniExceptionMsg(env);
 }
@@ -301,12 +331,14 @@ Status JdbcConnector::exec_stmt_write(Block* block, const VExprContextSPtrs& out
     std::map<String, String> write_params = {{"meta_address", std::to_string(meta_address)},
                                              {"required_fields", table_schema.first},
                                              {"columns_types", table_schema.second}};
-    jobject hashmap_object = JniUtil::convert_to_java_map(env, write_params);
+    jobject hashmap_object = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, write_params, &hashmap_object));
+
     env->CallNonvirtualIntMethod(_executor_obj, _executor_clazz, _executor_stmt_write_id,
                                  hashmap_object);
-    env->DeleteLocalRef(hashmap_object);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    *num_rows_sent = block->rows();
+    env->DeleteGlobalRef(hashmap_object);
+    RETURN_ERROR_IF_EXC(env);
+    *num_rows_sent = static_cast<uint32_t>(block->rows());
     return Status::OK();
 }
 
@@ -315,7 +347,7 @@ Status JdbcConnector::begin_trans() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_begin_trans_id);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        RETURN_ERROR_IF_EXC(env);
         _is_in_transaction = true;
     }
     return Status::OK();
@@ -328,7 +360,8 @@ Status JdbcConnector::abort_trans() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_abort_trans_id);
-    return JniUtil::GetJniExceptionMsg(env);
+    RETURN_ERROR_IF_EXC(env);
+    return Status::OK();
 }
 
 Status JdbcConnector::finish_trans() {
@@ -336,7 +369,7 @@ Status JdbcConnector::finish_trans() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_finish_trans_id);
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        RETURN_ERROR_IF_EXC(env);
         _is_in_transaction = false;
     }
     return Status::OK();
@@ -348,7 +381,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
         func_id = env->GetMethodID(clazz, func_name, func_sign);
         Status s = JniUtil::GetJniExceptionMsg(env);
         if (!s.ok()) {
-            return Status::InternalError(strings::Substitute(
+            return Status::InternalError(absl::Substitute(
                     "Jdbc connector _register_func_id meet error and error is $0", s.to_string()));
         }
         return s;
@@ -381,7 +414,8 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size) {
+Status JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t column_size,
+                                         jobject* ans) {
     std::ostringstream columns_nullable;
     std::ostringstream columns_replace_string;
     std::ostringstream required_fields;
@@ -395,11 +429,11 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
             columns_nullable << (slot->is_nullable() ? "true" : "false") << ",";
             // Check column type and replace accordingly
             std::string replace_type = "not_replace";
-            if (type.is_bitmap_type()) {
+            if (type->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
                 replace_type = "bitmap";
-            } else if (type.is_hll_type()) {
+            } else if (type->get_primitive_type() == PrimitiveType::TYPE_HLL) {
                 replace_type = "hll";
-            } else if (type.is_json_type()) {
+            } else if (type->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
                 replace_type = "jsonb";
             }
             columns_replace_string << replace_type << ",";
@@ -418,11 +452,12 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
         // Record required fields and column types
         std::string field = slot->col_name();
         std::string jni_type;
-        if (slot->type().is_bitmap_type() || slot->type().is_hll_type() ||
-            slot->type().is_json_type()) {
+        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP ||
+            slot->type()->get_primitive_type() == PrimitiveType::TYPE_HLL ||
+            slot->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
             jni_type = "string";
         } else {
-            jni_type = JniConnector::get_jni_type(slot->type());
+            jni_type = JniConnector::get_jni_type_with_different_string(slot->type());
         }
         required_fields << (i != 0 ? "," : "") << field;
         columns_types << (i != 0 ? "#" : "") << jni_type;
@@ -432,7 +467,7 @@ jobject JdbcConnector::_get_reader_params(Block* block, JNIEnv* env, size_t colu
                                               {"replace_string", columns_replace_string.str()},
                                               {"required_fields", required_fields.str()},
                                               {"columns_types", columns_types.str()}};
-    return JniUtil::convert_to_java_map(env, reader_params);
+    return JniUtil::convert_to_java_map(env, reader_params, ans);
 }
 
 Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t column_size) {
@@ -447,12 +482,15 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
         RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
 
-        if (slot_desc->type().is_hll_type()) {
-            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, column_index, num_rows));
-        } else if (slot_desc->type().is_json_type()) {
-            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, column_index, num_rows));
-        } else if (slot_desc->type().is_bitmap_type()) {
-            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, column_index, num_rows));
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_HLL) {
+            RETURN_IF_ERROR(_cast_string_to_hll(slot_desc, block, static_cast<int>(column_index),
+                                                static_cast<int>(num_rows)));
+        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_JSONB) {
+            RETURN_IF_ERROR(_cast_string_to_json(slot_desc, block, static_cast<int>(column_index),
+                                                 static_cast<int>(num_rows)));
+        } else if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_BITMAP) {
+            RETURN_IF_ERROR(_cast_string_to_bitmap(slot_desc, block, static_cast<int>(column_index),
+                                                   static_cast<int>(num_rows)));
         }
     }
     return Status::OK();
@@ -460,7 +498,8 @@ Status JdbcConnector::_cast_string_to_special(Block* block, JNIEnv* env, size_t 
 
 Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block* block,
                                           int column_index, int rows) {
-    _map_column_idx_to_cast_idx_hll[column_index] = _input_hll_string_types.size();
+    _map_column_idx_to_cast_idx_hll[column_index] =
+            static_cast<int>(_input_hll_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_hll_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -504,7 +543,8 @@ Status JdbcConnector::_cast_string_to_hll(const SlotDescriptor* slot_desc, Block
 
 Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Block* block,
                                              int column_index, int rows) {
-    _map_column_idx_to_cast_idx_bitmap[column_index] = _input_bitmap_string_types.size();
+    _map_column_idx_to_cast_idx_bitmap[column_index] =
+            static_cast<int>(_input_bitmap_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_bitmap_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -549,7 +589,8 @@ Status JdbcConnector::_cast_string_to_bitmap(const SlotDescriptor* slot_desc, Bl
 // Deprecated, this code is retained only for compatibility with query problems that may be encountered when upgrading the version that maps JSON to JSONB to this version, and will be deleted in subsequent versions.
 Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Block* block,
                                            int column_index, int rows) {
-    _map_column_idx_to_cast_idx_json[column_index] = _input_json_string_types.size();
+    _map_column_idx_to_cast_idx_json[column_index] =
+            static_cast<int>(_input_json_string_types.size());
     if (slot_desc->is_nullable()) {
         _input_json_string_types.push_back(make_nullable(std::make_shared<DataTypeString>()));
     } else {
@@ -558,7 +599,8 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     DataTypePtr _target_data_type = slot_desc->get_data_type_ptr();
     std::string _target_data_type_name = _target_data_type->get_name();
     DataTypePtr _cast_param_data_type = _target_data_type;
-    ColumnPtr _cast_param = _cast_param_data_type->create_column_const(1, "{}");
+    ColumnPtr _cast_param =
+            _cast_param_data_type->create_column_const(1, Field::create_field<TYPE_STRING>("{}"));
 
     auto& input_col = block->get_by_position(column_index).column;
 
@@ -590,12 +632,65 @@ Status JdbcConnector::_cast_string_to_json(const SlotDescriptor* slot_desc, Bloc
     return Status::OK();
 }
 
-jobject JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type tableType) {
-    jclass enumClass = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
-    jmethodID findByValueMethod = env->GetStaticMethodID(
-            enumClass, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
-    jobject javaEnumObj =
-            env->CallStaticObjectMethod(enumClass, findByValueMethod, static_cast<jint>(tableType));
-    return javaEnumObj;
+Status JdbcConnector::_get_java_table_type(JNIEnv* env, TOdbcTableType::type table_type,
+                                           jobject* java_enum_obj) {
+    jclass enum_class = env->FindClass("org/apache/doris/thrift/TOdbcTableType");
+    jmethodID find_by_value_method = env->GetStaticMethodID(
+            enum_class, "findByValue", "(I)Lorg/apache/doris/thrift/TOdbcTableType;");
+    jobject java_enum_local_obj = env->CallStaticObjectMethod(enum_class, find_by_value_method,
+                                                              static_cast<jint>(table_type));
+    RETURN_ERROR_IF_EXC(env);
+    RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, java_enum_local_obj, java_enum_obj));
+    env->DeleteLocalRef(java_enum_local_obj);
+    return Status::OK();
 }
+
+Status JdbcConnector::_get_real_url(const std::string& url, std::string* result_url) {
+    if (url.find(":/") == std::string::npos) {
+        return _check_and_return_default_driver_url(url, result_url);
+    }
+    *result_url = url;
+    return Status::OK();
+}
+
+Status JdbcConnector::_check_and_return_default_driver_url(const std::string& url,
+                                                           std::string* result_url) {
+    const char* doris_home = std::getenv("DORIS_HOME");
+    std::string default_url = std::string(doris_home) + "/plugins/jdbc_drivers";
+    std::string default_old_url = std::string(doris_home) + "/jdbc_drivers";
+
+    if (config::jdbc_drivers_dir == default_url) {
+        // If true, which means user does not set `jdbc_drivers_dir` and use the default one.
+        // Because in 2.1.8, we change the default value of `jdbc_drivers_dir`
+        // from `DORIS_HOME/jdbc_drivers` to `DORIS_HOME/plugins/jdbc_drivers`,
+        // so we need to check the old default dir for compatibility.
+        std::string target_path = default_url + "/" + url;
+        if (std::filesystem::exists(target_path)) {
+            // File exists in new default directory
+            *result_url = "file://" + target_path;
+            return Status::OK();
+        } else if (config::is_cloud_mode()) {
+            // Cloud mode: try to download from cloud to new default directory
+            std::string downloaded_path;
+            Status status = CloudPluginDownloader::download_from_cloud(
+                    CloudPluginDownloader::PluginType::JDBC_DRIVERS, url, target_path,
+                    &downloaded_path);
+            if (status.ok() && !downloaded_path.empty()) {
+                *result_url = "file://" + downloaded_path;
+                return Status::OK();
+            }
+            // Download failed, log warning but continue to fallback
+            LOG(WARNING) << "Failed to download JDBC driver from cloud: " << status.to_string()
+                         << ", fallback to old directory";
+        }
+
+        // Fallback to old default directory for compatibility
+        *result_url = "file://" + default_old_url + "/" + url;
+    } else {
+        // User specified custom directory - use directly
+        *result_url = "file://" + config::jdbc_drivers_dir + "/" + url;
+    }
+    return Status::OK();
+}
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

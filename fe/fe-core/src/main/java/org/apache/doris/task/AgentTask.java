@@ -19,6 +19,7 @@ package org.apache.doris.task;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 public abstract class AgentTask {
@@ -36,6 +37,7 @@ public abstract class AgentTask {
 
     protected int failedTimes;
     protected String errorMsg;
+    protected TStatusCode errorCode;
     // some of process may use this member to check if the task is finished.
     // some of are not.
     // so whether the task is finished depends on caller's logic, not the value of this member.
@@ -110,6 +112,11 @@ public abstract class AgentTask {
         ++this.failedTimes;
     }
 
+    public void failedWithMsg(String errMsg) {
+        failed();
+        setErrorMsg(errMsg);
+    }
+
     public int getFailedTimes() {
         return this.failedTimes;
     }
@@ -122,12 +129,31 @@ public abstract class AgentTask {
         return errorMsg;
     }
 
+    public TStatusCode getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(TStatusCode errorCode) {
+        this.errorCode = errorCode;
+    }
+
     public void setFinished(boolean isFinished) {
         this.isFinished = isFinished;
     }
 
     public boolean isFinished() {
         return isFinished;
+    }
+
+    public boolean isNeedResendType() {
+        // these tasks no need to do diff
+        // 1. CREATE
+        // 2. SYNC DELETE
+        // 3. CHECK_CONSISTENCY
+        // 4. STORAGE_MEDIUM_MIGRATE
+        return !(taskType == TTaskType.CREATE
+                || taskType == TTaskType.CHECK_CONSISTENCY
+                || taskType == TTaskType.STORAGE_MEDIUM_MIGRATE);
     }
 
     public boolean shouldResend(long currentTimeMillis) {

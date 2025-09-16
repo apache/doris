@@ -18,12 +18,11 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ResultSetMetaData;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
@@ -35,8 +34,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.hamcrest.MatcherAssert;
-import org.hamcrest.core.StringContains;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -63,7 +60,7 @@ public class AutoBucketUtilsTest {
     private static void createClusterWithBackends(int beNum, int diskNum, long diskCapacity) throws Exception {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, beNum);
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             setDiskInfos(diskNum, diskCapacity, be);
         }
@@ -101,7 +98,7 @@ public class AutoBucketUtilsTest {
     }
 
     private void expectations(Env env, EditLog editLog, SystemInfoService systemInfoService,
-            ImmutableMap<Long, Backend> backends) {
+            ImmutableMap<Long, Backend> backends) throws AnalysisException {
         new Expectations() {
             {
                 Env.getServingEnv();
@@ -112,7 +109,7 @@ public class AutoBucketUtilsTest {
                 minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.getAllBackendsMap();
+                systemInfoService.getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = backends;
 
@@ -137,6 +134,7 @@ public class AutoBucketUtilsTest {
         Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
         connectContext = UtFrameUtils.createDefaultCtx();
+        Config.autobucket_partition_size_per_bucket_gb = 1;
     }
 
     @After
@@ -169,58 +167,14 @@ public class AutoBucketUtilsTest {
                 + ")";
     }
 
-    private void createTable(String sql) throws Exception {
-        // create database first
-        UtFrameUtils.createDatabase(connectContext, databaseName);
-        UtFrameUtils.createTable(connectContext, sql);
-    }
-
-    private void createTableBySize(String estimatePartitionSize) throws Exception {
-        createTable(genCreateTableSql(estimatePartitionSize));
-    }
-
-    private int getPartitionBucketNum(String tableName) throws Exception {
-        ShowResultSet result = UtFrameUtils.showPartitionsByName(connectContext, tableName);
-        ResultSetMetaData metaData = result.getMetaData();
-
-        for (int i = 0; i < metaData.getColumnCount(); ++i) {
-            if (metaData.getColumn(i).getName().equalsIgnoreCase("buckets")) {
-                return Integer.valueOf(result.getResultRows().get(0).get(i));
-            }
-        }
-
-        throw new Exception("No buckets column in show partitions result");
-    }
-
-    // also has checked create table && show partitions
-    @Test
-    public void testWithoutEstimatePartitionSize() throws Exception {
-        String tableName = genTableName("");
-        String sql = "CREATE TABLE IF NOT EXISTS " + tableName + "\n"
-                + "(\n"
-                + "`user_id` LARGEINT NOT NULL\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO\n"
-                + "PROPERTIES (\n"
-                + "\"replication_num\" = \"1\"\n"
-                + ")";
-
-        createClusterWithBackends(1, 1, 2000000000);
-
-        createTable(sql);
-        ShowResultSet showCreateTableResult = UtFrameUtils.showCreateTableByName(connectContext, tableName);
-        String showCreateTableResultSql = showCreateTableResult.getResultRows().get(0).get(1);
-        MatcherAssert.assertThat(showCreateTableResultSql,
-                StringContains.containsString("DISTRIBUTED BY HASH(`user_id`) BUCKETS AUTO\n"));
-        int bucketNum = getPartitionBucketNum(tableName);
-        Assert.assertEquals(FeConstants.default_bucket_num, bucketNum);
-    }
-
     // Some of these tests will report
     // java.lang.IllegalArgumentException: Value of type org.apache.doris.catalog.
     // Env incompatible with return type com.google.common.collect.
-    // ImmutableMap of org.apache.doris.system.SystemInfoService#getBackendsInCluster(String)
+    // ImmutableMap of org.apache.doris.system.SystemInfoService#getAllBackendsByAllCluster(String)
     // Occasional failure, so ignore these tests
+    // It works on Mac and development machine, but it reports an error on CI pipeline. I don't know what it is,
+    // so @Ignore
+
     @Ignore
     @Test
     public void test100MB(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
@@ -308,6 +262,18 @@ public class AutoBucketUtilsTest {
         long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
         ImmutableMap<Long, Backend> backends = createBackends(200, 7, 4 * AutoBucketUtils.SIZE_1TB);
         expectations(env, editLog, systemInfoService, backends);
-        Assert.assertEquals(200, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+        Assert.assertEquals(128, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
+    }
+
+    @Ignore
+    @Test
+    public void test1T_1_In_Cloud(@Mocked Env env, @Mocked EditLog editLog, @Mocked SystemInfoService systemInfoService)
+            throws Exception {
+        Config.autobucket_partition_size_per_bucket_gb = 5;
+        Config.cloud_unique_id = "cloud_mode";
+        long estimatePartitionSize = AutoBucketUtils.SIZE_1TB;
+        ImmutableMap<Long, Backend> backends = createBackends(10, 7, 4 * AutoBucketUtils.SIZE_1TB);
+        expectations(env, editLog, systemInfoService, backends);
+        Assert.assertEquals(41, AutoBucketUtils.getBucketsNum(estimatePartitionSize));
     }
 }

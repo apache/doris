@@ -23,6 +23,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
@@ -50,17 +51,23 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
     @Override
     protected List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob routineLoadJob = getJob(jobId);
-        String cloudClusterId = routineLoadJob.getCloudClusterId();
-        if (Strings.isNullOrEmpty(cloudClusterId)) {
-            LOG.warn("cluster id is empty");
-            throw new LoadException("cluster id is empty");
-        }
-
         return ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                .getBackendsByClusterId(cloudClusterId)
+                .getBackendsByClusterName(routineLoadJob.getCloudCluster())
                 .stream()
                 .filter(Backend::isAlive)
                 .map(Backend::getId)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
+        routineLoadJob.setCloudCluster();
+        super.replayCreateRoutineLoadJob(routineLoadJob);
+    }
+
+    @Override
+    public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
+        getJob(operation.getId()).setCloudCluster();
+        super.replayChangeRoutineLoadJob(operation);
     }
 }

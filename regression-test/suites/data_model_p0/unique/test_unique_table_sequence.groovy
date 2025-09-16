@@ -34,7 +34,6 @@ suite("test_unique_table_sequence") {
             "replication_allocation" = "tag.location.default: 1"
             );
         """
-        sql """ set enable_nereids_dml = ${enable_nereids_planner}; """
         sql """ set enable_nereids_planner=${enable_nereids_planner}; """
         sql "set enable_fallback_to_original_planner=false; "
         // test streamload with seq col
@@ -123,22 +122,51 @@ suite("test_unique_table_sequence") {
             exception "Table ${tableName} has sequence column, need to specify the sequence column"
         }
 
+        // with `require_sequence_in_insert=false`, previous insert operation should success
+        sql "SET require_sequence_in_insert=false"
+
+        sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 8, 19, 20, 21)"
+
+        sql "SET require_sequence_in_insert=true"
+
         // correct way of insert into with seq col
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 8, 19, 20, 21, 3)"
 
         sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4, __DORIS_SEQUENCE_COL__) values(15, 9, 18, 21, 22, 2)"
 
-        sql "SET show_hidden_columns=true"
-
-        sql "sync"
-
         qt_count "SELECT COUNT(*) from ${tableName}"
 
         order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
-        order_qt_all "SELECT * from ${tableName}"
+        order_qt_all "SELECT k1, v1, v2, v3, v4,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__ from ${tableName}"
+
+        sql "SET show_hidden_columns=false"
+
+        def tableNameClone = tableName + "_clone"
+        sql "DROP TABLE IF EXISTS ${tableNameClone}"
+        sql "create table ${tableNameClone} like ${tableName}"
+
+        // test insert into select *
+        test {
+            sql "INSERT INTO ${tableNameClone} select * from ${tableName}"
+            exception "Table ${tableNameClone} has sequence column, need to specify the sequence column"
+        }
+
+        // with `require_sequence_in_insert=true`, previous insert operation should success
+        sql "SET require_sequence_in_insert=false"
+
+        sql "INSERT INTO ${tableNameClone} select * from ${tableName}"
+
+        sql "SET require_sequence_in_insert=true"
+
+        sql "SET show_hidden_columns=true"
+
+        order_qt_all_clone_table "SELECT * from ${tableNameClone}"
 
         sql "DROP TABLE ${tableName}"
+        sql "DROP TABLE ${tableNameClone}"
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
@@ -172,6 +200,8 @@ suite("test_unique_table_sequence") {
             exception "Table ${tableName} has sequence column, need to specify the sequence column"
         }
         sql "commit;"
+
+        sql """set enable_nereids_planner=true"""
 
         sql "begin;"
         sql "insert into ${tableName} (k1, v1, v2, v3, `or`, __doris_sequence_col__) values (1,1,1,1,1,1),(2,2,2,2,2,2),(3,3,3,3,3,3);"

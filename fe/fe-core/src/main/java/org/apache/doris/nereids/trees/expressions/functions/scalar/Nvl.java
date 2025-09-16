@@ -36,6 +36,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -65,7 +66,9 @@ public class Nvl extends ScalarFunction
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+                            .args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE)
+                    .args(TimeV2Type.INSTANCE, TimeV2Type.INSTANCE),
             FunctionSignature.ret(BitmapType.INSTANCE).args(BitmapType.INSTANCE, BitmapType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
                     .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
@@ -77,6 +80,11 @@ public class Nvl extends ScalarFunction
      */
     public Nvl(Expression arg0, Expression arg1) {
         super("ifnull", arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Nvl(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -93,7 +101,7 @@ public class Nvl extends ScalarFunction
     @Override
     public Nvl withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Nvl(children.get(0), children.get(1));
+        return new Nvl(getFunctionParams(children));
     }
 
     @Override

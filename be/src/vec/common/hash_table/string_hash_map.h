@@ -107,13 +107,14 @@ struct StringHashMapSubMaps {
                             StringHashTableHash, StringHashTableGrower<>, Allocator>;
 };
 
-template <typename TMapped, typename Allocator = HashTableAllocator>
+template <typename TMapped, typename Allocator = Allocator<true, true>>
 class StringHashMap : public StringHashTable<StringHashMapSubMaps<TMapped, Allocator>> {
 public:
     using Key = doris::StringRef;
     using Base = StringHashTable<StringHashMapSubMaps<TMapped, Allocator>>;
     using Self = StringHashMap;
     using LookupResult = typename Base::LookupResult;
+    using Value = TMapped;
 
     using Base::Base;
 

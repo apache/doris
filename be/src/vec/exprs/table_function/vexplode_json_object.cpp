@@ -20,10 +20,12 @@
 #include <glog/logging.h>
 
 #include <ostream>
-#include <vector>
 
 #include "common/status.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_struct.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -31,6 +33,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VExplodeJsonObjectTableFunction::VExplodeJsonObjectTableFunction() {
     _fn_name = "vexplode_json_object";
@@ -54,8 +57,9 @@ void VExplodeJsonObjectTableFunction::process_row(size_t row_idx) {
 
     StringRef text = _json_object_column->get_data_at(row_idx);
     if (text.data != nullptr) {
-        JsonbDocument* doc = JsonbDocument::createDocument(text.data, text.size);
-        if (UNLIKELY(!doc || !doc->getValue())) {
+        JsonbDocument* doc = nullptr;
+        auto st = JsonbDocument::checkAndCreateDocument(text.data, text.size, &doc);
+        if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
             // error jsonb, put null into output, cur_size = 0 , we will insert_default
             return;
         }
@@ -63,19 +67,19 @@ void VExplodeJsonObjectTableFunction::process_row(size_t row_idx) {
         JsonbValue* value = doc->getValue();
         auto writer = std::make_unique<JsonbWriter>();
         if (value->isObject()) {
-            _cur_size = value->length();
-            ObjectVal* obj = (ObjectVal*)value;
+            _cur_size = value->numElements();
+            auto* obj = value->unpack<ObjectVal>();
             _object_pairs.first =
                     ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
             _object_pairs.second =
                     ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
             _object_pairs.first->reserve(_cur_size);
             _object_pairs.second->reserve(_cur_size);
-            for (auto it = obj->begin(); it != obj->end(); ++it) {
-                _object_pairs.first->insert_data(it->getKeyStr(), it->klen());
+            for (auto& it : *obj) {
+                _object_pairs.first->insert_data(it.getKeyStr(), it.klen());
                 writer->reset();
-                writer->writeValue(it->value());
-                if (it->value()->isNull()) {
+                writer->writeValue(it.value());
+                if (it.value()->isNull()) {
                     _object_pairs.second->insert_default();
                 } else {
                     const std::string_view& jsonb_value = std::string_view(
@@ -109,7 +113,7 @@ void VExplodeJsonObjectTableFunction::get_same_many_values(MutableColumnPtr& col
         assert_cast<ColumnUInt8*>(
                 assert_cast<ColumnNullable*>(column.get())->get_null_map_column_ptr().get())
                 ->insert_many_defaults(length);
-    } else if (column->is_column_struct()) {
+    } else if (is_column<ColumnStruct>(column.get())) {
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -157,4 +161,6 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
     forward(max_step);
     return max_step;
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

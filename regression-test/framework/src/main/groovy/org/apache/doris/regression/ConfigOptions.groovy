@@ -56,6 +56,7 @@ class ConfigOptions {
     static Option sslCertificateOpt
     static Option imageOpt
     static Option noKillDockerOpt
+    static Option runModeOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -67,12 +68,15 @@ class ConfigOptions {
     static Option forceGenOutOpt
     static Option parallelOpt
     static Option suiteParallelOpt
+    static Option dockerSuiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
     static Option stopWhenFailOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
+    static Option runNonConcurrentOpt
     static Option caseNamePrefixOpt
+    static Option validateBackupPrefixOpt
     static Option dryRunOpt
     static Option isSmokeTestOpt
     static Option multiClusterBesOpt
@@ -94,6 +98,13 @@ class ConfigOptions {
     static Option clusterDirOpt
     static Option kafkaBrokerListOpt
     static Option cloudVersionOpt
+    static Option tdeAkOpt
+    static Option tdeSkOpt
+    static Option tdeKeyEndpointOpt
+    static Option tdeKeyRegionOpt
+    static Option tdeKeyProviderOpt
+    static Option tdeAlgorithmOpt
+    static Option tdeKeyIdOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -214,6 +225,14 @@ class ConfigOptions {
                 .required(false)
                 .hasArg(false)
                 .desc("don't kill docker containers")
+                .build()
+
+        runModeOpt = Option.builder("runMode")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("runMode")
+                .desc("specific run mode: unknown/cloud/not_cloud. if unknow, will fetch it from fe.")
                 .build()
 
         suiteOpt = Option.builder("s")
@@ -425,6 +444,14 @@ class ConfigOptions {
                 .longOpt("suiteParallel")
                 .desc("the num of threads running for suites")
                 .build()
+        dockerSuiteParallelOpt = Option.builder("dockerSuiteParallel")
+                .argName("dockerSuiteParallel")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("dockerSuiteParallel")
+                .desc("the num of threads running for docker suites")
+                .build()
         actionParallelOpt = Option.builder("actionParallel")
                 .argName("parallel")
                 .required(false)
@@ -458,12 +485,24 @@ class ConfigOptions {
                 .longOpt("withOutLoadData")
                 .desc("do not run load.groovy to reload data to Doris.")
                 .build()
+        runNonConcurrentOpt = Option.builder("runNonConcurrent")
+                .required(false)
+                .hasArg(true)
+                .desc("whether run non-concurrent tests")
+                .build()
         caseNamePrefixOpt = Option.builder("cnp")
                 .required(false)
                 .hasArg(true)
                 .type(String.class)
                 .longOpt("caseNamePrefix")
                 .desc("add prefix to each case name")
+                .build()
+        validateBackupPrefixOpt = Option.builder("vbp")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("validateBackupPrefix")
+                .desc("prefix of validate backup path")
                 .build()
         dryRunOpt = Option.builder("dryRun")
                 .required(false)
@@ -570,6 +609,41 @@ class ConfigOptions {
                 .hasArg(false)
                 .desc("selectdb cloud version")
                 .build()
+        tdeAkOpt = Option.builder("tdeAk")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Access Key")
+                .build();
+        tdeSkOpt = Option.builder("tdeSk")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Secret Key")
+                .build();
+        tdeKeyEndpointOpt = Option.builder("tdeKeyEndpoint")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Endpoint")
+                .build();
+        tdeKeyRegionOpt = Option.builder("tdeKeyRegion")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Region")
+                .build();
+        tdeKeyProviderOpt = Option.builder("tdeKeyProvider")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Provider")
+                .build();
+        tdeAlgorithmOpt = Option.builder("tdeAlgorithm")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Algorithm")
+                .build();
+        tdeKeyIdOpt = Option.builder("tdeKeyId")
+                .required(false)
+                .hasArg(false)
+                .desc("TDE Key Id")
+                .build();
 
         Options options = new Options()
                 .addOption(helpOption)
@@ -582,6 +656,7 @@ class ConfigOptions {
                 .addOption(sslCertificateOpt)
                 .addOption(imageOpt)
                 .addOption(noKillDockerOpt)
+                .addOption(runModeOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
@@ -607,12 +682,15 @@ class ConfigOptions {
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
                 .addOption(suiteParallelOpt)
+                .addOption(dockerSuiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
                 .addOption(stopWhenFailOpt)
                 .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
+                .addOption(runNonConcurrentOpt)
                 .addOption(caseNamePrefixOpt)
+                .addOption(validateBackupPrefixOpt)
                 .addOption(dryRunOpt)
                 .addOption(isSmokeTestOpt)
                 .addOption(multiClusterBesOpt)
@@ -634,6 +712,13 @@ class ConfigOptions {
                 .addOption(clusterDirOpt)
                 .addOption(kafkaBrokerListOpt)
                 .addOption(cloudVersionOpt)
+                .addOption(tdeAkOpt)
+                .addOption(tdeSkOpt)
+                .addOption(tdeKeyEndpointOpt)
+                .addOption(tdeKeyRegionOpt)
+                .addOption(tdeKeyProviderOpt)
+                .addOption(tdeAlgorithmOpt)
+                .addOption(tdeKeyIdOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {

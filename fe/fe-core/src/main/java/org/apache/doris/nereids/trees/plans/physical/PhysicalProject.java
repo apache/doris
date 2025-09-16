@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -26,20 +27,33 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Physical project plan.
@@ -47,6 +61,7 @@ import java.util.Optional;
 public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Project {
 
     private final List<NamedExpression> projects;
+    private final Supplier<Set<NamedExpression>> projectsSet;
     //multiLayerProjects is used to extract common expressions
     // projects: (A+B) * 2, (A+B) * 3
     // multiLayerProjects:
@@ -61,19 +76,30 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
+    /** PhysicalProject */
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
-        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
-                child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics, child);
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
     public List<NamedExpression> getProjects() {
         return projects;
+    }
+
+    @Override
+    public PhysicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return withProjectionsAndChild(projects, child());
     }
 
     @Override
@@ -89,6 +115,23 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     }
 
     @Override
+    public String shapeInfo() {
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            StringBuilder builder = new StringBuilder();
+            builder.append(getClass().getSimpleName());
+            // the internal project list's order may be unstable, especial for join tables,
+            // so sort the projects to make it stable
+            builder.append(projects.stream().map(Expression::shapeInfo).sorted()
+                    .collect(Collectors.joining(", ", "[", "]")));
+            return builder.toString();
+        } else {
+            return super.shapeInfo();
+        }
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
@@ -96,13 +139,13 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PhysicalProject that = (PhysicalProject) o;
-        return projects.equals(that.projects);
+        PhysicalProject<?> that = (PhysicalProject<?>) o;
+        return projectsSet.get().equals(that.projectsSet.get());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(projects);
+        return Objects.hash(projectsSet.get());
     }
 
     @Override
@@ -153,7 +196,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
      * @return new project
      */
     public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
-        return new PhysicalProject<>(ImmutableList.copyOf(projections),
+        return new PhysicalProject<>(Utils.fastToImmutableList(projections),
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
@@ -165,13 +208,16 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     @Override
     public List<Slot> computeOutput() {
         List<NamedExpression> output = projects;
-        if (! multiLayerProjects.isEmpty()) {
+        if (!multiLayerProjects.isEmpty()) {
             int layers = multiLayerProjects.size();
             output = multiLayerProjects.get(layers - 1);
         }
-        return output.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+
+        Builder<Slot> slots = ImmutableList.builderWithExpectedSize(output.size());
+        for (NamedExpression project : output) {
+            slots.add(project.toSlot());
+        }
+        return slots.build();
     }
 
     @Override
@@ -239,5 +285,90 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
 
     public void setMultiLayerProjects(List<List<NamedExpression>> multiLayers) {
         this.multiLayerProjects = multiLayers;
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (proj.children().isEmpty()) {
+                continue;
+            }
+            if (proj.child(0) instanceof Uuid) {
+                builder.addUniqueSlot(proj.toSlot());
+            } else if (ExpressionUtils.isInjective(proj.child(0))) {
+                ImmutableSet<Slot> inputs = Utils.fastToImmutableSet(proj.getInputSlots());
+                if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
+                    builder.addUniqueSlot(proj.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
+        for (NamedExpression proj : getProjects()) {
+            if (!(proj instanceof Alias)) {
+                continue;
+            }
+            if (proj.child(0).isConstant()) {
+                builder.addUniformSlotAndLiteral(proj.toSlot(), proj.child(0));
+            } else if (proj.child(0) instanceof Slot) {
+                Slot slot = (Slot) proj.child(0);
+                DataTrait childTrait = child(0).getLogicalProperties().getTrait();
+                if (childTrait.isUniformAndHasConstValue(slot)) {
+                    builder.addUniformSlotAndLiteral(proj.toSlot(),
+                            child(0).getLogicalProperties().getTrait().getUniformValue(slot).get());
+                } else if (childTrait.isUniform(slot)) {
+                    builder.addUniformSlot(proj.toSlot());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        Map<Expression, NamedExpression> aliasMap = new HashMap<>();
+        builder.addEqualSet(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (expr instanceof Alias) {
+                if (aliasMap.containsKey(expr.child(0))) {
+                    builder.addEqualPair(expr.toSlot(), aliasMap.get(expr.child(0)).toSlot());
+                }
+                aliasMap.put(expr.child(0), expr);
+                if (expr.child(0).isSlot()) {
+                    builder.addEqualPair(expr.toSlot(), (Slot) expr.child(0));
+                }
+            }
+        }
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
+        for (NamedExpression expr : getProjects()) {
+            if (!expr.isSlot()) {
+                builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
+            }
+        }
+    }
+
+    @Override
+    public List<NamedExpression> getOutputs() {
+        return projects;
+    }
+
+    @Override
+    public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
+        List<NamedExpression> allProjects = new ArrayList<>(prunedOutputs);
+        for (NamedExpression expression : projects) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                if (!prunedOutputs.contains(expression)) {
+                    allProjects.add(expression);
+                }
+            }
+        }
+        return withProjects(allProjects);
     }
 }

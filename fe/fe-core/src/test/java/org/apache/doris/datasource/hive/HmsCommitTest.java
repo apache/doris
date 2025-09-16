@@ -17,9 +17,13 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
@@ -33,6 +37,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateMode;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -52,6 +57,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
@@ -101,13 +107,14 @@ public class HmsCommitTest {
                 return localDFSFileSystem;
             }
         };
-        fs = new SwitchingFileSystem(null, null, null);
+        fs = new SwitchingFileSystem(null, null);
 
         if (hasRealHmsService) {
             // If you have a real HMS service, then you can use this client to create real connections for testing
             HiveConf entries = new HiveConf();
             entries.set("hive.metastore.uris", uri);
-            hmsClient = new ThriftHMSCachedClient(entries, 2);
+            hmsClient = new ThriftHMSCachedClient(entries, 2, new ExecutionAuthenticator() {
+            });
         } else {
             hmsClient = new TestHMSCachedClient();
         }
@@ -125,7 +132,7 @@ public class HmsCommitTest {
     }
 
     @Before
-    public void before() {
+    public void before() throws IOException {
         // create table for tbWithPartition
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("c1", PrimitiveType.INT, true));
@@ -134,17 +141,21 @@ public class HmsCommitTest {
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         String fileFormat = "orc";
+        Map<String, String> tblProperties = Maps.newHashMap();
+        tblProperties.put("owner", "admin");
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
                 columns, partitionKeys,
-                new HashMap<>(), fileFormat, "");
+                tblProperties, fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
+        Table tbl = hmsClient.getTable(dbName, tbWithPartition);
+        Assert.assertEquals(UserIdentity.ADMIN.getUser(), tbl.getParameters().get("owner"));
 
         // create table for tbWithoutPartition
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(
-                    dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
-                    columns, new ArrayList<>(),
-                    new HashMap<>(), fileFormat, "");
+                dbName, tbWithoutPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
+                columns, new ArrayList<>(),
+                new HashMap<>(), fileFormat, "");
         hmsClient.createTable(tableMetadata2, true);
 
         // context
@@ -168,14 +179,20 @@ public class HmsCommitTest {
     @Test
     public void testAppendPartitionForUnPartitionedTable() throws IOException {
         genQueryID();
-        System.out.println(DebugUtil.printId(connectContext.queryId()));
         List<THivePartitionUpdate> pus = new ArrayList<>();
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
         pus.add(createRandomAppend(null));
+        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
+            @Mock
+            private void doNothing() {
+                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+            }
+        };
         commit(dbName, tbWithoutPartition, pus);
         Table table = hmsClient.getTable(dbName, tbWithoutPartition);
         assertNumRows(3, table);
+
 
         genQueryID();
         List<THivePartitionUpdate> pus2 = new ArrayList<>();
@@ -203,6 +220,12 @@ public class HmsCommitTest {
 
     @Test
     public void testNewPartitionForPartitionedTable() throws IOException {
+        new MockUp<HMSTransaction.HmsCommitter>(HMSTransaction.HmsCommitter.class) {
+            @Mock
+            private void doNothing() {
+                Assert.assertEquals(Status.ErrCode.NOT_FOUND, fs.exists(getWritePath()).getErrCode());
+            }
+        };
         genQueryID();
         List<THivePartitionUpdate> pus = new ArrayList<>();
         pus.add(createRandomNew("a"));
@@ -363,30 +386,35 @@ public class HmsCommitTest {
 
     public THivePartitionUpdate createRandomNew(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.NEW) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.NEW);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.NEW);
     }
 
     public THivePartitionUpdate createRandomAppend(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.APPEND) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.APPEND);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.APPEND);
     }
 
     public THivePartitionUpdate createRandomOverwrite(String partition) throws IOException {
         return partition == null ? genOnePartitionUpdate(TUpdateMode.OVERWRITE) :
-            genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
+                genOnePartitionUpdate("c3=" + partition, TUpdateMode.OVERWRITE);
+    }
+
+    private String getWritePath() {
+        String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+        return writeLocation + queryId + "/";
     }
 
     public void commit(String dbName,
-                       String tableName,
-                       List<THivePartitionUpdate> hivePUs) {
+            String tableName,
+            List<THivePartitionUpdate> hivePUs) {
         HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
         hmsTransaction.setHivePartitionUpdates(hivePUs);
         HiveInsertCommandContext ctx = new HiveInsertCommandContext();
         String queryId = DebugUtil.printId(ConnectContext.get().queryId());
         ctx.setQueryId(queryId);
-        ctx.setWritePath(writeLocation + queryId + "/");
+        ctx.setWritePath(getWritePath());
         hmsTransaction.beginInsertTable(ctx);
-        hmsTransaction.finishInsertTable(dbName, tableName);
+        hmsTransaction.finishInsertTable(NameMapping.createForTest(dbName, tableName));
         hmsTransaction.commit();
     }
 
@@ -404,11 +432,11 @@ public class HmsCommitTest {
         new MockUp<HMSTransaction>(HMSTransaction.class) {
             @Mock
             private void wrapperAsyncRenameDirWithProfileSummary(Executor executor,
-                                                                 List<CompletableFuture<?>> renameFileFutures,
-                                                                 AtomicBoolean cancelled,
-                                                                 String origFilePath,
-                                                                 String destFilePath,
-                                                                 Runnable runWhenPathNotExist) {
+                    List<CompletableFuture<?>> renameFileFutures,
+                    AtomicBoolean cancelled,
+                    String origFilePath,
+                    String destFilePath,
+                    Runnable runWhenPathNotExist) {
                 runnable.run();
                 throw new RuntimeException("failed to rename dir");
             }
@@ -649,5 +677,43 @@ public class HmsCommitTest {
         Partition pa = hmsClient.getPartition(dbName, tbWithPartition, Lists.newArrayList("a"));
         assertNumRows(3, pa);
     }
-}
 
+    @Test
+    public void testCommitWithRollback() {
+        genQueryID();
+        List<THivePartitionUpdate> pus = new ArrayList<>();
+        try {
+            pus.add(createRandomAppend(null));
+            pus.add(createRandomAppend(null));
+            pus.add(createRandomAppend(null));
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+
+        mockDoOther(() -> {
+            Table table = hmsClient.getTable(dbName, tbWithoutPartition);
+            assertNumRows(3, table);
+        });
+
+        HMSTransaction hmsTransaction = new HMSTransaction(hmsOps, fileSystemProvider, fileSystemExecutor);
+        try {
+            hmsTransaction.setHivePartitionUpdates(pus);
+            HiveInsertCommandContext ctx = new HiveInsertCommandContext();
+            String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+            ctx.setQueryId(queryId);
+            ctx.setWritePath(getWritePath());
+            hmsTransaction.beginInsertTable(ctx);
+            hmsTransaction.finishInsertTable(NameMapping.createForTest(dbName, tbWithoutPartition));
+            hmsTransaction.commit();
+            Assert.fail();
+        } catch (Throwable t) {
+            Assert.assertTrue(t.getMessage().contains("failed to do nothing"));
+        }
+
+        try {
+            hmsTransaction.rollback();
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+    }
+}

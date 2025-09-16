@@ -28,7 +28,16 @@
 #include "util/threadpool.h"
 #include "vec/spill/spill_stream.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
+template <typename T>
+class AtomicCounter;
+using IntAtomicCounter = AtomicCounter<int64_t>;
+template <typename T>
+class AtomicGauge;
+using UIntGauge = AtomicGauge<uint64_t>;
+class MetricEntity;
+struct MetricPrototype;
 
 namespace vectorized {
 
@@ -77,7 +86,7 @@ private:
     double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0
-                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                       : (double)(_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                                  (double)_disk_capacity_bytes;
     }
 
@@ -105,6 +114,7 @@ private:
 };
 class SpillStreamManager {
 public:
+    ~SpillStreamManager();
     SpillStreamManager(std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                                spill_store_map);
 
@@ -121,18 +131,19 @@ public:
     Status register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
                                  const std::string& query_id, const std::string& operator_name,
                                  int32_t node_id, int32_t batch_rows, size_t batch_bytes,
-                                 RuntimeProfile* profile);
+                                 RuntimeProfile* operator_profile);
 
     // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
     void delete_spill_stream(SpillStreamSPtr spill_stream);
 
-    void async_cleanup_query(TUniqueId query_id);
-
     void gc(int32_t max_work_time_ms);
 
-    ThreadPool* get_spill_io_thread_pool() const { return _spill_io_thread_pool.get(); }
+    void update_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
+
+    void update_spill_read_bytes(int64_t bytes) { _spill_read_bytes_counter->increment(bytes); }
 
 private:
+    void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
@@ -140,10 +151,18 @@ private:
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
 
     CountDownLatch _stop_background_threads_latch;
-    std::unique_ptr<ThreadPool> _spill_io_thread_pool;
-    scoped_refptr<Thread> _spill_gc_thread;
+    std::shared_ptr<Thread> _spill_gc_thread;
 
     std::atomic_uint64_t id_ = 0;
+
+    std::shared_ptr<MetricEntity> _entity {nullptr};
+
+    std::unique_ptr<doris::MetricPrototype> _spill_write_bytes_metric {nullptr};
+    std::unique_ptr<doris::MetricPrototype> _spill_read_bytes_metric {nullptr};
+
+    IntAtomicCounter* _spill_write_bytes_counter {nullptr};
+    IntAtomicCounter* _spill_read_bytes_counter {nullptr};
 };
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

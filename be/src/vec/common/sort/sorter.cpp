@@ -29,6 +29,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"
@@ -57,92 +58,78 @@ namespace doris::vectorized {
 //
 
 void MergeSorterState::reset() {
-    auto empty_queue = std::priority_queue<MergeSortCursor>();
-    priority_queue_.swap(empty_queue);
-    std::vector<MergeSortCursorImpl> empty_cursors(0);
-    cursors_.swap(empty_cursors);
-    std::vector<Block> empty_blocks(0);
-    sorted_blocks_.swap(empty_blocks);
-    unsorted_block_ = Block::create_unique(unsorted_block_->clone_empty());
-    in_mem_sorted_bocks_size_ = 0;
+    std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
+    std::vector<std::shared_ptr<Block>> empty_blocks(0);
+    _sorted_blocks.swap(empty_blocks);
+    unsorted_block() = Block::create_unique(unsorted_block()->clone_empty());
+    _in_mem_sorted_bocks_size = 0;
 }
-Status MergeSorterState::add_sorted_block(Block& block) {
-    auto rows = block.rows();
+
+void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
+    auto rows = block->rows();
     if (0 == rows) {
-        return Status::OK();
+        return;
     }
-    in_mem_sorted_bocks_size_ += block.bytes();
-    sorted_blocks_.emplace_back(std::move(block));
-    num_rows_ += rows;
-    return Status::OK();
+    _in_mem_sorted_bocks_size += block->bytes();
+    _sorted_blocks.emplace_back(block);
+    _num_rows += rows;
 }
 
 Status MergeSorterState::build_merge_tree(const SortDescription& sort_description) {
-    for (auto& block : sorted_blocks_) {
-        cursors_.emplace_back(block, sort_description);
+    std::vector<MergeSortCursor> cursors;
+    for (auto& block : _sorted_blocks) {
+        cursors.emplace_back(
+                MergeSortCursorImpl::create_shared(std::move(block), sort_description));
     }
+    _queue = MergeSorterQueue(cursors);
 
-    if (sorted_blocks_.size() > 1) {
-        for (auto& cursor : cursors_) {
-            priority_queue_.emplace(&cursor);
-        }
-    }
-
+    _sorted_blocks.clear();
     return Status::OK();
 }
 
 Status MergeSorterState::merge_sort_read(doris::vectorized::Block* block, int batch_size,
                                          bool* eos) {
-    if (sorted_blocks_.empty()) {
-        *eos = true;
-    } else if (sorted_blocks_.size() == 1) {
-        if (offset_ != 0) {
-            sorted_blocks_[0].skip_num_rows(offset_);
-        }
-        block->swap(sorted_blocks_[0]);
-        *eos = true;
-    } else {
-        RETURN_IF_ERROR(_merge_sort_read_impl(batch_size, block, eos));
-    }
+    DCHECK(_sorted_blocks.empty());
+    DCHECK(unsorted_block()->empty());
+    _merge_sort_read_impl(batch_size, block, eos);
     return Status::OK();
 }
 
-Status MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
-                                               bool* eos) {
-    size_t num_columns = sorted_blocks_[0].columns();
+void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::vectorized::Block* block,
+                                             bool* eos) {
+    size_t num_columns = unsorted_block()->columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, sorted_blocks_[0]);
+    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
     size_t merged_rows = 0;
-    while (!priority_queue_.empty()) {
-        auto current = priority_queue_.top();
-        priority_queue_.pop();
+    // process single element queue on merge_sort_read()
+    while (_queue.is_valid() && merged_rows < batch_size) {
+        auto [current, current_rows] = _queue.current();
+        current_rows = std::min(current_rows, batch_size - merged_rows);
 
-        if (offset_ == 0) {
-            for (size_t i = 0; i < num_columns; ++i)
-                merged_columns[i]->insert_from(*current->all_columns[i], current->pos);
-            ++merged_rows;
+        size_t step = std::min(_offset, current_rows);
+        _offset -= step;
+        current_rows -= step;
+
+        if (current_rows) {
+            for (size_t i = 0; i < num_columns; ++i) {
+                merged_columns[i]->insert_range_from(*current->impl->columns[i],
+                                                     current->impl->pos + step, current_rows);
+            }
+            merged_rows += current_rows;
+        }
+
+        if (!current->impl->is_last(current_rows + step)) {
+            _queue.next(current_rows + step);
         } else {
-            offset_--;
+            _queue.remove_top();
         }
-
-        if (!current->is_last()) {
-            current->next();
-            priority_queue_.push(current);
-        }
-
-        if (merged_rows == batch_size) break;
     }
+
     block->set_columns(std::move(merged_columns));
-
-    if (merged_rows == 0) {
-        *eos = true;
-        return Status::OK();
-    }
-
-    return Status::OK();
+    *eos = merged_rows == 0;
 }
 
 Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
@@ -150,7 +137,7 @@ Status Sorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectorized:
     return get_next(state, block, eos);
 }
 
-Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
+Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) {
     size_t num_cols = src_block.columns();
     if (_materialize_sort_exprs) {
         auto output_tuple_expr_ctxs = _vsort_exec_exprs.sort_tuple_slot_expr_ctxs();
@@ -160,80 +147,128 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         }
 
         Block new_block;
-        int i = 0;
-        const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
             if (column_id < 0) {
                 continue;
             }
-            if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
-                auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
-                new_block.insert(
-                        {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
-            } else {
-                new_block.insert(src_block.get_by_position(column_id));
-            }
-            i++;
+            new_block.insert(src_block.get_by_position(column_id));
         }
         dest_block.swap(new_block);
     }
 
-    _sort_description.resize(_vsort_exec_exprs.lhs_ordering_expr_ctxs().size());
+    _sort_description.resize(_vsort_exec_exprs.ordering_expr_ctxs().size());
     Block* result_block = _materialize_sort_exprs ? &dest_block : &src_block;
     for (int i = 0; i < _sort_description.size(); i++) {
-        const auto& ordering_expr = _vsort_exec_exprs.lhs_ordering_expr_ctxs()[i];
+        const auto& ordering_expr = _vsort_exec_exprs.ordering_expr_ctxs()[i];
         RETURN_IF_ERROR(ordering_expr->execute(result_block, &_sort_description[i].column_number));
 
         _sort_description[i].direction = _is_asc_order[i] ? 1 : -1;
         _sort_description[i].nulls_direction =
                 _nulls_first[i] ? -_sort_description[i].direction : _sort_description[i].direction;
+        if (reversed) {
+            _sort_description[i].direction *= -1;
+        }
     }
 
     {
         SCOPED_TIMER(_partial_sort_timer);
-        if (_materialize_sort_exprs) {
-            sort_block(dest_block, dest_block, _sort_description, _offset + _limit);
-        } else {
-            sort_block(src_block, dest_block, _sort_description, _offset + _limit);
-        }
-        src_block.clear_column_data(num_cols);
+        uint64_t limit = reversed ? 0 : (_offset + _limit);
+        sort_block(*result_block, dest_block, _sort_description, limit);
     }
 
+    src_block.clear_column_data(num_cols);
     return Status::OK();
 }
 
-FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int limit, int64_t offset,
+FullSorter::FullSorter(VSortExecExprs& vsort_exec_exprs, int64_t limit, int64_t offset,
                        ObjectPool* pool, std::vector<bool>& is_asc_order,
                        std::vector<bool>& nulls_first, const RowDescriptor& row_desc,
                        RuntimeState* state, RuntimeProfile* profile)
         : Sorter(vsort_exec_exprs, limit, offset, pool, is_asc_order, nulls_first),
-          _state(MergeSorterState::create_unique(row_desc, offset, limit, state, profile)) {}
+          _state(MergeSorterState::create_unique(row_desc, offset)) {}
+
+// check whether the unsorted block can hold more data from input block and no need to alloc new memory
+bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) const {
+    DCHECK_EQ(input_block->columns(), unsorted_block->columns());
+    for (auto i = 0; i < input_block->columns(); ++i) {
+        if (!unsorted_block->get_by_position(i).column->has_enough_capacity(
+                    *input_block->get_by_position(i).column)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t size_to_reserve = 0;
+    const auto rows = _state->unsorted_block()->rows();
+    if (rows != 0) {
+        const auto bytes = _state->unsorted_block()->bytes();
+        const auto allocated_bytes = _state->unsorted_block()->allocated_bytes();
+        const auto bytes_per_row = bytes / rows;
+        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+        auto new_block_bytes = estimated_size_of_next_block + bytes;
+        auto new_rows = rows + state->batch_size();
+        // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
+        if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
+            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+        }
+        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        if (sort) {
+            // new column is created when doing sort, reserve average size of one column
+            // for estimation
+            size_to_reserve += new_block_bytes / _state->unsorted_block()->columns();
+
+            // helping data structures used during sorting
+            size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
+
+            auto sort_columns_count = _vsort_exec_exprs.ordering_expr_ctxs().size();
+            if (1 != sort_columns_count) {
+                size_to_reserve += new_rows * sizeof(EqualRangeIterator);
+            }
+        }
+    }
+    return size_to_reserve;
+}
 
 Status FullSorter::append_block(Block* block) {
     DCHECK(block->rows() > 0);
+
+    // iff have reach limit and the unsorted block capacity can't hold the block data size
+    if (_reach_limit() && !has_enough_capacity(block, _state->unsorted_block().get())) {
+        RETURN_IF_ERROR(_do_sort());
+    }
+
     {
         SCOPED_TIMER(_merge_block_timer);
-        auto& data = _state->unsorted_block_->get_columns_with_type_and_name();
+        const auto& data = _state->unsorted_block()->get_columns_with_type_and_name();
         const auto& arrival_data = block->get_columns_with_type_and_name();
         auto sz = block->rows();
         for (int i = 0; i < data.size(); ++i) {
             DCHECK(data[i].type->equals(*(arrival_data[i].type)))
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
-            //TODO: to eliminate unnecessary expansion, we need a `insert_range_from_const` for every column type.
-            data[i].column->assume_mutable()->insert_range_from(
-                    *arrival_data[i].column->convert_to_full_column_if_const(), 0, sz);
+            if (is_column_const(*arrival_data[i].column)) {
+                data[i].column->assume_mutable()->insert_many_from(
+                        assert_cast<const ColumnConst*>(arrival_data[i].column.get())
+                                ->get_data_column(),
+                        0, sz);
+            } else {
+                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+            }
         }
         block->clear_column_data();
-    }
-    if (_reach_limit()) {
-        RETURN_IF_ERROR(_do_sort());
     }
     return Status::OK();
 }
 
-Status FullSorter::prepare_for_read() {
-    if (_state->unsorted_block_->rows() > 0) {
+Status FullSorter::prepare_for_read(bool is_spill) {
+    if (is_spill) {
+        _limit += _offset;
+        _offset = 0;
+        _state->ignore_offset();
+    }
+    if (_state->unsorted_block()->rows() > 0) {
         RETURN_IF_ERROR(_do_sort());
     }
     return _state->build_merge_tree(_sort_description);
@@ -249,8 +284,9 @@ Status FullSorter::merge_sort_read_for_spill(RuntimeState* state, doris::vectori
 }
 
 Status FullSorter::_do_sort() {
-    Block* src_block = _state->unsorted_block_.get();
+    Block* src_block = _state->unsorted_block().get();
     Block desc_block = src_block->clone_without_columns();
+    COUNTER_UPDATE(_partial_sort_counter, 1);
     RETURN_IF_ERROR(partial_sort(*src_block, desc_block));
 
     // dispose TOP-N logic
@@ -260,25 +296,26 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _offset + _limit) {
-            static_cast<void>(_state->add_sorted_block(desc_block));
-            _block_priority_queue.emplace(_pool->add(
-                    new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
+            _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
+                    _state->last_sorted_block(), _sort_description));
         } else {
-            auto tmp_cursor_impl =
-                    std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
-            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
+            auto tmp_cursor_impl = MergeSortCursorImpl::create_shared(
+                    Block::create_shared(std::move(desc_block)), _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl);
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
-                static_cast<void>(_state->add_sorted_block(desc_block));
-                _block_priority_queue.emplace(_pool->add(
-                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+                _state->add_sorted_block(tmp_cursor_impl->block);
+                _block_priority_queue.emplace(MergeSortCursorImpl::create_shared(
+                        _state->last_sorted_block(), _sort_description));
             }
         }
     } else {
         // dispose normal sort logic
-        static_cast<void>(_state->add_sorted_block(desc_block));
+        _state->add_sorted_block(Block::create_shared(std::move(desc_block)));
     }
     return Status::OK();
 }
+
 size_t FullSorter::data_size() const {
     return _state->data_size();
 }

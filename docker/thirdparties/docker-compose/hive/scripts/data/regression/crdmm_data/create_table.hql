@@ -158,5 +158,5 @@ LOCATION
 TBLPROPERTIES (
   'transient_lastDdlTime'='1685331029');
 
-msck repair crdmm_data;
+msck repair table crdmm_data;
 

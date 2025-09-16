@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/be_mock_util.h"
 #include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -88,8 +89,10 @@ public:
     Block(ColumnsWithTypeAndName data_);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
+    Block(const std::vector<SlotDescriptor>& slots, size_t block_size,
+          bool ignore_trivial_slot = false);
 
-    ~Block() = default;
+    MOCK_FUNCTION ~Block() = default;
     Block(const Block& block) = default;
     Block& operator=(const Block& p) = default;
     Block(Block&& block) = default;
@@ -146,12 +149,6 @@ public:
         element.column = element.column->convert_to_full_column_if_const();
     }
 
-    void replace_if_overflow() {
-        for (auto& ele : data) {
-            ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
-        }
-    }
-
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
@@ -186,18 +183,20 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    std::string each_col_size() const;
-
     // Cut the rows in block, use in LIMIT operation
     void set_num_rows(size_t length);
 
     // Skip the rows in block, use in OFFSET, LIMIT operation
     void skip_num_rows(int64_t& offset);
 
-    size_t columns() const { return data.size(); }
+    /// As the assumption we used around, the number of columns won't exceed int16 range. so no need to worry when we
+    ///  assign it to int32.
+    uint32_t columns() const { return static_cast<uint32_t>(data.size()); }
 
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
+
+    Status check_type_and_column() const;
 
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
@@ -205,7 +204,7 @@ public:
     std::string columns_bytes() const;
 
     /// Approximate number of allocated bytes in memory - for profiling and limits.
-    size_t allocated_bytes() const;
+    MOCK_FUNCTION size_t allocated_bytes() const;
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
@@ -221,8 +220,6 @@ public:
     Columns get_columns() const;
     Columns get_columns_and_convert();
 
-    void set_columns(const Columns& columns);
-    Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
@@ -235,9 +232,6 @@ public:
     void set_columns(MutableColumns&& columns);
     Block clone_with_columns(MutableColumns&& columns) const;
 
-    /** Get a block with columns that have been rearranged in the order of their names. */
-    Block sort_columns() const;
-
     void clear();
     void swap(Block& other) noexcept;
     void swap(Block&& other) noexcept;
@@ -247,34 +241,31 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(int64_t column_size = -1) noexcept;
 
-    bool mem_reuse() { return !data.empty(); }
+    MOCK_FUNCTION bool mem_reuse() { return !data.empty(); }
 
     bool is_empty_column() { return data.empty(); }
 
     bool empty() const { return rows() == 0; }
 
-    /** Updates SipHash of the Block, using update method of columns.
+    /** 
+      * Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.
       */
     void update_hash(SipHash& hash) const;
 
-    /** Get block data in string. */
-    std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
-
-    static std::string dump_column(ColumnPtr col, DataTypePtr type) {
-        ColumnWithTypeAndName type_name {col, type, ""};
-        Block b {type_name};
-        return b.dump_data(0, b.rows());
-    }
+    /** 
+     *  Get block data in string. 
+     *  If code is in default_implementation_for_nulls or something likely, type and column's nullity could
+     *   temporarily be not same. set allow_null_mismatch to true to dump it correctly.
+    */
+    std::string dump_data(size_t begin = 0, size_t row_limit = 100,
+                          bool allow_null_mismatch = false) const;
 
     /** Get one line data from block, only use in load data */
     std::string dump_one_line(size_t row, int column_end) const;
-
-    // copy a new block by the offset column
-    Block copy_block(const std::vector<int>& column_offset) const;
 
     Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
@@ -288,11 +279,11 @@ public:
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
-                               int filter_column_id, int column_to_keep);
+                               size_t filter_column_id, size_t column_to_keep);
 
-    static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
+    static Status filter_block(Block* block, size_t filter_column_id, size_t column_to_keep);
 
-    static void erase_useless_column(Block* block, int column_to_keep) {
+    static void erase_useless_column(Block* block, size_t column_to_keep) {
         block->erase_tail(column_to_keep);
     }
 
@@ -389,9 +380,13 @@ public:
 
     void clear_same_bit() { row_same_bit.clear(); }
 
-    // return string contains use_count() of each columns
-    // for debug purpose.
-    std::string print_use_count();
+    // remove tmp columns in block
+    // in inverted index apply logic, in order to optimize query performance,
+    // we built some temporary columns into block
+    void erase_tmp_columns() noexcept;
+
+    void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                   bool need_keep_first);
 
 private:
     void erase_impl(size_t position);
@@ -511,7 +506,7 @@ public:
     std::string dump_types() const {
         std::string res;
         for (auto type : _data_types) {
-            if (res.size()) {
+            if (!res.empty()) {
                 res += ", ";
             }
             res += type->get_name();
@@ -534,14 +529,20 @@ public:
     [[nodiscard]] Status merge_impl_ignore_overflow(T&& block) {
         if (_columns.size() != block.columns()) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                    "Merge block not match, self column count: {}, [columns: {}, types: {}], "
+                    "input column count: {}, [columns: {}, "
                     "types: {}], ",
-                    dump_names(), dump_types(), block.dump_names(), block.dump_types());
+                    _columns.size(), dump_names(), dump_types(), block.columns(),
+                    block.dump_names(), block.dump_types());
         }
         for (int i = 0; i < _columns.size(); ++i) {
-            DCHECK(_data_types[i]->equals(*block.get_by_position(i).type))
-                    << " target type: " << _data_types[i]->get_name()
-                    << " src type: " << block.get_by_position(i).type->get_name();
+            if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
+                throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                       "Merge block not match, self:[columns: {}, types: {}], "
+                                       "input:[columns: {}, types: {}], ",
+                                       dump_names(), dump_types(), block.dump_names(),
+                                       block.dump_types());
+            }
             _columns[i]->insert_range_from_ignore_overflow(
                     *block.get_by_position(i).column->convert_to_full_column_if_const().get(), 0,
                     block.rows());
@@ -552,7 +553,7 @@ public:
     template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
-        if (_columns.size() == 0 && _data_types.size() == 0) {
+        if (_columns.empty() && _data_types.empty()) {
             _data_types = block.get_data_types();
             _names = block.get_names();
             _columns.resize(block.columns());
@@ -569,9 +570,11 @@ public:
         } else {
             if (_columns.size() != block.columns()) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "Merge block not match, self:[columns: {}, types: {}], input:[columns: {}, "
+                        "Merge block not match, self column count: {}, [columns: {}, types: {}], "
+                        "input column count: {}, [columns: {}, "
                         "types: {}], ",
-                        dump_names(), dump_types(), block.dump_names(), block.dump_types());
+                        _columns.size(), dump_names(), dump_types(), block.columns(),
+                        block.dump_names(), block.dump_types());
             }
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
@@ -603,14 +606,12 @@ public:
 
     void swap(MutableBlock& other) noexcept;
 
-    void swap(MutableBlock&& other) noexcept;
-
     void add_row(const Block* block, int row);
     // Batch add row should return error status if allocate memory failed.
     Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
                     const std::vector<int>* column_offset = nullptr);
     Status add_rows(const Block* block, size_t row_begin, size_t length);
-    Status add_rows(const Block* block, std::vector<int64_t> rows);
+    Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
     /// remove the column with the specified name
     void erase(const String& name);
@@ -625,8 +626,6 @@ public:
 
     // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
-    // reset columns by types and names.
-    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 

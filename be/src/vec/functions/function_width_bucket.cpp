@@ -24,10 +24,11 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -60,7 +61,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr expr_ptr =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr min_value_ptr =
@@ -71,11 +72,20 @@ public:
                 block.get_by_position(arguments[3]).column->convert_to_full_column_if_const();
         int64_t num_buckets = num_buckets_ptr->get_int(0);
 
+        if (num_buckets <= 0) {
+            return Status::InternalError(
+                    "The desired number({}) of buckets must be a positive integer value.",
+                    num_buckets);
+        }
+
         auto nested_column_ptr = ColumnInt64::create(input_rows_count, 0);
         DataTypePtr expr_type = block.get_by_position(arguments[0]).type;
 
-        _execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets, *nested_column_ptr,
-                         expr_type);
+        if (!_execute_by_type(*expr_ptr, *min_value_ptr, *max_value_ptr, num_buckets,
+                              *nested_column_ptr, expr_type)) {
+            return Status::InvalidArgument("Unsupported type for width_bucket: {}",
+                                           expr_type->get_name());
+        }
 
         block.replace_by_position(result, std::move(nested_column_ptr));
         return Status::OK();
@@ -86,12 +96,10 @@ private:
     void _execute(const IColumn& expr_column, const IColumn& min_value_column,
                   const IColumn& max_value_column, const int64_t num_buckets,
                   IColumn& nested_column) const {
-        const ColumnType& expr_column_concrete = reinterpret_cast<const ColumnType&>(expr_column);
-        const ColumnType& min_value_column_concrete =
-                reinterpret_cast<const ColumnType&>(min_value_column);
-        const ColumnType& max_value_column_concrete =
-                reinterpret_cast<const ColumnType&>(max_value_column);
-        ColumnInt64& nested_column_concrete = reinterpret_cast<ColumnInt64&>(nested_column);
+        const auto& expr_column_concrete = assert_cast<const ColumnType&>(expr_column);
+        const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
+        const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
+        auto& nested_column_concrete = assert_cast<ColumnInt64&>(nested_column);
 
         size_t input_rows_count = expr_column.size();
 
@@ -114,56 +122,39 @@ private:
         }
     }
 
-    void _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
+    bool _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
                           IColumn& nested_column_column, DataTypePtr& expr_type) const {
-        WhichDataType which(remove_nullable(expr_type));
-        if (which.is_int8()) {
+        switch (expr_type->get_primitive_type()) {
+        case PrimitiveType::TYPE_TINYINT:
             _execute<ColumnInt8>(expr_column, min_value_column, max_value_column, num_buckets,
                                  nested_column_column);
-        } else if (which.is_int16()) {
+            break;
+        case PrimitiveType::TYPE_SMALLINT:
             _execute<ColumnInt16>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_int32()) {
+            break;
+        case PrimitiveType::TYPE_INT:
             _execute<ColumnInt32>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_int64()) {
+            break;
+        case PrimitiveType::TYPE_BIGINT:
             _execute<ColumnInt64>(expr_column, min_value_column, max_value_column, num_buckets,
                                   nested_column_column);
-        } else if (which.is_float32()) {
+            break;
+        case PrimitiveType::TYPE_FLOAT:
             _execute<ColumnFloat32>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-        } else if (which.is_float64()) {
+            break;
+        case PrimitiveType::TYPE_DOUBLE:
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-        } else if (which.is_decimal128v2()) {
-            _execute<ColumnDecimal128V2>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
-        } else if (which.is_decimal32()) {
-            _execute<ColumnDecimal32>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
-        } else if (which.is_decimal64()) {
-            _execute<ColumnDecimal64>(expr_column, min_value_column, max_value_column, num_buckets,
-                                      nested_column_column);
-        } else if (which.is_decimal128v3()) {
-            _execute<ColumnDecimal128V3>(expr_column, min_value_column, max_value_column,
-                                         num_buckets, nested_column_column);
-        } else if (which.is_decimal256()) {
-            _execute<ColumnDecimal256>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
-        } else if (which.is_date()) {
-            _execute<ColumnDate>(expr_column, min_value_column, max_value_column, num_buckets,
-                                 nested_column_column);
-        } else if (which.is_date_v2()) {
-            _execute<ColumnDateV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                   nested_column_column);
-        } else if (which.is_date_time()) {
-            _execute<ColumnDateTime>(expr_column, min_value_column, max_value_column, num_buckets,
-                                     nested_column_column);
-        } else if (which.is_date_time_v2()) {
-            _execute<ColumnDateTimeV2>(expr_column, min_value_column, max_value_column, num_buckets,
-                                       nested_column_column);
+            break;
+        default:
+            return false;
+            break;
         }
+        return true;
     }
 };
 

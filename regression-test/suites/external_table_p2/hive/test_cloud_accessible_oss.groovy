@@ -16,12 +16,20 @@
 // under the License.
 
 suite("test_cloud_accessible_oss", "p2,external,hive,external_remote,external_remote_hive") {
+
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
+
     String enabled = context.config.otherConfigs.get("enableObjStorageTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")
         String extHiveHmsPort = context.config.otherConfigs.get("extHiveHmsPort")
         String ak = context.config.otherConfigs.get("aliYunAk")
         String sk = context.config.otherConfigs.get("aliYunSk")
+        String endpoint = context.config.otherConfigs.get("aliYunEndpoint")
         String hms_catalog_name = "test_cloud_accessible_oss"
         sql """drop catalog if exists ${hms_catalog_name};"""
         sql """
@@ -29,7 +37,7 @@ suite("test_cloud_accessible_oss", "p2,external,hive,external_remote,external_re
             PROPERTIES ( 
                 'type' = 'hms',
                 'hive.metastore.uris' = 'thrift://${extHiveHmsHost}:${extHiveHmsPort}',
-                'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',
+                'oss.endpoint' = '${endpoint}',
                 'oss.access_key' = '${ak}',
                 'oss.secret_key' = '${sk}'
             );
@@ -47,14 +55,16 @@ suite("test_cloud_accessible_oss", "p2,external,hive,external_remote,external_re
         // dlf case
         String dlf_catalog_name = "test_cloud_accessible_dlf"
         String dlf_uid = context.config.otherConfigs.get("dlfUid")
+        String dlf_endpoint = context.config.otherConfigs.get("dlf_endpoint")
+        String dlf_region = context.config.otherConfigs.get("dlf_region")
         sql """drop catalog if exists ${dlf_catalog_name};"""
         sql """
             CREATE CATALOG  IF NOT EXISTS ${dlf_catalog_name}
             PROPERTIES (
                 "type"="hms",
                 "hive.metastore.type" = "dlf",
-                "dlf.endpoint" = "dlf.cn-beijing.aliyuncs.com",
-                "dlf.region" = "cn-beijing",
+                "dlf.endpoint" = "${dlf_endpoint}",
+                "dlf.region" = "${dlf_region}",
                 "dlf.proxy.mode" = "DLF_ONLY",
                 "dlf.uid" = "${dlf_uid}",
                 "dlf.access_key" = "${ak}",

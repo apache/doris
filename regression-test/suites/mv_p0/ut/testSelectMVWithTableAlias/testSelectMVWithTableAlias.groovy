@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testSelectMVWithTableAlias") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (
@@ -30,35 +32,22 @@ suite ("testSelectMVWithTableAlias") {
         """
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-02",2,"b",2);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, count(tag_id) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as a1, count(tag_id) from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
 
     sql "analyze table user_tags with sync;"
-    sql """set enable_stats=false;"""
+    sql """alter table user_tags modify column time_col set stats ('row_count'='5');"""
 
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_all_fail("select * from user_tags order by time_col;", ["user_tags_mv"])
+        
     qt_select_star "select * from user_tags order by time_col;"
 
-    explain {
-        sql("select count(tag_id) from user_tags t;")
-        contains "(user_tags_mv)"
-    }
+    mv_rewrite_success("select count(tag_id) from user_tags t;", "user_tags_mv")
+    
     qt_select_mv "select count(tag_id) from user_tags t;"
-
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
-
-    explain {
-        sql("select count(tag_id) from user_tags t;")
-        contains "(user_tags_mv)"
-    }
 }

@@ -22,6 +22,7 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/extension_set.h>
 #include <stdlib.h>
 
@@ -32,23 +33,26 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
+#include "util/simd/bits.h"
 #include "util/thrift_util.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
@@ -59,6 +63,21 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
+
+class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
+public:
+    PointQueryResultBlockBuffer(RuntimeState* state) : vectorized::MySQLResultBlockBuffer(state) {}
+    ~PointQueryResultBlockBuffer() override = default;
+    std::shared_ptr<TFetchDataResult> get_block() {
+        std::lock_guard<std::mutex> l(_lock);
+        DCHECK_EQ(_result_batch_queue.size(), 1);
+        auto result = std::move(_result_batch_queue.front());
+        _result_batch_queue.pop_front();
+        return result;
+    }
+};
 
 Reusable::~Reusable() = default;
 
@@ -75,6 +94,8 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
+    // insert delete sign column id
+    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -131,8 +152,12 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = vectorized::create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
+    bool has_delete_sign = false;
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
         auto* slot = tuple_desc()->slots()[i];
+        if (slot->col_name() == DELETE_SIGN) {
+            has_delete_sign = true;
+        }
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
     }
@@ -141,6 +166,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     std::vector<SlotDescriptor*> output_slot_descs;
     for (const auto& expr : _output_exprs_ctxs) {
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
+    }
+
+    // get the delete sign idx in block
+    if (has_delete_sign) {
+        _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
     }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
@@ -186,9 +216,9 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 }
 
 RowCache::RowCache(int64_t capacity, int num_shards)
-        : LRUCachePolicyTrackingManual(
-                  CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity, LRUCacheType::SIZE,
-                  config::point_query_row_cache_stale_sweep_time_sec, num_shards) {}
+        : LRUCachePolicy(CachePolicy::CacheType::POINT_QUERY_ROW_CACHE, capacity,
+                         LRUCacheType::SIZE, config::point_query_row_cache_stale_sweep_time_sec,
+                         num_shards) {}
 
 // Create global instance of this class
 RowCache* RowCache::create_global_cache(int64_t capacity, uint32_t num_shards) {
@@ -218,8 +248,8 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
     auto* row_cache_value = new RowCacheValue;
     row_cache_value->cache_value = cache_value;
     const std::string& encoded_key = key.encode();
-    auto* handle = LRUCachePolicyTrackingManual::insert(encoded_key, row_cache_value, value.size,
-                                                        value.size, CachePriority::NORMAL);
+    auto* handle = LRUCachePolicy::insert(encoded_key, row_cache_value, value.size, value.size,
+                                          CachePriority::NORMAL);
     // handle will released
     auto tmp = CacheHandle {this, handle};
 }
@@ -227,6 +257,12 @@ void RowCache::insert(const RowCacheKey& key, const Slice& value) {
 void RowCache::erase(const RowCacheKey& key) {
     const std::string& encoded_key = key.encode();
     LRUCachePolicy::erase(encoded_key);
+}
+
+LookupConnectionCache::CacheValue::~CacheValue() {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
+    item.reset();
 }
 
 PointQueryExecutor::~PointQueryExecutor() {
@@ -257,17 +293,17 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
         TExprList t_output_exprs;
-        uint32_t len = request->desc_tbl().size();
+        auto len = cast_set<uint32_t>(request->desc_tbl().size());
         RETURN_IF_ERROR(
                 deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(request->desc_tbl().data()),
                                        &len, false, &t_desc_tbl));
-        len = request->output_expr().size();
+        len = cast_set<uint32_t>(request->output_expr().size());
         RETURN_IF_ERROR(deserialize_thrift_msg(
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
-        len = request->query_options().size();
+        len = cast_set<uint32_t>(request->query_options().size());
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
@@ -302,34 +338,48 @@ Status PointQueryExecutor::lookup_up() {
     return Status::OK();
 }
 
-std::string PointQueryExecutor::print_profile() {
+void PointQueryExecutor::print_profile() {
     auto init_us = _profile_metrics.init_ns.value() / 1000;
     auto init_key_us = _profile_metrics.init_key_ns.value() / 1000;
     auto lookup_key_us = _profile_metrics.lookup_key_ns.value() / 1000;
     auto lookup_data_us = _profile_metrics.lookup_data_ns.value() / 1000;
     auto output_data_us = _profile_metrics.output_data_ns.value() / 1000;
+    auto load_segments_key_us = _profile_metrics.load_segment_key_stage_ns.value() / 1000;
+    auto load_segments_data_us = _profile_metrics.load_segment_data_stage_ns.value() / 1000;
     auto total_us = init_us + lookup_key_us + lookup_data_us + output_data_us;
     auto read_stats = _profile_metrics.read_stats;
-    return fmt::format(
-            ""
+    const std::string stats_str = fmt::format(
             "[lookup profile:{}us] init:{}us, init_key:{}us,"
-            ""
-            ""
-            "lookup_key:{}us, lookup_data:{}us, output_data:{}us, hit_lookup_cache:{}"
-            ""
-            ""
+            " lookup_key:{}us, load_segments_key:{}us, lookup_data:{}us, load_segments_data:{}us,"
+            " output_data:{}us, "
+            "hit_lookup_cache:{}"
             ", is_binary_row:{}, output_columns:{}, total_keys:{}, row_cache_hits:{}"
             ", hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
             "io_latency:{}ns, "
             "uncompressed_bytes_read:{}, result_data_bytes:{}, row_hits:{}"
-            ", rs_column_uid:{}"
-            "",
-            total_us, init_us, init_key_us, lookup_key_us, lookup_data_us, output_data_us,
-            _profile_metrics.hit_lookup_cache, _binary_row_format, _reusable->output_exprs().size(),
-            _row_read_ctxs.size(), _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
+            ", rs_column_uid:{}, bytes_read_from_local:{}, bytes_read_from_remote:{}, "
+            "local_io_timer:{}, remote_io_timer:{}, local_write_timer:{}",
+            total_us, init_us, init_key_us, lookup_key_us, load_segments_key_us, lookup_data_us,
+            load_segments_data_us, output_data_us, _profile_metrics.hit_lookup_cache,
+            _binary_row_format, _reusable->output_exprs().size(), _row_read_ctxs.size(),
+            _profile_metrics.row_cache_hits, read_stats.cached_pages_num,
             read_stats.total_pages_num, read_stats.compressed_bytes_read, read_stats.io_ns,
             read_stats.uncompressed_bytes_read, _profile_metrics.result_data_bytes, _row_hits,
-            _reusable->rs_column_uid());
+            _reusable->rs_column_uid(),
+            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_local,
+            _profile_metrics.read_stats.file_cache_stats.bytes_read_from_remote,
+            _profile_metrics.read_stats.file_cache_stats.local_io_timer,
+            _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
+            _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
+
+    constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
+    if (total_us > kSlowThreholdUs) {
+        LOG(WARNING) << "slow query, " << stats_str;
+    } else if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << stats_str;
+    } else {
+        LOG_EVERY_N(INFO, 1000) << stats_str;
+    }
 }
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
@@ -337,7 +387,7 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
     olap_tuples.resize(request->key_tuples().size());
-    for (size_t i = 0; i < request->key_tuples().size(); ++i) {
+    for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
         for (const std::string& key_col : key_tuple.key_column_rep()) {
             olap_tuples[i].add_value(key_col);
@@ -361,7 +411,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     Status st;
     if (_version >= 0) {
         CHECK(config::is_cloud_mode()) << "Only cloud mode support snapshot read at present";
-        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(_version));
+        SyncOptions options;
+        options.query_version = _version;
+        RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
     {
@@ -383,9 +435,10 @@ Status PointQueryExecutor::_lookup_row_key() {
         }
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
-        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
-                                      &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get(), false));
+        st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
+                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
+                                      segment_caches, rowset_ptr.get(), false, nullptr,
+                                      &_profile_metrics.read_stats));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -406,12 +459,12 @@ Status PointQueryExecutor::_lookup_row_data() {
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
                     *_result_block, _reusable->get_col_default_values(),
-                    _reusable->include_col_uids());
+                    _reusable->include_col_uids()));
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -423,13 +476,13 @@ Status PointQueryExecutor::_lookup_row_data() {
             bool use_row_cache = !config::disable_storage_row_cache;
             RETURN_IF_ERROR(_tablet->lookup_row_data(
                     _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
-                    *(_row_read_ctxs[i]._rowset_ptr), _reusable->tuple_desc(),
-                    _profile_metrics.read_stats, value, use_row_cache));
+                    *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
+                    use_row_cache));
             // serilize value to block, currently only jsonb row formt
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
                     _reusable->get_col_uid_to_idx(), *_result_block,
-                    _reusable->get_col_default_values(), _reusable->include_col_uids());
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
         }
         if (!_reusable->missing_col_uids().empty()) {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
@@ -448,7 +501,11 @@ Status PointQueryExecutor::_lookup_row_data() {
             BetaRowsetSharedPtr rowset =
                     std::static_pointer_cast<BetaRowset>(_tablet->get_rowset(row_loc.rowset_id));
             SegmentCacheHandle segment_cache;
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            {
+                SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
+                RETURN_IF_ERROR(
+                        SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+            }
             // find segment
             auto it = std::find_if(segment_cache.get_segments().cbegin(),
                                    segment_cache.get_segments().cend(),
@@ -462,9 +519,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }
@@ -477,25 +539,42 @@ Status PointQueryExecutor::_lookup_row_data() {
         // thus missing in include_col_uids and missing_col_uids
         for (size_t i = 0; i < _result_block->columns(); ++i) {
             auto column = _result_block->get_by_position(i).column;
-            int padding_rows = _row_hits - column->size();
+            int padding_rows = _row_hits - cast_set<int>(column->size());
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
         }
     }
+    // filter rows by delete sign
+    if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
+        size_t filtered = 0;
+        size_t total = 0;
+        {
+            // clear_column_data will check reference of ColumnPtr, so we need to release
+            // reference before clear_column_data
+            vectorized::ColumnPtr delete_filter_columns =
+                    _result_block->get_columns()[_reusable->delete_sign_idx()];
+            const auto& filter =
+                    assert_cast<const vectorized::ColumnInt8*>(delete_filter_columns.get())
+                            ->get_data();
+            filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+            total = filter.size();
+        }
+
+        if (filtered == total) {
+            _result_block->clear_column_data();
+        } else if (filtered > 0) {
+            return Status::NotSupported("Not implemented since only single row at present");
+        }
+    }
     return Status::OK();
 }
 
-template <typename MysqlWriter>
-Status serialize_block(RuntimeState* state, MysqlWriter& mysql_writer, vectorized::Block& block,
-                       PTabletKeyLookupResponse* response) {
-    block.clear_names();
-    RETURN_IF_ERROR(mysql_writer.write(state, block));
-    assert(mysql_writer.results().size() == 1);
+Status serialize_block(std::shared_ptr<TFetchDataResult> res, PTabletKeyLookupResponse* response) {
     uint8_t* buf = nullptr;
     uint32_t len = 0;
     ThriftSerializer ser(false, 4096);
-    RETURN_IF_ERROR(ser.serialize(&(mysql_writer.results()[0])->result_batch, &len, &buf));
+    RETURN_IF_ERROR(ser.serialize(&(res->result_batch), &len, &buf));
     response->set_row_batch(std::string((const char*)buf, len));
     return Status::OK();
 }
@@ -504,19 +583,23 @@ Status PointQueryExecutor::_output_data() {
     // 4. exprs exec and serialize to mysql row batches
     SCOPED_TIMER(&_profile_metrics.output_data_ns);
     if (_result_block->rows()) {
+        RuntimeState state;
+        auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
         if (_binary_row_format) {
-            vectorized::VMysqlResultWriter<true> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<true> mysql_writer(buffer, _reusable->output_exprs(),
                                                               nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         } else {
-            vectorized::VMysqlResultWriter<false> mysql_writer(nullptr, _reusable->output_exprs(),
+            vectorized::VMysqlResultWriter<false> mysql_writer(buffer, _reusable->output_exprs(),
                                                                nullptr);
             RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
-            RETURN_IF_ERROR(serialize_block(_reusable->runtime_state(), mysql_writer,
-                                            *_result_block, _response));
+            _result_block->clear_names();
+            RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));
+            RETURN_IF_ERROR(serialize_block(buffer->get_block(), _response));
         }
         VLOG_DEBUG << "dump block " << _result_block->dump_data();
     } else {
@@ -526,5 +609,7 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

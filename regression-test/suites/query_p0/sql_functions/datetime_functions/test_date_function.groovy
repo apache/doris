@@ -77,7 +77,7 @@ suite("test_date_function") {
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03");
     """
-    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_fragment_exec_instance_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
+    qt_sql_convert_tz_null """ SELECT /*+SET_VAR(parallel_pipeline_task_num=1)*/ convert_tz(test_datetime, cast(null as varchar), cast(null as varchar)) result from test_date_function; """
 
     sql """ truncate table ${tableName} """
 
@@ -105,7 +105,7 @@ suite("test_date_function") {
             (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
             (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
-            (4, "2019-08-02 13:21:03", "Australia/Queensland", "Asia/Shanghai"),
+            (4, "2019-08-02 13:21:03", "Australia/Melbourne", "Asia/Shanghai"),
             (5, "2019-08-02 13:21:03", "Australia/Lindeman", "Asia/Shanghai"),
             (6, "2019-08-03 13:21:03", "America/Aruba", "Asia/Shanghai"),
             (7, "2019-08-03 13:21:03", "America/Blanc-Sablon", "Asia/Shanghai"),
@@ -114,7 +114,7 @@ suite("test_date_function") {
             (10, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (11, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Singapore"),
             (12, "2019-08-05 13:21:03", "Asia/Shanghai", "Asia/Taipei"),
-            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Queensland"),
+            (13, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Melbourne"),
             (14, "2019-08-06 13:21:03", "Asia/Shanghai", "Australia/Lindeman"),
             (15, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Aruba"),
             (16, "2019-08-07 13:21:03", "Asia/Shanghai", "America/Blanc-Sablon"),
@@ -122,7 +122,7 @@ suite("test_date_function") {
             (18, "2019-08-08 13:21:03", "Africa/Lusaka", "America/Creston")
     """
 
-    sql "set parallel_fragment_exec_instance_num = 8"
+    sql "set parallel_pipeline_task_num = 8"
 
     qt_sql1 """
         SELECT
@@ -144,7 +144,7 @@ suite("test_date_function") {
     qt_sql3 """
         SELECT
             convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
-            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
             ${timezoneCachedTableName}
@@ -182,7 +182,7 @@ suite("test_date_function") {
     qt_sql_vec3 """
         SELECT
             convert_tz(`test_datetime`, `origin_tz`, `target_tz`),
-            convert_tz(`test_datetime`, "Australia/Queensland", `target_tz`),
+            convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
             ${timezoneCachedTableName}
@@ -412,7 +412,6 @@ suite("test_date_function") {
     qt_sql """ SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3, CAST('1970-01-09 00:00:00' AS DATETIME)) """
 
     // TIMEDIFF
-    qt_sql """ SELECT TIMEDIFF(now(),utc_timestamp()) """
     qt_sql """ SELECT TIMEDIFF('2019-07-11 16:59:30','2019-07-11 16:59:21') """
     qt_sql """ SELECT TIMEDIFF('2019-01-01 00:00:00', NULL) """
 
@@ -474,6 +473,30 @@ suite("test_date_function") {
     qt_sql """ select year('1987-01-01') """
     qt_sql """ select year('2050-01-01') """
     qt_sql """ select test_datetime, year(test_datetime) from ${tableName} order by test_datetime """
+
+    // YEAROFWEEK
+    qt_sql """ select year_of_week('1987-01-01') """
+    qt_sql """ select year_of_week('2050-01-01') """
+    qt_sql """ select test_datetime, year_of_week(test_datetime) from ${tableName} order by test_datetime """
+
+    qt_sql """ select yow('1987-01-01') """
+
+    qt_sql "select year_of_week('2005-01-01')" // 2004-W53-6 
+    qt_sql "select year_of_week('2005-01-02')" // 2004-W53-7 
+    qt_sql "select year_of_week('2005-12-31')" // 2005-W52-6 
+    qt_sql "select year_of_week('2007-01-01')" // 2007-W01-1 
+    qt_sql "select year_of_week('2007-12-30')" // 2007-W52-7 
+    qt_sql "select year_of_week('2007-12-31')" // 2008-W01-1 
+    qt_sql "select year_of_week('2008-01-01')" // 2008-W01-2 
+    qt_sql "select year_of_week('2008-12-28')" // 2008-W52-7 
+    qt_sql "select year_of_week('2008-12-29')" // 2009-W01-1 
+    qt_sql "select year_of_week('2008-12-30')" // 2009-W01-2 
+    qt_sql "select year_of_week('2008-12-31')" // 2009-W01-3 
+    qt_sql "select year_of_week('2009-01-01')" // 2009-W01-4 
+    qt_sql "select year_of_week('2009-12-31')" // 2009-W53-4 
+    qt_sql "select year_of_week('2010-01-01')" // 2009-W53-5 
+    qt_sql "select year_of_week('2010-01-02')" // 2009-W53-6 
+    qt_sql "select year_of_week('2010-01-03')" // 2009-W53-7 
 
     // YEARWEEK
     qt_sql """ select yearweek('2021-1-1') """
@@ -818,4 +841,41 @@ suite("test_date_function") {
     qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
     qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
     qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
+
+    def test_simplify = {
+        test {
+            sql "select months_add(dt, 1) = date '2024-02-29' from (select date '2024-01-31' as dt)a"
+            result([[true]])
+        }
+        test {
+            sql "select years_add(dt, 1) = date '2025-02-28' from (select date '2024-02-29' as dt)a"
+            result([[true]])
+        }
+    }()
+
+    sql "drop table if exists date_add_test123"
+    sql """
+    CREATE TABLE date_add_test123(
+        id INT,
+        date_col DATE,
+        days_col INT,
+        months_col INT,
+        years_col INT,
+        datetime_col DATETIME,
+        invalid_col VARCHAR(50)
+    ) ENGINE = OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 10 PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+    INSERT INTO date_add_test123
+    VALUES (1,'2023-05-15',10,2,1,'2023-05-15 12:00:00','invalid'    ),
+    (2,'2023-12-31',-5,-1,0,'2023-12-31 23:59:59','2023-13-40'    ),
+    (3, NULL, NULL, NULL, NULL, NULL, NULL),
+    (4,'2023-01-01',366,12,100,'2023-01-01 00:00:00','2023-01-01'    );
+"""
+
+    order_qt_sql1 """ SELECT 
+    DATE_ADD(invalid_col, INTERVAL '1+2' DAY)
+    FROM date_add_test123; """
+
+    order_qt_sql2 """ SELECT invalid_col,     DATE_ADD(invalid_col, INTERVAL 1+2 DAY)     FROM date_add_test123 """
 }

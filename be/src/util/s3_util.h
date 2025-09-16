@@ -24,7 +24,6 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
-#include <stdint.h>
 
 #include <map>
 #include <memory>
@@ -33,8 +32,9 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "cpp/aws_common.h"
+#include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
-#include "util/s3_rate_limiter.h"
 #include "vec/common/string_ref.h"
 
 namespace Aws::S3 {
@@ -51,7 +51,8 @@ namespace doris {
 namespace s3_bvar {
 extern bvar::LatencyRecorder s3_get_latency;
 extern bvar::LatencyRecorder s3_put_latency;
-extern bvar::LatencyRecorder s3_delete_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
 extern bvar::LatencyRecorder s3_head_latency;
 extern bvar::LatencyRecorder s3_multi_part_upload_latency;
 extern bvar::LatencyRecorder s3_list_latency;
@@ -60,27 +61,9 @@ extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
+std::string hide_access_key(const std::string& ak);
+
 class S3URI;
-
-inline ::Aws::Client::AWSError<::Aws::S3::S3Errors> s3_error_factory() {
-    return {::Aws::S3::S3Errors::INTERNAL_FAILURE, "exceeds limit", "exceeds limit", false};
-}
-
-#define DO_S3_RATE_LIMIT(op, code)                                                  \
-    [&]() mutable {                                                                 \
-        if (!config::enable_s3_rate_limiter) {                                      \
-            return (code);                                                          \
-        }                                                                           \
-        auto sleep_duration = S3ClientFactory::instance().rate_limiter(op)->add(1); \
-        if (sleep_duration < 0) {                                                   \
-            using T = decltype((code));                                             \
-            return T(s3_error_factory());                                           \
-        }                                                                           \
-        return (code);                                                              \
-    }()
-
-#define DO_S3_GET_RATE_LIMIT(code) DO_S3_RATE_LIMIT(S3RateLimitType::GET, code)
-
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -94,6 +77,12 @@ struct S3ClientConf {
     int request_timeout_ms = -1;
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
+    // For aws s3, no need to override endpoint
+    bool need_override_endpoint = true;
+
+    CredProviderType cred_provider_type = CredProviderType::Default;
+    std::string role_arn;
+    std::string external_id;
 
     uint64_t get_hash() const {
         uint64_t hash_code = 0;
@@ -108,15 +97,21 @@ struct S3ClientConf {
         hash_code ^= connect_timeout_ms;
         hash_code ^= use_virtual_addressing;
         hash_code ^= static_cast<int>(provider);
+
+        hash_code ^= static_cast<int>(cred_provider_type);
+        hash_code ^= crc32_hash(role_arn);
+        hash_code ^= crc32_hash(external_id);
         return hash_code;
     }
 
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}",
-                ak, token, endpoint, region, bucket, max_connections, request_timeout_ms,
-                connect_timeout_ms, use_virtual_addressing);
+                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
+                "cred_provider_type={},role_arn={}, external_id={}",
+                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
+                request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
+                role_arn, external_id);
     }
 };
 
@@ -161,8 +156,10 @@ public:
 private:
     std::shared_ptr<io::ObjStorageClient> _create_s3_client(const S3ClientConf& s3_conf);
     std::shared_ptr<io::ObjStorageClient> _create_azure_client(const S3ClientConf& s3_conf);
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3ClientConf& s3_conf);
+
     S3ClientFactory();
-    static std::string get_valid_ca_cert_path();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;

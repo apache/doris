@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.RebalancerTestUtil;
@@ -29,7 +26,14 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -78,8 +82,12 @@ public class DynamicPartitionTableTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass
@@ -87,8 +95,8 @@ public class DynamicPartitionTableTest {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
-    private static void changeBeDisk(TStorageMedium storageMedium) {
-        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+    private static void changeBeDisk(TStorageMedium storageMedium) throws UserException {
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 diskInfo.setStorageMedium(storageMedium);
@@ -97,13 +105,21 @@ public class DynamicPartitionTableTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void alterTable(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     @Test
@@ -744,7 +760,11 @@ public class DynamicPartitionTableTest {
         String alter5 = "alter table test.dynamic_partition4 set ('dynamic_partition.history_partition_num' = '3')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alter5));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartitionFirstTime(db.getId(), tbl4.getId());
-        Assert.assertEquals(7, tbl4.getPartitionNames().size());
+        Assert.assertEquals(9, tbl4.getPartitionNames().size());
+        String dropPartitionErr = Env.getCurrentEnv().getDynamicPartitionScheduler()
+                .getRuntimeInfo(tbl4.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG);
+        Assert.assertTrue(dropPartitionErr.contains("'dynamic_partition.start' = -99999999, maybe it's too small, "
+                + "can use alter table sql to increase it."));
     }
 
     @Test
@@ -1672,7 +1692,7 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testHourUnitWithDateType() throws AnalysisException {
-        String createOlapTblStmt = "CREATE TABLE if not exists test.hour_with_date (\n"
+        String createOlapTblStmt = "CREATE TABLE if not exists test.hour_with_date1 (\n"
                 + "  `days` DATEV2 NOT NULL,\n"
                 + "  `hours` char(2) NOT NULL,\n"
                 + "  `positionID` char(20)\n"
@@ -1698,7 +1718,7 @@ public class DynamicPartitionTableTest {
                 "could not be HOUR when type of partition column days is DATE or DATEV2",
                 () -> createTable(createOlapTblStmt));
 
-        String createOlapTblStmt2 = "CREATE TABLE if not exists test.hour_with_date (\n"
+        String createOlapTblStmt2 = "CREATE TABLE if not exists test.hour_with_date2 (\n"
                 + "  `days` DATETIMEV2 NOT NULL,\n"
                 + "  `hours` char(2) NOT NULL,\n"
                 + "  `positionID` char(20)\n"
@@ -1721,6 +1741,32 @@ public class DynamicPartitionTableTest {
                 + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
                 + ");";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt2));
+
+        connectContext.getSessionVariable().setTimeZone("Asia/Tokyo");
+        String createOlapTblStmt3 = "CREATE TABLE if not exists test.hour_with_date3 (\n"
+                + "  `days` DATETIMEV2 NOT NULL,\n"
+                + "  `hours` char(2) NOT NULL,\n"
+                + "  `positionID` char(20)\n"
+                + "  )\n"
+                + "UNIQUE KEY(`days`,`hours`,`positionID`)\n"
+                + "PARTITION BY RANGE(`days`) ()\n"
+                + "DISTRIBUTED BY HASH(`positionID`) BUCKETS AUTO\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"compression\" = \"zstd\",\n"
+                + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                + "\"light_schema_change\" = \"true\",\n"
+                + "\"dynamic_partition.enable\" = \"true\",\n"
+                + "\"dynamic_partition.time_unit\" = \"HOUR\",\n"
+                + "\"dynamic_partition.start\" = \"-24\",\n"
+                + "\"dynamic_partition.end\" = \"24\",\n"
+                + "\"dynamic_partition.prefix\" = \"p\",\n"
+                + "\"dynamic_partition.buckets\" = \"2\",\n"
+                + "\"dynamic_partition.hot_partition_num\" = \"0\",\n"
+                + "\"dynamic_partition.storage_medium\" = \"HDD\", \n"
+                + "\"dynamic_partition.create_history_partition\" = \"true\"\n"
+                + ");";
+        ExceptionChecker.expectThrowsNoException(() -> createTable(createOlapTblStmt3));
     }
 
     @Test
@@ -1731,6 +1777,8 @@ public class DynamicPartitionTableTest {
                 + " PROPERTIES (\n"
                 + " \"dynamic_partition.enable\" = \"true\",\n"
                 + " \"dynamic_partition.time_unit\" = \"YEAR\",\n"
+                + " \"dynamic_partition.start\" = \"-50\",\n"
+                + " \"dynamic_partition.create_history_partition\" = \"true\",\n"
                 + " \"dynamic_partition.end\" = \"1\",\n"
                 + " \"dynamic_partition.prefix\" = \"p\",\n"
                 + " \"replication_allocation\" = \"tag.location.default: 1\"\n"
@@ -1739,22 +1787,102 @@ public class DynamicPartitionTableTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("test_autobucket_dynamic_partition");
         List<Partition> partitions = Lists.newArrayList(table.getAllPartitions());
-        Assert.assertEquals(2, partitions.size());
+        Assert.assertEquals(52, partitions.size());
         for (Partition partition : partitions) {
             Assert.assertEquals(FeConstants.default_bucket_num, partition.getDistributionInfo().getBucketNum());
             partition.setVisibleVersionAndTime(2L, System.currentTimeMillis());
         }
         RebalancerTestUtil.updateReplicaDataSize(1, 1, 1);
 
-        String alterStmt =
+        String alterStmt1 =
                 "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '2')";
-        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt));
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt1));
         List<Pair<Long, Long>> tempDynamicPartitionTableInfo = Lists.newArrayList(Pair.of(db.getId(), table.getId()));
         Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
 
         partitions = Lists.newArrayList(table.getAllPartitions());
         partitions.sort(Comparator.comparing(Partition::getId));
-        Assert.assertEquals(3, partitions.size());
-        Assert.assertEquals(1, partitions.get(2).getDistributionInfo().getBucketNum());
+        Assert.assertEquals(53, partitions.size());
+        Assert.assertEquals(1, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+
+        table.readLock();
+        try {
+            // first 40 partitions with size 0,  then 13 partitions with size 100GB(10GB * 10 buckets)
+            for (int i = 0; i < 52; i++) {
+                Partition partition = partitions.get(i);
+                partition.updateVisibleVersion(2L);
+                for (MaterializedIndex idx : partition.getMaterializedIndices(
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
+                    Assert.assertEquals(10, idx.getTablets().size());
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.updateVersion(2L);
+                            replica.setDataSize(i < 40 ? 0L : 10L << 30);
+                            replica.setRowCount(1000L);
+                        }
+                    }
+                }
+                if (i >= 40) {
+                    // first 52 partitions are 10 buckets(FeConstants.default_bucket_num)
+                    Assert.assertEquals(10 * (10L << 30), partition.getAllDataSize(true));
+                }
+            }
+        } finally {
+            table.readUnlock();
+        }
+
+        String alterStmt2 =
+                "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '3')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt2));
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
+
+        partitions = Lists.newArrayList(table.getAllPartitions());
+        partitions.sort(Comparator.comparing(Partition::getId));
+        Assert.assertEquals(54, partitions.size());
+        // 100GB total, 5GB per bucket, should 20 buckets.
+        Assert.assertEquals(20, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
+
+        // mock partition size eq 0, use back-to-back logic
+        table.readLock();
+        try {
+            // when fe restart, when stat thread not get replica size from be/ms, replica size eq 0
+            for (int i = 0; i < 54; i++) {
+                Partition partition = partitions.get(i);
+                partition.updateVisibleVersion(2L);
+                for (MaterializedIndex idx : partition.getMaterializedIndices(
+                        MaterializedIndex.IndexExtState.VISIBLE)) {
+                    if (i < 52) {
+                        Assert.assertEquals(10, idx.getTablets().size());
+                    } else if (i == 52) {
+                        Assert.assertEquals(1, idx.getTablets().size());
+                    } else if (i == 53) {
+                        Assert.assertEquals(20, idx.getTablets().size());
+                    }
+                    for (Tablet tablet : idx.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.updateVersion(3L);
+                            // mock replica size eq 0
+                            replica.setDataSize(0L);
+                            replica.setRowCount(0L);
+                        }
+                    }
+                }
+                Assert.assertEquals(0, partition.getAllDataSize(true));
+            }
+        } finally {
+            table.readUnlock();
+        }
+
+        String alterStmt3 = "alter table test.test_autobucket_dynamic_partition set ('dynamic_partition.end' = '4')";
+        ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStmt3));
+        // 54th previous partition size set 53, check back to back logic work
+        partitions.get(53).getDistributionInfo().setBucketNum(53);
+        Env.getCurrentEnv().getDynamicPartitionScheduler().executeDynamicPartition(tempDynamicPartitionTableInfo, false);
+
+        partitions = Lists.newArrayList(table.getAllPartitions());
+        partitions.sort(Comparator.comparing(Partition::getId));
+        Assert.assertEquals(55, partitions.size());
+        // due to partition size eq 0, use previous partition's(54th) bucket num
+        Assert.assertEquals(53, partitions.get(partitions.size() - 1).getDistributionInfo().getBucketNum());
     }
 }

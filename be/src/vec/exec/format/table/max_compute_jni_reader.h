@@ -17,9 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
-#include <memory>
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -37,11 +35,10 @@ class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /**
  * The demo usage of JniReader, showing how to read data from java scanner.
  * The java side is also a mock reader that provide values for each type.
@@ -59,19 +56,15 @@ public:
 
     ~MaxComputeJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
-
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
 private:
     const MaxComputeTableDescriptor* _table_desc = nullptr;
     const TMaxComputeFileDesc& _max_compute_params;
     const TFileRangeDesc& _range;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

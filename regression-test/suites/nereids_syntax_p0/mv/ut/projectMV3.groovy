@@ -21,6 +21,8 @@ suite ("projectMV3") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS projectMV3; """
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
 
     sql """
             create table projectMV3 (
@@ -33,51 +35,37 @@ suite ("projectMV3") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into projectMV3 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV3 values("2020-01-02",2,"b",2,2,2);"""
 
     def result = "null"
 
-    createMV("create materialized view projectMV3_mv as select deptno, empid, name from projectMV3 order by deptno;")
+    createMV("create materialized view projectMV3_mv as select deptno as a1, empid as a2, name as a3 from projectMV3 order by deptno;")
 
     sleep(3000)
 
     sql """insert into projectMV3 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV3 with sync;"
+    sql """alter table projectMV3 modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from projectMV3 order by empid;")
-        contains "(projectMV3)"
-    }
+    mv_rewrite_fail("select * from projectMV3 order by empid;", "projectMV3_mv")
     order_qt_select_star "select * from projectMV3 order by empid;"
 
-
-    explain {
-        sql("select empid + 1, name from projectMV3 where deptno = 1 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_success("select empid + 1, name from projectMV3 where deptno = 1 order by empid;", "projectMV3_mv")
     order_qt_select_mv "select empid + 1, name from projectMV3 where deptno = 1 order by empid;"
 
-    explain {
-        sql("select name from projectMV3 where deptno = 0 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_success("select name from projectMV3 where deptno = 0 order by empid;", "projectMV3_mv")
     order_qt_select_mv2 "select name from projectMV3 where deptno -1 = 0 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from projectMV3 order by empid;")
-        contains "(projectMV3)"
-    }
+    sql """alter table projectMV3 modify column time_col set stats ('row_count'='3');"""
 
-    explain {
-        sql("select empid + 1, name from projectMV3 where deptno = 1 order by empid;")
-        contains "(projectMV3_mv)"
-    }
-    explain {
-        sql("select name from projectMV3 where deptno = 0 order by empid;")
-        contains "(projectMV3_mv)"
-    }
+    mv_rewrite_fail("select * from projectMV3 order by empid;", "projectMV3_mv")
+
+    mv_rewrite_success("select empid + 1, name from projectMV3 where deptno = 1 order by empid;", "projectMV3_mv")
+
+    mv_rewrite_success("select name from projectMV3 where deptno = 0 order by empid;", "projectMV3_mv")
 }

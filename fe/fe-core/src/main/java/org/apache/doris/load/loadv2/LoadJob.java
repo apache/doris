@@ -17,13 +17,10 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -31,11 +28,11 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -47,16 +44,18 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
-import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -144,9 +143,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     // This map is used to save job property.
     @SerializedName("jp")
     private Map<String, Object> jobProperties = Maps.newHashMap();
-
-    // only for persistence param. see readFields() for usage
-    private boolean isJobTypeRead = false;
 
     protected List<ErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
@@ -285,9 +281,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // set property from session variables
         if (ConnectContext.get() != null) {
-            jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
-            jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
-            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM,
+            jobProperties.put(LoadCommand.EXEC_MEM_LIMIT,
+                    ConnectContext.get().getSessionVariable().getMaxExecMemByte());
+            jobProperties.put(LoadCommand.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
+            jobProperties.put(LoadCommand.SEND_BATCH_PARALLELISM,
                     ConnectContext.get().getSessionVariable().getSendBatchParallelism());
         }
 
@@ -296,12 +293,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
 
         // set property from specified job properties
-        for (String key : LoadStmt.PROPERTIES_MAP.keySet()) {
+        for (String key : LoadCommand.PROPERTIES_MAP.keySet()) {
             if (!properties.containsKey(key)) {
                 continue;
             }
             try {
-                jobProperties.put(key, LoadStmt.PROPERTIES_MAP.get(key).apply(properties.get(key)));
+                jobProperties.put(key, LoadCommand.PROPERTIES_MAP.get(key).apply(properties.get(key)));
             } catch (Exception e) {
                 throw new DdlException("Failed to set property " + key + ". Error: " + e.getMessage());
             }
@@ -319,41 +316,32 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
     private void initDefaultJobProperties() {
         long timeout = Config.broker_load_default_timeout_second;
         switch (jobType) {
-            case SPARK:
-                timeout = Config.spark_load_default_timeout_second;
-                break;
-            case HADOOP:
-                timeout = Config.hadoop_load_default_timeout_second;
-                break;
             case COPY:
             case BROKER:
                 timeout = Config.broker_load_default_timeout_second;
                 break;
             case INSERT:
                 timeout = Optional.ofNullable(ConnectContext.get())
-                                    .map(ConnectContext::getExecTimeout)
+                                    .map(ConnectContext::getExecTimeoutS)
                                     .orElse(Config.insert_load_default_timeout_second);
                 break;
-            case MINI:
-                timeout = Config.stream_load_default_timeout_second;
+            case INGESTION:
+                timeout = Config.ingestion_load_default_timeout_second;
                 break;
             default:
                 break;
         }
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
-        jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, 0.0);
-        jobProperties.put(LoadStmt.STRICT_MODE, false);
-        jobProperties.put(LoadStmt.PARTIAL_COLUMNS, false);
-        jobProperties.put(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
-        jobProperties.put(LoadStmt.LOAD_PARALLELISM, Config.default_load_parallelism);
-        jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, 1);
-        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, false);
-        jobProperties.put(LoadStmt.PRIORITY, LoadTask.Priority.NORMAL);
-    }
-
-    public void isJobTypeRead(boolean jobTypeRead) {
-        isJobTypeRead = jobTypeRead;
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, timeout);
+        jobProperties.put(LoadCommand.EXEC_MEM_LIMIT, 2 * 1024 * 1024 * 1024L);
+        jobProperties.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, 0.0);
+        jobProperties.put(LoadCommand.STRICT_MODE, false);
+        jobProperties.put(LoadCommand.PARTIAL_COLUMNS, false);
+        jobProperties.put(LoadCommand.PARTIAL_UPDATE_NEW_KEY_POLICY, TPartialUpdateNewRowPolicy.APPEND);
+        jobProperties.put(LoadCommand.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE);
+        jobProperties.put(LoadCommand.LOAD_PARALLELISM, Config.default_load_parallelism);
+        jobProperties.put(LoadCommand.SEND_BATCH_PARALLELISM, 1);
+        jobProperties.put(LoadCommand.LOAD_TO_SINGLE_TABLET, false);
+        jobProperties.put(LoadCommand.PRIORITY, LoadTask.Priority.NORMAL);
     }
 
     public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException,
@@ -490,11 +478,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         writeLock();
         try {
             checkAuth("CANCEL LOAD");
-
-            // mini load can not be cancelled by frontend
-            if (jobType == EtlJobType.MINI) {
-                throw new DdlException("Job could not be cancelled in type " + jobType.name());
-            }
             if (isCommitting) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("error_msg", "The txn which belongs to job is committing. "
@@ -516,7 +499,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         }
     }
 
-    private void checkAuth(String command) throws DdlException {
+    public void checkAuth(String command) throws DdlException {
         if (authorizationInfo == null) {
             // use the old method to check priv
             checkAuthWithoutAuthInfo(command);
@@ -607,7 +590,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
             }
         }
 
@@ -671,7 +654,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, failMsg.getMsg()));
             }
         }
 
@@ -745,7 +728,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     protected List<Comparable> getShowInfoUnderLock() throws DdlException {
         // check auth
-        checkAuth("SHOW LOAD");
         List<Comparable> jobInfo = Lists.newArrayList();
         // jobId
         jobInfo.add(id);
@@ -756,7 +738,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // progress
         // check null
-        String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
+        String progress = Env.getCurrentProgressManager()
+                .getProgressInfo(String.valueOf(id), state == JobState.FINISHED);
         switch (state) {
             case PENDING:
                 jobInfo.add("0%");
@@ -836,42 +819,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         return loadStartTimestamp;
     }
 
-    public void getJobInfo(Load.JobInfo jobInfo) throws DdlException {
-        checkAuth("SHOW LOAD");
-        jobInfo.tblNames.addAll(getTableNamesForShow());
-        jobInfo.state = org.apache.doris.load.LoadJob.JobState.valueOf(state.name());
-        if (failMsg != null) {
-            jobInfo.failMsg = failMsg.getMsg();
-        } else {
-            jobInfo.failMsg = "";
-        }
-        jobInfo.trackingUrl = loadingStatus.getTrackingUrl();
-    }
-
     public static LoadJob read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_136) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), LoadJob.class);
-        }
-
-        LoadJob job = null;
-        EtlJobType type = EtlJobType.valueOf(Text.readString(in));
-        if (type == EtlJobType.BROKER) {
-            job = EnvFactory.getInstance().createBrokerLoadJob();
-        } else if (type == EtlJobType.SPARK) {
-            job = new SparkLoadJob();
-        } else if (type == EtlJobType.INSERT || type == EtlJobType.INSERT_JOB) {
-            job = new InsertLoadJob();
-        } else if (type == EtlJobType.MINI) {
-            job = new MiniLoadJob();
-        } else if (type == EtlJobType.COPY) {
-            job = new CopyJob();
-        } else {
-            throw new IOException("Unknown load type: " + type.name());
-        }
-
-        job.isJobTypeRead(true);
-        job.readFields(in);
-        return job;
+        return GsonUtils.GSON.fromJson(Text.readString(in), LoadJob.class);
     }
 
     @Override
@@ -1039,61 +988,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    protected void readFields(DataInput in) throws IOException {
-
-        if (!isJobTypeRead) {
-            jobType = EtlJobType.valueOf(Text.readString(in));
-            isJobTypeRead = true;
-        }
-
-        id = in.readLong();
-        dbId = in.readLong();
-        label = Text.readString(in);
-        state = JobState.valueOf(Text.readString(in));
-
-        createTimestamp = in.readLong();
-        loadStartTimestamp = in.readLong();
-        finishTimestamp = in.readLong();
-        if (in.readBoolean()) {
-            failMsg = new FailMsg();
-            failMsg.readFields(in);
-        }
-        progress = in.readInt();
-        loadingStatus.readFields(in);
-        transactionId = in.readLong();
-        if (in.readBoolean()) {
-            authorizationInfo = new AuthorizationInfo();
-            authorizationInfo.readFields(in);
-        }
-
-        int size = in.readInt();
-        Map<String, String> tmpProperties = Maps.newHashMap();
-        for (int i = 0; i < size; i++) {
-            String key = Text.readString(in);
-            String val = Text.readString(in);
-            tmpProperties.put(key, val);
-        }
-        // init jobProperties
-        try {
-            setJobProperties(tmpProperties);
-        } catch (Exception e) {
-            // should not happen
-            throw new IOException("failed to replay job property", e);
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
-            if (in.readBoolean()) {
-                userInfo = UserIdentity.read(in);
-                // must set is as analyzed, because when write the user info to meta image, it will be checked.
-                userInfo.setIsAnalyzed();
-            } else {
-                userInfo = UserIdentity.UNKNOWN;
-            }
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         Map<String, String> tmpProperties = Maps.newHashMap();
@@ -1171,63 +1065,63 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
     // unit: second
     public long getTimeout() {
-        return (long) jobProperties.get(LoadStmt.TIMEOUT_PROPERTY);
+        return (long) jobProperties.get(LoadCommand.TIMEOUT_PROPERTY);
     }
 
     public void setTimeout(long timeout) {
-        jobProperties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
+        jobProperties.put(LoadCommand.TIMEOUT_PROPERTY, timeout);
     }
 
     protected long getExecMemLimit() {
-        return (long) jobProperties.get(LoadStmt.EXEC_MEM_LIMIT);
+        return (long) jobProperties.get(LoadCommand.EXEC_MEM_LIMIT);
     }
 
     public double getMaxFilterRatio() {
-        return (double) jobProperties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
+        return (double) jobProperties.get(LoadCommand.MAX_FILTER_RATIO_PROPERTY);
     }
 
     protected void setMaxFilterRatio(double maxFilterRatio) {
-        jobProperties.put(LoadStmt.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
+        jobProperties.put(LoadCommand.MAX_FILTER_RATIO_PROPERTY, maxFilterRatio);
     }
 
     protected boolean isStrictMode() {
-        return (boolean) jobProperties.get(LoadStmt.STRICT_MODE);
+        return (boolean) jobProperties.get(LoadCommand.STRICT_MODE);
     }
 
     protected boolean isPartialUpdate() {
-        return (boolean) jobProperties.get(LoadStmt.PARTIAL_COLUMNS);
+        return (boolean) jobProperties.get(LoadCommand.PARTIAL_COLUMNS);
+    }
+
+    protected TPartialUpdateNewRowPolicy getPartialUpdateNewKeyPolicy() {
+        return (TPartialUpdateNewRowPolicy) jobProperties.get(LoadCommand.PARTIAL_UPDATE_NEW_KEY_POLICY);
     }
 
     protected String getTimeZone() {
-        return (String) jobProperties.get(LoadStmt.TIMEZONE);
+        return (String) jobProperties.get(LoadCommand.TIMEZONE);
     }
 
     public int getLoadParallelism() {
-        if (jobProperties.get(LoadStmt.LOAD_PARALLELISM).getClass() == Integer.class) {
-            return (int) jobProperties.get(LoadStmt.LOAD_PARALLELISM);
+        if (jobProperties.get(LoadCommand.LOAD_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadCommand.LOAD_PARALLELISM);
         } else {
-            return ((Long) jobProperties.get(LoadStmt.LOAD_PARALLELISM)).intValue();
+            return ((Long) jobProperties.get(LoadCommand.LOAD_PARALLELISM)).intValue();
         }
     }
 
     public int getSendBatchParallelism() {
-        if (jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM).getClass() == Integer.class) {
-            return (int) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM);
+        if (jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM).getClass() == Integer.class) {
+            return (int) jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM);
         } else {
-            return ((Long) jobProperties.get(LoadStmt.SEND_BATCH_PARALLELISM)).intValue();
+            return ((Long) jobProperties.get(LoadCommand.SEND_BATCH_PARALLELISM)).intValue();
         }
     }
 
     public LoadTask.Priority getPriority() {
-        return (LoadTask.Priority) jobProperties.get(LoadStmt.PRIORITY);
+        return (LoadTask.Priority) jobProperties.get(LoadCommand.PRIORITY);
     }
 
     public boolean isSingleTabletLoadPerSink() {
-        return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
-    }
-
-    public boolean useNewLoadScanNode() {
-        return (boolean) jobProperties.getOrDefault(LoadStmt.USE_NEW_LOAD_SCAN_NODE, false);
+        return (boolean) jobProperties.get(LoadCommand.LOAD_TO_SINGLE_TABLET);
     }
 
     // Return true if this job is finished for a long time
@@ -1240,8 +1134,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
             expireTime = Config.streaming_label_keep_max_second;
         }
 
-        LOG.info("state {}, expireTime {}, currentTimeMs {}, finishTimestamp {}",
-                state, expireTime, currentTimeMs, getFinishTimestamp());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Job ID: {}, DB ID: {}, Label: {}, State: {}, Expire Time: {}, Current Time: {}, "
+                      + "Finish Timestamp: {}", id, dbId, label, state, expireTime, currentTimeMs,
+                      getFinishTimestamp());
+        }
         return (currentTimeMs - getFinishTimestamp()) / 1000 > expireTime;
     }
 

@@ -19,24 +19,16 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
-#include <atomic>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
-#include <unordered_set>
 #include <vector>
 
-#include "brpc/stream.h"
 #include "butil/iobuf.h"
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/delta_writer_context.h"
-#include "olap/memtable.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_fwd.h"
 #include "olap/tablet_fwd.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 
@@ -68,16 +60,25 @@ public:
 
     Status close_writer(uint32_t segid, FileType file_type);
 
-    Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
+    Status add_segment(uint32_t segid, const SegmentStatistics& stat);
 
-    Status _calc_file_size(uint32_t segid, FileType file_type, size_t* file_size);
+    Status pre_close() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _pre_close();
+    }
 
     // wait for all memtables to be flushed.
     Status close();
 
 private:
+    Status _calc_file_size(uint32_t segid, FileType file_type, size_t* file_size);
+
+    // without lock
+    Status _pre_close();
+
     bool _is_init = false;
     bool _is_canceled = false;
+    bool _pre_closed = false;
     WriteRequest _req;
     std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<RowsetWriter> _rowset_writer;
@@ -87,7 +88,7 @@ private:
     std::mutex _segment_stat_map_lock;
     std::vector<io::FileWriterPtr> _segment_file_writers;
     std::vector<io::FileWriterPtr> _inverted_file_writers;
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 };
 
 using LoadStreamWriterSharedPtr = std::shared_ptr<LoadStreamWriter>;

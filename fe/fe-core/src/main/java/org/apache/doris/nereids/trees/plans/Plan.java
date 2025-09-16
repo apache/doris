@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -30,10 +31,12 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.roaringbitmap.RoaringBitmap;
 
 import java.util.List;
 import java.util.Optional;
@@ -54,6 +57,10 @@ public interface Plan extends TreeNode<Plan> {
 
     LogicalProperties getLogicalProperties();
 
+    default int depth() {
+        return 1;
+    }
+
     boolean canBind();
 
     default boolean bound() {
@@ -73,8 +80,8 @@ public interface Plan extends TreeNode<Plan> {
 
     default boolean containsSlots(ImmutableSet<Slot> slots) {
         return getExpressions().stream().anyMatch(
-                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty()
-                        || children().stream().anyMatch(plan -> plan.containsSlots(slots)));
+                expression -> !Sets.intersection(slots, expression.getInputSlots()).isEmpty())
+                        || children().stream().anyMatch(plan -> plan.containsSlots(slots));
     }
 
     default LogicalProperties computeLogicalProperties() {
@@ -96,6 +103,10 @@ public interface Plan extends TreeNode<Plan> {
      * Get output slot list of the plan.
      */
     List<Slot> getOutput();
+
+    default List<Slot> getAsteriskOutput() {
+        return getOutput();
+    }
 
     /**
      * Get output slot set of the plan.
@@ -122,26 +133,25 @@ public interface Plan extends TreeNode<Plan> {
         return exprIds.build();
     }
 
-    /** getChildrenOutputExprIdSet */
-    default Set<ExprId> getChildrenOutputExprIdSet() {
-        switch (arity()) {
-            case 0: return ImmutableSet.of();
-            case 1: return child(0).getOutputExprIdSet();
-            default: {
-                int exprIdSize = 0;
-                for (Plan child : children()) {
-                    exprIdSize += child.getOutput().size();
-                }
+    /** getOutputExprIdBitSet */
+    default RoaringBitmap getOutputExprIdBitSet() {
+        RoaringBitmap ids = new RoaringBitmap();
+        for (Slot slot : getOutput()) {
+            ids.add(slot.getExprId().asInt());
+        }
+        return ids;
+    }
 
-                ImmutableSet.Builder<ExprId> exprIds = ImmutableSet.builderWithExpectedSize(exprIdSize);
-                for (Plan child : children()) {
-                    for (Slot slot : child.getOutput()) {
-                        exprIds.add(slot.getExprId());
-                    }
-                }
-                return exprIds.build();
+    /** getChildrenOutputExprIdSet */
+    default RoaringBitmap getChildrenOutputExprIdBitSet() {
+        RoaringBitmap ids = new RoaringBitmap();
+        for (Plan child : children()) {
+            List<Slot> output = child.getOutput();
+            for (Slot slot : output) {
+                ids.add(slot.getExprId().asInt());
             }
         }
+        return ids;
     }
 
     /**
@@ -158,6 +168,10 @@ public interface Plan extends TreeNode<Plan> {
         throw new IllegalStateException("Not support compute output for " + getClass().getName());
     }
 
+    default List<Slot> computeAsteriskOutput() {
+        throw new IllegalStateException("Not support compute output for " + getClass().getName());
+    }
+
     /**
      * Get the input relation ids set of the plan.
      * @return The result is collected from all inputs relations
@@ -170,12 +184,29 @@ public interface Plan extends TreeNode<Plan> {
         return relationIdSet;
     }
 
-    String treeString();
+    default String treeString() {
+        return treeString(false);
+    }
+
+    String treeString(boolean printStates);
 
     Plan withGroupExpression(Optional<GroupExpression> groupExpression);
 
     Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children);
+
+    /** getUsedSlotExprIds */
+    default RoaringBitmap getUsedSlotExprIds() {
+        RoaringBitmap ids = new RoaringBitmap();
+        for (Expression expression : getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof Slot) {
+                    ids.add(((Slot) e).getExprId().asInt());
+                }
+            });
+        }
+        return ids;
+    }
 
     /**
      * a simple version of explain, used to verify plan shape
@@ -231,5 +262,57 @@ public interface Plan extends TreeNode<Plan> {
 
     default String getGroupIdWithPrefix() {
         return "@" + getGroupIdAsString();
+    }
+
+    /**
+     * Compute DataTrait for different plan
+     * Note: Unless you really know what you're doing, please use the following interface.
+     *   - BlockFDPropagation: clean the fd
+     *   - PropagateFD: propagate the fd
+     */
+    default DataTrait computeDataTrait() {
+        DataTrait.Builder fdBuilder = new DataTrait.Builder();
+        computeUniform(fdBuilder);
+        computeUnique(fdBuilder);
+        computeEqualSet(fdBuilder);
+        computeFd(fdBuilder);
+
+        for (Slot slot : getOutput()) {
+            Set<Slot> o = ImmutableSet.of(slot);
+            // all slots dependent unique slot
+            for (Set<Slot> uniqueSlot : fdBuilder.getAllUniqueAndNotNull()) {
+                fdBuilder.addDeps(uniqueSlot, o);
+            }
+            // uniform slot dependents all slots
+            for (Set<Slot> uniformSlot : fdBuilder.getAllUniformAndNotNull()) {
+                fdBuilder.addDeps(o, uniformSlot);
+            }
+        }
+        for (Set<Slot> equalSet : fdBuilder.calEqualSetList()) {
+            Set<Slot> validEqualSet = Sets.intersection(getOutputSet(), equalSet);
+            fdBuilder.addDepsByEqualSet(validEqualSet);
+            fdBuilder.addUniformByEqualSet(validEqualSet);
+            fdBuilder.addUniqueByEqualSet(validEqualSet);
+        }
+        Set<Slot> output = this.getOutputSet();
+        for (Plan child : children()) {
+            if (!output.containsAll(child.getOutputSet())) {
+                fdBuilder.pruneSlots(output);
+                break;
+            }
+        }
+        return fdBuilder.build();
+    }
+
+    void computeUnique(DataTrait.Builder builder);
+
+    void computeUniform(DataTrait.Builder builder);
+
+    void computeEqualSet(DataTrait.Builder builder);
+
+    void computeFd(DataTrait.Builder builder);
+
+    default Statistics getStats() {
+        throw new IllegalStateException("Not support getStats for " + getClass().getName());
     }
 }

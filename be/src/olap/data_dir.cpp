@@ -38,6 +38,7 @@
 #include <thread>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/fs/file_reader.h"
@@ -67,6 +68,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {
@@ -320,10 +322,10 @@ Status DataDir::_check_incompatible_old_format_tablet() {
                                           std::string_view value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
-            LOG(FATAL)
-                    << "There are incompatible old format metas, current version does not support "
-                    << "and it may lead to data missing!!! "
-                    << "tablet_id = " << tablet_id << " schema_hash = " << schema_hash;
+            throw Exception(Status::FatalError(
+                    "There are incompatible old format metas, current version does not support and "
+                    "it may lead to data missing!!! tablet_id = {} schema_hash = {}",
+                    tablet_id, schema_hash));
         } else {
             LOG(WARNING)
                     << "There are incompatible old format metas, current version does not support "
@@ -386,7 +388,7 @@ Status DataDir::load() {
                         rowset_id.to_string(), tablet_uid.to_string());
                 CHECK_EQ(orig_delete_sub_pred.size(), delete_pred->sub_predicates().size())
                         << "inconsistent sub predicate v1 after conversion";
-                for (size_t i = 0; i < orig_delete_sub_pred.size(); ++i) {
+                for (int i = 0; i < orig_delete_sub_pred.size(); ++i) {
                     CHECK_STREQ(orig_delete_sub_pred.Get(i).c_str(),
                                 delete_pred->sub_predicates().Get(i).c_str())
                             << "inconsistent sub predicate v1 after conversion";
@@ -407,12 +409,15 @@ Status DataDir::load() {
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
+    MonotonicStopWatch rs_timer;
+    rs_timer.start();
     Status load_rowset_status = RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
-
+    rs_timer.stop();
     if (!load_rowset_status) {
         LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << _path;
     } else {
-        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+        LOG(INFO) << "load rowset from meta finished, cost: "
+                  << rs_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
     }
 
     // load tablet
@@ -449,13 +454,17 @@ Status DataDir::load() {
         }
         return true;
     };
+    MonotonicStopWatch tablet_timer;
+    tablet_timer.start();
     Status load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
+    tablet_timer.stop();
     if (!failed_tablet_ids.empty()) {
         LOG(WARNING) << "load tablets from header failed"
                      << ", loaded tablet: " << tablet_ids.size()
                      << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
         if (!config::ignore_load_tablet_failure) {
-            LOG(FATAL) << "load tablets encounter failure. stop BE process. path: " << _path;
+            throw Exception(Status::FatalError(
+                    "load tablets encounter failure. stop BE process. path: {}", _path));
         }
     }
     if (!load_tablet_status) {
@@ -465,7 +474,9 @@ Status DataDir::load() {
     } else {
         LOG(INFO) << "load tablet from meta finished"
                   << ", loaded tablet: " << tablet_ids.size()
-                  << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
+                  << ", error tablet: " << failed_tablet_ids.size()
+                  << ", cost: " << tablet_timer.elapsed_time_milliseconds()
+                  << " ms, path: " << _path;
     }
 
     for (int64_t tablet_id : tablet_ids) {
@@ -479,7 +490,8 @@ Status DataDir::load() {
     auto load_pending_publish_info_func =
             [&engine = _engine](int64_t tablet_id, int64_t publish_version, std::string_view info) {
                 PendingPublishInfoPB pending_publish_info_pb;
-                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(), info.size());
+                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(),
+                                                                     cast_set<int>(info.size()));
                 if (!parsed) {
                     LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                                  << " publish_version: " << publish_version;
@@ -489,8 +501,13 @@ Status DataDir::load() {
                                               pending_publish_info_pb.transaction_id(), true);
                 return true;
             };
+    MonotonicStopWatch pending_publish_timer;
+    pending_publish_timer.start();
     RETURN_IF_ERROR(
             TabletMetaManager::traverse_pending_publish(_meta, load_pending_publish_info_func));
+    pending_publish_timer.stop();
+    LOG(INFO) << "load pending publish task from meta finished, cost: "
+              << pending_publish_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
 
     int64_t rowset_partition_id_eq_0_num = 0;
     for (auto rowset_meta : dir_rowset_metas) {
@@ -499,10 +516,9 @@ Status DataDir::load() {
         }
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
-        LOG(FATAL) << fmt::format(
-                "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
-                rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num);
-        exit(-1);
+        throw Exception(Status::FatalError(
+                "rowset partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
+                rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num));
     }
 
     // traverse rowset
@@ -594,8 +610,11 @@ Status DataDir::load() {
         }
     }
 
-    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version,
-                                          std::string_view val) {
+    int64_t dbm_cnt {0};
+    int64_t unknown_dbm_cnt {0};
+    auto load_delete_bitmap_func = [this, &dbm_cnt, &unknown_dbm_cnt](int64_t tablet_id,
+                                                                      int64_t version,
+                                                                      std::string_view val) {
         TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             return true;
@@ -607,19 +626,21 @@ Status DataDir::load() {
         }
 
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
+        delete_bitmap_pb.ParseFromArray(val.data(), cast_set<int>(val.size()));
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size);
 
-        for (size_t i = 0; i < rst_ids_size; ++i) {
+        for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(delete_bitmap_pb.rowset_ids(i));
             // only process the rowset in _rs_metas
             if (rowset_ids.find(rst_id) == rowset_ids.end()) {
+                ++unknown_dbm_cnt;
                 continue;
             }
+            ++dbm_cnt;
             auto seg_id = delete_bitmap_pb.segment_ids(i);
             auto iter = tablet->tablet_meta()->delete_bitmap().delete_bitmap.find(
                     {rst_id, seg_id, version});
@@ -633,14 +654,22 @@ Status DataDir::load() {
         }
         return true;
     };
+    MonotonicStopWatch dbm_timer;
+    dbm_timer.start();
     RETURN_IF_ERROR(TabletMetaManager::traverse_delete_bitmap(_meta, load_delete_bitmap_func));
+    dbm_timer.stop();
+
+    LOG(INFO) << "load delete bitmap from meta finished, cost: "
+              << dbm_timer.elapsed_time_milliseconds() << " ms, data dir: " << _path;
 
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
     LOG(INFO) << "finish to load tablets from " << _path
               << ", total rowset meta: " << dir_rowset_metas.size()
-              << ", invalid rowset num: " << invalid_rowset_counter;
+              << ", invalid rowset num: " << invalid_rowset_counter
+              << ", visible/stale rowsets' delete bitmap count: " << dbm_cnt
+              << ", invalid rowsets' delete bitmap count: " << unknown_dbm_cnt;
 
     return Status::OK();
 }
@@ -731,6 +760,14 @@ void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
     tablet->traverse_rowsets(
             [&rowsets_in_version_map](auto& rs) { rowsets_in_version_map.insert(rs->rowset_id()); },
             true);
+
+    DBUG_EXECUTE_IF("DataDir::_perform_rowset_gc.simulation.slow", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == tablet_id) {
+            LOG(INFO) << "debug point wait tablet to remove rsmgr tabletId=" << tablet_id;
+            DBUG_BLOCK;
+        }
+    });
 
     auto reclaim_rowset_file = [](const std::string& path) {
         auto st = io::global_local_filesystem()->delete_file(path);
@@ -839,7 +876,7 @@ void DataDir::perform_path_gc() {
                 }
                 int16_t shard_id = -1;
                 try {
-                    shard_id = std::stoi(shard.file_name);
+                    shard_id = cast_set<int16_t>(std::stoi(shard.file_name));
                 } catch (const std::exception&) {
                     LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
                     continue;
@@ -919,7 +956,7 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
 
     Status res = Status::OK();
     // 1. get timestamp string
-    string time_str;
+    std::string time_str;
     if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {
         LOG(WARNING) << "failed to generate time_string when move file to trash.err code=" << res;
         return res;
@@ -1010,6 +1047,7 @@ void DataDir::perform_remote_rowset_gc() {
         auto st = fs->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+            unused_remote_rowset_num << -1;
         } else {
             LOG(WARNING) << "failed to delete remote rowset. err=" << st;
         }
@@ -1061,5 +1099,5 @@ void DataDir::perform_remote_tablet_gc() {
         static_cast<void>(_meta->remove(META_COLUMN_FAMILY_INDEX, key));
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

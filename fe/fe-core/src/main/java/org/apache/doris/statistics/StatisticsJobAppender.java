@@ -24,15 +24,20 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,7 +51,7 @@ public class StatisticsJobAppender extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobAppender.class);
 
     public static final long INTERVAL = 1000;
-    public static final int JOB_MAP_SIZE = 1000;
+    public static final int JOB_MAP_SIZE = 100;
     public static final int TABLE_BATCH_SIZE = 100;
 
     private long currentDbId = 0;
@@ -70,6 +75,11 @@ public class StatisticsJobAppender extends MasterDaemon {
             LOG.info("Stats table not available, skip");
             return;
         }
+        if (Env.getCurrentEnv().getStatisticsAutoCollector() == null
+                || !Env.getCurrentEnv().getStatisticsAutoCollector().isReady()) {
+            LOG.info("Statistics auto collector not ready, skip");
+            return;
+        }
         if (Env.isCheckpointThread()) {
             return;
         }
@@ -81,7 +91,7 @@ public class StatisticsJobAppender extends MasterDaemon {
         appendColumnsToJobs(manager.highPriorityColumns, manager.highPriorityJobs);
         appendColumnsToJobs(manager.midPriorityColumns, manager.midPriorityJobs);
         if (StatisticsUtil.enableAutoAnalyzeInternalCatalog()) {
-            appendToLowJobs(manager.lowPriorityJobs);
+            appendToLowJobs(manager.lowPriorityJobs, manager.veryLowPriorityJobs);
         }
     }
 
@@ -136,9 +146,10 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendToLowJobs(Map<TableName, Set<Pair<String, String>>> jobs) {
+    protected int appendToLowJobs(Map<TableName, Set<Pair<String, String>>> lowPriorityJobs,
+                                   Map<TableName, Set<Pair<String, String>>> veryLowPriorityJobs) {
         if (System.currentTimeMillis() - lastRoundFinishTime < lowJobIntervalMs) {
-            return;
+            return 0;
         }
         InternalCatalog catalog = Env.getCurrentInternalCatalog();
         List<Long> sortedDbs = catalog.getDbIds().stream().sorted().collect(Collectors.toList());
@@ -153,8 +164,7 @@ public class StatisticsJobAppender extends MasterDaemon {
             if (!db.isPresent()) {
                 continue;
             }
-            List<Table> tables = db.get().getTables().stream()
-                    .sorted((t1, t2) -> (int) (t1.getId() - t2.getId())).collect(Collectors.toList());
+            List<Table> tables = sortTables(db.get().getTables());
             for (Table t : tables) {
                 if (!(t instanceof OlapTable) || t.getId() <= currentTableId) {
                     continue;
@@ -162,32 +172,37 @@ public class StatisticsJobAppender extends MasterDaemon {
                 if (t.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
                     continue;
                 }
-                Set<Pair<String, String>> columnIndexPairs = t.getColumnIndexPairs(
-                        t.getSchemaAllIndexes(false).stream()
-                                .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(Column::getName).collect(Collectors.toSet()))
-                        .stream().filter(p -> StatisticsUtil.needAnalyzeColumn(t, p))
-                        .collect(Collectors.toSet());
-                if (columnIndexPairs.isEmpty()) {
-                    continue;
-                }
+                Set<String> columns = t.getSchemaAllIndexes(false).stream()
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .map(Column::getName).collect(Collectors.toSet());
                 TableName tableName = new TableName(t.getDatabase().getCatalog().getName(),
                         t.getDatabase().getFullName(), t.getName());
-                synchronized (jobs) {
-                    // If job map reach the upper limit, stop adding new jobs.
-                    if (!jobs.containsKey(tableName) && jobs.size() >= JOB_MAP_SIZE) {
-                        LOG.info("Low job map full.");
-                        return;
-                    }
-                    if (jobs.containsKey(tableName)) {
-                        jobs.get(tableName).addAll(columnIndexPairs);
-                    } else {
-                        jobs.put(tableName, columnIndexPairs);
+                boolean appended = false;
+                long version = Config.isCloudMode() ? 0 : StatisticsUtil.getOlapTableVersion((OlapTable) t);
+                for (Pair<String, String> p : t.getColumnIndexPairs(columns)) {
+                    // Append to low job map first.
+                    if (StatisticsUtil.needAnalyzeColumn(t, p)) {
+                        // If low job map is full, stop this iteration.
+                        if (!doAppend(lowPriorityJobs, p, tableName)) {
+                            LOG.debug("Low Priority job map is full.");
+                            return processed;
+                        }
+                        appended = true;
+                    } else if (StatisticsUtil.isLongTimeColumn(t, p, version)) {
+                        // If very low job map is full, simply ignore it and go to the next column.
+                        if (!doAppend(veryLowPriorityJobs, p, tableName)) {
+                            LOG.debug("Very low Priority job map is full.");
+                        } else {
+                            appended = true;
+                        }
                     }
                 }
                 currentTableId = t.getId();
-                if (++processed >= TABLE_BATCH_SIZE) {
-                    return;
+                if (appended) {
+                    processed++;
+                }
+                if (processed >= TABLE_BATCH_SIZE) {
+                    return processed;
                 }
             }
         }
@@ -198,6 +213,33 @@ public class StatisticsJobAppender extends MasterDaemon {
         currentDbId = 0;
         currentTableId = 0;
         lastRoundFinishTime = System.currentTimeMillis();
+        return processed;
+    }
+
+    protected List<Table> sortTables(List<Table> tables) {
+        if (tables == null) {
+            return Lists.newArrayList();
+        }
+        return tables.stream().sorted(Comparator.comparingLong(Table::getId)).collect(Collectors.toList());
+    }
+
+    @VisibleForTesting
+    public boolean doAppend(Map<TableName, Set<Pair<String, String>>> jobMap,
+                         Pair<String, String> columnIndexPair,
+                         TableName tableName) {
+        synchronized (jobMap) {
+            if (!jobMap.containsKey(tableName) && jobMap.size() >= JOB_MAP_SIZE) {
+                return false;
+            }
+            if (jobMap.containsKey(tableName)) {
+                jobMap.get(tableName).add(columnIndexPair);
+            } else {
+                Set<Pair<String, String>> columnSet = Sets.newHashSet();
+                columnSet.add(columnIndexPair);
+                jobMap.put(tableName, columnSet);
+            }
+        }
+        return true;
     }
 
     // For unit test only.

@@ -43,7 +43,7 @@ CREATE TABLE `stream_load_list_test_table`(
 AUTO PARTITION BY list(`col1`)
 (
 )
-DISTRIBUTED BY HASH(`col1`) BUCKETS 10
+DISTRIBUTED BY HASH(`col1`) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );

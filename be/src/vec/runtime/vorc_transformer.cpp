@@ -24,6 +24,7 @@
 #include <exception>
 #include <ostream>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
@@ -31,6 +32,7 @@
 #include "orc/OrcFile.hh"
 #include "orc/Vector.hh"
 #include "runtime/define_primitive_type.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "util/binary_cast.hpp"
@@ -44,7 +46,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
@@ -58,6 +59,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 VOrcOutputStream::VOrcOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0), _name("VOrcOutputStream") {}
 
@@ -141,7 +143,7 @@ Status VOrcTransformer::open() {
             VExprSPtr column_expr = _output_vexpr_ctxs[i]->root();
             try {
                 std::unique_ptr<orc::Type> orc_type = _build_orc_type(
-                        column_expr->type(), nested_fields ? &(*nested_fields)[i] : nullptr);
+                        column_expr->data_type(), nested_fields ? &(*nested_fields)[i] : nullptr);
                 _schema->addStructField(_column_names[i], std::move(orc_type));
             } catch (doris::Exception& e) {
                 return e.to_status();
@@ -151,6 +153,7 @@ Status VOrcTransformer::open() {
 
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
+        _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
         _writer = orc::createWriter(*_schema, _output_stream.get(), *_write_options);
     } catch (const std::exception& e) {
         return Status::InternalError("failed to create writer: {}", e.what());
@@ -184,9 +187,9 @@ void VOrcTransformer::set_compression_type(const TFileCompressType::type& compre
 }
 
 std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
-        const TypeDescriptor& type_descriptor, const iceberg::NestedField* nested_field) {
+        const DataTypePtr& data_type, const iceberg::NestedField* nested_field) {
     std::unique_ptr<orc::Type> type;
-    switch (type_descriptor.type) {
+    switch (data_type->get_primitive_type()) {
     case TYPE_BOOLEAN: {
         type = orc::createPrimitiveType(orc::BOOLEAN);
         break;
@@ -218,17 +221,18 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         break;
     }
     case TYPE_CHAR: {
-        type = orc::createCharType(orc::CHAR, type_descriptor.len);
+        type = orc::createCharType(
+                orc::CHAR,
+                assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len());
         break;
     }
     case TYPE_VARCHAR: {
-        type = orc::createCharType(orc::VARCHAR, type_descriptor.len);
+        type = orc::createCharType(
+                orc::VARCHAR,
+                assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len());
         break;
     }
-    case TYPE_STRING: {
-        type = orc::createPrimitiveType(orc::STRING);
-        break;
-    }
+    case TYPE_STRING:
     case TYPE_IPV6:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);
@@ -243,24 +247,26 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         break;
     }
     case TYPE_DECIMAL32: {
-        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(data_type->get_precision(), data_type->get_scale());
         break;
     }
     case TYPE_DECIMAL64: {
-        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(data_type->get_precision(), data_type->get_scale());
         break;
     }
     case TYPE_DECIMAL128I: {
-        type = orc::createDecimalType(type_descriptor.precision, type_descriptor.scale);
+        type = orc::createDecimalType(data_type->get_precision(), data_type->get_scale());
         break;
     }
     case TYPE_STRUCT: {
         type = orc::createStructType();
-        for (int j = 0; j < type_descriptor.children.size(); ++j) {
+        const auto* type_struct =
+                assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        for (int j = 0; j < type_struct->get_elements().size(); ++j) {
             type->addStructField(
-                    type_descriptor.field_names[j],
+                    type_struct->get_element_name(j),
                     _build_orc_type(
-                            type_descriptor.children[j],
+                            type_struct->get_element(j),
                             nested_field
                                     ? &nested_field->field_type()->as_struct_type()->fields()[j]
                                     : nullptr));
@@ -268,19 +274,21 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         break;
     }
     case TYPE_ARRAY: {
+        const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
         type = orc::createListType(_build_orc_type(
-                type_descriptor.children[0],
+                type_arr->get_nested_type(),
                 nested_field ? &nested_field->field_type()->as_list_type()->element_field()
                              : nullptr));
         break;
     }
     case TYPE_MAP: {
+        const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
         type = orc::createMapType(
-                _build_orc_type(type_descriptor.children[0],
+                _build_orc_type(type_map->get_key_type(),
                                 nested_field
                                         ? &nested_field->field_type()->as_map_type()->key_field()
                                         : nullptr),
-                _build_orc_type(type_descriptor.children[1],
+                _build_orc_type(type_map->get_value_type(),
                                 nested_field
                                         ? &nested_field->field_type()->as_map_type()->value_field()
                                         : nullptr));
@@ -288,8 +296,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     }
     default: {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                               "Unsupported type {} to build orc type",
-                               type_descriptor.debug_string());
+                               "Unsupported type {} to build orc type", data_type->get_name());
     }
     }
     if (nested_field != nullptr) {
@@ -314,15 +321,15 @@ int64_t VOrcTransformer::written_len() {
 }
 
 Status VOrcTransformer::close() {
-    if (_writer != nullptr) {
-        try {
+    try {
+        if (_writer != nullptr) {
             _writer->close();
-        } catch (const std::exception& e) {
-            return Status::IOError(e.what());
         }
-    }
-    if (_output_stream) {
-        _output_stream->close();
+        if (_output_stream) {
+            _output_stream->close();
+        }
+    } catch (const std::exception& e) {
+        return Status::IOError(e.what());
     }
     return Status::OK();
 }
@@ -333,16 +340,9 @@ Status VOrcTransformer::write(const Block& block) {
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
-    std::vector<StringRef> buffer_list;
-    Defer defer {[&]() {
-        for (auto& bufferRef : buffer_list) {
-            if (bufferRef.data) {
-                free(const_cast<char*>(bufferRef.data));
-            }
-        }
-    }};
+    Arena arena;
 
-    size_t sz = block.rows();
+    int sz = cast_set<int>(block.rows());
     auto row_batch = _create_row_batch(sz);
     auto* root = dynamic_cast<orc::StructVectorBatch*>(row_batch.get());
     try {
@@ -351,15 +351,15 @@ Status VOrcTransformer::write(const Block& block) {
             const auto& raw_column = col.column;
             RETURN_IF_ERROR(_resize_row_batch(col.type, *raw_column, root->fields[i]));
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
-                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
+                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, arena));
         }
+        root->numElements = sz;
+        _writer->add(*row_batch);
+        _cur_written_rows += sz;
     } catch (const std::exception& e) {
         LOG(WARNING) << "Orc write error: " << e.what();
         return Status::InternalError(e.what());
     }
-    root->numElements = sz;
-    _writer->add(*row_batch);
-    _cur_written_rows += sz;
 
     return Status::OK();
 }
@@ -367,9 +367,8 @@ Status VOrcTransformer::write(const Block& block) {
 Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn& column,
                                           orc::ColumnVectorBatch* orc_col_batch) {
     auto real_type = remove_nullable(type);
-    WhichDataType which(real_type);
-
-    if (which.is_struct()) {
+    switch (type->get_primitive_type()) {
+    case TYPE_STRUCT: {
         auto* struct_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
         const auto& struct_col =
                 column.is_nullable()
@@ -385,7 +384,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
             ++idx;
             RETURN_IF_ERROR(_resize_row_batch(child_type, child_column, child));
         }
-    } else if (which.is_map()) {
+        break;
+    }
+    case TYPE_MAP: {
         auto* map_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
         const auto& map_column =
                 column.is_nullable()
@@ -407,7 +408,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
                 assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_value_type();
         RETURN_IF_ERROR(
                 _resize_row_batch(value_type, nested_values_column, map_batch->elements.get()));
-    } else if (which.is_array()) {
+        break;
+    }
+    case TYPE_ARRAY: {
         auto* list_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
         const auto& array_col =
                 column.is_nullable()
@@ -419,6 +422,9 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         auto child_type =
                 assert_cast<const vectorized::DataTypeArray*>(real_type.get())->get_nested_type();
         RETURN_IF_ERROR(_resize_row_batch(child_type, nested_column, list_batch->elements.get()));
+    }
+    default:
+        break;
     }
     return Status::OK();
 }

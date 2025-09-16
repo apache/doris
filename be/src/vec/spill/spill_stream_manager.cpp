@@ -41,7 +41,11 @@
 #include "vec/spill/spill_stream.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
+SpillStreamManager::~SpillStreamManager() {
+    DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
+}
 SpillStreamManager::SpillStreamManager(
         std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>>&&
                 spill_store_map)
@@ -73,17 +77,30 @@ Status SpillStreamManager::init() {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
-    static_cast<void>(ThreadPoolBuilder("SpillIOThreadPool")
-                              .set_min_threads(config::spill_io_thread_pool_thread_num)
-                              .set_max_threads(config::spill_io_thread_pool_thread_num)
-                              .set_max_queue_size(config::spill_io_thread_pool_queue_size)
-                              .build(&_spill_io_thread_pool));
 
     RETURN_IF_ERROR(Thread::create(
             "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
             &_spill_gc_thread));
     LOG(INFO) << "spill gc thread started";
+
+    _init_metrics();
+
     return Status::OK();
+}
+
+void SpillStreamManager::_init_metrics() {
+    _entity = DorisMetrics::instance()->metric_registry()->register_entity("spill",
+                                                                           {{"name", "spill"}});
+
+    _spill_write_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_write_bytes");
+    _spill_write_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_write_bytes_metric.get()));
+
+    _spill_read_bytes_metric = std::make_unique<doris::MetricPrototype>(
+            doris::MetricType::COUNTER, doris::MetricUnit::BYTES, "spill_read_bytes");
+    _spill_read_bytes_counter = (IntAtomicCounter*)(_entity->register_metric<IntAtomicCounter>(
+            _spill_read_bytes_metric.get()));
 }
 
 // clean up stale spilled files
@@ -107,45 +124,23 @@ Status SpillStreamManager::_init_spill_store_map() {
 
 std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
-    std::vector<SpillDataDir*> stores;
+    std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
-            stores.push_back(store.get());
+            stores_with_usage.emplace_back(store.get(), store->_get_disk_usage(0));
         }
     }
-    if (stores.empty()) {
-        return stores;
+    if (stores_with_usage.empty()) {
+        return {};
     }
 
-    std::sort(stores.begin(), stores.end(), [](SpillDataDir* a, SpillDataDir* b) {
-        return a->_get_disk_usage(0) < b->_get_disk_usage(0);
-    });
+    std::sort(stores_with_usage.begin(), stores_with_usage.end(),
+              [](auto&& a, auto&& b) { return a.second < b.second; });
 
-    size_t seventy_percent_index = stores.size();
-    size_t eighty_five_percent_index = stores.size();
-    for (size_t index = 0; index < stores.size(); index++) {
-        // If the usage of the store is less than 70%, we choose disk randomly.
-        if (stores[index]->_get_disk_usage(0) > 0.7 && seventy_percent_index == stores.size()) {
-            seventy_percent_index = index;
-        }
-        if (stores[index]->_get_disk_usage(0) > 0.85 &&
-            eighty_five_percent_index == stores.size()) {
-            eighty_five_percent_index = index;
-            break;
-        }
+    std::vector<SpillDataDir*> stores;
+    for (const auto& [store, _] : stores_with_usage) {
+        stores.emplace_back(store);
     }
-
-    std::random_device rd;
-    std::mt19937 g(rd());
-    std::shuffle(stores.begin(), stores.begin() + seventy_percent_index, g);
-    if (seventy_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + seventy_percent_index,
-                     stores.begin() + eighty_five_percent_index, g);
-    }
-    if (eighty_five_percent_index != stores.size()) {
-        std::shuffle(stores.begin() + eighty_five_percent_index, stores.end(), g);
-    }
-
     return stores;
 }
 
@@ -153,7 +148,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                                                  const std::string& query_id,
                                                  const std::string& operator_name, int32_t node_id,
                                                  int32_t batch_rows, size_t batch_bytes,
-                                                 RuntimeProfile* profile) {
+                                                 RuntimeProfile* operator_profile) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -168,10 +163,12 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
     SpillDataDir* data_dir = nullptr;
     for (auto& dir : data_dirs) {
         std::string spill_root_dir = dir->get_spill_data_path();
+        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
         spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
                                 node_id, state->task_id(), id);
         auto st = io::global_local_filesystem()->create_directory(spill_dir);
         if (!st.ok()) {
+            std::cerr << "create spill dir failed: " << st.to_string();
             continue;
         }
         data_dir = dir;
@@ -182,7 +179,7 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "there is no available disk that can be used to spill.");
     }
     spill_stream = std::make_shared<SpillStream>(state, id, data_dir, spill_dir, batch_rows,
-                                                 batch_bytes, profile);
+                                                 batch_bytes, operator_profile);
     RETURN_IF_ERROR(spill_stream->prepare());
     return Status::OK();
 }
@@ -258,25 +255,6 @@ void SpillStreamManager::gc(int32_t max_work_time_ms) {
     }
 }
 
-void SpillStreamManager::async_cleanup_query(TUniqueId query_id) {
-    (void)get_spill_io_thread_pool()->submit_func([this, query_id] {
-        for (auto& [_, store] : _spill_store_map) {
-            std::string query_spill_dir = store->get_spill_data_path(print_id(query_id));
-            bool exists = false;
-            auto status = io::global_local_filesystem()->exists(query_spill_dir, &exists);
-            if (status.ok() && exists) {
-                auto gc_dir = fmt::format("{}/{}/{}-gc", store->path(), SPILL_GC_DIR_PREFIX,
-                                          print_id(query_id));
-                status = io::global_local_filesystem()->rename(query_spill_dir, gc_dir);
-                if (!status.ok()) {
-                    static_cast<void>(
-                            io::global_local_filesystem()->delete_directory(query_spill_dir));
-                }
-            }
-        }
-    });
-}
-
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
@@ -350,8 +328,8 @@ Status SpillDataDir::update_capacity() {
                                                                   &_available_bytes));
     spill_disk_capacity->set_value(_disk_capacity_bytes);
     spill_disk_avail_capacity->set_value(_available_bytes);
-    auto disk_use_max_bytes = (int64_t)(_disk_capacity_bytes *
-                                        config::storage_flood_stage_usage_percent / (double)100);
+    auto disk_use_max_bytes =
+            (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
     bool is_percent = true;
     _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
                                                         _disk_capacity_bytes, &is_percent);
@@ -363,9 +341,8 @@ Status SpillDataDir::update_capacity() {
         return Status::InvalidArgument(err_msg);
     }
     if (is_percent) {
-        _spill_data_limit_bytes =
-                (int64_t)(_spill_data_limit_bytes * config::storage_flood_stage_usage_percent /
-                          (double)100);
+        _spill_data_limit_bytes = (int64_t)(_spill_data_limit_bytes *
+                                            config::storage_flood_stage_usage_percent / 100);
     }
     if (_spill_data_limit_bytes > disk_use_max_bytes) {
         _spill_data_limit_bytes = disk_use_max_bytes;

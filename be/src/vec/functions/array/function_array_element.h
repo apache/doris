@@ -17,6 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayElement.cpp
 // and modified by Doris
+
 #pragma once
 
 #include <glog/logging.h>
@@ -30,14 +31,16 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -56,6 +59,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayElement : public IFunction {
 public:
@@ -76,30 +80,35 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr arg_0 = remove_nullable(arguments[0]);
-        DCHECK(is_array(arg_0) || is_map(arg_0))
+        DCHECK(arg_0->get_primitive_type() == TYPE_ARRAY || arg_0->get_primitive_type() == TYPE_MAP)
                 << "first argument for function: " << name
                 << " should be DataTypeArray or DataTypeMap, but it is " << arg_0->get_name();
-        if (is_array(arg_0)) {
-            DCHECK(is_integer(remove_nullable(arguments[1])))
+        if (arg_0->get_primitive_type() == TYPE_ARRAY) {
+            DCHECK(is_int_or_bool(arguments[1]->get_primitive_type()))
                     << "second argument for function: " << name
                     << " should be Integer for array element";
             return make_nullable(
                     check_and_get_data_type<DataTypeArray>(arg_0.get())->get_nested_type());
-        } else if (is_map(arg_0)) {
+        } else if (arg_0->get_primitive_type() == TYPE_MAP) {
             return make_nullable(
                     check_and_get_data_type<DataTypeMap>(arg_0.get())->get_value_type());
         } else {
-            LOG(ERROR) << "element_at only support array and map so far.";
-            return nullptr;
+            throw doris::Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    fmt::format("element_at only support array and map so far, but got {}",
+                                arg_0->get_name()));
         }
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+                        uint32_t result, size_t input_rows_count) const override {
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
+        block.replace_by_position(
+                arguments[0],
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const());
         auto col_left = block.get_by_position(arguments[0]);
         if (col_left.column->is_nullable()) {
             auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
@@ -111,7 +120,7 @@ public:
             args = {col_left, block.get_by_position(arguments[1])};
         }
         ColumnPtr res_column = nullptr;
-        if (args[0].column->is_column_map() ||
+        if (is_column<ColumnMap>(args[0].column.get()) ||
             check_column_const<ColumnMap>(args[0].column.get())) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
         } else {
@@ -136,7 +145,7 @@ private:
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
-        auto matched_indices = ColumnVector<MapIndiceDataType::FieldType>::create();
+        auto matched_indices = ColumnVector<MapIndiceDataType::PType>::create();
         matched_indices->reserve(rows);
 
         for (size_t i = 0; i < rows; i++) {
@@ -145,14 +154,16 @@ private:
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
                 if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
-                    matched_indices->insert_value(j - begin + 1);
+                    matched_indices->insert_value(
+                            cast_set<MapIndiceDataType::FieldType, size_t, false>(j - begin + 1));
                     matched = true;
                     break;
                 }
             }
 
             if (!matched) {
-                matched_indices->insert_value(end - begin + 1); // make indices for null
+                matched_indices->insert_value(cast_set<MapIndiceDataType::FieldType, size_t, false>(
+                        end - begin + 1)); // make indices for null
             }
         }
 
@@ -268,7 +279,6 @@ private:
 
         const auto& offsets = map_column.get_offsets();
         const size_t rows = offsets.size();
-
         if (rows <= 0) {
             return nullptr;
         }
@@ -280,7 +290,8 @@ private:
         }
         DataTypePtr indices_type(std::make_shared<MapIndiceDataType>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
-        ColumnWithTypeAndName data(val_arr, std::make_shared<DataTypeArray>(val_type), "value");
+        ColumnWithTypeAndName data(std::move(val_arr), std::make_shared<DataTypeArray>(val_type),
+                                   "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
@@ -327,7 +338,7 @@ private:
                                 const UInt8* src_null_map, UInt8* dst_null_map) const {
         // check array nested column type and get data
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
-        const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
+        const auto& array_column = assert_cast<const ColumnArray&>(*left_column);
         const auto& offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
         const UInt8* nested_null_map = nullptr;
@@ -345,72 +356,111 @@ private:
         auto left_element_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0].type))
                         .get_nested_type());
-        WhichDataType which_type(left_element_type);
         // because we impl use_default_implementation_for_nulls
         // we should handle array index column by-self, and array index should not be nullable.
         auto idx_col = remove_nullable(arguments[1].column);
         // we should dispatch branch according to data type rather than column type
-        if (which_type.is_date()) {
+        switch (left_element_type->get_primitive_type()) {
+        case TYPE_DATE: {
             res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map, *idx_col,
                                               nested_null_map, dst_null_map);
-        } else if (which_type.is_date_time()) {
+            break;
+        }
+        case TYPE_DATETIME: {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
                                                   nested_null_map, dst_null_map);
-        } else if (which_type.is_date_v2()) {
+            break;
+        }
+        case TYPE_DATEV2: {
             res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
-        } else if (which_type.is_date_time_v2()) {
+            break;
+        }
+        case TYPE_DATETIMEV2: {
             res = _execute_number<ColumnDateTimeV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                     nested_null_map, dst_null_map);
-        } else if (which_type.is_uint8()) {
+            break;
+        }
+        case TYPE_BOOLEAN: {
             res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (which_type.is_int8()) {
+            break;
+        }
+        case TYPE_TINYINT: {
             res = _execute_number<ColumnInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                               nested_null_map, dst_null_map);
-        } else if (which_type.is_int16()) {
+            break;
+        }
+        case TYPE_SMALLINT: {
             res = _execute_number<ColumnInt16>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (which_type.is_int32()) {
+            break;
+        }
+        case TYPE_INT: {
             res = _execute_number<ColumnInt32>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (which_type.is_int64()) {
+            break;
+        }
+        case TYPE_BIGINT: {
             res = _execute_number<ColumnInt64>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (which_type.is_int128()) {
+            break;
+        }
+        case TYPE_LARGEINT: {
             res = _execute_number<ColumnInt128>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
-        } else if (which_type.is_float32()) {
+            break;
+        }
+        case TYPE_FLOAT: {
             res = _execute_number<ColumnFloat32>(offsets, *nested_column, src_null_map, *idx_col,
                                                  nested_null_map, dst_null_map);
-        } else if (which_type.is_float64()) {
+            break;
+        }
+        case TYPE_DOUBLE: {
             res = _execute_number<ColumnFloat64>(offsets, *nested_column, src_null_map, *idx_col,
                                                  nested_null_map, dst_null_map);
-        } else if (which_type.is_decimal32()) {
+            break;
+        }
+        case TYPE_DECIMAL32: {
             res = _execute_number<ColumnDecimal32>(offsets, *nested_column, src_null_map, *idx_col,
                                                    nested_null_map, dst_null_map);
-        } else if (which_type.is_decimal64()) {
+            break;
+        }
+        case TYPE_DECIMAL64: {
             res = _execute_number<ColumnDecimal64>(offsets, *nested_column, src_null_map, *idx_col,
                                                    nested_null_map, dst_null_map);
-        } else if (which_type.is_decimal128v3()) {
-            res = _execute_number<ColumnDecimal128V3>(offsets, *nested_column, src_null_map,
-                                                      *idx_col, nested_null_map, dst_null_map);
-        } else if (which_type.is_decimal128v2()) {
-            res = _execute_number<ColumnDecimal128V2>(offsets, *nested_column, src_null_map,
-                                                      *idx_col, nested_null_map, dst_null_map);
-        } else if (which_type.is_decimal256()) {
+            break;
+        }
+        case TYPE_DECIMAL256: {
             res = _execute_number<ColumnDecimal256>(offsets, *nested_column, src_null_map, *idx_col,
                                                     nested_null_map, dst_null_map);
-        } else if (which_type.is_string_or_fixed_string()) {
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            res = _execute_number<ColumnDecimal128V2>(offsets, *nested_column, src_null_map,
+                                                      *idx_col, nested_null_map, dst_null_map);
+            break;
+        }
+        case TYPE_DECIMAL128I: {
+            res = _execute_number<ColumnDecimal128V3>(offsets, *nested_column, src_null_map,
+                                                      *idx_col, nested_null_map, dst_null_map);
+            break;
+        }
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
-        } else {
+            break;
+        }
+        default: {
             res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
         }
-
+        }
         return res;
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

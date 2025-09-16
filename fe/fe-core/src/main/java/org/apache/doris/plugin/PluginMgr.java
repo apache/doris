@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -27,7 +26,7 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
-import org.apache.doris.plugin.audit.AuditLoaderPlugin;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.plugin.dialect.HttpDialectConverterPlugin;
 
@@ -60,6 +59,9 @@ public class PluginMgr implements Writable {
 
     // all dynamic plugins should have unique names,
     private final Set<String> dynamicPluginNames;
+
+    // Save this handler for external call
+    private AuditLoader auditLoader = null;
 
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_TYPE_SIZE];
@@ -113,8 +115,8 @@ public class PluginMgr implements Writable {
         }
 
         // AuditLoader: log audit log to internal table
-        AuditLoaderPlugin auditLoaderPlugin = new AuditLoaderPlugin();
-        if (!registerBuiltinPlugin(auditLoaderPlugin.getPluginInfo(), auditLoaderPlugin)) {
+        this.auditLoader = new AuditLoader();
+        if (!registerBuiltinPlugin(auditLoader.getPluginInfo(), auditLoader)) {
             LOG.warn("failed to register audit log builder");
         }
 
@@ -129,14 +131,15 @@ public class PluginMgr implements Writable {
 
     // install a plugin from user's command.
     // install should be successfully, or nothing should be left if failed to install.
-    public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
-        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath(), stmt.getMd5sum());
+    public PluginInfo installPlugin(String pluginPath, Map<String, String> properties, String md5Sum)
+                throws IOException, UserException {
+        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, pluginPath, md5Sum);
         pluginLoader.setStatus(PluginStatus.INSTALLING);
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
-            if (stmt.getProperties() != null) {
-                info.setProperties(stmt.getProperties());
+            if (properties != null) {
+                info.setProperties(properties);
             }
 
             if (checkDynamicPluginNameExist(info.getName())) {
@@ -293,6 +296,10 @@ public class PluginMgr implements Writable {
 
         m.values().forEach(d -> {
             if (d.getStatus() == PluginStatus.INSTALLED) {
+                if (d.getPlugin() == null) {
+                    LOG.warn("PluginLoader({}) status is INSTALLED, but plugin is null", d);
+                    return;
+                }
                 l.add(d.getPlugin());
             }
         });
@@ -357,6 +364,12 @@ public class PluginMgr implements Writable {
             }
         }
         return rows;
+    }
+
+    public void flushAuditLog() {
+        if (auditLoader != null) {
+            auditLoader.loadIfNecessary(true);
+        }
     }
 
     public void readFields(DataInputStream dis) throws IOException {

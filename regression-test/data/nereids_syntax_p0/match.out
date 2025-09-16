@@ -109,3 +109,11 @@ li ba	li liuliu
 
 -- !match_phrase_7 --
 
+-- !match_join --
+li sisi	11	grade 6	li ba	li liuliu		zhang san yi	11	grade 5	zhang yi	chen san	learn makes me happy
+san zhang	10	grade 5				san zhang	10	grade 5			
+san zhang	10	grade 5				zhang san	10	grade 5	zhang yi	chen san	Class activists
+zhang san	10	grade 5	zhang yi	chen san	Class activists	san zhang	10	grade 5			
+zhang san	10	grade 5	zhang yi	chen san	Class activists	zhang san	10	grade 5	zhang yi	chen san	Class activists
+zhang san yi	11	grade 5	zhang yi	chen san	learn makes me happy	zhang san yi	11	grade 5	zhang yi	chen san	learn makes me happy
+

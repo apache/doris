@@ -38,10 +38,16 @@ import java.util.List;
 public class MapContainsKey extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(MapType.of(new AnyDataType(0), AnyDataType.INSTANCE_WITHOUT_INDEX),
                             new FollowToAnyDataType(0))
+    );
+
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(MapType.of(new AnyDataType(0), AnyDataType.INSTANCE_WITHOUT_INDEX),
+                            new AnyDataType(0))
     );
 
     /**
@@ -51,13 +57,18 @@ public class MapContainsKey extends ScalarFunction
         super("map_contains_key", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapContainsKey(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapContainsKey withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MapContainsKey(children.get(0), children.get(1));
+        return new MapContainsKey(getFunctionParams(children));
     }
 
     @Override
@@ -72,6 +83,13 @@ public class MapContainsKey extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (getArgument(0).getDataType().isMapType()
+                &&
+                ((MapType) getArgument(0).getDataType()).getKeyType()
+                        .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
+            // return least common type
+            return MIN_COMMON_TYPE_SIGNATURES;
+        }
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }

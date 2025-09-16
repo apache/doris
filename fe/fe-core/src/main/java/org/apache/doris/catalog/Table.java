@@ -22,12 +22,12 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.QueryableReentrantReadWriteLock;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -53,13 +54,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -79,16 +78,17 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected long id;
     @SerializedName(value = "name")
     protected volatile String name;
+    @SerializedName(value = "qualifiedDbName")
     protected volatile String qualifiedDbName;
     @SerializedName(value = "type")
     protected TableType type;
     @SerializedName(value = "createTime")
     protected long createTime;
-    protected QueryableReentrantReadWriteLock rwLock;
+    protected MonitoredReentrantReadWriteLock rwLock;
     // Used for queuing commit transactifon tasks to avoid fdb transaction conflicts,
     // especially to reduce conflicts when obtaining delete bitmap update locks for
     // MoW table
-    protected ReentrantLock commitLock;
+    protected MonitoredReentrantLock commitLock;
 
     /*
      *  fullSchema and nameToColumn should contains all columns, both visible and shadow.
@@ -130,15 +130,24 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     // check read lock leaky
     private Map<Long, String> readLockThreads = null;
 
+    @SerializedName(value = "isTemporary")
+    private boolean isTemporary = false;
+
+    // gson deserialization will call this at first by derived classes' non-parametered constructor.
     public Table(TableType type) {
         this.type = type;
         this.fullSchema = Lists.newArrayList();
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
+    }
+
+    public Table(long id, String tableName, TableType type, boolean isTemporary, List<Column> fullSchema) {
+        this(id, tableName, type, fullSchema);
+        this.isTemporary = isTemporary;
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
@@ -158,12 +167,12 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new QueryableReentrantReadWriteLock(true);
+        this.rwLock = new MonitoredReentrantReadWriteLock(true);
         this.createTime = Instant.now().getEpochSecond();
         if (Config.check_table_lock_leaky) {
             this.readLockThreads = Maps.newConcurrentMap();
         }
-        this.commitLock = new ReentrantLock(true);
+        this.commitLock = new MonitoredReentrantLock(true);
     }
 
     public void markDropped() {
@@ -181,6 +190,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             this.readLockThreads.put(thread.getId(),
                     "(" + thread.toString() + ", time " + System.currentTimeMillis() + ")");
         }
+    }
+
+    public boolean readLockIfExist() {
+        readLock();
+        if (isDropped) {
+            readUnlock();
+            return false;
+        }
+        return true;
     }
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
@@ -315,13 +333,17 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             boolean res = this.commitLock.tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                        name, timeout, unit.name(), this.commitLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
             LOG.warn("failed to try cloud commit lock at table[" + name + "]", e);
             return false;
         }
+    }
+
+    public Thread getCommitLockOwner() {
+        return this.commitLock.getOwner();
     }
 
     public void commitUnlock() {
@@ -370,6 +392,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public String getDisplayName() {
+        return isTemporary ? Util.getTempTableDisplayName(name) : name;
+    }
+
     public Constraint getConstraint(String name) {
         return getConstraintsMap().get(name);
     }
@@ -384,7 +410,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     }
 
     public List<Column> getFullSchema() {
-        return fullSchema;
+        return ImmutableList.copyOf(fullSchema);
     }
 
     // should override in subclass if necessary
@@ -394,7 +420,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     public List<Column> getBaseSchema(boolean full) {
         if (full) {
-            return fullSchema;
+            return ImmutableList.copyOf(fullSchema);
         } else {
             return fullSchema.stream().filter(Column::isVisible).collect(Collectors.toList());
         }
@@ -436,43 +462,20 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return 0;
     }
 
+    public long getIndexLength() {
+        return 0;
+    }
+
+    public boolean isTemporary() {
+        return isTemporary;
+    }
 
     public TTableDescriptor toThrift() {
         return null;
     }
 
     public static Table read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            Table table = null;
-            TableType type = TableType.valueOf(Text.readString(in));
-            if (type == TableType.OLAP) {
-                table = new OlapTable();
-            } else if (type == TableType.MATERIALIZED_VIEW) {
-                table = new MTMV();
-            } else if (type == TableType.ODBC) {
-                table = new OdbcTable();
-            } else if (type == TableType.MYSQL) {
-                table = new MysqlTable();
-            } else if (type == TableType.VIEW) {
-                table = new View();
-            } else if (type == TableType.BROKER) {
-                table = new BrokerTable();
-            } else if (type == TableType.ELASTICSEARCH) {
-                table = new EsTable();
-            } else if (type == TableType.HIVE) {
-                table = new HiveTable();
-            } else if (type == TableType.JDBC) {
-                table = new JdbcTable();
-            } else {
-                throw new IOException("Unknown table type: " + type.name());
-            }
-
-            table.setTypeRead(true);
-            table.readFields(in);
-            return table;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Table.class);
     }
 
     @Override
@@ -494,43 +497,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        if (!isTypeRead) {
-            type = TableType.valueOf(Text.readString(in));
-            isTypeRead = true;
-        }
-
-        super.readFields(in);
-
-        this.id = in.readLong();
-        this.name = Text.readString(in);
-        List<Column> keys = Lists.newArrayList();
-        // base schema
-        int columnCount = in.readInt();
-        for (int i = 0; i < columnCount; i++) {
-            Column column = Column.read(in);
-            if (column.isKey()) {
-                keys.add(column);
-            }
-            this.fullSchema.add(column);
-            this.nameToColumn.put(column.getName(), column);
-        }
-        if (keys.size() > 1) {
-            keys.forEach(key -> key.setCompoundKey(true));
-            hasCompoundKey = true;
-        }
-        comment = Text.readString(in);
-        // table attribute only support after version 127
-        if (FeMetaVersion.VERSION_127 <= Env.getCurrentEnvJournalVersion()) {
-            String json = Text.readString(in);
-            this.tableAttributes = GsonUtils.GSON.fromJson(json, TableAttributes.class);
-
-        }
-        // read create time
-        this.createTime = in.readLong();
     }
 
     // return if this table is partitioned, for planner.
@@ -590,14 +556,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
         return table;
     }
 
-    public boolean isHasCompoundKey() {
-        return hasCompoundKey;
-    }
-
-    public Set<String> getPartitionNames() {
-        return Collections.EMPTY_SET;
-    }
-
     @Override
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         throw new NotImplementedException("createAnalysisTask not implemented");
@@ -622,7 +580,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -633,5 +591,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public long getCachedRowCount() {
         return getRowCount();
+    }
+
+    @Override
+    public boolean autoAnalyzeEnabled() {
+        return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

@@ -20,26 +20,25 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
-
-import java.util.List;
 
 public class UnionNode extends SetOperationNode {
     public UnionNode(PlanNodeId id, TupleId tupleId) {
         super(id, tupleId, "UNION", StatisticalType.UNION_NODE);
     }
 
-    public UnionNode(PlanNodeId id, TupleId tupleId,
-                        List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan, StatisticalType.UNION_NODE);
-    }
-
     @Override
     protected void toThrift(TPlanNode msg) {
         toThrift(msg, TPlanNodeType.UNION_NODE);
+    }
+
+    // If it is a union without children which means it will output some constant values, we should use a serial union
+    // to output non-duplicated data.
+    @Override
+    public boolean isSerialOperator() {
+        return children.isEmpty();
     }
 }

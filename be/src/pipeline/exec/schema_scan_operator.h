@@ -24,6 +24,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -35,18 +36,25 @@ public:
     ENABLE_FACTORY_CREATOR(SchemaScanLocalState);
 
     SchemaScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent) {}
+            : PipelineXLocalState<>(state, parent) {
+        _data_dependency = std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                                        parent->get_name() + "_DEPENDENCY", true);
+    }
     ~SchemaScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status open(RuntimeState* state) override;
 
+    std::vector<Dependency*> dependencies() const override { return {_data_dependency.get()}; }
+
 private:
     friend class SchemaScanOperatorX;
 
     SchemaScannerParam _scanner_param;
     std::unique_ptr<SchemaScanner> _schema_scanner;
+
+    std::shared_ptr<Dependency> _data_dependency;
 };
 
 class SchemaScanOperatorX final : public OperatorX<SchemaScanLocalState> {
@@ -58,7 +66,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }
@@ -78,8 +85,7 @@ private:
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
-
-    std::unique_ptr<SchemaScanner> _schema_scanner;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

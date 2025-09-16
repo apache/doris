@@ -116,6 +116,20 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             if (catalog instanceof HMSExternalCatalog) {
                 HMSExternalCatalog hmsExternalCatalog = (HMSExternalCatalog) catalog;
                 try {
+                    // Check if HMS incremental events synchronization is enabled.
+                    // In the past, this value was a constant and always available.
+                    // Now it is retrieved from HmsProperties, which requires initialization.
+                    // In some scenarios, essential HMS parameters may be missing.
+                    // If so, isHmsEventsIncrementalSyncEnabled() may throw Exception.
+                    if (!hmsExternalCatalog.getHmsProperties().isHmsEventsIncrementalSyncEnabled()) {
+                        continue;
+                    }
+                } catch (RuntimeException e) {
+                    //ignore
+                    continue;
+                }
+
+                try {
                     List<NotificationEvent> events = getNextHMSEvents(hmsExternalCatalog);
                     if (!events.isEmpty()) {
                         LOG.info("Events size are {} on catalog [{}]", events.size(),
@@ -125,6 +139,8 @@ public class MetastoreEventsProcessor extends MasterDaemon {
                 } catch (MetastoreNotificationFetchException e) {
                     LOG.warn("Failed to fetch hms events on {}. msg: ", hmsExternalCatalog.getName(), e);
                 } catch (Exception ex) {
+                    hmsExternalCatalog.onRefreshCache();
+                    updateLastSyncedEventId(hmsExternalCatalog, -1);
                     LOG.warn("Failed to process hive metastore [{}] events .",
                             hmsExternalCatalog.getName(), ex);
                 }
@@ -147,7 +163,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             response = getNextEventResponseForSlave(hmsExternalCatalog);
         }
 
-        if (response == null) {
+        if (response == null || response.getEventsSize() == 0) {
             return Collections.emptyList();
         }
         return response.getEvents();
@@ -160,7 +176,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             } catch (HMSClientException hmsClientException) {
                 if (hmsClientException.getCause() != null
                         && hmsClientException.getCause() instanceof NoSuchObjectException) {
-                    LOG.warn(event.debugString("Failed to process event and skip"), hmsClientException);
+                    LOG.warn(event.getMsgWithEventInfo("Failed to process event and skip"), hmsClientException);
                 } else {
                     updateLastSyncedEventId(hmsExternalCatalog, event.getEventId() - 1);
                     throw hmsClientException;
@@ -207,9 +223,15 @@ public class MetastoreEventsProcessor extends MasterDaemon {
             return null;
         }
 
+        int batchSize = hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc();
         try {
-            return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId,
-                        Config.hms_events_batch_size_per_rpc, null);
+            NotificationEventResponse notificationEventResponse =
+                    hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, batchSize, null);
+            LOG.info("CatalogName = {}, lastSyncedEventId = {}, currentEventId = {},"
+                            + "batchSize = {}, getEventsSize = {}", hmsExternalCatalog.getName(), lastSyncedEventId,
+                    currentEventId, batchSize, notificationEventResponse.getEvents().size());
+
+            return notificationEventResponse;
         } catch (MetastoreNotificationFetchException e) {
             // Need a fallback to handle this because this error state can not be recovered until restarting FE
             if (StringUtils.isNotEmpty(e.getMessage())
@@ -226,7 +248,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
     }
 
     private NotificationEventResponse getNextEventResponseForSlave(HMSExternalCatalog hmsExternalCatalog)
-                throws Exception {
+            throws Exception {
         long lastSyncedEventId = getLastSyncedEventId(hmsExternalCatalog);
         long masterLastSyncedEventId = getMasterLastSyncedEventId(hmsExternalCatalog);
         // do nothing if masterLastSyncedEventId has not been synced
@@ -258,7 +280,7 @@ public class MetastoreEventsProcessor extends MasterDaemon {
 
         // For slave FE nodes, only fetch events which id is lower than masterLastSyncedEventId
         int maxEventSize = Math.min((int) (masterLastSyncedEventId - lastSyncedEventId),
-                Config.hms_events_batch_size_per_rpc);
+                hmsExternalCatalog.getHmsProperties().getHmsEventsBatchSizePerRpc());
         try {
             return hmsExternalCatalog.getClient().getNextNotification(lastSyncedEventId, maxEventSize, null);
         } catch (MetastoreNotificationFetchException e) {
@@ -316,7 +338,6 @@ public class MetastoreEventsProcessor extends MasterDaemon {
         String sql = "REFRESH CATALOG " + hmsExternalCatalog.getName();
         OriginStatement originStmt = new OriginStatement(sql, 0);
         ConnectContext ctx = new ConnectContext();
-        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setEnv(Env.getCurrentEnv());
         MasterOpExecutor masterOpExecutor = new MasterOpExecutor(originStmt, ctx,

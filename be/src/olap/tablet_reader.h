@@ -29,15 +29,17 @@
 #include <utility>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/function_filter.h"
-#include "gutil/strings/substitute.h"
 #include "io/io_common.h"
 #include "olap/delete_handler.h"
+#include "olap/filter_olap_param.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "olap/olap_tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -108,6 +110,13 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
+        int get_be_exec_version() const {
+            if (runtime_state) {
+                return runtime_state->be_exec_version();
+            }
+            return BeExecVersionManager::get_newest_version();
+        }
+
         void set_read_source(ReadSource read_source) {
             rs_splits = std::move(read_source.rs_splits);
             delete_predicates = std::move(read_source.delete_predicates);
@@ -128,29 +137,28 @@ public:
         bool start_key_include = false;
         bool end_key_include = false;
 
-        std::vector<TCondition> conditions;
-        std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
-        std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
-        std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
-        std::vector<TCondition> conditions_except_leafnode_of_andnode;
+        std::vector<FilterOlapParam<TCondition>> conditions;
+        std::vector<FilterOlapParam<std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
+        std::vector<FilterOlapParam<std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
+        std::vector<FilterOlapParam<std::shared_ptr<HybridSetBase>>> in_filters;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+        std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
 
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmap* delete_bitmap = nullptr;
 
         // return_columns is init from query schema
-        std::vector<uint32_t> return_columns;
+        std::vector<ColumnId> return_columns;
         // output_columns only contain columns in OrderByExprs and outputExprs
         std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
         // use only in vec exec engine
-        std::vector<uint32_t>* origin_return_columns = nullptr;
+        std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
         vectorized::VExpr* remaining_vconjunct_root = nullptr;
@@ -159,6 +167,7 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
+        RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
         int topn_filter_target_node_id = -1;
         // used for special optimization for query : ORDER BY key LIMIT n
@@ -185,6 +194,14 @@ public:
         std::string to_string() const;
 
         int64_t batch_size = -1;
+
+        std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+        std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+        std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+        std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+        CollectionStatisticsPtr collection_statistics;
+        std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
     };
 
     TabletReader() = default;
@@ -221,7 +238,7 @@ public:
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
 
-    virtual bool update_profile(RuntimeProfile* profile) { return false; }
+    virtual void update_profile(RuntimeProfile* profile) {}
     static Status init_reader_params_and_create_block(
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
@@ -242,8 +259,6 @@ protected:
     Status _init_orderby_keys_param(const ReaderParams& read_params);
 
     Status _init_conditions_param(const ReaderParams& read_params);
-
-    Status _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
 
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
@@ -271,8 +286,9 @@ protected:
 
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    std::unique_ptr<vectorized::Arena> _predicate_arena;
-    std::vector<uint32_t> _return_columns;
+    vectorized::Arena _predicate_arena;
+    std::vector<ColumnId> _return_columns;
+
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n
     // columns for orderby keys
     std::vector<uint32_t> _orderby_key_columns;
@@ -287,14 +303,15 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 
+    // Indicates whether the tablets has do a aggregation in storage engine.
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _next_delete_flag = false;
+    bool _delete_sign_available = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;

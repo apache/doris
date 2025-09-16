@@ -30,7 +30,6 @@
 #include <functional>
 #include <iterator>
 #include <memory>
-#include <ostream>
 #include <stack>
 #include <string>
 #include <tuple>
@@ -42,7 +41,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
@@ -51,6 +49,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -74,9 +73,10 @@ static constexpr size_t MAX_EVENTS = 32;
 /// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
 constexpr auto sequence_match_max_iterations = 1000000l;
 
-template <typename DateValueType, typename NativeType, typename Derived>
+template <PrimitiveType T, typename Derived>
 struct AggregateFunctionSequenceMatchData final {
-    using Timestamp = DateValueType;
+    using Timestamp = typename PrimitiveTypeTraits<T>::CppType;
+    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     using Events = std::bitset<MAX_EVENTS>;
     using TimestampEvents = std::pair<Timestamp, Events>;
     using Comparator = ComparePairFirst<std::less>;
@@ -88,10 +88,10 @@ public:
 
     size_t get_arg_count() const { return arg_count; }
 
-    void init(const std::string pattern, size_t arg_count) {
+    void init(const std::string pattern_, size_t arg_count_) {
         if (!init_flag) {
-            this->pattern = pattern;
-            this->arg_count = arg_count;
+            this->pattern = pattern_;
+            this->arg_count = arg_count_;
             parse_pattern();
             init_flag = true;
         }
@@ -136,46 +136,47 @@ public:
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(sorted, buf);
-        write_binary(events_list.size(), buf);
+        buf.write_binary(sorted);
+        buf.write_binary(events_list.size());
 
         for (const auto& events : events_list) {
-            write_binary(events.first, buf);
-            write_binary(events.second.to_ulong(), buf);
+            buf.write_binary(events.first);
+            buf.write_binary(events.second.to_ulong());
         }
 
-        UInt32 conditions_met_value = conditions_met.to_ulong();
-        write_binary(conditions_met_value, buf);
+        // This is std::bitset<32>, which will not exceed 32 bits.
+        UInt32 conditions_met_value = (UInt32)conditions_met.to_ulong();
+        buf.write_binary(conditions_met_value);
 
-        write_binary(pattern, buf);
-        write_binary(arg_count, buf);
+        buf.write_binary(pattern);
+        buf.write_binary(arg_count);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(sorted, buf);
+        buf.read_binary(sorted);
 
         size_t events_list_size;
-        read_binary(events_list_size, buf);
+        buf.read_binary(events_list_size);
 
         events_list.clear();
         events_list.reserve(events_list_size);
 
         for (size_t i = 0; i < events_list_size; ++i) {
             Timestamp timestamp;
-            read_binary(timestamp, buf);
+            buf.read_binary(timestamp);
 
             UInt64 events;
-            read_binary(events, buf);
+            buf.read_binary(events);
 
             events_list.emplace_back(timestamp, Events {events});
         }
 
         UInt32 conditions_met_value;
-        read_binary(conditions_met_value, buf);
+        buf.read_binary(conditions_met_value);
         conditions_met = conditions_met_value;
 
-        read_binary(pattern, buf);
-        read_binary(arg_count, buf);
+        buf.read_binary(pattern);
+        buf.read_binary(arg_count);
     }
 
 private:
@@ -201,7 +202,7 @@ private:
 
     using PatternActions = PODArrayWithStackMemory<PatternAction, 64>;
 
-    Derived& derived() { return assert_cast<Derived&>(*this); }
+    Derived& derived() { return assert_cast<Derived&, TypeCheckOnRelease::DISABLE>(*this); }
 
     void parse_pattern() {
         actions.clear();
@@ -413,7 +414,7 @@ public:
                 base_it = events_it;
                 ++action_it;
             } else if (action_it->type == PatternActionType::TimeLessOrEqual) {
-                if (events_it->first.second_diff(base_it->first) <= action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) <= action_it->extra) {
                     /// condition satisfied, move onto next action
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
@@ -421,28 +422,28 @@ public:
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeLess) {
-                if (events_it->first.second_diff(base_it->first) < action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) < action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (!do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreaterOrEqual) {
-                if (events_it->first.second_diff(base_it->first) >= action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) >= action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeGreater) {
-                if (events_it->first.second_diff(base_it->first) > action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) > action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
                 } else if (++events_it == events_end && !do_backtrack())
                     break;
             } else if (action_it->type == PatternActionType::TimeEqual) {
-                if (events_it->first.second_diff(base_it->first) == action_it->extra) {
+                if (events_it->first.datetime_diff_in_seconds(base_it->first) == action_it->extra) {
                     back_stack.emplace(action_it, events_it, base_it);
                     base_it = events_it;
                     ++action_it;
@@ -585,44 +586,49 @@ private:
     DFAStates dfa_states;
 };
 
-template <typename DateValueType, typename NativeType, typename Derived>
+template <PrimitiveType T, typename Derived>
 class AggregateFunctionSequenceBase
-        : public IAggregateFunctionDataHelper<
-                  AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>, Derived> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>,
+                                              Derived> {
 public:
+    using NativeType = typename PrimitiveTypeTraits<T>::ColumnItemType;
     AggregateFunctionSequenceBase(const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<
-                      AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
-                      Derived>(arguments) {
+            : IAggregateFunctionDataHelper<AggregateFunctionSequenceMatchData<T, Derived>, Derived>(
+                      arguments) {
         arg_count = arguments.size();
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, const ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         std::string pattern =
-                assert_cast<const ColumnString*>(columns[0])->get_data_at(0).to_string();
+                assert_cast<const ColumnString*, TypeCheckOnRelease::DISABLE>(columns[0])
+                        ->get_data_at(0)
+                        .to_string();
         this->data(place).init(pattern, arg_count);
 
-        const auto& timestamp =
-                assert_cast<const ColumnVector<NativeType>&>(*columns[1]).get_data()[row_num];
-        typename AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>::Events
-                events;
+        const auto& timestamp = assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                                            TypeCheckOnRelease::DISABLE>(*columns[1])
+                                        .get_data()[row_num];
+        typename AggregateFunctionSequenceMatchData<T, Derived>::Events events;
 
         for (auto i = 2; i < arg_count; i++) {
-            const auto event = assert_cast<const ColumnUInt8*>(columns[i])->get_data()[row_num];
+            const auto event =
+                    assert_cast<const ColumnUInt8*, TypeCheckOnRelease::DISABLE>(columns[i])
+                            ->get_data()[row_num];
             events.set(i - 2, event);
         }
 
-        this->data(place).add(binary_cast<NativeType, DateValueType>(timestamp), events);
+        this->data(place).add(
+                binary_cast<NativeType, typename PrimitiveTypeTraits<T>::CppType>(timestamp),
+                events);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         const std::string pattern = this->data(rhs).get_pattern();
-        size_t arg_count = this->data(rhs).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -631,32 +637,28 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
         const std::string pattern = this->data(place).get_pattern();
-        size_t arg_count = this->data(place).get_arg_count();
-        this->data(place).init(pattern, arg_count);
+        this->data(place).init(pattern, this->data(place).get_arg_count());
     }
 
 private:
     size_t arg_count;
 };
 
-template <typename DateValueType, typename NativeType>
+template <PrimitiveType T>
 class AggregateFunctionSequenceMatch final
-        : public AggregateFunctionSequenceBase<
-                  DateValueType, NativeType,
-                  AggregateFunctionSequenceMatch<DateValueType, NativeType>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSequenceMatch(const DataTypes& arguments, const String& pattern_)
-            : AggregateFunctionSequenceBase<
-                      DateValueType, NativeType,
-                      AggregateFunctionSequenceMatch<DateValueType, NativeType>>(arguments,
-                                                                                 pattern_) {}
+            : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceMatch<T>>(arguments,
+                                                                                  pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,
-                                        AggregateFunctionSequenceMatch<DateValueType, NativeType>>::
-            AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<
+            T, AggregateFunctionSequenceMatch<T>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_match"; }
 
@@ -691,21 +693,18 @@ public:
     }
 };
 
-template <typename DateValueType, typename NativeType>
+template <PrimitiveType T>
 class AggregateFunctionSequenceCount final
-        : public AggregateFunctionSequenceBase<
-                  DateValueType, NativeType,
-                  AggregateFunctionSequenceCount<DateValueType, NativeType>> {
+        : public AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionSequenceCount(const DataTypes& arguments, const String& pattern_)
-            : AggregateFunctionSequenceBase<
-                      DateValueType, NativeType,
-                      AggregateFunctionSequenceCount<DateValueType, NativeType>>(arguments,
-                                                                                 pattern_) {}
+            : AggregateFunctionSequenceBase<T, AggregateFunctionSequenceCount<T>>(arguments,
+                                                                                  pattern_) {}
 
-    using AggregateFunctionSequenceBase<DateValueType, NativeType,
-                                        AggregateFunctionSequenceCount<DateValueType, NativeType>>::
-            AggregateFunctionSequenceBase;
+    using AggregateFunctionSequenceBase<
+            T, AggregateFunctionSequenceCount<T>>::AggregateFunctionSequenceBase;
 
     String get_name() const override { return "sequence_count"; }
 
@@ -748,3 +747,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

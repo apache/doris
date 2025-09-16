@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -47,9 +49,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** PhysicalSqlCache */
-public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStringPlan, ComputeResultSet {
+public class PhysicalSqlCache extends PhysicalLeaf
+        implements SqlCache, TreeStringPlan, ComputeResultSet, BlockFuncDepsPropagation {
     private final TUniqueId queryId;
     private final List<String> columnLabels;
+    private final List<FieldInfo> fieldInfos;
     private final List<Expr> resultExprs;
     private final Optional<ResultSet> resultSet;
     private final List<InternalService.PCacheValue> cacheValues;
@@ -58,13 +62,14 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     /** PhysicalSqlCache */
     public PhysicalSqlCache(TUniqueId queryId,
-            List<String> columnLabels, List<Expr> resultExprs,
+            List<String> columnLabels, List<FieldInfo> fieldInfos, List<Expr> resultExprs,
             Optional<ResultSet> resultSet, List<InternalService.PCacheValue> cacheValues,
             String backendAddress, String planBody) {
         super(PlanType.PHYSICAL_SQL_CACHE, Optional.empty(),
-                new LogicalProperties(() -> ImmutableList.of(), () -> DataTrait.EMPTY_TRAIT));
+                new LogicalProperties(ImmutableList::of, () -> DataTrait.EMPTY_TRAIT));
         this.queryId = Objects.requireNonNull(queryId, "queryId can not be null");
         this.columnLabels = Objects.requireNonNull(columnLabels, "colNames can not be null");
+        this.fieldInfos = Objects.requireNonNull(fieldInfos, "fieldInfos can not be null");
         this.resultExprs = Objects.requireNonNull(resultExprs, "resultExprs can not be null");
         this.resultSet = Objects.requireNonNull(resultSet, "resultSet can not be null");
         this.cacheValues = Objects.requireNonNull(cacheValues, "cacheValues can not be null");
@@ -90,6 +95,10 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     public List<String> getColumnLabels() {
         return columnLabels;
+    }
+
+    public List<FieldInfo> getFieldInfos() {
+        return fieldInfos;
     }
 
     public List<Expr> getResultExprs() {
@@ -160,7 +169,7 @@ public class PhysicalSqlCache extends PhysicalLeaf implements SqlCache, TreeStri
 
     @Override
     public Optional<ResultSet> computeResultInFe(
-            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext) {
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
         return resultSet;
     }
 }

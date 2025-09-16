@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Preconditions;
@@ -33,8 +32,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -151,8 +148,8 @@ public class Partition extends MetaObject {
     public void updateVersionForRestore(long visibleVersion) {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+        LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",
+                name, id, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -166,7 +163,7 @@ public class Partition extends MetaObject {
     /* fromCache is only used in CloudPartition
      * make it overrided here to avoid rewrite all the usages with ugly Config.isCloudConfig() branches
      */
-    public long getVisibleVersion(Boolean fromCache) {
+    public long getCachedVisibleVersion() {
         return visibleVersion;
     }
 
@@ -291,7 +288,7 @@ public class Partition extends MetaObject {
     public long getDataSize(boolean singleReplica) {
         long dataSize = 0;
         for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
-            dataSize += mIndex.getDataSize(singleReplica);
+            dataSize += mIndex.getDataSize(singleReplica, false);
         }
         return dataSize;
     }
@@ -348,52 +345,6 @@ public class Partition extends MetaObject {
         return true;
     }
 
-    @Deprecated
-    public static Partition read(DataInput in) throws IOException {
-        Partition partition = EnvFactory.getInstance().createPartition();
-        partition.readFields(in);
-        return partition;
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        name = Text.readString(in);
-        state = PartitionState.valueOf(Text.readString(in));
-
-        baseIndex = MaterializedIndex.read(in);
-
-        int rollupCount = in.readInt();
-        for (int i = 0; i < rollupCount; ++i) {
-            MaterializedIndex rollupTable = MaterializedIndex.read(in);
-            idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
-        }
-
-        int shadowIndexCount = in.readInt();
-        for (int i = 0; i < shadowIndexCount; i++) {
-            MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-            idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
-        }
-
-        visibleVersion = in.readLong();
-        visibleVersionTime = in.readLong();
-        visibleVersionHash = in.readLong();
-        nextVersion = in.readLong();
-        nextVersionHash = in.readLong();
-        committedVersionHash = in.readLong();
-        DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
-        if (distriType == DistributionInfoType.HASH) {
-            distributionInfo = HashDistributionInfo.read(in);
-        } else if (distriType == DistributionInfoType.RANDOM) {
-            distributionInfo = RandomDistributionInfo.read(in);
-        } else {
-            throw new IOException("invalid distribution type: " + distriType);
-        }
-    }
-
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -445,5 +396,36 @@ public class Partition extends MetaObject {
         if (distributionInfo.getType() == DistributionInfoType.HASH) {
             distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
+    }
+
+    public boolean isRollupIndex(long id) {
+        return idToVisibleRollupIndex.containsKey(id);
+    }
+
+
+    public long getRowCount() {
+        return getBaseIndex().getRowCount();
+    }
+
+    public long getAvgRowLength() {
+        long rowCount = getBaseIndex().getRowCount();
+        long dataSize = getBaseIndex().getDataSize(false, false);
+        if (rowCount > 0) {
+            return dataSize / rowCount;
+        } else {
+            return 0;
+        }
+    }
+
+    public long getDataLength() {
+        return getBaseIndex().getDataSize(false, false);
+    }
+
+    public long getDataSizeExcludeEmptyReplica(boolean singleReplica) {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
+            dataSize += mIndex.getDataSize(singleReplica, true);
+        }
+        return dataSize + getRemoteDataSize();
     }
 }

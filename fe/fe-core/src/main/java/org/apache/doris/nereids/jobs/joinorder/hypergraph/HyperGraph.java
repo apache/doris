@@ -211,7 +211,8 @@ public class HyperGraph {
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
         return join.getJoinType() == JoinType.INNER_JOIN
                 && !join.isMarkJoin()
-                && !join.getExpressions().isEmpty();
+                && !join.getExpressions().isEmpty()
+                && !join.isLeadingJoin();
     }
 
     /**
@@ -425,7 +426,7 @@ public class HyperGraph {
                 LogicalFilter<?> filter = (LogicalFilter<?>) plan;
                 Pair<BitSet, Long> child = this.buildForMv(filter.child());
                 this.addFilter(filter, child);
-                return Pair.of(new BitSet(), child.second);
+                return Pair.of(child.first, child.second);
             }
 
             // process Other Node

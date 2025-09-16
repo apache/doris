@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_28741") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS test; """
 
     sql """
@@ -38,7 +40,7 @@ suite ("test_28741") {
             );
         """
 
-    createMV ("CREATE MATERIALIZED VIEW mv_test AS SELECT a,b,t,SUM(d) FROM test GROUP BY 1,2,3")
+    createMV ("CREATE MATERIALIZED VIEW mv_test AS SELECT a as x1,b as x2,t as x3,SUM(d) FROM test GROUP BY 1,2,3")
 
     sql "INSERT INTO test(a,b,c,t,d,e) VALUES (1,2,3,'2023-12-19 18:21:00', 56, 78)"
 
@@ -66,17 +68,11 @@ suite ("test_28741") {
     sql "INSERT INTO test(a,a1,b,b1,c,t,d,d1,e) VALUES (1,1,2,'-',3,'2023-12-20 17:21:00', 56, 78, 89)"
 
     sql """analyze table test with sync;"""
+    sql """alter table test modify column a set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select b1 from test where t >= '2023-12-20 17:21:00'")
-        contains "(test)"
-    }
-    qt_select "select b1 from test where t >= '2023-12-20 17:21:00'"
+    mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select b1 from test where t >= '2023-12-20 17:21:00'")
-        contains "(test)"
-    }
+    mv_rewrite_fail("select b1 from test where t >= '2023-12-20 17:21:00'", "mv_test")
 }

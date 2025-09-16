@@ -24,7 +24,6 @@
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
-#include "gutil/ref_counted.h"
 #include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream.h"
@@ -32,8 +31,7 @@
 
 namespace doris {
 
-LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num)
-        : _num_threads(segment_file_writer_thread_num) {
+LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num) {
     static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
                               .set_min_threads(segment_file_writer_thread_num)
                               .set_max_threads(segment_file_writer_thread_num)

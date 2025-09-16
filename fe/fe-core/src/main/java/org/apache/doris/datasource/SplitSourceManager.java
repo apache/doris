@@ -61,7 +61,12 @@ public class SplitSourceManager extends MasterDaemon {
     }
 
     public SplitSource getSplitSource(long uniqueId) {
-        return splits.get(uniqueId).get();
+        WeakReference<SplitSource> ref = splits.get(uniqueId);
+        if (ref == null) {
+            return null;
+        } else {
+            return ref.get();
+        }
     }
 
     @Override

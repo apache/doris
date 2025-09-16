@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
@@ -29,7 +30,7 @@ import java.util.Objects;
 /**
  * refresh mtmv
  */
-public class DropMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class DropMTMVCommand extends Command implements ForwardWithSync {
     private final DropMTMVInfo dropMTMVInfo;
 
     public DropMTMVCommand(DropMTMVInfo dropMTMVInfo) {
@@ -40,11 +41,20 @@ public class DropMTMVCommand extends Command implements ForwardWithSync, NotAllo
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         dropMTMVInfo.analyze(ctx);
-        Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
+        Env.getCurrentEnv().dropTable(this);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitDropMTMVCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
+    }
+
+    public DropMTMVInfo getDropMTMVInfo() {
+        return dropMTMVInfo;
     }
 }

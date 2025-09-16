@@ -27,16 +27,13 @@
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
-#include "gutil/macros.h"
-#include "gutil/strings/substitute.h"
-#include "io/fs/file_system.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -64,18 +61,21 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
-class InvertedIndexFileWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
 
+class VariantStatsCaculator;
+
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    uint32_t max_rows_per_segment = UINT32_MAX;
     bool enable_unique_key_merge_on_write = false;
     CompressionTypePB compression_type = UNKNOWN_COMPRESSION;
 
     RowsetWriterContext* rowset_ctx = nullptr;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
+    std::shared_ptr<MowContext> mow_ctx;
 };
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
@@ -84,9 +84,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
-                           uint32_t max_row_per_segment, const SegmentWriterOptions& opts,
-                           std::shared_ptr<MowContext> mow_context,
-                           io::FileWriterPtr inverted_file_writer = nullptr);
+                           const SegmentWriterOptions& opts, IndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -98,16 +96,23 @@ public:
     Status append_row(const RowType& row);
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
+                             bool have_delete_sign,
+                             const std::vector<RowsetSharedPtr>& specified_rowsets,
+                             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+                             bool& has_default_or_nullable,
+                             std::vector<bool>& use_default_or_null_flag,
+                             const std::function<void(const RowLocation& loc)>& found_cb,
+                             const std::function<Status()>& not_found_cb,
+                             PartialUpdateStats& stats);
+    Status partial_update_preconditions_check(size_t row_pos);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
-    Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
-    size_t try_get_inverted_index_file_size();
 
-    size_t get_inverted_index_file_size() const { return _inverted_index_file_size; }
     uint32_t num_rows_written() const { return _num_rows_written; }
 
     // for partial update
@@ -120,7 +125,7 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    uint32_t get_segment_id() { return _segment_id; }
+    uint32_t get_segment_id() const { return _segment_id; }
 
     Status finalize_columns_data();
     Status finalize_columns_index(uint64_t* index_size);
@@ -135,13 +140,20 @@ public:
 
     void clear();
 
-    TabletSchemaSPtr flush_schema() const { return _flush_schema; };
-
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
-    Status fill_missing_columns(vectorized::MutableColumns& mutable_full_columns,
-                                const std::vector<bool>& use_default_or_null_flag,
-                                bool has_default_or_nullable, const size_t& segment_start_pos,
-                                const vectorized::Block* block);
+
+    Status close_inverted_index(int64_t* inverted_index_file_size) {
+        // no inverted index
+        if (_index_file_writer == nullptr) {
+            *inverted_index_file_size = 0;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_index_file_writer->close());
+        *inverted_index_file_size = _index_file_writer->get_index_file_total_size();
+        return Status::OK();
+    }
+
+    uint64_t primary_keys_size() const { return _primary_keys_size; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -154,6 +166,7 @@ private:
     Status _write_zone_map();
     Status _write_bitmap_index();
     Status _write_inverted_index();
+    Status _write_ann_index();
     Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
@@ -174,8 +187,8 @@ private:
 
     // used for unique-key with merge on write
     void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
-                            string* encoded_keys);
-    void _encode_rowid(const uint32_t rowid, string* encoded_keys);
+                            std::string* encoded_keys);
+    void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
@@ -186,22 +199,27 @@ private:
             vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    bool _is_mow();
+    bool _is_mow_with_cluster_key();
 
 private:
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;
     DataDir* _data_dir = nullptr;
-    uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
-    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
+    // Not owned. owned by RowsetWriter or SegmentFlusher
+    IndexFileWriter* _index_file_writer = nullptr;
+
     SegmentFooterPB _footer;
-    size_t _num_key_columns;
+    // for mow tables with cluster key, the sort key is the cluster keys not unique keys
+    // for other tables, the sort key is the keys
+    size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
-    size_t _inverted_index_file_size;
+
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
@@ -240,10 +258,11 @@ private:
 
     std::shared_ptr<MowContext> _mow_context;
     // group every rowset-segment row id to speed up reader
-    PartialUpdateReadPlan _rssid_to_rid;
     std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
-    // contains auto generated columns, should be nullptr if no variants's subcolumns
-    TabletSchemaSPtr _flush_schema = nullptr;
+    std::vector<std::string> _primary_keys;
+    uint64_t _primary_keys_size = 0;
+    // variant statistics calculator for efficient stats collection
+    std::unique_ptr<VariantStatsCaculator> _variant_stats_calculator;
 };
 
 } // namespace segment_v2

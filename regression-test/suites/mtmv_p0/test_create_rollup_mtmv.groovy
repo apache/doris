@@ -51,7 +51,7 @@ suite("test_create_rollup_mtmv","mtmv") {
         alter table ${mvName} ADD ROLLUP rollup1(k3);
         """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         def jobStateResult = sql """SHOW ALTER TABLE ROLLUP WHERE TableName='${mvName}' ORDER BY CreateTime DESC LIMIT 1; """
         String res = jobStateResult[0][8]
@@ -78,9 +78,7 @@ suite("test_create_rollup_mtmv","mtmv") {
     order_qt_refresh_mv "SELECT * FROM ${mvName}"
     order_qt_sync_mv "SELECT k3 FROM ${mvName}"
 
-    def explainResult = sql """explain SELECT k3 FROM ${mvName}"""
-    logger.info("explainResult: " + explainResult.toString())
-    assertTrue(explainResult.toString().contains('rollup1'))
+    mv_rewrite_success_without_check_chosen("""SELECT k3 FROM ${mvName}""", "rollup1")
 
     sql """alter table ${mvName} drop ROLLUP rollup1;"""
 

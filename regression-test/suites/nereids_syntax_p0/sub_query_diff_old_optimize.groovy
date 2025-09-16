@@ -193,7 +193,7 @@ suite ("sub_query_diff_old_optimize") {
         sql """
             SELECT DISTINCT k1 FROM sub_query_diff_old_optimize_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_diff_old_optimize_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k2 = i1.k1) AND (k2 = 1)) )  > 0);
         """
-        exception "scalar subquery's correlatedPredicates's operator must be EQ"
+        exception "Unsupported correlated subquery with correlated predicate"
 
     }
 }

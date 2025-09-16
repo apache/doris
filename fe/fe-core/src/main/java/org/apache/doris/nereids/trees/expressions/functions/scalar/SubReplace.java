@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -35,7 +36,7 @@ import java.util.List;
  * ScalarFunction 'sub_replace'
  */
 public class SubReplace extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNullable {
+        implements ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
@@ -63,17 +64,18 @@ public class SubReplace extends ScalarFunction
         super("sub_replace", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private SubReplace(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public SubReplace withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3 || children.size() == 4);
-        if (children.size() == 3) {
-            return new SubReplace(children.get(0), children.get(1), children.get(2));
-        } else {
-            return new SubReplace(children.get(0), children.get(1), children.get(2), children.get(3));
-        }
+        return new SubReplace(getFunctionParams(children));
     }
 
     @Override

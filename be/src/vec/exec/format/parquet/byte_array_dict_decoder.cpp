@@ -28,10 +28,13 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
-
-Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
+#include "common/compile_check_begin.h"
+Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);
+    if (_dict == nullptr) {
+        return Status::Corruption("Wrong dictionary data for byte array type, dict is null.");
+    }
     _dict_items.reserve(num_values);
     uint32_t offset_cursor = 0;
     char* dict_item_address = reinterpret_cast<char*>(_dict.get());
@@ -44,7 +47,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         total_length += l;
     }
 
-    _dict_value_to_code.reserve(num_values);
     // For insert_many_strings_overflow
     _dict_data.resize(total_length + ColumnString::MAX_STRINGS_OVERFLOW_SIZE);
     _max_value_length = 0;
@@ -55,7 +57,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
         offset_cursor += 4;
         memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
         _dict_items.emplace_back(&_dict_data[offset], l);
-        _dict_value_to_code[StringRef(&_dict_data[offset], l)] = i;
         offset_cursor += l;
         offset += l;
         if (offset_cursor > length) {
@@ -74,15 +75,6 @@ Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t 
 Status ByteArrayDictDecoder::read_dict_values_to_column(MutableColumnPtr& doris_column) {
     doris_column->insert_many_strings_overflow(_dict_items.data(), _dict_items.size(),
                                                _max_value_length);
-    return Status::OK();
-}
-
-Status ByteArrayDictDecoder::get_dict_codes(const ColumnString* string_column,
-                                            std::vector<int32_t>* dict_codes) {
-    for (int i = 0; i < string_column->size(); ++i) {
-        StringRef dict_value = string_column->get_data_at(i);
-        dict_codes->emplace_back(_dict_value_to_code[dict_value]);
-    }
     return Status::OK();
 }
 
@@ -115,11 +107,14 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     if (doris_column->is_column_dictionary()) {
         ColumnDictI32& dict_column = assert_cast<ColumnDictI32&>(*doris_column);
         if (dict_column.dict_size() == 0) {
-            dict_column.insert_many_dict_data(_dict_items.data(), _dict_items.size());
+            //If the dictionary grows too big, whether in size or number of distinct values,
+            // the encoding will fall back to the plain encoding.
+            dict_column.insert_many_dict_data(_dict_items.data(),
+                                              cast_set<uint32_t>(_dict_items.size()));
         }
     }
     _indexes.resize(non_null_size);
-    _index_batch_decoder->GetBatch(_indexes.data(), non_null_size);
+    _index_batch_decoder->GetBatch(_indexes.data(), cast_set<uint32_t>(non_null_size));
 
     if (doris_column->is_column_dictionary() || is_dict_filter) {
         return _decode_dict_values<has_filter>(doris_column, select_vector, is_dict_filter);
@@ -156,4 +151,6 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

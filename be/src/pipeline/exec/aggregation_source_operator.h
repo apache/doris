@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include "common/be_mock_util.h"
 #include "common/status.h"
 #include "operator.h"
 
@@ -25,10 +26,10 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggSharedState> {
+class AggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<AggSharedState> {
 public:
     using Base = PipelineXLocalState<AggSharedState>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
@@ -39,7 +40,6 @@ public:
     Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(vectorized::Block* block);
-    template <bool limit>
     Status merge_with_serialized_key_helper(vectorized::Block* block);
     void do_agg_limit(vectorized::Block* block, bool* eos);
 
@@ -47,13 +47,12 @@ protected:
     friend class AggSourceOperatorX;
 
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status _serialize_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status _get_results_without_key(RuntimeState* state, vectorized::Block* block, bool* eos);
     Status _get_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
                                            bool* eos);
-    Status _serialize_with_serialized_key_result(RuntimeState* state, vectorized::Block* block,
-                                                 bool* eos);
+    Status _get_results_with_serialized_key(RuntimeState* state, vectorized::Block* block,
+                                            bool* eos);
     Status _create_agg_status(vectorized::AggregateDataPtr data);
-    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     void _make_nullable_output_key(vectorized::Block* block) {
         if (block->rows() != 0) {
             auto& shared_state = *Base ::_shared_state;
@@ -64,26 +63,28 @@ protected:
             }
         }
     }
-    void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-    size_t _get_hash_table_size();
+                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
 
     vectorized::PODArray<vectorized::AggregateDataPtr> _places;
+    vectorized::Arena _agg_arena_pool;
     std::vector<char> _deserialize_buffer;
 
     RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
 
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_container = nullptr;
+    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
     using vectorized_get_result =
             std::function<Status(RuntimeState* state, vectorized::Block* block, bool* eos)>;
@@ -100,14 +101,19 @@ public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs);
-    ~AggSourceOperatorX() = default;
+    ~AggSourceOperatorX() override = default;
+
+#ifdef BE_TEST
+    AggSourceOperatorX() = default;
+#endif
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
-    template <bool limit>
     Status merge_with_serialized_key_helper(RuntimeState* state, vectorized::Block* block);
+
+    size_t get_estimated_memory_size_for_merging(RuntimeState* state, size_t rows) const;
 
 private:
     friend class AggLocalState;
@@ -122,3 +128,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

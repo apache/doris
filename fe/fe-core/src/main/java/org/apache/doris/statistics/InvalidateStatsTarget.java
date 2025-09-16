@@ -38,11 +38,16 @@ public class InvalidateStatsTarget {
     @SerializedName("partitions")
     public final Set<String> partitions;
 
-    public InvalidateStatsTarget(long catalogId, long dbId, long tableId, Set<String> columns, Set<String> partitions) {
+    @SerializedName("it")
+    public final boolean isTruncate;
+
+    public InvalidateStatsTarget(long catalogId, long dbId, long tableId, Set<String> columns,
+                                 Set<String> partitions, boolean isTruncate) {
         this.catalogId = catalogId;
         this.dbId = dbId;
         this.tableId = tableId;
         this.columns = columns;
         this.partitions = partitions;
+        this.isTruncate = isTruncate;
     }
 }

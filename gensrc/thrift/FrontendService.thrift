@@ -30,18 +30,10 @@ include "RuntimeProfile.thrift"
 include "MasterService.thrift"
 include "AgentService.thrift"
 include "DataSinks.thrift"
+include "HeartbeatService.thrift"
 
 // These are supporting structs for JniFrontend.java, which serves as the glue
 // between our C++ execution environment and the Java frontend.
-
-struct TSetSessionParams {
-    1: required string user
-}
-
-struct TAuthenticateParams {
-    1: required string user
-    2: required string passwd
-}
 
 struct TColumnDesc {
   1: required string columnName
@@ -52,6 +44,7 @@ struct TColumnDesc {
   6: optional bool isAllowNull
   7: optional string columnKey
   8: optional list<TColumnDesc> children
+  9: optional string defaultValue
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -60,23 +53,6 @@ struct TColumnDesc {
 struct TColumnDef {
   1: required TColumnDesc columnDesc
   2: optional string comment
-}
-
-// Arguments to DescribeTable, which returns a list of column descriptors for a
-// given table
-struct TDescribeTableParams {
-  1: optional string db
-  2: required string table_name
-  3: optional string user   // deprecated
-  4: optional string user_ip    // deprecated
-  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
-  6: optional bool show_hidden_columns = false
-  7: optional string catalog
-}
-
-// Results of a call to describeTable()
-struct TDescribeTableResult {
-  1: required list<TColumnDef> columns
 }
 
 // Arguments to DescribeTables, which returns a list of column descriptors for
@@ -105,200 +81,9 @@ struct TShowVariableRequest {
 
 // Results of a call to describeTable()
 struct TShowVariableResult {
-    1: required map<string, string> variables
+    1: required list<list<string>> variables
 }
 
-// Valid table file formats
-enum TFileFormat {
-  PARQUETFILE,
-  RCFILE,
-  SEQUENCEFILE,
-  TEXTFILE,
-}
-
-// set type
-enum TSetType {
-  OPT_DEFAULT,
-  OPT_GLOBAL,
-  OPT_SESSION,
-}
-
-// The row format specifies how to interpret the fields (columns) and lines (rows) in a
-// data file when creating a new table.
-struct TTableRowFormat {
-  // Optional terminator string used to delimit fields (columns) in the table
-  1: optional string field_terminator
-
-  // Optional terminator string used to delimit lines (rows) in a table
-  2: optional string line_terminator
-
-  // Optional string used to specify a special escape character sequence
-  3: optional string escaped_by
-}
-
-
-// Represents a single item in a partition spec (column name + value)
-struct TPartitionKeyValue {
-  // Partition column name
-  1: required string name,
-
-  // Partition value
-  2: required string value
-}
-
-// Per-client session state
-struct TSessionState {
-  // The default database, changed by USE <database> queries.
-  1: required string database
-
-  // The user who this session belongs to.
-  2: required string user
-
-  // The user who this session belongs to.
-  3: required i64 connection_id
-}
-
-struct TClientRequest {
-  // select stmt to be executed
-  1: required string stmt
-
-  // query options
-  2: required PaloInternalService.TQueryOptions queryOptions
-
-  // session state
-  3: required TSessionState sessionState;
-}
-
-
-// Parameters for SHOW DATABASES commands
-struct TExplainParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required string explain
-}
-
-struct TSetVar{
-    1: required TSetType type
-    2: required string variable
-    3: required Exprs.TExpr value
-}
-// Parameters for Set commands
-struct TSetParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required list<TSetVar> set_vars
-}
-
-struct TKillParams {
-  // Optional pattern to match database names. If not set, all databases are returned.
-  1: required bool is_kill_connection
-  2: required i64 connection_id
-}
-
-struct TCommonDdlParams {
-  //1: required Ddl.TCommonDdlType ddl_type
-  //2: optional Ddl.TCreateDbParams create_db_params
-  //3: optional Ddl.TCreateTableParams create_table_params
-  //4: optional Ddl.TLoadParams load_params
-}
-
-// Parameters for the USE db command
-struct TUseDbParams {
-  1: required string db
-}
-
-struct TResultSetMetadata {
-  1: required list<TColumnDesc> columnDescs
-}
-
-// Result of call to PaloPlanService/JniFrontend.CreateQueryRequest()
-struct TQueryExecRequest {
-  // global descriptor tbl for all fragments
-  1: optional Descriptors.TDescriptorTable desc_tbl
-
-  // fragments[i] may consume the output of fragments[j > i];
-  // fragments[0] is the root fragment and also the coordinator fragment, if
-  // it is unpartitioned.
-  2: required list<Planner.TPlanFragment> fragments
-
-  // Specifies the destination fragment of the output of each fragment.
-  // parent_fragment_idx.size() == fragments.size() - 1 and
-  // fragments[i] sends its output to fragments[dest_fragment_idx[i-1]]
-  3: optional list<i32> dest_fragment_idx
-
-  // A map from scan node ids to a list of scan range locations.
-  // The node ids refer to scan nodes in fragments[].plan_tree
-  4: optional map<Types.TPlanNodeId, list<Planner.TScanRangeLocations>>
-      per_node_scan_ranges
-
-  // Metadata of the query result set (only for select)
-  5: optional TResultSetMetadata result_set_metadata
-
-  7: required PaloInternalService.TQueryGlobals query_globals
-
-  // The statement type governs when the coordinator can judge a query to be finished.
-  // DML queries are complete after Wait(), SELECTs may not be.
-  9: required Types.TStmtType stmt_type
-
-  // The statement type governs when the coordinator can judge a query to be finished.
-  // DML queries are complete after Wait(), SELECTs may not be.
-  10: optional bool is_block_query;
-}
-
-enum TDdlType {
-  USE,
-  DESCRIBE,
-  SET,
-  EXPLAIN,
-  KILL,
-  COMMON
-}
-
-struct TDdlExecRequest {
-  1: required TDdlType ddl_type
-
-  // Parameters for USE commands
-  2: optional TUseDbParams use_db_params;
-
-  // Parameters for DESCRIBE table commands
-  3: optional TDescribeTableParams describe_table_params
-
-  10: optional TExplainParams explain_params
-
-  11: optional TSetParams set_params
-  12: optional TKillParams kill_params
-  //13: optional Ddl.TMasterDdlRequest common_params
-}
-
-// Results of an EXPLAIN
-struct TExplainResult {
-    // each line in the explain plan occupies an entry in the list
-    1: required list<Data.TResultRow> results
-}
-
-// Result of call to createExecRequest()
-struct TExecRequest {
-  1: required Types.TStmtType stmt_type;
-
-  2: optional string sql_stmt;
-
-  // Globally unique id for this request. Assigned by the planner.
-  3: required Types.TUniqueId request_id
-
-  // Copied from the corresponding TClientRequest
-  4: required PaloInternalService.TQueryOptions query_options;
-
-  // TQueryExecRequest for the backend
-  // Set iff stmt_type is QUERY or DML
-  5: optional TQueryExecRequest query_exec_request
-
-  // Set iff stmt_type is DDL
-  6: optional TDdlExecRequest ddl_exec_request
-
-  // Metadata of the query result set (not set for DML)
-  7: optional TResultSetMetadata result_set_metadata
-
-  // Result of EXPLAIN. Set iff stmt_type is EXPLAIN
-  8: optional TExplainResult explain_result
-}
 
 // Arguments to getDbNames, which returns a list of dbs that match an optional
 // pattern
@@ -333,6 +118,7 @@ struct TGetTablesParams {
   5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
   6: optional string type
   7: optional string catalog
+  8: optional string table
 }
 
 struct TTableStatus {
@@ -349,6 +135,7 @@ struct TTableStatus {
     11: optional i64 rows;
     12: optional i64 avg_row_length
     13: optional i64 data_length;
+    14: optional i64 index_length;
 }
 
 struct TListTableStatusResult {
@@ -388,7 +175,7 @@ struct TReportExecStatusResult {
 
 // Service Protocol Details
 enum FrontendServiceVersion {
-  V1
+  V1 = 0
 }
 
 struct TDetailedReportParams {
@@ -412,6 +199,8 @@ struct TQueryStatistics {
     9: optional i64 shuffle_send_rows
     10: optional i64 scan_bytes_from_local_storage
     11: optional i64 scan_bytes_from_remote_storage
+    12: optional i64 spill_write_bytes_to_local_storage
+    13: optional i64 spill_read_bytes_from_local_storage
 }
 
 struct TReportWorkloadRuntimeStatusParams {
@@ -432,6 +221,14 @@ struct TQueryProfile {
 
     5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
 }
+
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
+}
+
 
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
@@ -508,6 +305,8 @@ struct TReportExecStatusParams {
 
   29: optional i64 txn_id
   30: optional string label
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
@@ -538,6 +337,15 @@ struct TTxnLoadInfo {
     4: optional i64 timeoutTimestamp
     5: optional i64 allSubTxnNum
     6: optional list<TSubTxnInfo> subTxnInfos
+}
+
+struct TGroupCommitInfo{
+    1: optional bool getGroupCommitLoadBeId
+    2: optional i64 groupCommitLoadTableId
+    3: optional string cluster
+    5: optional bool updateLoadData
+    6: optional i64 tableId 
+    7: optional i64 receiveData
 }
 
 struct TMasterOpRequest {
@@ -573,10 +381,16 @@ struct TMasterOpRequest {
     28: optional map<string, Exprs.TExprNode> user_variables
     // transaction load
     29: optional TTxnLoadInfo txnLoadInfo
+    30: optional TGroupCommitInfo groupCommitInfo
+    31: optional binary prepareExecuteBuffer
+    32: optional bool moreResultExists // Server has more result to send
 
     // selectdb cloud
     1000: optional string cloud_cluster
     1001: optional bool noAuth;
+
+    // temporary table
+    1002: optional string sessionId
 }
 
 struct TColumnDefinition {
@@ -606,6 +420,8 @@ struct TMasterOpResult {
     8: optional list<binary> queryResultBufList;
     // transaction load
     9: optional TTxnLoadInfo txnLoadInfo;
+    10: optional i64 groupCommitLoadBeId;
+    11: optional i64 affectedRows;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -623,12 +439,12 @@ struct TLoadTxnBeginRequest {
     6: optional string user_ip
     7: required string label
     8: optional i64 timestamp   // deprecated, use request_id instead
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
-    13: optional string auth_code_uuid
+    13: optional string auth_code_uuid // deprecated, use token instead
     14: optional i64 table_id
     15: optional i64 backend_id
 }
@@ -648,7 +464,7 @@ struct TBeginTxnRequest {
     5: optional list<i64> table_ids
     6: optional string user_ip
     7: optional string label
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     9: optional i64 timeout
     10: optional Types.TUniqueId request_id
@@ -696,7 +512,7 @@ struct TStreamLoadPutRequest {
     14: optional string columnSeparator
 
     15: optional string partitions
-    16: optional i64 auth_code
+    16: optional i64 auth_code // deprecated, use token instead
     17: optional bool negative
     18: optional i32 timeout
     19: optional bool strictMode
@@ -739,6 +555,9 @@ struct TStreamLoadPutRequest {
     54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
+    57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
+    58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
+    59: optional bool empty_field_as_null
 
     // For cloud
     1000: optional string cloud_cluster
@@ -809,14 +628,17 @@ struct TLoadTxnCommitRequest {
     7: required i64 txnId
     8: required bool sync
     9: optional list<Types.TTabletCommitInfo> commitInfos
-    10: optional i64 auth_code
+    10: optional i64 auth_code // deprecated, use token instead
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
-    17: optional string auth_code_uuid
+    17: optional string auth_code_uuid // deprecated, use token instead
+    18: optional bool groupCommit
+    19: optional i64 receiveBytes
+    20: optional i64 backendId 
 }
 
 struct TLoadTxnCommitResult {
@@ -831,7 +653,7 @@ struct TCommitTxnRequest {
     5: optional string user_ip
     6: optional i64 txn_id
     7: optional list<Types.TTabletCommitInfo> commit_infos
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     9: optional TTxnCommitAttachment txn_commit_attachment
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string token
@@ -839,6 +661,7 @@ struct TCommitTxnRequest {
     // used for ccr
     13: optional bool txn_insert
     14: optional list<TSubTxnInfo> sub_txn_infos
+    15: optional bool only_commit   // only commit txn, without waiting txn publish
 }
 
 struct TCommitTxnResult {
@@ -854,13 +677,13 @@ struct TLoadTxn2PCRequest {
     5: optional string user_ip
     6: optional i64 txnId
     7: optional string operation
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
 
     // For cloud
-    1000: optional string auth_code_uuid
+    1000: optional string auth_code_uuid // deprecated, use token instead
 }
 
 struct TLoadTxn2PCResult {
@@ -875,7 +698,7 @@ struct TRollbackTxnRequest {
     5: optional string user_ip
     6: optional i64 txn_id
     7: optional string reason
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     10: optional TTxnCommitAttachment txn_commit_attachment
     11: optional string token
     12: optional i64 db_id
@@ -895,12 +718,12 @@ struct TLoadTxnRollbackRequest {
     6: optional string user_ip
     7: required i64 txnId
     8: optional string reason
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     10: optional TTxnCommitAttachment txnCommitAttachment
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
-    14: optional string auth_code_uuid
+    14: optional string auth_code_uuid // deprecated, use token instead
     15: optional string label
 }
 
@@ -924,6 +747,18 @@ enum TFrontendPingFrontendStatusCode {
 struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
+   3: optional string deployMode
+}
+
+struct TFrontendReportAliveSessionRequest {
+   1: required i32 clusterId
+   2: required string token
+}
+
+struct TFrontendReportAliveSessionResult {
+   1: required Status.TStatusCode status
+   2: required string msg
+   3: required list<string> sessionIdList
 }
 
 struct TDiskInfo {
@@ -987,6 +822,11 @@ enum TSchemaTableName {
   ROUTINES_INFO = 4, // db information_schema's table
   WORKLOAD_SCHEDULE_POLICY = 5,
   TABLE_OPTIONS = 6,
+  WORKLOAD_GROUP_PRIVILEGES = 7,
+  TABLE_PROPERTIES = 8,
+  CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
+  VIEW_DEPENDENCY = 11,
 }
 
 struct TMetadataTableRequestParams {
@@ -1001,12 +841,19 @@ struct TMetadataTableRequestParams {
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
+  12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
+  13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
+  14: optional PlanNodes.THudiMetadataParams hudi_metadata_params
 }
 
 struct TSchemaTableRequestParams {
     1: optional list<string> columns_name
     2: optional Types.TUserIdentity current_user_ident
     3: optional bool replay_to_other_fe
+    4: optional string catalog  // use for table specific queries
+    5: optional i64 dbId         // used for table specific queries
+    6: optional string time_zone // used for DATETIME field
+    7: optional string frontend_conjuncts
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1125,6 +972,29 @@ struct TQueryStatsResult {
     5: optional map<i64, i64> tablet_stats
 }
 
+// Lock the binlogs, to avoid being GC during sync.
+//
+// The caller should lock the binlog before backup, and bumps lock commit seq intervally.
+//
+// The locked binlogs will be kept until the binlog properties ttl_seconds, max_bytes ... are reached.
+struct TLockBinlogRequest {
+    1: optional string cluster
+    2: optional string user
+    3: optional string passwd
+    4: optional string db
+    5: optional string table
+    6: optional i64 table_id
+    7: optional string token
+    8: optional string job_unique_id
+    9: optional i64 lock_commit_seq // if not set, lock the latest binlog
+}
+
+struct TLockBinlogResult {
+    1: optional Status.TStatus status
+    2: optional i64 locked_commit_seq
+    3: optional Types.TNetworkAddress master_address
+}
+
 struct TGetBinlogRequest {
     1: optional string cluster
     2: optional string user
@@ -1135,6 +1005,8 @@ struct TGetBinlogRequest {
     7: optional string user_ip
     8: optional string token
     9: optional i64 prev_commit_seq
+    10: optional i64 num_acquired // the max num of binlogs in a batch
+    11: optional bool allow_follower_read
 }
 
 enum TBinlogType {
@@ -1153,6 +1025,124 @@ enum TBinlogType {
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
   RENAME_TABLE = 14,
+  RENAME_COLUMN = 15,
+  MODIFY_COMMENT = 16,
+  MODIFY_VIEW_DEF = 17,
+  REPLACE_TABLE = 18,
+  MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 19,
+  INDEX_CHANGE_JOB = 20,
+  RENAME_ROLLUP = 21,
+  RENAME_PARTITION = 22,
+  DROP_ROLLUP = 23,
+  RECOVER_INFO = 24,
+  MODIFY_DISTRIBUTION_BUCKET_NUM = 25,
+  MODIFY_DISTRIBUTION_TYPE = 26,
+
+  // Keep some IDs for allocation so that when new binlog types are added in the
+  // future, the changes can be picked back to the old versions without breaking
+  // compatibility.
+  //
+  // The code will check the IDs of binlog types, any binlog types whose IDs are
+  // greater than or equal to MIN_UNKNOWN will be ignored.
+  //
+  // For example, before you adding new binlog type MODIFY_XXX:
+  //    MIN_UNKNOWN = 17,
+  //    UNKNOWN_2 = 18,
+  //    UNKNOWN_3 = 19,
+  // After adding binlog type MODIFY_XXX:
+  //    MODIFY_XXX = 17,
+  //    MIN_UNKNOWN = 18,
+  //    UNKNOWN_3 = 19,
+  MIN_UNKNOWN = 27,
+  UNKNOWN_12 = 28,
+  UNKNOWN_13 = 29,
+  UNKNOWN_14 = 30,
+  UNKNOWN_15 = 31,
+  UNKNOWN_16 = 32,
+  UNKNOWN_17 = 33,
+  UNKNOWN_18 = 34,
+  UNKNOWN_19 = 35,
+  UNKNOWN_20 = 36,
+  UNKNOWN_21 = 37,
+  UNKNOWN_22 = 38,
+  UNKNOWN_23 = 39,
+  UNKNOWN_24 = 40,
+  UNKNOWN_25 = 41,
+  UNKNOWN_26 = 42,
+  UNKNOWN_27 = 43,
+  UNKNOWN_28 = 44,
+  UNKNOWN_29 = 45,
+  UNKNOWN_30 = 46,
+  UNKNOWN_31 = 47,
+  UNKNOWN_32 = 48,
+  UNKNOWN_33 = 49,
+  UNKNOWN_34 = 50,
+  UNKNOWN_35 = 51,
+  UNKNOWN_36 = 52,
+  UNKNOWN_37 = 53,
+  UNKNOWN_38 = 54,
+  UNKNOWN_39 = 55,
+  UNKNOWN_40 = 56,
+  UNKNOWN_41 = 57,
+  UNKNOWN_42 = 58,
+  UNKNOWN_43 = 59,
+  UNKNOWN_44 = 60,
+  UNKNOWN_45 = 61,
+  UNKNOWN_46 = 62,
+  UNKNOWN_47 = 63,
+  UNKNOWN_48 = 64,
+  UNKNOWN_49 = 65,
+  UNKNOWN_50 = 66,
+  UNKNOWN_51 = 67,
+  UNKNOWN_52 = 68,
+  UNKNOWN_53 = 69,
+  UNKNOWN_54 = 70,
+  UNKNOWN_55 = 71,
+  UNKNOWN_56 = 72,
+  UNKNOWN_57 = 73,
+  UNKNOWN_58 = 74,
+  UNKNOWN_59 = 75,
+  UNKNOWN_60 = 76,
+  UNKNOWN_61 = 77,
+  UNKNOWN_62 = 78,
+  UNKNOWN_63 = 79,
+  UNKNOWN_64 = 80,
+  UNKNOWN_65 = 81,
+  UNKNOWN_66 = 82,
+  UNKNOWN_67 = 83,
+  UNKNOWN_68 = 84,
+  UNKNOWN_69 = 85,
+  UNKNOWN_70 = 86,
+  UNKNOWN_71 = 87,
+  UNKNOWN_72 = 88,
+  UNKNOWN_73 = 89,
+  UNKNOWN_74 = 90,
+  UNKNOWN_75 = 91,
+  UNKNOWN_76 = 92,
+  UNKNOWN_77 = 93,
+  UNKNOWN_78 = 94,
+  UNKNOWN_79 = 95,
+  UNKNOWN_80 = 96,
+  UNKNOWN_81 = 97,
+  UNKNOWN_82 = 98,
+  UNKNOWN_83 = 99,
+  UNKNOWN_84 = 100,
+  UNKNOWN_85 = 101,
+  UNKNOWN_86 = 102,
+  UNKNOWN_87 = 103,
+  UNKNOWN_88 = 104,
+  UNKNOWN_89 = 105,
+  UNKNOWN_90 = 106,
+  UNKNOWN_91 = 107,
+  UNKNOWN_92 = 108,
+  UNKNOWN_93 = 109,
+  UNKNOWN_94 = 110,
+  UNKNOWN_95 = 111,
+  UNKNOWN_96 = 112,
+  UNKNOWN_97 = 113,
+  UNKNOWN_98 = 114,
+  UNKNOWN_99 = 115,
+  UNKNOWN_100 = 116,
 }
 
 struct TBinlog {
@@ -1178,6 +1168,7 @@ struct TGetBinlogResult {
 
 struct TGetTabletReplicaInfosRequest {
     1: required list<i64> tablet_ids
+    2: optional i64 warm_up_job_id
 }
 
 struct TGetTabletReplicaInfosResult {
@@ -1201,6 +1192,7 @@ struct TGetSnapshotRequest {
     7: optional string label_name
     8: optional string snapshot_name
     9: optional TSnapshotType snapshot_type
+    10: optional bool enable_compress;
 }
 
 struct TGetSnapshotResult {
@@ -1208,6 +1200,9 @@ struct TGetSnapshotResult {
     2: optional binary meta
     3: optional binary job_info
     4: optional Types.TNetworkAddress master_address
+    5: optional bool compressed;
+    6: optional i64 expiredAt;  // in millis
+    7: optional i64 commit_seq;
 }
 
 struct TTableRef {
@@ -1228,6 +1223,11 @@ struct TRestoreSnapshotRequest {
     10: optional map<string, string> properties
     11: optional binary meta
     12: optional binary job_info
+    13: optional bool clean_tables
+    14: optional bool clean_partitions
+    15: optional bool atomic_restore
+    16: optional bool compressed;
+    17: optional bool force_replace
 }
 
 struct TRestoreSnapshotResult {
@@ -1305,12 +1305,23 @@ struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
     3: optional Types.TNetworkAddress master_address
+    4: optional i64 first_commit_seq
+    5: optional i64 last_commit_seq
+    6: optional i64 first_binlog_timestamp
+    7: optional i64 last_binlog_timestamp
+    8: optional i64 next_commit_seq
+    9: optional i64 next_binlog_timestamp
 }
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
     2: optional list<string> statsRows;
     3: optional string colStatsData;
+}
+
+struct TUpdatePlanStatsCacheRequest {
+    1: optional string key;
+    2: optional string planStatsData;
 }
 
 struct TInvalidateFollowerStatsCacheRequest {
@@ -1344,6 +1355,7 @@ struct TCreatePartitionRequest {
     4: optional list<list<Exprs.TNullableStringLiteral>> partitionValues
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TCreatePartitionResult {
@@ -1351,6 +1363,7 @@ struct TCreatePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 // these two for auto detect replacing partition
@@ -1361,6 +1374,7 @@ struct TReplacePartitionRequest {
     4: optional list<i64> partition_ids // partition to replace.
     // be_endpoint = <ip>:<heartbeat_port> to distinguish a particular BE
     5: optional string be_endpoint
+    6: optional bool write_single_replica = false
 }
 
 struct TReplacePartitionResult {
@@ -1368,6 +1382,7 @@ struct TReplacePartitionResult {
     2: optional list<Descriptors.TOlapTablePartition> partitions
     3: optional list<Descriptors.TTabletLocation> tablets
     4: optional list<Descriptors.TNodeInfo> nodes
+    5: optional list<Descriptors.TTabletLocation> slave_tablets
 }
 
 struct TGetMetaReplica {
@@ -1450,13 +1465,19 @@ struct TGetMetaTableMeta {
     2: optional string name
     3: optional bool in_trash
     4: optional list<TGetMetaPartitionMeta> partitions
+    5: optional string type
 }
 
 struct TGetMetaDBMeta {
     1: optional i64 id
     2: optional string name
     3: optional list<TGetMetaTableMeta> tables
-    4: optional list<i64> dropped_partitions
+    4: optional list<i64> dropped_partitions    // DEPRECATED
+    5: optional list<i64> dropped_tables        // DEPRECATED
+    6: optional list<i64> dropped_indexes       // DEPRECATED
+    7: optional map<i64, i64> dropped_partition_map     // id -> commit seq
+    8: optional map<i64, i64> dropped_table_map         // id -> commit seq
+    9: optional map<i64, i64> dropped_index_map         // id -> commit seq
 }
 
 struct TGetMetaResult {
@@ -1497,6 +1518,8 @@ struct TGetColumnInfoResult {
 
 struct TShowProcessListRequest {
     1: optional bool show_full_sql
+    2: optional Types.TUserIdentity current_user_ident
+    3: optional string time_zone
 }
 
 struct TShowProcessListResult {
@@ -1536,12 +1559,94 @@ struct TFetchSplitBatchRequest {
 
 struct TFetchSplitBatchResult {
     1: optional list<Planner.TScanRangeLocations> splits
+    2: optional Status.TStatus status
+}
+
+struct TFetchRunningQueriesResult {
+    1: optional Status.TStatus status
+    2: optional list<Types.TUniqueId> running_queries
+}
+
+struct TFetchRunningQueriesRequest {
+}
+
+struct TFetchRoutineLoadJobRequest {
+}
+
+struct TRoutineLoadJob {
+    1: optional string job_id
+    2: optional string job_name
+    3: optional string create_time
+    4: optional string pause_time
+    5: optional string end_time
+    6: optional string db_name
+    7: optional string table_name
+    8: optional string state
+    9: optional string current_task_num
+    10: optional string job_properties
+    11: optional string data_source_properties
+    12: optional string custom_properties
+    13: optional string statistic
+    14: optional string progress
+    15: optional string lag
+    16: optional string reason_of_state_changed
+    17: optional string error_log_urls
+    18: optional string user_name
+    19: optional i32 current_abort_task_num
+    20: optional bool is_abnormal_pause
+}
+
+struct TFetchRoutineLoadJobResult {
+    1: optional list<TRoutineLoadJob> routineLoadJobs
+}
+
+struct TPlanNodeRuntimeStatsItem {
+    // node_id means PlanNodeId, add this field so that we can merge RuntimeProfile of same node more easily
+    1: optional i32 node_id
+    2: optional i64 input_rows
+    3: optional i64 output_rows
+    4: optional i64 common_filter_rows
+    5: optional i64 common_filter_input_rows
+    6: optional i64 runtime_filter_rows
+    7: optional i64 runtime_filter_input_rows
+    8: optional i64 join_builder_rows
+    9: optional i64 join_probe_rows
+    10: optional i32 join_builder_skew_ratio
+    11: optional i32 join_prober_skew_ratio
+    12: optional i32 instance_num
+}
+
+enum TEncryptionKeyType {
+    MASTER_KEY = 0,
+    DATA_KEY = 1,
+}
+
+struct TEncryptionKey {
+    1: optional binary key_pb;
+}
+
+struct TGetEncryptionKeysRequest {
+    2: optional i32 version
+}
+
+struct TGetEncryptionKeysResult {
+    1: optional Status.TStatus status
+    2: optional list<TEncryptionKey> master_keys
+}
+
+struct TGetTableTDEInfoRequest {
+    1: optional i64 db_id
+    2: optional i64 table_id
+}
+
+struct TGetTableTDEInfoResult {
+    1: optional Status.TStatus status
+    2: optional AgentService.TEncryptionAlgorithm algorithm
 }
 
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
-    TDescribeTableResult describeTable(1: TDescribeTableParams params)
     TDescribeTablesResult describeTables(1: TDescribeTablesParams params)
     TShowVariableResult showVariables(1: TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
@@ -1573,6 +1678,7 @@ service FrontendService {
     TGetBinlogResult getBinlog(1: TGetBinlogRequest request)
     TGetSnapshotResult getSnapshot(1: TGetSnapshotRequest request)
     TRestoreSnapshotResult restoreSnapshot(1: TRestoreSnapshotRequest request)
+    TLockBinlogResult lockBinlog(1: TLockBinlogRequest request)
 
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
@@ -1581,6 +1687,8 @@ service FrontendService {
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 
     Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
+
+    TFrontendReportAliveSessionResult getAliveSessions(1: TFrontendReportAliveSessionRequest request)
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
@@ -1610,6 +1718,8 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
+    
+    Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)
 
@@ -1632,4 +1742,12 @@ service FrontendService {
 
     TFetchSplitBatchResult fetchSplitBatch(1: TFetchSplitBatchRequest request)
     Status.TStatus updatePartitionStatsCache(1: TUpdateFollowerPartitionStatsCacheRequest request)
+
+    TFetchRunningQueriesResult fetchRunningQueries(1: TFetchRunningQueriesRequest request)
+
+    TFetchRoutineLoadJobResult fetchRoutineLoadJob(1: TFetchRoutineLoadJobRequest request)
+
+    TGetEncryptionKeysResult getEncryptionKeys(1: TGetEncryptionKeysRequest request)
+
+    TGetTableTDEInfoResult getTableTDEInfo(1: TGetTableTDEInfoRequest request)
 }

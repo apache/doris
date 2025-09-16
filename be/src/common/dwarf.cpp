@@ -152,6 +152,7 @@
 #define DW_RLE_start_length 0x7
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 Dwarf::Dwarf(const std::shared_ptr<Elf>& elf)
         : elf_(elf),
@@ -289,8 +290,6 @@ void skipPadding(std::string_view& sp, const char* start, size_t alignment) {
 
 Dwarf::Path::Path(std::string_view baseDir, std::string_view subDir, std::string_view file)
         : baseDir_(baseDir), subDir_(subDir), file_(file) {
-    using std::swap;
-
     // Normalize
     if (file_.empty()) {
         baseDir_ = {};
@@ -2030,6 +2029,7 @@ bool Dwarf::LineNumberVM::findAddress(uintptr_t target, Path& file, uint64_t& li
     return false;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris
 
 #endif

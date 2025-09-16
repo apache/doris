@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/hll.h"
 #include "util/hash_util.hpp"
@@ -31,7 +32,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -47,15 +47,16 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
-    using ReturnType = DataTypeNumber<Int64>;
+    using ReturnType = DataTypeInt64;
 
     static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -65,8 +66,8 @@ struct HLLCardinality {
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-        typename ColumnVector<Int64>::Container& res =
-                reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
+        typename ColumnInt64::Container& res =
+                reinterpret_cast<ColumnInt64*>(col_res.get())->get_data();
 
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
@@ -97,7 +98,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto column = block.get_by_position(arguments[0]).column;
 
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
@@ -150,10 +151,8 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnHLL::create();
         auto& null_map = res_null_map->get_data();
@@ -167,8 +166,8 @@ public:
         res.reserve(input_rows_count);
 
         std::string decode_buff;
-        int last_decode_buff_len = 0;
-        int curr_decode_buff_len = 0;
+        int64_t last_decode_buff_len = 0;
+        int64_t curr_decode_buff_len = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_size = offsets[i] - offsets[i - 1];
@@ -265,7 +264,7 @@ struct NameHllToBase64 {
 
 struct HllToBase64 {
     using ReturnType = DataTypeString;
-    static constexpr auto TYPE_INDEX = TypeIndex::HLL;
+    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_HLL;
     using Type = DataTypeHLL::FieldType;
     using ReturnColumnType = ColumnString;
     using Chars = ColumnString::Chars;
@@ -296,13 +295,13 @@ struct HllToBase64 {
                 last_ser_size = cur_ser_size;
                 ser_buff.resize(cur_ser_size);
             }
-            hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
-            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), cur_ser_size,
+            size_t real_size = hll_val.serialize(reinterpret_cast<uint8_t*>(ser_buff.data()));
+            auto outlen = base64_encode((const unsigned char*)ser_buff.data(), real_size,
                                         chars_data + encoded_offset);
             DCHECK(outlen > 0);
 
             encoded_offset += outlen;
-            offsets[i] = encoded_offset;
+            offsets[i] = cast_set<uint32_t>(encoded_offset);
         }
         return Status::OK();
     }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.types.coercion.IntegralType;
 public class SmallIntType extends IntegralType implements Int16OrLessType {
     public static final SmallIntType INSTANCE = new SmallIntType();
 
+    public static final int RANGE = 5; // The maximum number of digits that SmallInteger can represent.
     private static final int WIDTH = 2;
 
     private SmallIntType() {

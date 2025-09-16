@@ -22,6 +22,7 @@ import com.google.gson.annotations.SerializedName;
 /**
  * EnvInfo
  */
+@Deprecated
 public class EnvInfo {
     @SerializedName("ci")
     private long ctlId;

@@ -152,7 +152,9 @@ public class SearchSignature {
                 finalType = DecimalV3Type.forType(arguments.get(i).getDataType());
             } else {
                 Expression arg = arguments.get(i);
-                if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
+                if (arg.isNullLiteral()) {
+                    // do nothing
+                } else if (arg.isLiteral() && arg.getDataType().isIntegralType()) {
                     // create decimalV3 with minimum scale enough to hold the integral literal
                     finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
                 } else {
@@ -207,13 +209,14 @@ public class SearchSignature {
         int arity = arguments.size();
         for (int i = 0; i < arity; i++) {
             DataType sigArgType = sig.getArgType(i);
-            DataType realType = arguments.get(i).getDataType();
+            Expression argument = arguments.get(i);
+            DataType realType = argument.getDataType();
             // we need to try to do string literal coercion when search signature.
             // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
             // if SQL block is `FUNC_A('2020-02-02 00:00:00')`, we should return signature FUNC_A(datetime).
-            if (arguments.get(i).isLiteral() && realType.isStringLikeType()) {
-                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) arguments.get(i)).getStringValue(),
-                        sigArgType).orElse(arguments.get(i)).getDataType();
+            if (!argument.isNullLiteral() && argument.isLiteral() && realType.isStringLikeType()) {
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) argument).getStringValue(),
+                        sigArgType).orElse(argument).getDataType();
             }
             if (!typePredicate.apply(sigArgType, realType)) {
                 return false;

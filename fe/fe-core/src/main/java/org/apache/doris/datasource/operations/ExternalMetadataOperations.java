@@ -17,11 +17,10 @@
 
 package org.apache.doris.datasource.operations;
 
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.catalog.Catalog;
@@ -29,12 +28,11 @@ import org.apache.iceberg.catalog.Catalog;
 
 public class ExternalMetadataOperations {
 
-    public static HiveMetadataOps newHiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig,
-                                                     HMSExternalCatalog catalog) {
-        return new HiveMetadataOps(hiveConf, jdbcClientConfig, catalog);
+    public static HiveMetadataOps newHiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
+        return new HiveMetadataOps(hiveConf, catalog);
     }
 
-    public static IcebergMetadataOps newIcebergMetadataOps(IcebergExternalCatalog dorisCatalog, Catalog catalog) {
+    public static IcebergMetadataOps newIcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
         return new IcebergMetadataOps(dorisCatalog, catalog);
     }
 }

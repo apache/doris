@@ -24,12 +24,14 @@
 #include <mutex>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/hdfs_file_writer.h"
@@ -50,12 +52,17 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
-    io::FileReaderOptions opts {.file_size = fd.file_size, .mtime = fd.mtime};
+    io::FileReaderOptions opts {
+            .cache_base_path {},
+            .file_size = fd.file_size,
+            .mtime = fd.mtime,
+    };
     if (config::enable_file_cache && state != nullptr &&
         state->query_options().__isset.enable_file_cache &&
         state->query_options().enable_file_cache) {
@@ -68,14 +75,40 @@ io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
     return opts;
 }
 
+int32_t get_broker_index(const std::vector<TNetworkAddress>& brokers, const std::string& path) {
+    if (brokers.empty()) {
+        return -1;
+    }
+
+    // firstly find local broker
+    const auto local_host = BackendOptions::get_localhost();
+    for (int32_t i = 0; i < brokers.size(); ++i) {
+        if (brokers[i].hostname == local_host) {
+            return i;
+        }
+    }
+
+    // secondly select broker by hash of file path
+    auto key = HashUtil::hash(path.data(), cast_set<uint32_t>(path.size()), 0);
+
+    return key % brokers.size();
+}
+
 Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_properties,
                                                   const io::FileDescription& file_description) {
     switch (fs_properties.type) {
     case TFileType::FILE_LOCAL:
         return io::global_local_filesystem();
-    case TFileType::FILE_BROKER:
-        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[0],
+    case TFileType::FILE_BROKER: {
+        auto index = get_broker_index(*fs_properties.broker_addresses, file_description.path);
+        if (index < 0) {
+            return ResultError(Status::InternalError("empty broker_addresses"));
+        }
+        LOG_INFO("select broker: {} for file {}", (*fs_properties.broker_addresses)[index].hostname,
+                 file_description.path);
+        return io::BrokerFileSystem::create((*fs_properties.broker_addresses)[index],
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
+    }
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
@@ -84,18 +117,34 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                 *fs_properties.properties, s3_uri, &s3_conf));
         return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     }
-    case TFileType::FILE_HDFS:
-        return fs_properties.hdfs_params
-                       ? io::HdfsFileSystem::create(*fs_properties.hdfs_params,
-                                                    file_description.fs_name,
-                                                    io::FileSystem::TMP_FS_ID, nullptr)
-                       : io::HdfsFileSystem::create(*fs_properties.properties,
-                                                    file_description.fs_name,
-                                                    io::FileSystem::TMP_FS_ID, nullptr);
+    case TFileType::FILE_HDFS: {
+        std::string fs_name = _get_fs_name(file_description);
+        return io::HdfsFileSystem::create(*fs_properties.properties, fs_name,
+                                          io::FileSystem::TMP_FS_ID, nullptr);
+    }
     default:
         return ResultError(Status::InternalError("unsupported fs type: {}",
                                                  std::to_string(fs_properties.type)));
     }
+}
+
+std::string FileFactory::_get_fs_name(const io::FileDescription& file_description) {
+    // If the destination path contains a schema, use the schema directly.
+    // If not, use origin file_description.fs_name
+    // Because the default fsname in file_description.fs_name maybe different from
+    // file's.
+    // example:
+    //    hdfs://host:port/path1/path2  --> hdfs://host:port
+    //    hdfs://nameservice/path1/path2 --> hdfs://nameservice
+    std::string fs_name = file_description.fs_name;
+    std::string::size_type idx = file_description.path.find("://");
+    if (idx != std::string::npos) {
+        idx = file_description.path.find('/', idx + 3);
+        if (idx != std::string::npos) {
+            fs_name = file_description.path.substr(0, idx);
+        }
+    }
+    return fs_name;
 }
 
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
@@ -109,7 +158,12 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return file_writer;
     }
     case TFileType::FILE_BROKER: {
-        return io::BrokerFileWriter::create(env, broker_addresses[0], properties, path);
+        auto index = get_broker_index(broker_addresses, path);
+        if (index < 0) {
+            return ResultError(Status::InternalError("empty broker_addresses"));
+        }
+        LOG_INFO("select broker: {} for file {}", broker_addresses[index].hostname, path);
+        return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
         S3URI s3_uri(path);
@@ -125,7 +179,7 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
         std::shared_ptr<io::HdfsHandler> handler;
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 hdfs_params, hdfs_params.fs_name, &handler));
         return io::HdfsFileWriter::create(path, handler, hdfs_params.fs_name, &options);
     }
@@ -169,7 +223,7 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         if (fs_name->empty()) {
             fs_name = &system_properties.hdfs_params.fs_name;
         }
-        RETURN_IF_ERROR_RESULT(io::HdfsHandlerCache::instance()->get_connection(
+        RETURN_IF_ERROR_RESULT(ExecEnv::GetInstance()->hdfs_mgr()->get_or_create_fs(
                 system_properties.hdfs_params, *fs_name, &handler));
         return io::HdfsFileReader::create(file_description.path, handler->hdfs_fs, *fs_name,
                                           reader_options, profile)
@@ -178,8 +232,14 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
                 });
     }
     case TFileType::FILE_BROKER: {
+        auto index = get_broker_index(system_properties.broker_addresses, file_description.path);
+        if (index < 0) {
+            return ResultError(Status::InternalError("empty broker_addresses"));
+        }
+        LOG_INFO("select broker: {} for file {}",
+                 system_properties.broker_addresses[index].hostname, file_description.path);
         // TODO(plat1ko): Create `FileReader` without FS
-        return io::BrokerFileSystem::create(system_properties.broker_addresses[0],
+        return io::BrokerFileSystem::create(system_properties.broker_addresses[index],
                                             system_properties.properties, io::FileSystem::TMP_FS_ID)
                 .and_then([&](auto&& fs) -> Result<io::FileReaderSPtr> {
                     io::FileReaderSPtr file_reader;
@@ -202,12 +262,13 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     if (need_schema) {
+        RETURN_IF_ERROR(stream_load_ctx->allocate_schema_buffer());
         // Here, a portion of the data is processed to parse column information
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-                stream_load_ctx->schema_buffer->pos /* total_length */);
-        stream_load_ctx->schema_buffer->flip();
-        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer));
+                stream_load_ctx->schema_buffer()->pos /* total_length */);
+        stream_load_ctx->schema_buffer()->flip();
+        RETURN_IF_ERROR(pipe->append(stream_load_ctx->schema_buffer()));
         RETURN_IF_ERROR(pipe->finish());
         *file_reader = std::move(pipe);
     } else {
@@ -216,5 +277,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

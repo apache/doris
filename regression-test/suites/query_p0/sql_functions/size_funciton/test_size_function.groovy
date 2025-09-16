@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_size_function") {
-    sql """ set enable_nereids_planner = false; """
     // literal
 
     qt_sql "SELECT size(array_shuffle(['aaa', null, 'bbb', 'fff'])), array_shuffle(['aaa', null, 'bbb', 'fff'], 0), shuffle(['aaa', null, 'bbb', 'fff'], 0)"

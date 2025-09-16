@@ -41,20 +41,21 @@ public:
               _sub_types(std::move(sub_types)),
               _function_name(std::move(function_name)),
               _be_exec_version(be_exec_version) {
-        _agg_function = AggregateFunctionSimpleFactory::instance().get(_function_name, _sub_types,
-                                                                       _result_is_nullable);
-        if (_agg_function == nullptr) {
+        _agg_function = AggregateFunctionSimpleFactory::instance().get(
+                _function_name, _sub_types, _result_is_nullable, _be_exec_version);
+        if (_agg_function == nullptr ||
+            !BeExecVersionManager::check_be_exec_version(be_exec_version)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "DataTypeAggState function get failed, type={}", do_get_name());
-        }
-        if (!BeExecVersionManager::check_be_exec_version(be_exec_version)) {
-            LOG(WARNING) << "meet old agg-state, be_exec_version=" << be_exec_version;
         }
         _agg_function->set_version(be_exec_version);
         _agg_serialized_type = _agg_function->get_serialized_type();
     }
+    DataTypeAggState() {
+        // Nothing to do. For this constructor, we only need it to represent a basic primitive type.
+    }
 
-    const char* get_family_name() const override { return "AggState"; }
+    const std::string get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
         return fmt::format(
@@ -65,9 +66,7 @@ public:
 
     std::string get_function_name() const { return _function_name; }
 
-    TypeIndex get_type_id() const override { return TypeIndex::AggState; }
-
-    TypeDescriptor get_type_as_type_descriptor() const override { return {TYPE_AGG_STATE}; }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_AGG_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;
@@ -109,7 +108,8 @@ public:
         return _agg_serialized_type->serialize(column, buf, be_exec_version);
     }
 
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override {
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override {
         return _agg_serialized_type->deserialize(buf, column, be_exec_version);
     }
 
@@ -118,11 +118,20 @@ public:
         return _agg_function->create_serialize_column();
     }
 
+    Status check_column(const IColumn& column) const override {
+        return _agg_serialized_type->check_column(column);
+    }
+
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return _agg_serialized_type->get_serde(nesting_level);
     };
 
     DataTypePtr get_serialized_type() const { return _agg_serialized_type; }
+
+    void check_function_compatibility(int read_be_exec_version) const {
+        BeExecVersionManager::check_function_compatibility(read_be_exec_version, _be_exec_version,
+                                                           get_nested_function()->get_name());
+    }
 
 private:
     std::string get_types_string() const {
@@ -145,4 +154,10 @@ private:
     int _be_exec_version;
 };
 
+inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
+    if (const auto* typed = typeid_cast<const DataTypeAggState*>(type.get()); typed) {
+        return typed->get_serialized_type();
+    }
+    return type;
+}
 } // namespace doris::vectorized

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AnnIndexPropertiesChecker;
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -52,12 +54,17 @@ public class IndexDefinition {
     private Map<String, String> properties = new HashMap<>();
     private boolean isBuildDeferred = false;
 
+    private boolean ifNotExists = false;
+
+    private PartitionNamesInfo partitionNames;
+
     /**
      * constructor for IndexDefinition
      */
-    public IndexDefinition(String name, List<String> cols, String indexTypeName,
+    public IndexDefinition(String name, boolean ifNotExists, List<String> cols, String indexTypeName,
             Map<String, String> properties, String comment) {
         this.name = name;
+        this.ifNotExists = ifNotExists;
         this.cols = Utils.copyRequiredList(cols);
         this.indexType = IndexType.INVERTED;
         if (indexTypeName != null) {
@@ -72,6 +79,10 @@ public class IndexDefinition {
                 }
                 case "NGRAM_BF": {
                     this.indexType = IndexType.NGRAM_BF;
+                    break;
+                }
+                case "ANN": {
+                    this.indexType = IndexType.ANN;
                     break;
                 }
                 default:
@@ -92,24 +103,85 @@ public class IndexDefinition {
     }
 
     /**
+     * constructor for build index
+     */
+    public IndexDefinition(String name, PartitionNamesInfo partitionNames, IndexType indexType) {
+        this.name = name;
+        this.indexType = indexType;
+        this.partitionNames = partitionNames;
+        this.isBuildDeferred = true;
+        this.cols = null;
+        this.comment = null;
+    }
+
+    /**
+     * Check if the column type is supported for inverted index
+     */
+    public static boolean isSupportIdxType(DataType columnType) {
+        if (columnType.isArrayType()) {
+            DataType itemType = ((ArrayType) columnType).getItemType();
+            if (itemType.isArrayType()) {
+                return false;
+            }
+            return isSupportIdxType(itemType);
+        }
+        return columnType.isDateLikeType() || columnType.isDecimalLikeType()
+                || columnType.isIntegralType() || columnType.isStringLikeType()
+                || columnType.isBooleanType() || columnType.isVariantType()
+                || columnType.isIPType() || columnType.isFloatLikeType();
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite,
+            TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.ANN) {
+            if (column.isNullable()) {
+                throw new AnalysisException("ANN index must be built on a column that is not nullable");
+            }
+            String indexColName = column.getName();
+            caseSensitivityCols.add(indexColName);
+            DataType colType = column.getType();
+            if (!colType.isArrayType()) {
+                throw new AnalysisException("ANN index column must be array type, invalid index: " + name);
+            }
+            DataType itemType = ((ArrayType) colType).getItemType();
+            if (!itemType.isFloatType()) {
+                throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
+            }
+            if (keysType != KeysType.DUP_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            }
+            return;
+        }
+
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
             caseSensitivityCols.add(indexColName);
             DataType colType = column.getType();
-            if (indexType == IndexType.INVERTED && colType.isArrayType()) {
-                colType = ((ArrayType) colType).getItemType();
-            }
-            if (!(colType.isDateLikeType() || colType.isDecimalLikeType()
-                    || colType.isIntegralType() || colType.isStringLikeType()
-                    || colType.isBooleanType() || colType.isVariantType() || colType.isIPType())) {
+            if (!isSupportIdxType(colType)) {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            // There are two cases in which the inverted index format v1 is not supported:
+            // 1. in cloud mode
+            // 2. enable_inverted_index_v1_for_variant = false
+            boolean notSupportInvertedIndexForVariant =
+                    (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
+                        || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
+                            && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
+
+            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
@@ -124,12 +196,10 @@ public class IndexDefinition {
             }
 
             if (indexType == IndexType.INVERTED) {
-                if (!Config.enable_create_inverted_index_for_array && colType.isArrayType()) {
-                    throw new AnalysisException("inverted index does not support array type column: " + indexColName);
-                }
                 try {
                     InvertedIndexUtil.checkInvertedIndexParser(indexColName,
-                            colType.toCatalogDataType().getPrimitiveType(), properties);
+                            colType.toCatalogDataType().getPrimitiveType(), properties,
+                            invertedIndexFileStorageFormat);
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid INVERTED index:" + ex.getMessage(), ex);
                 }
@@ -143,18 +213,12 @@ public class IndexDefinition {
                             "ngram_bf index should have gram_size and bf_size properties");
                 }
                 try {
-                    int ngramSize = Integer.parseInt(properties.get(IndexDef.NGRAM_SIZE_KEY));
-                    int bfSize = Integer.parseInt(properties.get(IndexDef.NGRAM_BF_SIZE_KEY));
-                    if (ngramSize > 256 || ngramSize < 1) {
-                        throw new AnalysisException(
-                                "gram_size should be integer and less than 256");
-                    }
-                    if (bfSize > 65536 || bfSize < 64) {
-                        throw new AnalysisException(
-                                "bf_size should be integer and between 64 and 65536");
-                    }
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_SIZE_KEY, IndexDef.MIN_NGRAM_SIZE,
+                                                      IndexDef.MAX_NGRAM_SIZE);
+                    IndexDef.parseAndValidateProperty(properties, IndexDef.NGRAM_BF_SIZE_KEY, IndexDef.MIN_BF_SIZE,
+                                                      IndexDef.MAX_BF_SIZE);
+                } catch (Exception ex) {
+                    throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
             }
         } else {
@@ -166,6 +230,9 @@ public class IndexDefinition {
      * validate
      */
     public void validate() {
+        if (partitionNames != null) {
+            partitionNames.validate();
+        }
         if (isBuildDeferred && indexType == IndexDef.IndexType.INVERTED) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -175,6 +242,10 @@ public class IndexDefinition {
                         "index name too long, the index name length at most is 128.");
             }
             return;
+        }
+
+        if (indexType == IndexDef.IndexType.ANN) {
+            AnnIndexPropertiesChecker.checkProperties(this.properties);
         }
 
         if (indexType == IndexDef.IndexType.BITMAP || indexType == IndexDef.IndexType.INVERTED) {
@@ -216,5 +287,80 @@ public class IndexDefinition {
     public Index translateToCatalogStyle() {
         return new Index(Env.getCurrentEnv().getNextId(), name, cols, indexType, properties,
                 comment);
+    }
+
+    public List<String> getPartitionNames() {
+        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    }
+
+    /**
+     * translateToLegacyIndexDef
+     */
+    public IndexDef translateToLegacyIndexDef() {
+        if (isBuildDeferred) {
+            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
+                    indexType, true);
+        } else {
+            return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
+        }
+    }
+
+    public String toSql() {
+        return toSql(null);
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql(String tableName) {
+        StringBuilder sb = new StringBuilder("INDEX ");
+        sb.append(name);
+        if (tableName != null && !tableName.isEmpty()) {
+            sb.append(" ON ").append(tableName);
+        }
+        if (cols != null && cols.size() > 0) {
+            sb.append(" (");
+            boolean first = true;
+            for (String col : cols) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(",");
+                }
+                sb.append("`" + col + "`");
+            }
+            sb.append(")");
+        }
+        if (indexType != null) {
+            sb.append(" USING ").append(indexType.toString());
+        }
+        if (properties != null && properties.size() > 0) {
+            sb.append(" PROPERTIES(");
+            boolean first = true;
+            for (Map.Entry<String, String> e : properties.entrySet()) {
+                if (first) {
+                    first = false;
+                } else {
+                    sb.append(", ");
+                }
+                sb.append("\"").append(e.getKey()).append("\"=").append("\"").append(e.getValue()).append("\"");
+            }
+            sb.append(")");
+        }
+        if (comment != null) {
+            sb.append(" COMMENT '" + comment + "'");
+        }
+        return sb.toString();
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexType.INVERTED
+                && properties != null
+                        && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                            || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

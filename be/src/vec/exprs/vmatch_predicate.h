@@ -54,18 +54,19 @@ public:
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     const std::string& expr_name() const override;
     const std::string& function_name() const;
 
     std::string debug_string() const override;
 
-    const FunctionBasePtr function() { return _function; }
+    FunctionBasePtr function() { return _function; }
 
 private:
     FunctionBasePtr _function;
     std::string _expr_name;
     std::string _function_name;
     InvertedIndexCtxSPtr _inverted_index_ctx;
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer;
+    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 } // namespace doris::vectorized

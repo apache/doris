@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("aggOnAggMV2") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggOnAggMV2; """
@@ -32,7 +34,12 @@ suite ("aggOnAggMV2") {
 
     
     sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,7,2);"""
     sql """insert into aggOnAggMV2 values("2020-01-02",2,"b",2,7,2);"""
 
     explain {
@@ -41,33 +48,24 @@ suite ("aggOnAggMV2") {
     }
     order_qt_select_emps_mv "select deptno, sum(salary) from aggOnAggMV2 group by deptno order by deptno;"
 
-    createMV("create materialized view aggOnAggMV2_mv as select deptno, sum(salary) from aggOnAggMV2 group by deptno ;")
+    createMV("create materialized view aggOnAggMV2_mv as select deptno as x1, sum(salary) from aggOnAggMV2 group by deptno ;")
 
     sleep(3000)
  
     sql "analyze table aggOnAggMV2 with sync;"
+    sql """alter table aggOnAggMV2 modify column time_col set stats ('row_count'='8');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggOnAggMV2 order by empid;")
-        contains "(aggOnAggMV2)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV2 order by empid;", "aggOnAggMV2_mv")
     order_qt_select_star "select * from aggOnAggMV2 order by empid, salary;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
-        contains "(aggOnAggMV2_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;", "aggOnAggMV2_mv")
+
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggOnAggMV2 order by empid;")
-        contains "(aggOnAggMV2)"
-    }
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;")
-        contains "(aggOnAggMV2_mv)"
-    }
+    mv_rewrite_fail("select * from aggOnAggMV2 order by empid;", "aggOnAggMV2_mv")
 
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV2 group by deptno) a where (sum_salary * 2) > 3 order by deptno ;", "aggOnAggMV2_mv")
 }

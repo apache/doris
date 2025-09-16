@@ -21,6 +21,8 @@ suite ("projectMV4") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS projectMV4; """
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
 
     sql """
             create table projectMV4 (
@@ -33,52 +35,37 @@ suite ("projectMV4") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into projectMV4 values("2020-01-02",2,"b",2,2,2);"""
 
     def result = "null"
 
-    createMV("create materialized view projectMV4_mv as select name, deptno, salary from projectMV4;")
+    createMV("create materialized view projectMV4_mv as select name as a1, deptno as a2, salary as a3 from projectMV4;")
 
     sleep(3000)
 
     sql """insert into projectMV4 values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table projectMV4 with sync;"
+    sql """alter table projectMV4 modify column time_col set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from projectMV4 order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
     order_qt_select_star "select * from projectMV4 order by empid;"
 
-
-    explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
-        contains "(projectMV4_mv)"
-    }
+    mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")
     order_qt_select_mv "select name from projectMV4 where deptno > 1 and salary > 1 order by name;"
 
-    explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
     order_qt_select_base "select empid from projectMV4 where deptno > 1 and empid > 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from projectMV4 order by empid;")
-        contains "(projectMV4)"
-    }
 
-    explain {
-        sql("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;")
-        contains "(projectMV4_mv)"
-    }
+    mv_rewrite_fail("select * from projectMV4 order by empid;", "projectMV4_mv")
 
-    explain {
-        sql("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;")
-        contains "(projectMV4)"
-    }
+    mv_rewrite_success("select name from projectMV4 where deptno > 1 and salary > 1 and name = 'a' order by name;", "projectMV4_mv")
+
+    mv_rewrite_fail("select empid from projectMV4 where deptno > 1 and empid > 1 and time_col = '2020-01-01' order by empid;", "projectMV4_mv")
 }

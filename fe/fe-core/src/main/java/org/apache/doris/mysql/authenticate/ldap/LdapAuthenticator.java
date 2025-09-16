@@ -75,10 +75,11 @@ public class LdapAuthenticator implements Authenticator {
         if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
             return false;
         }
-        if (!Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser)) {
-            return false;
-        }
-        return true;
+        // Fixme Note: LdapManager should be managed internally within the Ldap plugin
+        // and not be placed inside the Env class. This ensures that Ldap-related
+        // logic and dependencies are encapsulated within the plugin, promoting
+        // better modularity and maintainability.
+        return Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
     }
 
     /**

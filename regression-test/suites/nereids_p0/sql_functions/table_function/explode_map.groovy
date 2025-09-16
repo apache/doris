@@ -45,4 +45,14 @@ suite("explode_map") {
 
     // multi lateral view
     order_qt_explode_sql_multi """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer(score) tmp as k,v lateral view explode_map(score) tmp2 as k1,v1 order by id;"""
+    order_qt_explode_sql_multi2 """ select name, k,v,k1,v1 from sdu lateral view explode_map(non_nullable(score)) tmp as k,v lateral view explode_map(score) tmp2 as k1,v1  where score is not null order by id;"""
+    order_qt_explode_sql_multi3 """ select name, k,v,k1,v1 from sdu lateral view explode_map((score)) tmp as k,v lateral view explode_map(non_nullable(score)) tmp2 as k1,v1  where score is not null order by id;"""
+    order_qt_explode_sql_multi4 """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer(non_nullable(score)) tmp as k,v lateral view explode_map_outer(score) tmp2 as k1,v1  where score is not null order by id;"""
+    order_qt_explode_sql_multi5 """ select name, k,v,k1,v1 from sdu lateral view explode_map_outer((score)) tmp as k,v lateral view explode_map_outer(non_nullable(score)) tmp2 as k1,v1  where score is not null order by id;"""
+
+    // test with alias
+    order_qt_explode_sql_alias """ select name, tmp.k, tmp.v from sdu lateral view explode_map(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql_alias """ select name, tmp.k, tmp.v from sdu lateral view explode_map_outer(score) tmp as k,v order by id; """
+
+    order_qt_explode_sql_alias_multi """ select name, tmp.k, tmp.v, tmp2.k, tmp2.v from sdu lateral view explode_map_outer(score) tmp as k,v lateral view explode_map(score) tmp2 as k,v order by id;"""
 }

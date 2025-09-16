@@ -25,17 +25,21 @@
 #include <string>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 inline const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
 inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:
-    static int32_t to_buffer(__int128 value, char* buffer) {
+    static int64_t to_buffer(__int128 value, char* buffer) {
         return fmt::format_to(buffer, FMT_COMPILE("{}"), value) - buffer;
     }
 
     static std::string to_string(__int128 value) { return fmt::format(FMT_COMPILE("{}"), value); }
+    static std::string to_string(__uint128_t value) {
+        return fmt::format(FMT_COMPILE("{}"), value);
+    }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);
@@ -44,6 +48,7 @@ std::istream& operator>>(std::istream& is, __int128& value);
 
 std::size_t hash_value(LargeIntValue const& value);
 
+#include "common/compile_check_end.h"
 } // namespace doris
 
 // Thirdparty printers like gtest needs operator<< to be exported into global namespace, so that ADL will work.

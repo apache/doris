@@ -26,12 +26,14 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
@@ -79,7 +81,7 @@ private:
     uint32_t _count = 0;
 };
 
-class IndexPageReader {
+class IndexPageReader : public MetadataAdder<IndexPageReader> {
 public:
     IndexPageReader() : _parsed(false) {}
 
@@ -110,6 +112,8 @@ public:
     void reset();
 
 private:
+    int64_t get_metadata_size() const override;
+
     bool _parsed;
 
     IndexPageFooterPB _footer;
@@ -142,9 +146,11 @@ public:
     // Return true when has next page.
     bool has_next() { return (_pos + 1) < _reader->count(); }
 
-    const Slice& current_key() const { return _reader->get_key(_pos); }
+    const Slice& current_key() const { return _reader->get_key(cast_set<int>(_pos)); }
 
-    const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
+    const PagePointer& current_page_pointer() const {
+        return _reader->get_value(cast_set<int>(_pos));
+    }
 
 private:
     const IndexPageReader* _reader = nullptr;
@@ -152,5 +158,6 @@ private:
     size_t _pos;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

@@ -19,10 +19,10 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -31,10 +31,11 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,8 @@ import java.util.Set;
  *
  * @param <CHILD_TYPE> param
  */
-public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
+public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements DiffOutputInAsterisk {
 
     protected RelationId relationId;
     private final List<String> qualifier;
@@ -79,7 +81,16 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        List<Slot> childOutput = child().getOutput();
+        return computeOutputInternal(false);
+    }
+
+    @Override
+    public List<Slot> computeAsteriskOutput() {
+        return computeOutputInternal(true);
+    }
+
+    private List<Slot> computeOutputInternal(boolean asteriskOutput) {
+        List<Slot> childOutput = asteriskOutput ? child().getAsteriskOutput() : child().getOutput();
         List<String> columnAliases = this.columnAliases.orElseGet(ImmutableList::of);
         ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
         for (int i = 0; i < childOutput.size(); i++) {
@@ -90,8 +101,19 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             } else {
                 columnAlias = originSlot.getName();
             }
+            List<String> originQualifier = originSlot.getQualifier();
+
+            ArrayList<String> newQualifier = Lists.newArrayList(originQualifier);
+            if (newQualifier.size() >= qualifier.size()) {
+                for (int j = 0; j < qualifier.size(); j++) {
+                    newQualifier.set(newQualifier.size() - qualifier.size() + j, qualifier.get(j));
+                }
+            } else if (newQualifier.isEmpty()) {
+                newQualifier.addAll(qualifier);
+            }
+
             Slot qualified = originSlot
-                    .withQualifier(qualifier)
+                    .withQualifier(newQualifier)
                     .withName(columnAlias);
             currentOutput.add(qualified);
         }
@@ -124,8 +146,8 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        LogicalSubQueryAlias that = (LogicalSubQueryAlias) o;
-        return qualifier.equals(that.qualifier) && this.child().equals(that.child());
+        LogicalSubQueryAlias<?> that = (LogicalSubQueryAlias) o;
+        return qualifier.equals(that.qualifier);
     }
 
     @Override
@@ -183,12 +205,6 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
             replaceMap.put(child(0).getOutput().get(i), outputs.get(i));
         }
         builder.replaceUniformBy(replaceMap);
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        // TODO: inherit from child with replaceMap
-        return ImmutableSet.of();
     }
 
     @Override

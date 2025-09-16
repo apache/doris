@@ -46,11 +46,23 @@ import java.util.concurrent.TimeoutException;
 
 public interface GlobalTransactionMgrIface extends Writable {
     default void checkValidTimeoutSecond(long timeoutSecond, int maxLoadTimeoutSecond,
-            int minLoadTimeOutSecond) throws AnalysisException {
-        if (timeoutSecond > maxLoadTimeoutSecond || timeoutSecond < minLoadTimeOutSecond) {
-            throw new AnalysisException("Invalid timeout: " + timeoutSecond + ". Timeout should between "
-                    + minLoadTimeOutSecond + " and " + maxLoadTimeoutSecond
-                    + " seconds");
+                                         int minLoadTimeOutSecond, LoadJobSourceType sourceType)
+            throws AnalysisException {
+        if (timeoutSecond < minLoadTimeOutSecond) {
+            throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                    + ". Timeout should be higher than Config.min_load_timeout_second: "
+                    + minLoadTimeOutSecond);
+        } else if (timeoutSecond > maxLoadTimeoutSecond) {
+            switch (sourceType) {
+                case BACKEND_STREAMING:
+                    throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                            + ". Timeout should be lower than Config.max_stream_load_timeout_second: "
+                            + maxLoadTimeoutSecond);
+                default:
+                    throw new AnalysisException("Invalid timeout: " + timeoutSecond
+                            + ". Timeout should be lower than Config.max_load_timeout_second: "
+                            + maxLoadTimeoutSecond);
+            }
         }
     }
 
@@ -77,12 +89,18 @@ public interface GlobalTransactionMgrIface extends Writable {
             TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
-    public void commitTransaction(long dbId, List<Table> tableList,
+    @Deprecated
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException;
 
-    public void commitTransaction(long dbId, List<Table> tableList, long transactionId,
+    public void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+            throws UserException;
+
+    public void commitTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException;
 
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
@@ -197,4 +215,9 @@ public interface GlobalTransactionMgrIface extends Writable {
     public void addSubTransaction(long dbId, long transactionId, long subTransactionId);
 
     public void removeSubTransaction(long dbId, long subTransactionId);
+
+    public List<TransactionState> getUnFinishedPreviousLoad(long endTransactionId,
+                long dbId, List<Long> tableIdList) throws UserException;
+
+    public int getQueueLength();
 }

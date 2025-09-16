@@ -81,6 +81,64 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
        qt_string_col_dict_plain_mixed3 """select count(col2) from string_col_dict_plain_mixed_orc where col1 like '%Test%';"""
     }
 
+    def predicate_pushdown = {
+        qt_predicate_pushdown1 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is not null and (o_orderkey < 100 or o_orderkey > 5999900 or o_orderkey in (1000000, 2000000, 3000000)); """
+        qt_predicate_pushdown2 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is null or (o_orderkey between 100 and 1000 and o_orderkey not in (200, 300, 400)); """
+        qt_predicate_pushdown3 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is not null and (o_orderkey < 100 or o_orderkey > 5999900 or o_orderkey = 3000000); """
+        qt_predicate_pushdown4 """ select count(o_orderkey) from tpch1_orc.orders where o_orderkey is null or (o_orderkey between 1000000 and 1200000 and o_orderkey != 1100000); """
+        qt_predicate_pushdown5 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE (o_orderdate >= '1994-01-01' AND o_orderdate <= '1994-12-31') AND (o_orderpriority = '5-LOW' OR o_orderpriority = '3-MEDIUM') AND o_totalprice > 2000;"""
+        qt_predicate_pushdown6 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderstatus <> 'F' AND o_custkey < 54321; """
+        qt_predicate_pushdown7 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_comment LIKE '%delayed%' OR o_orderpriority = '1-URGENT'; """
+        qt_predicate_pushdown8 """ SELECT count(o_orderkey) FROM tpch1_orc.orders WHERE o_orderkey IN (1000000, 2000000, 3000000) OR o_clerk = 'Clerk#000000470'; """
+
+        qt_predicate_pushdown_in1 """ select count(*)  from orc_all_types where boolean_col in (null); """
+        qt_predicate_pushdown_in2 """ select count(*)  from orc_all_types where boolean_col in (null, 0); """
+        qt_predicate_pushdown_in3 """ select count(*)  from orc_all_types where boolean_col in (null, 1); """
+
+        def test_col_is_null = { String col ->
+            "qt_orc_all_types_${col}_is_null" """ select count(*)  from orc_all_types where ${col} is null; """
+        }
+        test_col_is_null("tinyint_col")
+        test_col_is_null("smallint_col")
+        test_col_is_null("int_col")
+        test_col_is_null("bigint_col")
+        test_col_is_null("boolean_col")
+        test_col_is_null("float_col")
+        test_col_is_null("double_col")
+        test_col_is_null("string_col")
+        test_col_is_null("binary_col")
+        test_col_is_null("timestamp_col")
+        test_col_is_null("decimal_col")
+        test_col_is_null("char_col")
+        test_col_is_null("varchar_col")
+        test_col_is_null("date_col")
+    }
+
+    def test_topn = {
+        def test_col_topn = { String col -> 
+            "qt_orc_all_types_${col}_topn_asc"  """ select  * from  orc_all_types  where  string_col is not null order by ${col},string_col asc limit 10; """
+            "qt_orc_all_types_${col}_topn_desc"  """ select * from  orc_all_types  where  string_col is not null order by ${col},string_col desc limit 10; """
+        }
+
+        test_col_topn("tinyint_col")
+        test_col_topn("smallint_col")
+        test_col_topn("int_col")
+        test_col_topn("bigint_col")
+        test_col_topn("boolean_col")
+        test_col_topn("float_col")
+        test_col_topn("double_col")
+        test_col_topn("string_col")
+        test_col_topn("binary_col")
+        test_col_topn("timestamp_col")
+        test_col_topn("decimal_col")
+        test_col_topn("char_col")
+        test_col_topn("varchar_col")
+        test_col_topn("date_col")
+        test_col_topn("p1_col")
+        test_col_topn("p2_col")
+    }
+
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -108,7 +166,9 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             only_partition_col()
             decimals()
             string_col_dict_plain_mixed()
-
+            predicate_pushdown()    
+            test_topn()
+            
             sql """drop catalog if exists ${catalog_name}"""
 
             // test old create-catalog syntax for compatibility

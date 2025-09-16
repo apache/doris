@@ -66,6 +66,29 @@ public class ReplacePartitionClause extends AlterTableClause {
         this.needTableStable = false;
         this.forceDropOldPartition = isForce;
         this.properties = properties;
+
+        // ATTN: During ReplacePartitionClause.analyze(), the default value of isStrictRange is true.
+        // However, ReplacePartitionClause instances constructed by internal code do not call analyze(),
+        // so their isStrictRange value is incorrect (e.g., INSERT INTO ... OVERWRITE).
+        //
+        // Considering this, we should handle the relevant properties when constructing.
+        this.isStrictRange = getBoolProperty(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
+        this.useTempPartitionName = getBoolProperty(
+                properties, PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
+    }
+
+    // for nereids
+    public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
+            boolean isForce, Map<String, String> properties,
+            boolean isStrictRange, boolean useTempPartitionName) {
+        super(AlterOpType.REPLACE_PARTITION);
+        this.partitionNames = partitionNames;
+        this.tempPartitionNames = tempPartitionNames;
+        this.needTableStable = false;
+        this.forceDropOldPartition = isForce;
+        this.properties = properties;
+        this.isStrictRange = isStrictRange;
+        this.useTempPartitionName = useTempPartitionName;
     }
 
     public List<String> getPartitionNames() {
@@ -90,13 +113,13 @@ public class ReplacePartitionClause extends AlterTableClause {
 
     @SuppressWarnings("checkstyle:LineLength")
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (partitionNames == null || tempPartitionNames == null) {
             throw new AnalysisException("No partition specified");
         }
 
-        partitionNames.analyze(analyzer);
-        tempPartitionNames.analyze(analyzer);
+        partitionNames.analyze();
+        tempPartitionNames.analyze();
 
         if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
             throw new AnalysisException("Only support replace partitions with temp partitions");
@@ -140,5 +163,13 @@ public class ReplacePartitionClause extends AlterTableClause {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public static boolean getBoolProperty(Map<String, String> properties, String propKey, boolean defaultVal) {
+        if (properties != null && properties.containsKey(propKey)) {
+            String val = properties.get(propKey);
+            return Boolean.parseBoolean(val);
+        }
+        return defaultVal;
     }
 }

@@ -1,4 +1,4 @@
-      
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -44,26 +44,9 @@ suite ("test_agg_mv_schema_change") {
     def tableName = "schema_change_agg_mv_regression_test"
 
     try {
-        String backend_id;
         def backendId_to_backendIP = [:]
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
 
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -94,7 +77,7 @@ suite ("test_agg_mv_schema_change") {
 
         //add materialized view
         def mvName = "mv1"
-        sql "create materialized view ${mvName} as select user_id, date, city, age, sum(cost) from ${tableName} group by user_id, date, city, age;"
+        sql "create materialized view ${mvName} as select user_id as a1, date as a2, city as a3, age as a4, sum(cost) as a5 from ${tableName} group by user_id, date, city, age;"
 
         waitForJob(tableName, 3000)
 
@@ -105,7 +88,7 @@ suite ("test_agg_mv_schema_change") {
 
         def mvName2 = "mv2"
         test{
-            sql "create materialized view ${mvName2} as select user_id, date, city, cost, max(age) from ${tableName} group by user_id, date, city, cost, sex;"
+            sql "create materialized view ${mvName2} as select user_id as b1, date as b2, city as b3, cost as b4, max(age) as b5 from ${tableName} group by user_id, date, city, cost, sex;"
             exception "err"
         }
 
@@ -165,32 +148,8 @@ suite ("test_agg_mv_schema_change") {
             """
 
         // compaction
-        String[][] tablets = sql """ show tablets from ${tableName}; """
-        for (String[] tablet in tablets) {
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                logger.info("run compaction:" + tablet_id)
-                (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-                //assertEquals(code, 0)
-        }
+        trigger_and_wait_compaction(tableName, "cumulative")
 
-        // wait for all compactions done
-        for (String[] tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(100)
-                    String tablet_id = tablet[0]
-                    backend_id = tablet[2]
-                    (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                    logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                    assertEquals(code, 0)
-                    def compactionStatus = parseJson(out.trim())
-                    assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
-        }
-         
         qt_sc """ select count(*) from ${tableName} """
 
         qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 """
@@ -201,4 +160,4 @@ suite ("test_agg_mv_schema_change") {
 
 }
 
-    
+

@@ -20,8 +20,8 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
-targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
+jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -63,24 +63,26 @@ excludeGroups = ""
 // load_stream_fault_injection may cause bad disk
 
 excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
-    "test_bitmap_filter," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
-    "test_stream_stub_fault_injection," +
+    "test_index_compaction_failure_injection," +
+    "test_full_compaction_run_status," +
+    "test_topn_fault_injection," + 
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 // this directories will not be executed
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line
     "cloud," +
     "cloud_p0," +
-    "nereids_rules_p0/subquery," +
     "workload_manager_p1," +
-    "zzz_the_end_sentinel_do_not_touch," +
-    "dialect_compatible"// keep this line as the last line
+    "plsql_p0," + // plsql is not developped any more, add by sk
+    "variant_p0/nested," +
+    "variant_p0/nested/sql," +
+    "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
 customConf1 = "test_custom_conf_value"
 
@@ -128,6 +130,13 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+iceberg_rest_uri_port_s3=19181
+iceberg_rest_uri_port_oss=19182
+iceberg_rest_uri_port_cos=19183
+
+// polaris rest catalog config
+polaris_rest_uri_port=20181
+polaris_minio_port=20001
 
 enableEsTest=false
 es_6_port=19200
@@ -136,12 +145,16 @@ es_8_port=39200
 
 cacheDataPath = "/data/regression/"
 
-s3Endpoint = "cos.ap-hongkong.myqcloud.com"
-s3BucketName = "doris-build-hk-1308700295"
-s3Region = "ap-hongkong"
-s3Provider = "COS"
+s3Source = "aliyun"
+s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
 
-max_failure_num=50
+//arrow flight sql test config
+extArrowFlightSqlHost = "127.0.0.1"
+extArrowFlightSqlPort = 8081
+extArrowFlightSqlUser = "root"
+extArrowFlightSqlPassword= ""
+
+max_failure_num=-1
 
 externalEnvIp="127.0.0.1"
 

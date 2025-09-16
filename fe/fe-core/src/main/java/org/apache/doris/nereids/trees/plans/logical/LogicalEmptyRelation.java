@@ -41,7 +41,7 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class LogicalEmptyRelation extends LogicalRelation
-        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation {
+        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation, ProjectMergeable {
 
     private final List<NamedExpression> projects;
 
@@ -52,7 +52,7 @@ public class LogicalEmptyRelation extends LogicalRelation
     public LogicalEmptyRelation(RelationId relationId, List<? extends NamedExpression> projects,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(relationId, PlanType.LOGICAL_EMPTY_RELATION, groupExpression, logicalProperties);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
+        this.projects = Utils.fastToImmutableList(Objects.requireNonNull(projects, "projects can not be null"));
     }
 
     @Override
@@ -61,12 +61,13 @@ public class LogicalEmptyRelation extends LogicalRelation
     }
 
     @Override
-    public List<NamedExpression> getProjects() {
-        return projects;
+    public boolean canProcessProject(List<NamedExpression> parentProjects) {
+        return true;
     }
 
-    public LogicalEmptyRelation withProjects(List<? extends NamedExpression> projects) {
-        return new LogicalEmptyRelation(relationId, projects);
+    @Override
+    public List<NamedExpression> getProjects() {
+        return projects;
     }
 
     @Override
@@ -84,6 +85,14 @@ public class LogicalEmptyRelation extends LogicalRelation
     @Override
     public LogicalEmptyRelation withRelationId(RelationId relationId) {
         throw new RuntimeException("should not call LogicalEmptyRelation's withRelationId method");
+    }
+
+    public LogicalEmptyRelation withProjects(List<NamedExpression> projects) {
+        return new LogicalEmptyRelation(relationId, projects);
+    }
+
+    public LogicalEmptyRelation withRelationIdAndProjects(RelationId relationId, List<NamedExpression> projects) {
+        return new LogicalEmptyRelation(relationId, projects);
     }
 
     @Override

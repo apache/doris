@@ -19,14 +19,19 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "common/cast_set.h"
+#include "common/config.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet_schema.h"
 #include "util/time.h"
+#include "util/trace.h"
 
 namespace doris {
 
-static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
+#include "common/compile_check_begin.h"
 
 Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
                std::string tablet_path)
@@ -55,11 +60,6 @@ Rowset::Rowset(const TabletSchemaSPtr& schema, RowsetMetaSharedPtr rowset_meta,
     }
     // build schema from RowsetMeta.tablet_schema or Tablet.tablet_schema
     _schema = _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : schema;
-    g_total_rowset_num << 1;
-}
-
-Rowset::~Rowset() {
-    g_total_rowset_num << -1;
 }
 
 Status Rowset::load(bool use_cache) {
@@ -73,8 +73,6 @@ Status Rowset::load(bool use_cache) {
         std::lock_guard load_lock(_lock);
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-            // first do load, then change the state
-            RETURN_IF_ERROR(do_load(use_cache));
             RETURN_IF_ERROR(_rowset_state_machine.on_load());
         }
     }
@@ -95,7 +93,7 @@ void Rowset::make_visible(Version version) {
     _rowset_meta->set_creation_time(UnixSeconds());
 
     if (_rowset_meta->has_delete_predicate()) {
-        _rowset_meta->mutable_delete_predicate()->set_version(version.first);
+        _rowset_meta->mutable_delete_predicate()->set_version(cast_set<int32_t>(version.first));
     }
 }
 
@@ -117,9 +115,38 @@ std::string Rowset::get_rowset_info_str() {
                        rowset_id().to_string(), disk_size);
 }
 
+const TabletSchemaSPtr& Rowset::tablet_schema() const {
+#ifdef BE_TEST
+    // for mocking tablet schema
+    return _schema;
+#endif
+    return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
+}
+
 void Rowset::clear_cache() {
-    SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
-    clear_inverted_index_cache();
+    {
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
+        SegmentLoader::instance()->erase_segments(rowset_id(), num_segments());
+    }
+    {
+        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(std::chrono::seconds(1));
+        clear_inverted_index_cache();
+    }
+    if (config::enable_file_cache) {
+        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+            auto file_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+        }
+
+        // inverted index
+        auto file_names = get_index_file_names();
+        for (const auto& file_name : file_names) {
+            auto file_key = io::BlockFileCache::hash(file_name);
+            auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
+            file_cache->remove_if_cached_async(file_key);
+        }
+    }
 }
 
 Result<std::string> Rowset::segment_path(int64_t seg_id) {
@@ -155,5 +182,58 @@ void Rowset::merge_rowset_meta(const RowsetMeta& other) {
     // consistent with rowset meta
     _schema = _rowset_meta->tablet_schema();
 }
+
+std::vector<std::string> Rowset::get_index_file_names() {
+    std::vector<std::string> file_names;
+    auto idx_version = _schema->get_inverted_index_storage_format();
+    for (int64_t seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        if (idx_version == InvertedIndexStorageFormatPB::V1) {
+            for (const auto& index : _schema->inverted_indexes()) {
+                auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v1(
+                        rowset_id().to_string(), seg_id, index->index_id(),
+                        index->get_index_suffix());
+                file_names.emplace_back(std::move(file_name));
+            }
+        } else {
+            auto file_name = segment_v2::InvertedIndexDescriptor::get_index_file_name_v2(
+                    rowset_id().to_string(), seg_id);
+            file_names.emplace_back(std::move(file_name));
+        }
+    }
+    return file_names;
+}
+
+int64_t Rowset::approximate_cached_data_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+        auto cache_key = segment_v2::Segment::file_cache_key(rowset_id().to_string(), seg_id);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
+int64_t Rowset::approximate_cache_index_size() {
+    if (!config::enable_file_cache) {
+        return 0;
+    }
+
+    int64_t total_cache_size = 0;
+    auto file_names = get_index_file_names();
+    for (const auto& file_name : file_names) {
+        auto cache_key = io::BlockFileCache::hash(file_name);
+        int64_t cache_size =
+                io::FileCacheFactory::instance()->get_cache_file_size_by_path(cache_key);
+        total_cache_size += cache_size;
+    }
+    return total_cache_size;
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -21,10 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.io.Text;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 public class WorkloadGroupPrivEntry extends PrivEntry {
 
@@ -87,17 +83,5 @@ public class WorkloadGroupPrivEntry extends PrivEntry {
     @Override
     public String toString() {
         return "origWorkloadGroup:" + origWorkloadGroupName + ", priv:" + privSet;
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        origWorkloadGroupName = Text.readString(in);
-        try {
-            workloadGroupPattern = PatternMatcher.createMysqlPattern(origWorkloadGroupName,
-                    CaseSensibility.WORKLOAD_GROUP.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            throw new IOException(e);
-        }
     }
 }

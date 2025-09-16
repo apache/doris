@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.extensions.insert;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Column;
@@ -31,8 +30,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.LogBuilder;
-import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
@@ -47,6 +44,7 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -299,10 +297,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public void cancelAllTasks() throws JobException {
+    public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         try {
-            checkAuth("CANCEL LOAD");
-            super.cancelAllTasks();
+            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                checkAuth("CANCEL LOAD");
+            }
+            super.cancelAllTasks(needWaitCancelComplete);
             this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
         } catch (DdlException e) {
             throw new JobException(e);
@@ -440,7 +440,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
 
             // progress
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            String progress = Env.getCurrentProgressManager()
+                    .getProgressInfo(String.valueOf(getJobId()), getJobStatus() == JobStatus.FINISHED);
             switch (getJobStatus()) {
                 case RUNNING:
                     if (isPending()) {
@@ -522,17 +523,23 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         }
     }
 
+    @Override
+    public String formatMsgWhenExecuteQueueFull(Long taskId) {
+        return commonFormatMsgWhenExecuteQueueFull(taskId, "insert_task_queue_size",
+                "job_insert_task_consumer_thread_num");
+    }
+
     private String getPriority() {
-        return properties.getOrDefault(LoadStmt.PRIORITY, Priority.NORMAL.name());
+        return properties.getOrDefault(LoadCommand.PRIORITY, Priority.NORMAL.name());
     }
 
     public double getMaxFilterRatio() {
-        return Double.parseDouble(properties.getOrDefault(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.0"));
+        return Double.parseDouble(properties.getOrDefault(LoadCommand.MAX_FILTER_RATIO_PROPERTY, "0.0"));
     }
 
     public long getTimeout() {
-        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
-            return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        if (properties.containsKey(LoadCommand.TIMEOUT_PROPERTY)) {
+            return Long.parseLong(properties.get(LoadCommand.TIMEOUT_PROPERTY));
         }
         return Config.broker_load_default_timeout_second;
     }
@@ -647,23 +654,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
 
     @Override
     public void onReplayCreate() throws JobException {
-        JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
-        jobConfig.setExecuteType(JobExecuteType.INSTANT);
-        setJobConfig(jobConfig);
         onRegister();
-        checkJobParams();
-        log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
-    }
-
-    @Override
-    public void onReplayEnd(AbstractJob<?, Map<Object, Object>> replayJob) throws JobException {
-        if (!(replayJob instanceof InsertJob)) {
-            return;
-        }
-        InsertJob insertJob = (InsertJob) replayJob;
-        unprotectReadEndOperation(insertJob);
-        log.info(new LogBuilder(LogKey.LOAD_JOB,
-                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
+        super.onReplayCreate();
     }
 
     public int getProgress() {

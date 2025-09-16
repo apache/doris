@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
@@ -36,7 +37,7 @@ import java.util.List;
  */
 
 public class StAreaSquareKm extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
@@ -48,13 +49,18 @@ public class StAreaSquareKm extends ScalarFunction
         super("st_area_square_km", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAreaSquareKm(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAreaSquareKm withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StAreaSquareKm(children.get(0));
+        return new StAreaSquareKm(getFunctionParams(children));
     }
 
     @Override

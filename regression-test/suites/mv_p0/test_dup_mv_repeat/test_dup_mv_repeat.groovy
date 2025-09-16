@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_repeat") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS db1; """
 
     sql """
@@ -35,22 +37,29 @@ suite ("test_dup_mv_repeat") {
             );
         """
 
-    sql "insert into db1 values('2020-01-01','abc',123),('2020-01-02','def',456);"
+    sql """
+    insert into db1 values
+    ('2020-01-01','abc',123),
+    ('2020-01-01','abc',123),
+    ('2020-01-01','abc',123),
+    ('2020-01-02','def',456),
+    ('2020-01-02','def',456),
+    ('2020-01-02','def',456);
+    """
 
-    createMV ("create materialized view dbviwe as select dt,s,sum(n) as n from db1 group by dt,s;")
+    sql """alter table db1 modify column n set stats ('row_count'='6');"""
+
+    createMV ("create materialized view dbviwe as select dt as a1,s as a2 ,sum(n) as n1 from db1 group by dt,s;")
 
     sql "analyze table db1 with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;")
-        contains "(dbviwe)"
-    }
+    mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
+            "dbviwe")
     qt_select_mv "SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;")
-        contains "(dbviwe)"
-    }
+    sql """alter table db1 modify column dt set stats ('row_count'='2');"""
+    mv_rewrite_success("SELECT s AS s, sum(n) / count(DISTINCT dt) AS n FROM  db1 GROUP BY  GROUPING SETS((s)) order by 1;",
+            "dbviwe")
 }

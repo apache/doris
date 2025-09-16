@@ -178,6 +178,9 @@ public:
     bool update_tablet_partition_id(::doris::TPartitionId partition_id,
                                     ::doris::TTabletId tablet_id);
 
+    void get_topn_tablet_delete_bitmap_score(uint64_t* max_delete_bitmap_score,
+                                             uint64_t* max_base_rowset_delete_bitmap_score);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
@@ -194,8 +197,8 @@ private:
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
-    Status _drop_tablet_unlocked(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                                 bool is_drop_table_or_partition);
+    Status _drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
+                        bool is_drop_table_or_partition, bool had_held_shard_lock);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
@@ -250,9 +253,6 @@ private:
     };
 
     StorageEngine& _engine;
-
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
-    std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

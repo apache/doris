@@ -29,14 +29,10 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // IWYU pragma: keep
 
-namespace doris {
-namespace vectorized {
-template <typename T>
-class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+
+template <PrimitiveType T>
+class ColumnVector;
 
 size_t count_bytes_in_filter(const IColumn::Filter& filt) {
     size_t count = 0;
@@ -182,13 +178,14 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
     };
 
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const auto filt_end_aligned = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_aligned) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
-
-        if (mask == 0xffffffff) {
+        auto mask = simd::bytes_mask_to_bits_mask(filt_pos);
+        if (0 == mask) {
+            //pass
+        } else if (mask == simd::bits_mask_all()) {
             /// SIMD_BYTES consecutive rows pass the filter
             const auto first = offsets_pos == offsets_begin;
 
@@ -203,11 +200,8 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
             res_elems.resize(elems_size_old + chunk_size);
             memcpy(&res_elems[elems_size_old], &src_elems[chunk_offset], chunk_size * sizeof(T));
         } else {
-            while (mask) {
-                const size_t bit_pos = __builtin_ctzll(mask);
-                copy_array(offsets_pos + bit_pos);
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t bit_pos) { copy_array(offsets_pos + bit_pos); }, mask);
         }
 
         filt_pos += SIMD_BYTES;
@@ -234,7 +228,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
     /// If no need to filter the `offsets`, here do not reset the end ptr of `offsets`
     if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {
         /// Reset the end ptr to prepare for inserting/pushing elements into `offsets` in `ResultOffsetsBuilder`.
-        offsets.set_end_ptr(offsets.data());
+        offsets.resize(0);
     }
 
     ResultOffsetsBuilder result_offsets_builder(&offsets);
@@ -259,13 +253,14 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
         result_data += arr_size;
     };
 
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const auto filter_end_aligned = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filter_pos < filter_end_aligned) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
-
-        if (mask == 0xffffffff) {
+        auto mask = simd::bytes_mask_to_bits_mask(filter_pos);
+        if (0 == mask) {
+            //pass
+        } else if (mask == simd::bits_mask_all()) {
             /// SIMD_BYTES consecutive rows pass the filter
             const auto first = offsets_pos == offsets_begin;
 
@@ -281,12 +276,12 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
             result_data += chunk_size;
             result_size += SIMD_BYTES;
         } else {
-            while (mask) {
-                const size_t bit_pos = __builtin_ctzll(mask);
-                copy_array(offsets_pos + bit_pos);
-                ++result_size;
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t bit_pos) {
+                        copy_array(offsets_pos + bit_pos);
+                        ++result_size;
+                    },
+                    mask);
         }
 
         filter_pos += SIMD_BYTES;
@@ -307,7 +302,7 @@ size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
         const size_t result_data_size = result_data - elems.data();
         CHECK_EQ(result_data_size, offsets.back());
     }
-    elems.set_end_ptr(result_data);
+    elems.resize(result_data - elems.data());
     return result_size;
 }
 } // namespace
@@ -364,6 +359,8 @@ INSTANTIATE(UInt32, IColumn::Offset)
 INSTANTIATE(UInt32, ColumnArray::Offset64)
 INSTANTIATE(UInt64, IColumn::Offset)
 INSTANTIATE(UInt64, ColumnArray::Offset64)
+INSTANTIATE(UInt128, IColumn::Offset)
+INSTANTIATE(UInt128, ColumnArray::Offset64)
 INSTANTIATE(Int8, IColumn::Offset)
 INSTANTIATE(Int8, ColumnArray::Offset64)
 INSTANTIATE(Int16, IColumn::Offset)
@@ -372,10 +369,22 @@ INSTANTIATE(Int32, IColumn::Offset)
 INSTANTIATE(Int32, ColumnArray::Offset64)
 INSTANTIATE(Int64, IColumn::Offset)
 INSTANTIATE(Int64, ColumnArray::Offset64)
+INSTANTIATE(Int128, IColumn::Offset)
+INSTANTIATE(Int128, ColumnArray::Offset64)
 INSTANTIATE(Float32, IColumn::Offset)
 INSTANTIATE(Float32, ColumnArray::Offset64)
 INSTANTIATE(Float64, IColumn::Offset)
 INSTANTIATE(Float64, ColumnArray::Offset64)
+INSTANTIATE(Decimal32, IColumn::Offset)
+INSTANTIATE(Decimal32, ColumnArray::Offset64)
+INSTANTIATE(Decimal64, IColumn::Offset)
+INSTANTIATE(Decimal64, ColumnArray::Offset64)
+INSTANTIATE(Decimal128V2, IColumn::Offset)
+INSTANTIATE(Decimal128V2, ColumnArray::Offset64)
+INSTANTIATE(Decimal128V3, IColumn::Offset)
+INSTANTIATE(Decimal128V3, ColumnArray::Offset64)
+INSTANTIATE(Decimal256, IColumn::Offset)
+INSTANTIATE(Decimal256, ColumnArray::Offset64)
 
 #undef INSTANTIATE
 

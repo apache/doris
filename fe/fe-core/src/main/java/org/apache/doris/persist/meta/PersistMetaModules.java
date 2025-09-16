@@ -38,18 +38,18 @@ public class PersistMetaModules {
 
     public static final ImmutableList<String> MODULE_NAMES = ImmutableList.of(
             "masterInfo", "frontends", "backends", "datasource", "db", "alterJob", "recycleBin",
-            "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
+            "globalVariable", "cluster", "broker", "resources", "exportJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
             "plugins", "deleteHandler", "sqlBlockRule", "policy", "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
-            "insertOverwrite", "plsql");
+            "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore");
 
     // The modules in `CloudEnv`.
     public static final ImmutableList<String> CLOUD_MODULE_NAMES = ImmutableList.of("cloudWarmUpJob");
 
     // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)
     public static final ImmutableList<String> DEPRECATED_MODULE_NAMES = ImmutableList.of(
-            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager");
+            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager", "syncJob");
 
     static {
         MODULES_MAP = Maps.newHashMap();

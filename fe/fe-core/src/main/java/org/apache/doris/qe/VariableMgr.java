@@ -31,8 +31,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -40,7 +43,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
@@ -307,27 +309,11 @@ public class VariableMgr {
         return joiner.toString();
     }
 
-    // The only difference between setVar and setVarForNonMasterFE
-    // is that setVarForNonMasterFE will just return if "checkUpdate" throw exception.
-    // This is because, when setting global variables from Non Master FE, Doris will do following step:
-    //      1. forward this SetStmt to Master FE to execute.
-    //      2. Change this SetStmt to "SESSION" level, and execute it again on this Non Master FE.
-    // But for "GLOBAL only" variable, such ash "password_history", it doesn't allow to set on SESSION level.
-    // So when doing step 2, "set password_history=xxx" without "GLOBAL" keywords will throw exception.
-    // So in this case, we should just ignore this exception and return.
     public static void setVarForNonMasterFE(SessionVariable sessionVariable, SetVar setVar)
             throws DdlException {
         VarContext varCtx = getVarContext(setVar.getVariable());
         if (varCtx == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, setVar.getVariable());
-        }
-        try {
-            checkUpdate(setVar, varCtx.getFlag());
-        } catch (DdlException e) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("no need to set var for non master fe: {}", setVar.getVariable(), e);
-            }
-            return;
         }
         setVarInternal(sessionVariable, setVar, varCtx);
     }
@@ -457,18 +443,23 @@ public class VariableMgr {
             }
             variablesToRead.readFields(in);
             GlobalVarPersistInfo info = GlobalVarPersistInfo.read(in);
-            replayGlobalVariableV2(info);
+            replayGlobalVariableV2(info, true);
         } finally {
             wlock.unlock();
         }
     }
 
     // this method is used to replace the `replayGlobalVariable()`
-    public static void replayGlobalVariableV2(GlobalVarPersistInfo info) throws DdlException {
+    public static void replayGlobalVariableV2(GlobalVarPersistInfo info, boolean fromImage) throws DdlException {
         wlock.lock();
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
+            // if not variable version, we set it to 0 to ensure we could force set global variable.
+            boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
+            if (fromImage && !hasVariableVersion) {
+                GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
+            }
             for (Object varName : root.keySet()) {
                 VarContext varContext = ctxByVarName.get((String) varName);
                 if (Env.isCheckpointThread()) {
@@ -703,8 +694,16 @@ public class VariableMgr {
             throws DdlException {
         for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
             VarContext varCtx = entry.getValue();
+            String defaultValue = varCtx.defaultValue;
+            String currentValue = getValue(sessionVariable, varCtx.getField());
+
+            // Skip if current value is already the default value
+            if (defaultValue.equals(currentValue)) {
+                continue;
+            }
+
             SetVar setVar = new SetVar(setType, entry.getKey(),
-                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+                    new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
             try {
                 checkUpdate(setVar, varCtx.getFlag());
             } catch (DdlException e) {
@@ -728,9 +727,13 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
-                // not show removed variables
                 VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttr.class);
+                // not show removed variables
                 if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
                     continue;
                 }
                 // Filter variable not match to the regex.
@@ -800,6 +803,51 @@ public class VariableMgr {
         return changedRows;
     }
 
+    public static List<List<String>> dumpChangedVars(SessionVariable sessionVar) {
+        // Hold the read lock when session dump, because this option need to access global variable.
+        rlock.lock();
+        List<List<String>> changedRows = Lists.newArrayList();
+        try {
+            for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+                VarContext ctx = entry.getValue();
+                VarAttr varAttr = ctx.getField().getAnnotation(VarAttr.class);
+                // not show removed variables
+                if (VariableAnnotation.REMOVED.equals(varAttr.varType())) {
+                    continue;
+                }
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
+                List<String> row = Lists.newArrayList();
+                String varName = entry.getKey();
+                String curValue = getValue(sessionVar, ctx.getField());
+                String defaultValue = ctx.getDefaultValue();
+                if (VariableVarConverters.hasConverter(varName)) {
+                    try {
+                        defaultValue = VariableVarConverters.decode(varName, Long.valueOf(defaultValue));
+                        curValue = VariableVarConverters.decode(varName, Long.valueOf(curValue));
+                    } catch (DdlException e) {
+                        LOG.warn("Decode session variable {} failed, reason: {}", varName, e.getMessage());
+                    }
+                }
+
+                if (curValue.equals(defaultValue)) {
+                    continue;
+                }
+
+                row.add(varName);
+                row.add(curValue);
+                row.add(defaultValue);
+                changedRows.add(row);
+            }
+        } finally {
+            rlock.unlock();
+        }
+
+        return changedRows;
+    }
+
     @Retention(RetentionPolicy.RUNTIME)
     public @interface VarAttr {
         // Name in show variables and set statement;
@@ -838,6 +886,9 @@ public class VariableMgr {
         String[] options() default {};
 
         String convertBoolToLongMethod() default "";
+        // If the variable affects the outcome, set it to true.
+        // If this value is true, it will ignore needForward and enforce forwarding.
+        boolean affectQueryResult() default false;
     }
 
     private static class VarContext {
@@ -910,5 +961,82 @@ public class VariableMgr {
             builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
+    }
+
+    public static void forceUpdateVariables() {
+        int currentVariableVersion = GlobalVariable.variableVersion;
+        String updateInfo = currentVariableVersion + "to" + GlobalVariable.CURRENT_VARIABLE_VERSION;
+        if (currentVariableVersion == GlobalVariable.VARIABLE_VERSION_0) {
+            // update from 2.0.15 or below to 2.0.16 or higher
+            if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                        SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+            }
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_100) {
+            // update from 2.1.6 or below to 2.1.7 or higher
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_NEREIDS_DML,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_NEREIDS_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_PIPELINE_X_ENGINE,
+                    String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
+            if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
+                    < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                        SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
+            }
+            if (StatisticsUtil.getTableStatsHealthThreshold()
+                    < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                        SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
+            }
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_200) {
+            // update from 3.0.2 or below to 3.0.3 or higher
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                    String.valueOf(false));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_300) {
+            // update from 3.0.x to 3.1.0 or higher
+            long sqlMode = defaultSessionVariable.sqlMode;
+            // remove mode_default flag
+            if ((sqlMode & SqlModeHelper.MODE_DEFAULT) != 0) {
+                sqlMode ^= SqlModeHelper.MODE_DEFAULT;
+            }
+            // add ONLY_FULL_GROUP_BY to sql_mode to let behavior not change
+            sqlMode |= SqlModeHelper.MODE_ONLY_FULL_GROUP_BY;
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.SQL_MODE,
+                    String.valueOf(sqlMode));
+
+            // update from older version, use legacy behavior.
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
+                    String.valueOf(false));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
+            // update to master
+            // do nothing now
+        }
+        if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.VARIABLE_VERSION,
+                    String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
+        }
     }
 }

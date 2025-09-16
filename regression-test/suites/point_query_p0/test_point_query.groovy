@@ -16,42 +16,41 @@
 // under the License.
 
 import java.math.BigDecimal;
+import com.mysql.cj.ServerPreparedQuery
+import com.mysql.cj.jdbc.ConnectionImpl
+import com.mysql.cj.jdbc.JdbcStatement
+import com.mysql.cj.jdbc.ServerPreparedStatement
+import com.mysql.cj.jdbc.StatementImpl
+import org.apache.doris.regression.util.JdbcUtils
 
-suite("test_point_query", "nonConcurrent") {
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
+import java.lang.reflect.Field
+import java.sql.PreparedStatement
+import java.sql.ResultSet
+import java.util.concurrent.CopyOnWriteArrayList
+
+suite("test_point_query") {
+    def user = context.config.jdbcUser
+    def password = context.config.jdbcPassword
+    def realDb = "regression_test_serving_p0"
+    // Parse url
+    String jdbcUrl = context.config.jdbcUrl
+    String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
+    def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
+    def sql_port
+    if (urlWithoutSchema.indexOf("/") >= 0) {
+        // e.g: jdbc:mysql://locahost:8080/?a=b
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
+    } else {
+        // e.g: jdbc:mysql://locahost:8080
+        sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
     }
+    // set server side prepared statement url
+    def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
     try {
-        set_be_config.call("disable_storage_row_cache", "false")
-        // nereids do not support point query now
-        sql "set global enable_fallback_to_original_planner = false"
-        sql """set global enable_nereids_planner=true"""
-        def user = context.config.jdbcUser
-        def password = context.config.jdbcPassword
-        def realDb = "regression_test_serving_p0"
+        sql """set enable_fallback_to_original_planner = false"""
+        sql """set enable_nereids_planner=true"""
         def tableName = realDb + ".tbl_point_query"
         sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
-
-        // Parse url
-        String jdbcUrl = context.config.jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
-        }
-        // set server side prepared statement url
-        def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
 
         def generateString = {len ->
             def str = ""
@@ -63,7 +62,7 @@ suite("test_point_query", "nonConcurrent") {
 
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
-            connect(user = user, password = password, url = url_without_prep) {
+            connect(user, password, url_without_prep) {
                 // set to false to invalid cache correcly
                 sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
@@ -137,7 +136,7 @@ suite("test_point_query", "nonConcurrent") {
             sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38", 0, 90696620686827832.374, [0], null) """
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
-            def result1 = connect(user=user, password=password, url=prepare_url) {
+            def result1 = connect(user, password, prepare_url) {
                 def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)
@@ -195,13 +194,14 @@ suite("test_point_query", "nonConcurrent") {
                 """
                 sleep(1);
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 stmt.setBigDecimal(1, 1235)
                 stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
                 stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
-                sql "sync"
+                // "sync"
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
@@ -209,21 +209,34 @@ suite("test_point_query", "nonConcurrent") {
                 nprep_sql """
                 ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 nprep_sql """
                 ALTER table ${tableName} DROP COLUMN new_column1;
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
 
-                sql """
+                nprep_sql """
                   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                sql "select 1"
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
-            def result2 = connect(user=user, password=password, url=context.config.jdbcUrl) {
+            def result2 = connect(user, password, context.config.jdbcUrl) {
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1231 and k2 = 119291.11 and k3 = 'ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
                 qt_sql """select /*+ SET_VAR(enable_nereids_planner=true) */ hex(k3), hex(k4), k7 + 10.1 from ${tableName} where k1 = 1237 and k2 = 120939.11130 and k3 = 'a    ddd'"""
@@ -270,8 +283,8 @@ suite("test_point_query", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "store_row_column" = "true"
-            ); 
-        """                
+            );
+        """
         sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
         sql "select  /*+ SET_VAR(enable_nereids_planner=true) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
 
@@ -288,19 +301,179 @@ suite("test_point_query", "nonConcurrent") {
         "enable_unique_key_merge_on_write" = "true",
         "store_row_column" = "true"
         );
-        """                
+        """
         sql """insert into `test_cc_aaaid2` values('1111111')"""
         qt_sql """SELECT
              `__DORIS_DELETE_SIGN__`,
              aaaid
 
             FROM
-             `test_cc_aaaid2` 
+             `test_cc_aaaid2`
             WHERE
              aaaid = '1111111'"""
     } finally {
-        set_be_config.call("disable_storage_row_cache", "true")
-        sql """set global enable_nereids_planner=true"""
-        sql "set global enable_fallback_to_original_planner = true"
     }
-} 
+
+    // test partial update/delete
+    sql "DROP TABLE IF EXISTS table_3821461"
+    sql """
+        CREATE TABLE `table_3821461` (
+            `col1` smallint NOT NULL,
+            `col2` int NOT NULL,
+            `loc3` char(10) NOT NULL,
+            `value` char(10) NOT NULL,
+            INDEX col3 (`loc3`) USING INVERTED,
+            INDEX col2 (`col2`) USING INVERTED )
+        ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
+        DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
+    """
+    sql "insert into table_3821461 values (-10, 20, 'aabc', 'value')"
+    sql "insert into table_3821461 values (10, 20, 'aabc', 'value');"
+    sql "insert into table_3821461 values (20, 30, 'aabc', 'value');"
+    explain {
+        sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
+        contains "SHORT-CIRCUIT"
+    }
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    // read delete sign
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+
+    // skip delete sign
+    sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
+    qt_sql "select col1, col2, loc3, 'value' from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
+
+    sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
+    qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
+
+    sql "DROP TABLE IF EXISTS test_partial_prepared_statement"
+    sql """
+        CREATE TABLE `test_partial_prepared_statement` (
+          `user_guid` varchar(64) NOT NULL,
+          `feature` varchar(256) NOT NULL,
+          `sk` varchar(256) NOT NULL,
+          `feature_value` text NULL,
+          `data_time` datetime NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`user_guid`, `feature`, `sk`)
+        DISTRIBUTED BY HASH(`user_guid`) BUCKETS 32
+        PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true",
+        "light_schema_change" = "true",
+        "function_column.sequence_col" = "data_time",
+        "store_row_column" = "true",
+        "replication_num" = "1",
+        "row_store_page_size" = "16384"
+        );
+    """
+    sql "insert into test_partial_prepared_statement values ('user_guid', 'feature', 'sk','feature_value', '2021-01-01 00:00:00')"
+    def result2 = connect(user, password, prepare_url) {
+        def partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = ? "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where user_guid = ? and  feature = 'feature' and sk = ?"
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        partial_prepared_stmt.setString(2, "sk")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where ? = user_guid and sk = 'sk'  and  feature = 'feature' "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where ? = user_guid and sk = 'sk'  and  feature = ? "
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "user_guid")
+        partial_prepared_stmt.setString(2, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from regression_test_point_query_p0.test_partial_prepared_statement where  sk = ? and  feature = ? and 'user_guid' = user_guid"
+        assertEquals(partial_prepared_stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+        partial_prepared_stmt.setString(1, "sk")
+        partial_prepared_stmt.setString(2, "feature")
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        partial_prepared_stmt = prepareStatement " select * from regression_test_point_query_p0.table_3821461 where col1 = ? and col2 = ? and loc3 = 'aabc'"
+        partial_prepared_stmt.setInt(1, 10)
+        partial_prepared_stmt.setInt(2, 20)
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+        qe_point_select partial_prepared_stmt
+
+        // test prepared statement should not be short-circuited plan which use nondeterministic function
+        try (PreparedStatement pstmt = prepareStatement("select now(3) data_time from regression_test_point_query_p0.test_partial_prepared_statement where sk = 'sk' and user_guid = 'user_guid' and  feature = 'feature'")) {
+            def result1 = ""
+            def result2 = ""
+            try (ResultSet rs = pstmt.executeQuery()) {
+                result1 = JdbcUtils.toList(rs).v1
+                logger.info("result: {}", result1)
+            }
+            sleep(100)
+            try (ResultSet rs = pstmt.executeQuery()) {
+                result2 = JdbcUtils.toList(rs).v1
+                logger.info("result: {}", result2)
+            }
+            assertNotEquals(result1, result2)
+        }
+    }
+    // test shrink char type
+    sql "DROP TABLE IF EXISTS table_with_chars"
+    sql """
+        CREATE TABLE `table_with_chars` (
+            `col1` smallint NOT NULL,
+            `col2` int NOT NULL,
+            `loc3` char(10) NOT NULL,
+            `value` char(10) NOT NULL,
+            INDEX col3 (`loc3`) USING INVERTED,
+            INDEX col2 (`col2`) USING INVERTED )
+        ENGINE=OLAP UNIQUE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "row_store_columns" = "col1", "enable_mow_light_delete" = "false" );
+    """
+    sql "insert into table_with_chars values (-10, 20, 'aabc', 'value')"
+    sql "insert into table_with_chars values (10, 20, 'aabc', 'value');"
+    sql "insert into table_with_chars values (20, 30, 'aabc', 'value');"
+    sql "set enable_short_circuit_query = true"
+    qt_sql "select length(loc3) from table_with_chars where col1 = 10"
+
+    def ensure_one_fragment = {
+        sql "set enable_nereids_planner=true"
+        explain {
+            sql "select * from table_with_chars where col1 = 10"
+            check { explainStr ->
+                assertEquals(1, explainStr.count("PLAN FRAGMENT"))
+            }
+        }
+    }()
+
+    // test variant type
+    sql "DROP TABLE IF EXISTS test_with_variant"
+    sql """
+    CREATE TABLE `test_with_variant` (
+        `col1` bigint NULL,
+        `col2` variant NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`col1`)
+    DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "store_row_column" = "true"
+    );
+    """
+    sql """
+        INSERT INTO test_with_variant VALUES(1, '{"k1":"v1", "k2": 200}');
+    """
+    qt_sql "select col2['k1'] from test_with_variant where col1=1"
+
+}

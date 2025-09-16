@@ -66,10 +66,11 @@ public class UnCorrelatedApplyFilter extends OneRewriteRuleFactory {
             }
 
             Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
-            return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
+            return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
+                    apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate), apply.getMarkJoinSlotReference(),
                     apply.isNeedAddSubOutputToProjects(),
-                    apply.isInProject(), apply.isMarkJoinSlotNotNull(), apply.left(), child);
+                    apply.isMarkJoinSlotNotNull(), apply.left(), child);
         }).toRule(RuleType.UN_CORRELATED_APPLY_FILTER);
     }
 }

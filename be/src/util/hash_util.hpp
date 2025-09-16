@@ -24,36 +24,28 @@
 #include <xxh3.h>
 #include <zlib.h>
 
+#include <bit>
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/hash/city.h"
-#include "runtime/define_primitive_type.h"
 #include "util/cpu_info.h"
+#include "util/hash/city.h"
 #include "util/murmur_hash3.h"
 #include "util/sse_util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // Utility class to compute hash values.
 class HashUtil {
 public:
-    template <typename T>
-    static uint32_t fixed_len_to_uint32(T value) {
-        if constexpr (sizeof(T) <= sizeof(uint32_t)) {
-            return (uint32_t)value;
-        }
-        return std::hash<T>()(value);
-    }
-
-    static uint32_t zlib_crc_hash(const void* data, int32_t bytes, uint32_t hash) {
-        return crc32(hash, (const unsigned char*)data, bytes);
+    static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
+        return (uint32_t)crc32(hash, (const unsigned char*)data, bytes);
     }
 
     static uint32_t zlib_crc_hash_null(uint32_t hash) {
         // null is treat as 0 when hash
         static const int INT_VALUE = 0;
-        return crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
+        return (uint32_t)crc32(hash, (const unsigned char*)(&INT_VALUE), 4);
     }
 
 #if defined(__SSE4_2__) || defined(__aarch64__)
@@ -66,7 +58,7 @@ public:
     // NOTE: Any changes made to this function need to be reflected in Codegen::GetHashFn.
     // TODO: crc32 hashes with different seeds do not result in different hash functions.
     // The resulting hashes are correlated.
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         if (!CpuInfo::is_supported(CpuInfo::SSE4_2)) {
             return zlib_crc_hash(data, bytes, hash);
         }
@@ -93,7 +85,7 @@ public:
         return hash;
     }
 
-    static uint64_t crc_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t crc_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         uint32_t words = bytes / sizeof(uint32_t);
         bytes = bytes % sizeof(uint32_t);
 
@@ -125,7 +117,7 @@ public:
         return converter.u64;
     }
 #else
-    static uint32_t crc_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
         return zlib_crc_hash(data, bytes, hash);
     }
 #endif
@@ -134,7 +126,7 @@ public:
     static const uint32_t MURMUR3_32_SEED = 104729;
 
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
-    static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
+    static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
         uint32_t out = 0;
         murmur_hash3_x86_32(key, len, seed, &out);
         return out;
@@ -202,7 +194,7 @@ public:
     // For example, if the data is <1000, 2000, 3000, 4000, ..> and then the mod of 1000
     // is taken on the hash, all values will collide to the same bucket.
     // For string values, Fnv is slightly faster than boost.
-    static uint32_t fnv_hash(const void* data, int32_t bytes, uint32_t hash) {
+    static uint32_t fnv_hash(const void* data, uint32_t bytes, uint32_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -213,7 +205,7 @@ public:
         return hash;
     }
 
-    static uint64_t fnv_hash64(const void* data, int32_t bytes, uint64_t hash) {
+    static uint64_t fnv_hash64(const void* data, uint32_t bytes, uint64_t hash) {
         const uint8_t* ptr = reinterpret_cast<const uint8_t*>(data);
 
         while (bytes--) {
@@ -227,7 +219,7 @@ public:
     // Our hash function is MurmurHash2, 64 bit version.
     // It was modified in order to provide the same result in
     // big and little endian archs (endian neutral).
-    static uint64_t murmur_hash64A(const void* key, int32_t len, unsigned int seed) {
+    static uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
         const uint64_t m = MURMUR_PRIME;
         const int r = 47;
         uint64_t h = seed ^ (len * m);
@@ -236,18 +228,22 @@ public:
 
         while (data != end) {
             uint64_t k;
-#if (BYTE_ORDER == BIG_ENDIAN)
-            k = (uint64_t)data[0];
-            k |= (uint64_t)data[1] << 8;
-            k |= (uint64_t)data[2] << 16;
-            k |= (uint64_t)data[3] << 24;
-            k |= (uint64_t)data[4] << 32;
-            k |= (uint64_t)data[5] << 40;
-            k |= (uint64_t)data[6] << 48;
-            k |= (uint64_t)data[7] << 56;
-#else
-            k = *((uint64_t*)data);
-#endif
+            if constexpr (std::endian::native == std::endian::big) {
+                k = (uint64_t)data[0];
+                k |= (uint64_t)data[1] << 8;
+                k |= (uint64_t)data[2] << 16;
+                k |= (uint64_t)data[3] << 24;
+                k |= (uint64_t)data[4] << 32;
+                k |= (uint64_t)data[5] << 40;
+                k |= (uint64_t)data[6] << 48;
+                k |= (uint64_t)data[7] << 56;
+            } else if constexpr (std::endian::native == std::endian::little) {
+                memcpy(&k, data, sizeof(k));
+            } else {
+                static_assert(std::endian::native == std::endian::big ||
+                                      std::endian::native == std::endian::little,
+                              "Unsupported endianness");
+            }
 
             k *= m;
             k ^= k >> r;
@@ -291,7 +287,7 @@ public:
     // depending on hardware capabilities.
     // Seed values for different steps of the query execution should use different seeds
     // to prevent accidental key collisions. (See IMPALA-219 for more details).
-    static uint32_t hash(const void* data, int32_t bytes, uint32_t seed) {
+    static uint32_t hash(const void* data, uint32_t bytes, uint32_t seed) {
 #ifdef __SSE4_2__
 
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
@@ -305,7 +301,7 @@ public:
 #endif
     }
 
-    static uint64_t hash64(const void* data, int32_t bytes, uint64_t seed) {
+    static uint64_t hash64(const void* data, uint64_t bytes, uint64_t seed) {
 #ifdef _SSE4_2_
         if (LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
             return crc_hash64(data, bytes, seed);
@@ -364,8 +360,8 @@ public:
 
 template <>
 struct std::hash<doris::TUniqueId> {
-    std::size_t operator()(const doris::TUniqueId& id) const {
-        std::size_t seed = 0;
+    size_t operator()(const doris::TUniqueId& id) const {
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
         seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
         return seed;
@@ -375,8 +371,9 @@ struct std::hash<doris::TUniqueId> {
 template <>
 struct std::hash<doris::TNetworkAddress> {
     size_t operator()(const doris::TNetworkAddress& address) const {
-        std::size_t seed = 0;
-        seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
+        uint32_t seed = 0;
+        seed = doris::HashUtil::hash(address.hostname.data(), (uint32_t)address.hostname.size(),
+                                     seed);
         seed = doris::HashUtil::hash(&address.port, 4, seed);
         return seed;
     }
@@ -385,7 +382,7 @@ struct std::hash<doris::TNetworkAddress> {
 template <>
 struct std::hash<std::pair<doris::TUniqueId, int64_t>> {
     size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
-        size_t seed = 0;
+        uint32_t seed = 0;
         seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
         seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
         seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
@@ -398,6 +395,8 @@ struct std::hash<std::pair<First, Second>> {
     size_t operator()(const pair<First, Second>& p) const {
         size_t h1 = std::hash<First>()(p.first);
         size_t h2 = std::hash<Second>()(p.second);
-        return util_hash::HashLen16(h1, h2);
+        return doris::util_hash::HashLen16(h1, h2);
     }
 };
+
+#include "common/compile_check_end.h"

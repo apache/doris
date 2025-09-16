@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
@@ -43,6 +44,7 @@ class ColumnIterator;
 } // namespace segment_v2
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 class VStatisticsIterator : public RowwiseIterator {
 public:
@@ -89,8 +91,8 @@ public:
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(_iter->schema().num_column_ids()),
-              _num_key_columns(_iter->schema().num_key_columns()),
+              _num_columns(cast_set<int>(_iter->schema().num_column_ids())),
+              _num_key_columns(cast_set<int>(_iter->schema().num_key_columns())),
               _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
@@ -209,16 +211,15 @@ public:
         return Status::OK();
     }
 
-    bool update_profile(RuntimeProfile* profile) override {
+    void update_profile(RuntimeProfile* profile) override {
         if (!_origin_iters.empty()) {
-            return _origin_iters[0]->update_profile(profile);
+            _origin_iters[0]->update_profile(profile);
         }
-        return false;
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
-    int _get_size(BlockView* block_view) { return block_view->size(); }
+    int _get_size(Block* block) { return cast_set<int>(block->rows()); }
+    int _get_size(BlockView* block_view) { return cast_set<int>(block_view->size()); }
 
     template <typename T>
     Status _next_batch(T* block) {
@@ -331,6 +332,7 @@ RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
 
+#include "common/compile_check_end.h"
 } // namespace vectorized
 
 } // namespace doris

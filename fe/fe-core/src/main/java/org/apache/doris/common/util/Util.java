@@ -46,6 +46,7 @@ import java.io.StringWriter;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -566,10 +567,10 @@ public class Util {
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV)
                 || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
-                // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
-                || lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+                || lowerFileFormat.equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
             return TFileFormatType.FORMAT_CSV_PLAIN;
+        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_HIVE_TEXT)) {
+            return TFileFormatType.FORMAT_TEXT;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_WAL)) {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
@@ -584,6 +585,7 @@ public class Util {
      *
      * @param path of file to be inferred.
      */
+
     @NotNull
     public static TFileCompressType inferFileCompressTypeByPath(String path) {
         String lowerCasePath = path.toLowerCase();
@@ -601,17 +603,23 @@ public class Util {
             return TFileCompressType.DEFLATE;
         } else if (lowerCasePath.endsWith(".snappy")) {
             return TFileCompressType.SNAPPYBLOCK;
+        } else if (lowerCasePath.endsWith(".zst") || lowerCasePath.endsWith(".zstd")) {
+            return TFileCompressType.ZSTD;
         } else {
             return TFileCompressType.PLAIN;
         }
     }
 
-    public static TFileCompressType getFileCompressType(String compressType) {
+    public static TFileCompressType getFileCompressType(String compressType) throws AnalysisException {
         if (Strings.isNullOrEmpty(compressType)) {
             return TFileCompressType.UNKNOWN;
         }
         final String upperCaseType = compressType.toUpperCase();
-        return TFileCompressType.valueOf(upperCaseType);
+        try {
+            return TFileCompressType.valueOf(upperCaseType);
+        } catch (IllegalArgumentException e) {
+            throw new AnalysisException("Unknown compression type: " + compressType);
+        }
     }
 
     /**
@@ -644,10 +652,35 @@ public class Util {
         String rootCause = "unknown";
         Throwable p = t;
         while (p != null) {
-            rootCause = p.getClass().getName() + ": " + p.getMessage();
+            String message = p.getMessage();
+            if (message == null) {
+                rootCause = p.getClass().getName();
+            } else {
+                rootCause = p.getClass().getName() + ": " + p.getMessage();
+            }
             p = p.getCause();
         }
         return rootCause;
+    }
+
+    public static String getRootCauseWithSuppressedMessage(Throwable t) {
+        String rootCause;
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        if (message == null) {
+            rootCause = p.getClass().getName();
+        } else {
+            rootCause = p.getClass().getName() + ": " + p.getMessage();
+        }
+        StringBuilder msg = new StringBuilder(rootCause);
+        Throwable[] suppressed = p.getSuppressed();
+        for (int i = 0; i < suppressed.length; i++) {
+            msg.append(" With suppressed").append("[").append(i).append("]:").append(suppressed[i].getMessage());
+        }
+        return msg.toString();
     }
 
     // Return the stack of the root cause
@@ -666,20 +699,90 @@ public class Util {
         return sw.toString();
     }
 
+    public static Throwable getRootCause(Throwable t) {
+        Throwable p = t;
+        Throwable r = t;
+        while (p != null) {
+            r = p;
+            p = p.getCause();
+        }
+        return r;
+    }
+
     public static long sha256long(String str) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(str.getBytes());
+            byte[] hash = digest.digest(str.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buffer = ByteBuffer.wrap(hash);
-            return buffer.getLong();
+            long result = buffer.getLong();
+            // Handle Long.MIN_VALUE case to ensure non-negative ID generation
+            if (result == Long.MIN_VALUE) {
+                return str.hashCode();
+            }
+            return result;
         } catch (NoSuchAlgorithmException e) {
             return str.hashCode();
         }
     }
 
-    // Only used for external table's id generation
-    // And the table's id must >=0, see DescriptorTable.toThrift()
-    public static long genTableIdByName(String tblName) {
-        return Math.abs(sha256long(tblName));
+    // Only used for external db/table's id generation
+    // And the db/table's id must >=0, see DescriptorTable.toThrift()
+    public static long genIdByName(String... names) {
+        return Math.abs(sha256long(String.join(".", names)));
+    }
+
+    public static String generateTempTableInnerName(String tableName) {
+        if (tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1) {
+            return tableName;
+        }
+
+        ConnectContext ctx = ConnectContext.get();
+        // when replay edit log, no need to generate temp table name
+        return ctx == null ? tableName : ctx.getSessionId() + FeNameFormat.TEMPORARY_TABLE_SIGN + tableName;
+    }
+
+    public static String getTempTableDisplayName(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[1] : tableName;
+    }
+
+    public static String getTempTableSessionId(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1
+            ? tableName.split(FeNameFormat.TEMPORARY_TABLE_SIGN)[0] : "";
+    }
+
+    public static boolean isTempTable(String tableName) {
+        return tableName.indexOf(FeNameFormat.TEMPORARY_TABLE_SIGN) != -1;
+    }
+
+    public static boolean isTempTableInCurrentSession(String tableName) {
+        return getTempTableSessionId(tableName).equals(ConnectContext.get().getSessionId());
+    }
+
+    // randomly return the Long from given long arrays
+    public static Long getRandomLong(long... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the Long from given long arrays
+    public static Integer getRandomInt(int... numbers) {
+        if (numbers == null || numbers.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * numbers.length);
+        return numbers[index];
+    }
+
+    // randomly return the String from given String arrays
+    public static String getRandomString(String... strs) {
+        if (strs == null || strs.length == 0) {
+            return null;
+        }
+        int index = (int) (Math.random() * strs.length);
+        return strs[index];
     }
 }

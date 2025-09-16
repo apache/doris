@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
@@ -84,17 +85,19 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
+                    newBottomJoin = JoinUtils.adjustJoinConjunctsNullable(newBottomJoin);
 
                     Set<ExprId> topUsedExprIds = new HashSet<>();
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                    Plan right = CBOUtils.newProject(topUsedExprIds, b);
+                    Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
+                    newTopJoin = JoinUtils.adjustJoinConjunctsNullable(newTopJoin);
 
                     return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);

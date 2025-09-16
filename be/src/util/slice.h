@@ -29,9 +29,10 @@
 #include <vector>
 
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class faststring;
 
 /// @brief A wrapper around externally allocated data.
@@ -273,6 +274,13 @@ public:
         }
         return buf;
     }
+
+    // X is (maybe) a truncated prefix of string X'
+    // Y is (maybe) a truncated prefix of string Y'
+    // return true only if we can determine that X' is strictly less than Y'
+    // based on these maybe truncated prefixes
+    static bool lhs_is_strictly_less_than_rhs(Slice X, bool X_is_truncated, Slice Y,
+                                              bool Y_is_truncated);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Slice& slice) {
@@ -291,7 +299,7 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 }
 
 inline int Slice::compare(const Slice& b) const {
-    const int min_len = (size < b.size) ? size : b.size;
+    const auto min_len = (size < b.size) ? size : b.size;
     int r = mem_compare(data, b.data, min_len);
     if (r == 0) {
         if (size < b.size)
@@ -302,29 +310,8 @@ inline int Slice::compare(const Slice& b) const {
     return r;
 }
 
-/// @brief STL map whose keys are Slices.
-///
-/// An example of usage:
-/// @code
-///   typedef SliceMap<int>::type MySliceMap;
-///
-///   MySliceMap my_map;
-///   my_map.insert(MySliceMap::value_type(a, 1));
-///   my_map.insert(MySliceMap::value_type(b, 2));
-///   my_map.insert(MySliceMap::value_type(c, 3));
-///
-///   for (const MySliceMap::value_type& pair : my_map) {
-///     ...
-///   }
-/// @endcode
-template <typename T>
-struct SliceMap {
-    /// A handy typedef for the slice map with appropriate comparison operator.
-    typedef std::map<Slice, T, Slice::Comparator> type;
-};
-
 // A move-only type which manage the lifecycle of externally allocated data.
-// Unlike std::unique_ptr<uint8_t[]>, OwnedSlice remembers the size of data so that clients can access
+// Unlike DorisUniqueBufferPtr<uint8_t>, OwnedSlice remembers the size of data so that clients can access
 // the underlying buffer as a Slice.
 //
 // Usage example:
@@ -340,9 +327,13 @@ struct SliceMap {
 //
 // only receive the memory allocated by Allocator and disables mmap,
 // otherwise the memory may not be freed correctly, currently only be constructed by faststring.
-class OwnedSlice : private Allocator<false, false, false> {
+class OwnedSlice : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
+
+    OwnedSlice(size_t length)
+            : _slice(reinterpret_cast<char*>(Allocator::alloc(length)), length),
+              _capacity(length) {}
 
     OwnedSlice(OwnedSlice&& src) : _slice(src._slice), _capacity(src._capacity) {
         src._slice.data = nullptr;
@@ -358,7 +349,18 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
+    // disable copy constructor and copy assignment
+    OwnedSlice(const OwnedSlice&) = delete;
+    void operator=(const OwnedSlice&) = delete;
+
+    ~OwnedSlice() {
+        if (_slice.data != nullptr) {
+            DCHECK(_capacity != 0);
+            Allocator::free(_slice.data, _capacity);
+        }
+    }
+
+    char* data() const { return _slice.data; }
 
     const Slice& slice() const { return _slice; }
 
@@ -369,13 +371,9 @@ private:
     OwnedSlice(uint8_t* _data, size_t size, size_t capacity)
             : _slice(_data, size), _capacity(capacity) {}
 
-private:
-    // disable copy constructor and copy assignment
-    OwnedSlice(const OwnedSlice&) = delete;
-    void operator=(const OwnedSlice&) = delete;
-
     Slice _slice;
     size_t _capacity = 0;
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

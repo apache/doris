@@ -38,7 +38,7 @@ public:
     ~SchemaSchemataScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
     Status _fill_block_impl(vectorized::Block* block);

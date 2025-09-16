@@ -23,7 +23,7 @@ suite("test_show_snapshot_auth","p0,auth") {
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     sql """grant select_priv on regression_test to ${user}"""
-    connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+    connect(user, "${pwd}", context.config.jdbcUrl) {
         try {
             sql "SHOW SNAPSHOT ON example_repo"
         } catch (Exception e) {

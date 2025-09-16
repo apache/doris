@@ -20,17 +20,22 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.cache.CacheProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -39,7 +44,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,8 +58,9 @@ import java.util.Set;
 
 /** SqlCacheContext */
 public class SqlCacheContext {
+    private static final Logger LOG = LogManager.getLogger(SqlCacheContext.class);
     private final UserIdentity userIdentity;
-    private final TUniqueId queryId;
+    private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
     private volatile String originSql;
@@ -60,7 +69,8 @@ public class SqlCacheContext {
     private volatile long latestPartitionTime = -1;
     private volatile long latestPartitionVersion = -1;
     private volatile long sumOfPartitionNum = -1;
-    private final Set<FullTableName> usedTables = Sets.newLinkedHashSet();
+    // value: version of table
+    private final Map<FullTableName, TableVersion> usedTables = Maps.newLinkedHashMap();
     // value: ddl sql
     private final Map<FullTableName, String> usedViews = Maps.newLinkedHashMap();
     // value: usedColumns
@@ -82,13 +92,15 @@ public class SqlCacheContext {
 
     private volatile List<Expr> resultExprs;
     private volatile List<String> colLabels;
+    private volatile List<FieldInfo> fieldInfos;
 
     private volatile PUniqueId cacheKeyMd5;
     private volatile ResultSet resultSetInFe;
 
-    public SqlCacheContext(UserIdentity userIdentity, TUniqueId queryId) {
+    private volatile CacheKeyType cacheKeyType = CacheKeyType.SQL;
+
+    public SqlCacheContext(UserIdentity userIdentity) {
         this.userIdentity = Objects.requireNonNull(userIdentity, "userIdentity cannot be null");
-        this.queryId = Objects.requireNonNull(queryId, "queryId cannot be null");
     }
 
     public String getPhysicalPlan() {
@@ -131,8 +143,24 @@ public class SqlCacheContext {
             return;
         }
 
-        usedTables.add(
-                new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName())
+        long version = 0;
+        try {
+            if (tableIf instanceof OlapTable) {
+                version = ((OlapTable) tableIf).getVisibleVersion();
+            }
+        } catch (RpcException e) {
+            // in cloud, getVisibleVersion throw exception, disable sql cache temporary
+            setHasUnsupportedTables(true);
+            LOG.warn("table {}, in cloud getVisibleVersion exception", tableIf.getName(), e);
+        }
+
+        usedTables.put(
+                new FullTableName(database.getCatalog().getName(), database.getFullName(), tableIf.getName()),
+                new TableVersion(
+                        tableIf.getId(),
+                        version,
+                        tableIf.getType()
+                )
         );
     }
 
@@ -278,8 +306,8 @@ public class SqlCacheContext {
         this.cacheProxy = cacheProxy;
     }
 
-    public Set<FullTableName> getUsedTables() {
-        return ImmutableSet.copyOf(usedTables);
+    public Map<FullTableName, TableVersion> getUsedTables() {
+        return Collections.unmodifiableMap(usedTables);
     }
 
     public Map<FullTableName, String> getUsedViews() {
@@ -318,6 +346,14 @@ public class SqlCacheContext {
         this.colLabels = ImmutableList.copyOf(colLabels);
     }
 
+    public List<FieldInfo> getFieldInfos() {
+        return fieldInfos;
+    }
+
+    public void setFieldInfos(List<FieldInfo> fieldInfos) {
+        this.fieldInfos = fieldInfos;
+    }
+
     public TUniqueId getQueryId() {
         return queryId;
     }
@@ -337,7 +373,7 @@ public class SqlCacheContext {
 
     /** doComputeCacheKeyMd5 */
     public synchronized PUniqueId doComputeCacheKeyMd5(Set<Variable> usedVariables) {
-        StringBuilder cacheKey = new StringBuilder(originSql);
+        StringBuilder cacheKey = new StringBuilder(NereidsParser.removeCommentAndTrimBlank(originSql.trim()));
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
                     .append(entry.getKey())
@@ -392,6 +428,18 @@ public class SqlCacheContext {
         this.resultSetInFe = resultSetInFe;
     }
 
+    public CacheKeyType getCacheKeyType() {
+        return cacheKeyType;
+    }
+
+    public void setCacheKeyType(CacheKeyType cacheKeyType) {
+        this.cacheKeyType = cacheKeyType;
+    }
+
+    public void setQueryId(TUniqueId queryId) {
+        this.queryId = queryId;
+    }
+
     /** FullTableName */
     @lombok.Data
     @lombok.AllArgsConstructor
@@ -403,6 +451,10 @@ public class SqlCacheContext {
         @Override
         public String toString() {
             return catalog + "." + db + "." + table;
+        }
+
+        public List<String> toList() {
+            return Lists.newArrayList(catalog, db, table);
         }
     }
 
@@ -426,11 +478,27 @@ public class SqlCacheContext {
     @lombok.AllArgsConstructor
     public static class ScanTable {
         public final FullTableName fullTableName;
-        public final long latestVersion;
         public final List<Long> scanPartitions = Lists.newArrayList();
 
         public void addScanPartition(Long partitionId) {
             this.scanPartitions.add(partitionId);
         }
+    }
+
+    /** TableVersion */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class TableVersion {
+        public final long id;
+        public final long version;
+        public final TableType type;
+    }
+
+    /** CacheKeyType */
+    public enum CacheKeyType {
+        // use `userIdentity`:`sql`.trim() as Cache key in FE
+        SQL,
+        // use MD5 as Cache key in FE
+        MD5
     }
 }

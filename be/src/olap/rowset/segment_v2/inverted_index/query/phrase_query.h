@@ -17,64 +17,68 @@
 
 #pragma once
 
-// clang-format off
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query/exact_phrase_matcher.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query/ordered_sloppy_phrase_matcher.h"
+#include "olap/rowset/segment_v2/inverted_index/query/phrase_query/sloppy_phrase_matcher.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
-#include "CLucene/search/PhraseQuery.h"
-// clang-format on
+#include "olap/rowset/segment_v2/inverted_index/query/term_query.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 CL_NS_USE(index)
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
 
+using namespace inverted_index;
+
+// ExactPhraseMatcher: x match_phrase 'aaa bbb'
+// SloppyPhraseMatcher: x match_phrase 'aaa bbb ~2', support slop
+// OrderedSloppyPhraseMatcher: x match_phrase 'aaa bbb ~2+', ensuring that the words appear in the specified order.
+using Matcher = std::variant<ExactPhraseMatcher, SloppyPhraseMatcher, OrderedSloppyPhraseMatcher>;
+
 class PhraseQuery : public Query {
 public:
-    PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                const TQueryOptions& query_options);
-    ~PhraseQuery() override;
+    PhraseQuery(SearcherPtr searcher, IndexQueryContextPtr context);
+    ~PhraseQuery() override = default;
 
     void add(const InvertedIndexQueryInfo& query_info) override;
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    class PostingsAndPosition {
-    public:
-        PostingsAndPosition(const TermPositionIterator& postings, int32_t offset)
-                : _postings(postings), _offset(offset) {}
-
-        TermPositionIterator _postings;
-        int32_t _offset = 0;
-        int32_t _freq = 0;
-        int32_t _upTo = 0;
-        int32_t _pos = 0;
-    };
-
-    void search_by_bitmap(roaring::Roaring& roaring);
+    // Use skiplist for merging inverted lists
     void search_by_skiplist(roaring::Roaring& roaring);
 
     int32_t do_next(int32_t doc);
-    bool next_match();
-    bool advance_position(PostingsAndPosition& posting, int32_t target);
-    void reset();
+    bool matches(int32_t doc);
+
+    void init_exact_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
+    void init_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info, bool is_similarity);
+    void init_ordered_sloppy_phrase_matcher(const InvertedIndexQueryInfo& query_info,
+                                            bool is_similarity);
+
+    void init_similarities(const std::wstring& field_name, bool is_similarity);
 
 public:
-    static Status parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
+    static void parser_slop(std::string& query, InvertedIndexQueryInfo& query_info);
+    static void parser_info(OlapReaderStatistics* stats, std::string& query,
+                            const std::map<std::string, std::string>& properties,
+                            InvertedIndexQueryInfo& query_info);
 
 private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
-    TermIterator _lead1;
-    TermIterator _lead2;
-    std::vector<TermIterator> _others;
+    TermQuery _term_query;
 
-    std::vector<PostingsAndPosition> _postings;
+    DISI* _lead1 = nullptr;
+    DISI* _lead2 = nullptr;
+    std::vector<DISI*> _others;
+    std::vector<DISI> _iterators;
 
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
+    std::vector<Matcher> _matchers;
 
-    std::unique_ptr<CL_NS(search)::PhraseQuery> _query;
-    int32_t _slop = 0;
+    std::vector<SimilarityPtr> _similarities;
 };
 
 } // namespace doris::segment_v2

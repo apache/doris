@@ -17,9 +17,12 @@
 
 package org.apache.doris.journal;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.OperationType;
+
+import lombok.Getter;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -28,6 +31,9 @@ public class JournalBatch {
     private static final int OUTPUT_BUFFER_INIT_SIZE = 128;
 
     private ArrayList<Entity> entities;
+
+    @Getter
+    private long size = 0;
 
     public JournalBatch() {
         entities = new ArrayList<>();
@@ -56,12 +62,17 @@ public class JournalBatch {
 
         DataOutputBuffer buffer = new DataOutputBuffer(OUTPUT_BUFFER_INIT_SIZE);
         entity.write(buffer);
+        size += buffer.size();
 
         entities.add(new Entity(op, buffer));
     }
 
     public ArrayList<Entity> getJournalEntities() {
         return entities;
+    }
+
+    public boolean shouldFlush() {
+        return size >= Config.batch_edit_log_max_byte_size || entities.size() >= Config.batch_edit_log_max_item_num;
     }
 
     public static class Entity {

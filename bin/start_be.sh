@@ -32,6 +32,8 @@ OPTS="$(getopt \
     -l 'daemon' \
     -l 'console' \
     -l 'version' \
+    -l 'benchmark' \
+    -l 'benchmark_filter:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -39,6 +41,9 @@ eval set -- "${OPTS}"
 RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
+RUN_BENCHMARK=0
+BENCHMARK_FILTER=""
+
 while true; do
     case "$1" in
     --daemon)
@@ -52,6 +57,14 @@ while true; do
     --version)
         RUN_VERSION=1
         shift
+        ;;
+    --benchmark)
+        RUN_BENCHMARK=1
+        shift
+        ;;
+    --benchmark_filter)
+        BENCHMARK_FILTER="$2"
+        shift 2
         ;;
     --)
         shift
@@ -100,9 +113,9 @@ log() {
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
-    else
-        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
+    # always output start time info into be.out file
+    echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
 }
 
 jdk_version() {
@@ -172,26 +185,32 @@ setup_java_env || true
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
     chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
-    exit 1
+    exit 0
 fi
 
-if [[ "$(uname -s)" != 'Darwin' ]]; then
-    MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
-    if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
-        echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
-        exit 1
+if [[ "${SKIP_CHECK_ULIMIT:- "false"}" != "true" ]]; then
+    if [[ "$(uname -s)" != 'Darwin' ]]; then
+        MAX_MAP_COUNT="$(cat /proc/sys/vm/max_map_count)"
+        if [[ "${MAX_MAP_COUNT}" -lt 2000000 ]]; then
+            echo "Set kernel parameter 'vm.max_map_count' to a value greater than 2000000, example: 'sysctl -w vm.max_map_count=2000000'"
+            exit 1
+        fi
+
+        if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+            echo "Disable swap memory before starting be"
+            exit 1
+        fi
     fi
 
-    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-        echo "Disable swap memory before starting be"
+    MAX_FILE_COUNT="$(ulimit -n)"
+    if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+        echo "Set max number of open file descriptors to a value greater than 60000."
+        echo "Ask your system manager to modify /etc/security/limits.conf and append content like"
+        echo "  * soft nofile 655350"
+        echo "  * hard nofile 655350"
+        echo "and then run 'ulimit -n 655350' to take effect on current session."
         exit 1
     fi
-fi
-
-MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
-    echo "Set max number of open file descriptors to a value greater than 60000, example: 'ulimit -n 60000'"
-    exit 1
 fi
 
 # add java libs
@@ -230,10 +249,26 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
+# add jindofs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 # add custom_libs to CLASSPATH
+# ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
+# add plugins/java_extensions to CLASSPATH
+if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
+    for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
     done
 fi
 
@@ -278,7 +313,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -289,7 +324,7 @@ fi
 
 pidfile="${PID_DIR}/be.pid"
 
-if [[ -f "${pidfile}" ]]; then
+if [[ -f "${pidfile}" && "${RUN_BENCHMARK}" -eq 0 ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
         echo "Backend is already running as process $(cat "${pidfile}"), stop it first"
         exit 1
@@ -312,11 +347,12 @@ export AWS_MAX_ATTEMPTS=2
 # filter known leak
 export LSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/lsan_suppr.conf
 export ASAN_OPTIONS=suppressions=${DORIS_HOME}/conf/asan_suppr.conf
+export UBSAN_OPTIONS=suppressions=${DORIS_HOME}/conf/ubsan_suppr.conf
 
 ## set asan and ubsan env to generate core file
 ## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
 export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0:${ASAN_OPTIONS}
-export UBSAN_OPTIONS=print_stacktrace=1
+export UBSAN_OPTIONS=print_stacktrace=1:${UBSAN_OPTIONS}
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
 set_tcmalloc_heap_limit() {
@@ -350,7 +386,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -397,33 +433,48 @@ fi
 
 # set LIBHDFS_OPTS for hadoop libhdfs
 export LIBHDFS_OPTS="${final_java_opt}"
+export JAVA_OPTS="${final_java_opt}"
 
 # log "CLASSPATH: ${CLASSPATH}"
 # log "LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 # log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:15000,dirty_decay_ms:15000,oversize_threshold:0,prof:false,lg_prof_interval:32,lg_prof_sample:19,prof_gdump:false,prof_accum:false,prof_leak:false,prof_final:false"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:true,prof_active:false,lg_prof_interval:-1"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
-    export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
-    export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:"
+    export JEMALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
+    export MALLOC_CONF="prof_prefix:,${JEMALLOC_CONF}"
 else
     JEMALLOC_PROF_PRFIX="${DORIS_HOME}/log/${JEMALLOC_PROF_PRFIX}"
     export JEMALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
     export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
-if [[ "${RUN_DAEMON}" -eq 1 ]]; then
+if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    BENCHMARK_ARGS=()
+
+    if [[ -n ${BENCHMARK_FILTER} ]]; then
+        BENCHMARK_ARGS+=("--benchmark_filter=${BENCHMARK_FILTER}")
+    fi
+
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
+    else
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
+    fi
+elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     else
         nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs be.out
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>>"${LOG_DIR}/be.out" </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

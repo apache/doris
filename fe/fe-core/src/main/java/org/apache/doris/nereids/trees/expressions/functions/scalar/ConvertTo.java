@@ -49,6 +49,11 @@ public class ConvertTo extends ScalarFunction
         super("convert_to", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ConvertTo(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
@@ -63,7 +68,7 @@ public class ConvertTo extends ScalarFunction
     @Override
     public ConvertTo withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ConvertTo(children.get(0), children.get(1));
+        return new ConvertTo(getFunctionParams(children));
     }
 
     @Override

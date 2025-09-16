@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_clone_missing_version') {
+suite('test_clone_missing_version', 'docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'disable_tablet_scheduler=true',
@@ -27,7 +27,6 @@ suite('test_clone_missing_version') {
         'schedule_slot_num_per_hdd_path=1000',
     ]
     options.beConfigs += [
-        'disable_auto_compaction=true',
         'report_tablet_interval_seconds=1',
     ]
 
@@ -43,7 +42,11 @@ suite('test_clone_missing_version') {
             GetDebugPoint().disableDebugPoint(be.Host, be.HttpPort as int, NodeType.BE, injectName)
         }
 
-        sql 'CREATE TABLE t (k INT) DISTRIBUTED BY HASH(k) BUCKETS 1'
+        sql """
+            CREATE TABLE t (k INT) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES (
+                "disable_auto_compaction" = "true"
+            )
+        """
 
         sql 'INSERT INTO t VALUES(2)'
 

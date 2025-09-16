@@ -20,10 +20,7 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
@@ -47,7 +44,7 @@ public class DataPartition {
 
     public static final DataPartition UNPARTITIONED = new DataPartition(TPartitionType.UNPARTITIONED);
     public static final DataPartition RANDOM = new DataPartition(TPartitionType.RANDOM);
-    public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
+    public static final DataPartition TABLET_ID = new DataPartition(TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
 
     private final TPartitionType type;
     // for hash partition: exprs used to compute hash value
@@ -58,7 +55,7 @@ public class DataPartition {
         Preconditions.checkState(!exprs.isEmpty());
         Preconditions.checkState(type == TPartitionType.HASH_PARTITIONED
                 || type == TPartitionType.RANGE_PARTITIONED
-                || type == TPartitionType.TABLE_SINK_HASH_PARTITIONED
+                || type == TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
@@ -67,19 +64,10 @@ public class DataPartition {
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(type == TPartitionType.UNPARTITIONED
                 || type == TPartitionType.RANDOM
-                || type == TPartitionType.TABLE_SINK_RANDOM_PARTITIONED
-                || type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED);
+                || type == TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED
+                || type == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.of();
-    }
-
-    public static DataPartition hashPartitioned(List<Expr> exprs) {
-        return new DataPartition(TPartitionType.HASH_PARTITIONED, exprs);
-    }
-
-    public void substitute(ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
-        List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
-        partitionExprs = ImmutableList.copyOf(list);
     }
 
     public boolean isPartitioned() {

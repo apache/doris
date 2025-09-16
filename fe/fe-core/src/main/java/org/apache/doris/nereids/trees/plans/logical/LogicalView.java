@@ -17,12 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.ViewIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -32,7 +31,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -40,10 +39,10 @@ import java.util.Optional;
 
 /** LogicalView */
 public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
-    private final View view;
+    private final ViewIf view;
 
     /** LogicalView */
-    public LogicalView(View view, BODY body) {
+    public LogicalView(ViewIf view, BODY body) {
         super(PlanType.LOGICAL_VIEW, Optional.empty(), Optional.empty(), body);
         this.view = Objects.requireNonNull(view, "catalog can not be null");
         if (!(body instanceof LogicalPlan)) {
@@ -73,28 +72,19 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
         return view.getName();
     }
 
-    public String getViewString() {
-        return view.getInlineViewDef();
-    }
-
-    public View getView() {
+    public ViewIf getView() {
         return view;
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return child().getLogicalProperties();
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalView(view, child());
+        return new LogicalView<>(view, child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalView(view, child());
+        return new LogicalView<>(view, child());
     }
 
     @Override
@@ -125,12 +115,23 @@ public class LogicalView<BODY extends Plan> extends LogicalUnary<BODY> {
 
     @Override
     public List<Slot> computeOutput() {
-        return child().getOutput();
-    }
-
-    @Override
-    public ImmutableSet<FdItem> computeFdItems() {
-        return ((LogicalPlan) child()).computeFdItems();
+        List<Slot> childOutput = child().getOutput();
+        ImmutableList.Builder<Slot> currentOutput = ImmutableList.builder();
+        List<String> fullQualifiers = this.view.getFullQualifiers();
+        for (int i = 0; i < childOutput.size(); i++) {
+            Slot originSlot = childOutput.get(i);
+            Slot qualified;
+            // ATTN: because bug intro by #40715, after replace view, full schema will be empty or null.
+            //   So, we must just here to avoid NPE or out of bound exception.
+            if (CollectionUtils.isEmpty(view.getFullSchema())) {
+                qualified = originSlot.withQualifier(fullQualifiers);
+            } else {
+                qualified = originSlot
+                        .withOneLevelTableAndColumnAndQualifier(view, view.getFullSchema().get(i), fullQualifiers);
+            }
+            currentOutput.add(qualified);
+        }
+        return currentOutput.build();
     }
 
     @Override

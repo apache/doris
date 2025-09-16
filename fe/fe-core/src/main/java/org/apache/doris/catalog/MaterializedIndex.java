@@ -17,16 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -73,6 +68,8 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
+    private boolean rowCountReported = false;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -90,7 +87,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.idToTablets = new HashMap<>();
         this.tablets = new ArrayList<>();
 
-        this.rowCount = 0;
+        this.rowCount = -1;
 
         this.rollupIndexId = -1L;
         this.rollupFinishedVersion = -1L;
@@ -101,7 +98,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public List<Long> getTabletIdsInOrder() {
-        List<Long> tabletIds = Lists.newArrayList();
+        List<Long> tabletIds = Lists.newArrayListWithCapacity(tablets.size());
         for (Tablet tablet : tablets) {
             tabletIds.add(tablet.getId());
         }
@@ -171,10 +168,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.rollupFinishedVersion = -1L;
     }
 
-    public long getDataSize(boolean singleReplica) {
+    public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
         long dataSize = 0;
         for (Tablet tablet : getTablets()) {
-            dataSize += tablet.getDataSize(singleReplica);
+            dataSize += tablet.getDataSize(singleReplica, filterSizeZero);
         }
         return dataSize;
     }
@@ -195,6 +192,46 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return replicaCount;
     }
 
+    public long getLocalIndexSize() {
+        long localIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localIndexSize += replica.getLocalInvertedIndexSize();
+            }
+        }
+        return localIndexSize;
+    }
+
+    public long getLocalSegmentSize() {
+        long localSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                localSegmentSize += replica.getLocalSegmentSize();
+            }
+        }
+        return localSegmentSize;
+    }
+
+    public long getRemoteIndexSize() {
+        long remoteIndexSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteIndexSize += replica.getRemoteInvertedIndexSize();
+            }
+        }
+        return remoteIndexSize;
+    }
+
+    public long getRemoteSegmentSize() {
+        long remoteSegmentSize = 0;
+        for (Tablet tablet : getTablets()) {
+            for (Replica replica : tablet.getReplicas()) {
+                remoteSegmentSize += replica.getRemoteSegmentSize();
+            }
+        }
+        return remoteSegmentSize;
+    }
+
     public int getTabletOrderIdx(long tabletId) {
         int idx = 0;
         for (Tablet tablet : tablets) {
@@ -206,35 +243,12 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return -1;
     }
 
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-
-        state = IndexState.valueOf(Text.readString(in));
-        rowCount = in.readLong();
-
-        int tabletCount = in.readInt();
-        for (int i = 0; i < tabletCount; ++i) {
-            Tablet tablet = Tablet.read(in);
-            tablets.add(tablet);
-            idToTablets.put(tablet.getId(), tablet);
-        }
-
-        rollupIndexId = in.readLong();
-        rollupFinishedVersion = in.readLong();
+    public void setRowCountReported(boolean reported) {
+        this.rowCountReported = reported;
     }
 
-    @Deprecated
-    public static MaterializedIndex read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            MaterializedIndex mi = new MaterializedIndex();
-            mi.readFields(in);
-            return mi;
-        }
-
-        return GsonUtils.GSON.fromJson(Text.readString(in), MaterializedIndex.class);
+    public boolean getRowCountReported() {
+        return this.rowCountReported;
     }
 
     @Override

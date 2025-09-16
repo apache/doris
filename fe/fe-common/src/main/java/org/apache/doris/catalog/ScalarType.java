@@ -147,6 +147,8 @@ public class ScalarType extends Type {
                 return createDatetimeV2Type(scale);
             case TIMEV2:
                 return createTimeV2Type(scale);
+            case VARBINARY:
+                return createVarbinaryType(len);
             default:
                 return createType(type);
         }
@@ -202,8 +204,6 @@ public class ScalarType extends Type {
                 return DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return TIMEV2;
-            case TIME:
-                return TIME;
             case DECIMAL32:
                 return DEFAULT_DECIMAL32;
             case DECIMAL64:
@@ -277,7 +277,8 @@ public class ScalarType extends Type {
             case "DATETIMEV2":
                 return DATETIMEV2;
             case "TIME":
-                return TIME;
+            case "TIMEV2":
+                return TIMEV2;
             case "DECIMAL":
             case "DECIMALV2":
                 return createDecimalType();
@@ -487,9 +488,6 @@ public class ScalarType extends Type {
 
     @SuppressWarnings("checkstyle:MissingJavadocMethod")
     public static ScalarType createTimeType() {
-        if (!Config.enable_date_conversion) {
-            return new ScalarType(PrimitiveType.TIME);
-        }
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
@@ -521,6 +519,13 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createVarbinaryType(int len) {
+        // length checked in analysis
+        ScalarType type = new ScalarType(PrimitiveType.VARBINARY);
+        type.len = len;
+        return type;
+    }
+
     public static ScalarType createVarcharType(int len) {
         // length checked in analysis
         ScalarType type = new ScalarType(PrimitiveType.VARCHAR);
@@ -550,10 +555,10 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createVariantType() {
-        // length checked in analysis
-        ScalarType type = new ScalarType(PrimitiveType.VARIANT);
-        type.len = MAX_STRING_LENGTH;
-        return type;
+        // Not return ScalarType return VariantType instead for compatibility reason
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        return new VariantType();
     }
 
     public static ScalarType createVarchar(int len) {
@@ -579,36 +584,34 @@ public class ScalarType extends Type {
     public String toString() {
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
-                return "CHARACTER";
+                return "character(" + MAX_CHAR_LENGTH + ")";
             }
-            return "CHAR(" + len + ")";
+            return "char(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
-                return "DECIMAL(*, *)";
+                return "decimal(*,*)";
             }
-            return "DECIMAL(" + precision + ", " + scale + ")";
+            return "decimal(" + precision + "," + scale + ")";
         } else  if (type.isDecimalV3Type()) {
             if (isWildcardDecimal()) {
-                return "DECIMALV3(*, *)";
+                return "decimalv3(*,*)";
             }
-            return "DECIMALV3(" + precision + ", " + scale + ")";
+            return "decimalv3(" + precision + "," + scale + ")";
         } else  if (type == PrimitiveType.DATETIMEV2) {
-            return "DATETIMEV2(" + scale + ")";
+            return "datetimev2(" + scale + ")";
         } else  if (type == PrimitiveType.TIMEV2) {
-            return "TIMEV2(" + scale + ")";
+            return "timev2(" + scale + ")";
         } else if (type == PrimitiveType.VARCHAR) {
             if (isWildcardVarchar()) {
-                return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
+                return "varchar(" + MAX_VARCHAR_LENGTH + ")";
             }
-            return "VARCHAR(" + len + ")";
+            return "varchar(" + len + ")";
         } else if (type == PrimitiveType.STRING) {
-            return "TEXT";
+            return "text";
         } else if (type == PrimitiveType.JSONB) {
-            return "JSON";
-        } else if (type == PrimitiveType.VARIANT) {
-            return "VARIANT";
+            return "json";
         }
-        return type.toString();
+        return type.toString().toLowerCase();
     }
 
     @Override
@@ -617,73 +620,70 @@ public class ScalarType extends Type {
         switch (type) {
             case CHAR:
                 if (isWildcardChar()) {
-                    stringBuilder.append("CHARACTER");
+                    stringBuilder.append("character").append("(").append(MAX_CHAR_LENGTH).append(")");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
-                    stringBuilder.append("CHAR").append("(").append(len).append(")");
+                    stringBuilder.append("char").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("CHAR").append("(`").append(lenStr).append("`)");
+                    stringBuilder.append("char").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case VARCHAR:
                 if (isWildcardVarchar()) {
-                    return "VARCHAR(" + MAX_VARCHAR_LENGTH + ")";
+                    return "varchar(" + MAX_VARCHAR_LENGTH + ")";
                 } else if (Strings.isNullOrEmpty(lenStr)) {
-                    stringBuilder.append("VARCHAR").append("(").append(len).append(")");
+                    stringBuilder.append("varchar").append("(").append(len).append(")");
                 } else {
-                    stringBuilder.append("VARCHAR").append("(`").append(lenStr).append("`)");
+                    stringBuilder.append("varchar").append("(`").append(lenStr).append("`)");
                 }
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
-                    stringBuilder.append("DECIMALV2").append("(").append(precision)
-                            .append(", ").append(scale).append(")");
+                    stringBuilder.append("decimalv2").append("(").append(precision)
+                            .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
-                    stringBuilder.append("DECIMALV2").append("(`").append(precisionStr)
-                            .append("`, `").append(scaleStr).append("`)");
+                    stringBuilder.append("decimalv2").append("(`").append(precisionStr)
+                            .append("`,`").append(scaleStr).append("`)");
                 } else {
-                    stringBuilder.append("DECIMALV2").append("(`").append(precisionStr).append("`)");
+                    stringBuilder.append("decimalv2").append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                String typeName = "DECIMALV3";
+                String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
-                        .append(", ").append(scale).append(")");
+                        .append(",").append(scale).append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
                     stringBuilder.append(typeName).append("(`").append(precisionStr)
-                        .append("`, `").append(scaleStr).append("`)");
+                        .append("`,`").append(scaleStr).append("`)");
                 } else {
                     stringBuilder.append(typeName).append("(`").append(precisionStr).append("`)");
                 }
                 break;
             case DATETIMEV2:
-                stringBuilder.append("DATETIMEV2").append("(").append(scale).append(")");
-                break;
-            case TIME:
-                stringBuilder.append("TIME");
+                stringBuilder.append("datetimev2").append("(").append(scale).append(")");
                 break;
             case TIMEV2:
-                stringBuilder.append("TIME").append("(").append(scale).append(")");
+                stringBuilder.append("time").append("(").append(scale).append(")");
                 break;
             case BOOLEAN:
-                return "BOOLEAN";
+                return "boolean";
             case TINYINT:
-                return "TINYINT";
+                return "tinyint";
             case SMALLINT:
-                return "SMALLINT";
+                return "smallint";
             case INT:
-                return "INT";
+                return "int";
             case BIGINT:
-                return "BIGINT";
+                return "bigint";
             case LARGEINT:
-                return "LARGEINT";
+                return "largeint";
             case IPV4:
-                return "IPV4";
+                return "ipv4";
             case IPV6:
-                return "IPV6";
+                return "ipv6";
             case FLOAT:
             case DOUBLE:
             case DATE:
@@ -694,15 +694,23 @@ public class ScalarType extends Type {
             case VARIANT:
             case QUANTILE_STATE:
             case LAMBDA_FUNCTION:
-            case ARRAY:
             case NULL_TYPE:
-                stringBuilder.append(type);
+                stringBuilder.append(type.toString().toLowerCase());
                 break;
             case STRING:
-                stringBuilder.append("TEXT");
+                stringBuilder.append("text");
                 break;
             case JSONB:
-                stringBuilder.append("JSON");
+                stringBuilder.append("json");
+                break;
+            case VARBINARY:
+                if (isWildcardVarbinary()) {
+                    return "varbinary(" + MAX_VARCHAR_LENGTH + ")";
+                } else if (Strings.isNullOrEmpty(lenStr)) {
+                    stringBuilder.append("varbinary").append("(").append(len).append(")");
+                } else {
+                    stringBuilder.append("varbinary").append("(`").append(lenStr).append("`)");
+                }
                 break;
             default:
                 stringBuilder.append("unknown type: ").append(type);
@@ -730,8 +738,8 @@ public class ScalarType extends Type {
             case CHAR:
             case HLL:
             case STRING:
-            case JSONB:
-            case VARIANT: {
+            case VARBINARY:
+            case JSONB: {
                 scalarType.setLen(getLength());
                 break;
             }
@@ -740,15 +748,7 @@ public class ScalarType extends Type {
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-            case DATETIMEV2: {
-                if (precision < scale) {
-                    throw new IllegalArgumentException(
-                            String.format("given precision %d is out of scale bound %d", precision, scale));
-                }
-                scalarType.setScale(scale);
-                scalarType.setPrecision(precision);
-                break;
-            }
+            case DATETIMEV2:
             case TIMEV2: {
                 if (precision < scale) {
                     throw new IllegalArgumentException(
@@ -858,6 +858,11 @@ public class ScalarType extends Type {
     }
 
     @Override
+    public boolean isWildcardVarbinary() {
+        return type == PrimitiveType.VARBINARY && (len == -1 || len == MAX_CHAR_LENGTH);
+    }
+
+    @Override
     public boolean isSupported() {
         switch (type) {
             case BINARY:
@@ -914,6 +919,9 @@ public class ScalarType extends Type {
             return precision == scalarType.precision && scale == scalarType.scale;
         }
         if (isDatetimeV2() && scalarType.isDatetimeV2()) {
+            return true;
+        }
+        if (isVariantType() && scalarType.isVariantType()) {
             return true;
         }
         return false;
@@ -1131,6 +1139,14 @@ public class ScalarType extends Type {
             return finalType;
         }
 
+        if (t1.isVariantType() && t2.isVariantType()) {
+            if (t1.equals(t2)) {
+                return t1;
+            } else {
+                return Type.UNSUPPORTED;
+            }
+        }
+
         PrimitiveType smallerType =
                 (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
@@ -1148,7 +1164,8 @@ public class ScalarType extends Type {
         if (result == null) {
             result = compatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
         }
-        Preconditions.checkNotNull(result);
+        Preconditions.checkNotNull(result,
+                "data type %s and %s is not compatible", t1, t2);
         if (result == PrimitiveType.DECIMALV2) {
             return Type.MAX_DECIMALV2_TYPE;
         }
@@ -1215,5 +1232,32 @@ public class ScalarType extends Type {
         result = 31 * result + precision;
         result = 31 * result + scale;
         return result;
+    }
+
+    public int getVariantMaxSubcolumnsCount() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSubcolumnsCount();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
+
+    public boolean getVariantEnableTypedPathsToSparse() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getEnableTypedPathsToSparse();
+        }
+        return false; // The old variant type had a default value of false.
+    }
+
+    public int getVariantMaxSparseColumnStatisticsSize() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantMaxSparseColumnStatisticsSize();
+        }
+        return 0; // The old variant type had a default value of 0.
     }
 }

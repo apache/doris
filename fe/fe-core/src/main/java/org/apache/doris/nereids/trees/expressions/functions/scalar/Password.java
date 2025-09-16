@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -47,6 +48,17 @@ public class Password extends ScalarFunction
      */
     public Password(Expression expression) {
         super("password", Lists.newArrayList(expression));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Password(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Password(getFunctionParams(children));
     }
 
     @Override

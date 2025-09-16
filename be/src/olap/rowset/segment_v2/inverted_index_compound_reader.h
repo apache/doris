@@ -24,16 +24,18 @@
 #include <CLucene/store/IndexOutput.h>
 #include <CLucene/util/Equators.h>
 #include <CLucene/util/VoidMap.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 
 class CLuceneError;
@@ -42,9 +44,7 @@ namespace lucene::store {
 class RAMDirectory;
 } // namespace lucene::store
 
-namespace doris {
-class TabletIndex;
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class ReaderFileEntry : LUCENE_BASE {
 public:
@@ -59,52 +59,34 @@ public:
     ~ReaderFileEntry() override = default;
 };
 
-using EntriesType =
-        lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
-                                lucene::util::Equals::Char, lucene::util::Deletor::acArray,
-                                lucene::util::Deletor::Object<ReaderFileEntry>>;
+// Modern C++ using std::unordered_map with smart pointers for automatic memory management
+using EntriesType = std::unordered_map<std::string, std::unique_ptr<ReaderFileEntry>>;
+
 class CLUCENE_EXPORT DorisCompoundReader : public lucene::store::Directory {
 private:
-    int32_t readBufferSize;
-    // base info
-    lucene::store::Directory* dir = nullptr;
-    lucene::store::RAMDirectory* ram_dir = nullptr;
-    std::string directory;
-    std::string file_name;
-    CL_NS(store)::IndexInput* stream = nullptr;
-    EntriesType* entries = nullptr;
+    std::unique_ptr<lucene::store::RAMDirectory> _ram_dir;
+    CL_NS(store)::IndexInput* _stream = nullptr;
+    // The life cycle of _entries should be consistent with that of the DorisCompoundReader.
+    std::unique_ptr<EntriesType> _entries;
     std::mutex _this_lock;
     bool _closed = false;
+    int32_t _read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE;
+    void _copyFile(const char* file, int32_t file_length, uint8_t* buffer, int32_t buffer_length);
 
 protected:
     /** Removes an existing file in the directory-> */
     bool doDeleteFile(const char* name) override;
 
 public:
-    explicit DorisCompoundReader(
-            CL_NS(store)::IndexInput* stream, EntriesType* entries_clone,
-            int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE)
-            : readBufferSize(_readBufferSize),
-              stream(stream),
-              entries(_CLNEW EntriesType(true, true)) {
-        for (auto& e : *entries_clone) {
-            auto* origin_entry = e.second;
-            auto* entry = _CLNEW ReaderFileEntry();
-            char* aid = strdup(e.first);
-            entry->file_name = origin_entry->file_name;
-            entry->offset = origin_entry->offset;
-            entry->length = origin_entry->length;
-            entries->put(aid, entry);
-        }
-    };
-    DorisCompoundReader(lucene::store::Directory* dir, const char* name,
-                        int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
-                        bool open_idx_file_cache = false);
+    DorisCompoundReader(CL_NS(store)::IndexInput* stream, const EntriesType& entries_clone,
+                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
+                        const io::IOContext* io_ctx = nullptr);
+    DorisCompoundReader(CL_NS(store)::IndexInput* stream,
+                        int32_t read_buffer_size = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
+                        const io::IOContext* io_ctx = nullptr);
     ~DorisCompoundReader() override;
-    void copyFile(const char* file, int64_t file_length, uint8_t* buffer, int64_t buffer_length);
     bool list(std::vector<std::string>* names) const override;
     bool fileExists(const char* name) const override;
-    lucene::store::Directory* getDirectory();
     int64_t fileModified(const char* name) const override;
     int64_t fileLength(const char* name) const override;
     bool openInput(const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
@@ -116,12 +98,13 @@ public:
     lucene::store::IndexOutput* createOutput(const char* name) override;
     void close() override;
     std::string toString() const override;
-    std::string getFileName() { return file_name; }
     std::string getPath() const;
     static const char* getClassName();
     const char* getObjectName() const override;
     CL_NS(store)::IndexInput* getDorisIndexInput();
+
+private:
+    void initialize(const io::IOContext* io_ctx);
 };
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

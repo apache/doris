@@ -24,7 +24,7 @@
 #include "vec/common/memcpy_small.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 /** URL processing functions. See implementation in separate .cpp files.
   * All functions are not strictly follow RFC, instead they are maximally simplified for performance reasons.
   *
@@ -73,8 +73,8 @@ using Pos = const char*;
   */
 template <typename Extractor>
 struct ExtractSubstringImpl {
-    static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_data.reserve(size * Extractor::get_reserve_length_for_element());
@@ -89,14 +89,14 @@ struct ExtractSubstringImpl {
         for (size_t i = 0; i < size; ++i) {
             Extractor::execute(reinterpret_cast<const char*>(&data[prev_offset]),
                                offsets[i] - prev_offset, start, length);
-
             res_data.resize(res_data.size() + length);
             memcpy_small_allow_read_write_overflow15(&res_data[res_offset], start, length);
             res_offset += length;
 
-            res_offsets[i] = res_offset;
+            res_offsets[i] = (ColumnString::Offset)res_offset;
             prev_offset = offsets[i];
         }
+        return Status::OK();
     }
 
     static void constant(const std::string& data, std::string& res_data) {
@@ -105,11 +105,6 @@ struct ExtractSubstringImpl {
         Extractor::execute(data.data(), data.size(), start, length);
         res_data.assign(start, length);
     }
-
-    // static void vector_fixed(const ColumnString::Chars &, size_t, ColumnString::Chars &)
-    // {
-    //     throw Exception("Column of type FixedString is not supported by URL functions", ErrorCodes::ILLEGAL_COLUMN);
-    // }
 };
 
 /** Delete part of string using the Extractor.
@@ -155,11 +150,6 @@ struct CutSubstringImpl {
         res_data.append(data.data(), start);
         res_data.append(start + length, data.data() + data.size());
     }
-
-    // static void vector_fixed(const ColumnString::Chars &, size_t, ColumnString::Chars &)
-    // {
-    //     throw Exception("Column of type FixedString is not supported by URL functions", ErrorCodes::ILLEGAL_COLUMN);
-    // }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

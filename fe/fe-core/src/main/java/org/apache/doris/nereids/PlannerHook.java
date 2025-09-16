@@ -27,12 +27,24 @@ public interface PlannerHook {
     /**
      * the hook before analyze
      */
-    default void beforeAnalyze(NereidsPlanner planner) {
+    default void beforeAnalyze(CascadesContext context) {
     }
 
     /**
      * the hook after analyze
      */
-    default void afterAnalyze(NereidsPlanner planner) {
+    default void afterAnalyze(CascadesContext context) {
+    }
+
+    /**
+     * the hook before rewrite
+     */
+    default void beforeRewrite(CascadesContext context) {
+    }
+
+    /**
+     * the hook after rewrite
+     */
+    default void afterRewrite(CascadesContext context) {
     }
 }

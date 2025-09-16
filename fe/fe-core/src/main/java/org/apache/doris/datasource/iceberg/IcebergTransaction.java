@@ -21,9 +21,10 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
-import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
@@ -33,16 +34,21 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 public class IcebergTransaction implements Transaction {
@@ -50,12 +56,14 @@ public class IcebergTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(IcebergTransaction.class);
 
     private final IcebergMetadataOps ops;
-    private SimpleTableInfo tableInfo;
     private Table table;
 
 
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
+
+    private IcebergInsertCommandContext insertCtx;
+    private String branchName;
 
     public IcebergTransaction(IcebergMetadataOps ops) {
         this.ops = ops;
@@ -67,47 +75,74 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
-    public void beginInsert(SimpleTableInfo tableInfo) {
-        this.tableInfo = tableInfo;
-        this.table = getNativeTable(tableInfo);
-        this.transaction = table.newTransaction();
+    public void beginInsert(ExternalTable dorisTable, Optional<InsertCommandContext> ctx) throws UserException {
+        ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                // check branch
+                if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
+                    this.branchName = insertCtx.getBranchName().get();
+                    SnapshotRef branchRef = table.refs().get(branchName);
+                    if (branchRef == null) {
+                        throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
+                    } else if (!branchRef.isBranch()) {
+                        throw new RuntimeException(
+                            branchName
+                                + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
+                    }
+                }
+                this.transaction = table.newTransaction();
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
+                    + "because: " + e.getMessage(), e);
+        }
+
     }
 
-    public void finishInsert(SimpleTableInfo tableInfo, Optional<InsertCommandContext> insertCtx) {
+    public void finishInsert(NameMapping nameMapping) {
         if (LOG.isDebugEnabled()) {
-            LOG.info("iceberg table {} insert table finished!", tableInfo);
+            LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
+        }
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                //create and start the iceberg transaction
+                TUpdateMode updateMode = TUpdateMode.APPEND;
+                if (insertCtx != null) {
+                    updateMode = insertCtx.isOverwrite()
+                            ? TUpdateMode.OVERWRITE
+                            : TUpdateMode.APPEND;
+                }
+                updateManifestAfterInsert(updateMode);
+                return null;
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to finish insert for iceberg table {}.", nameMapping.getFullLocalName(), e);
+            throw new RuntimeException(e);
         }
 
-        //create and start the iceberg transaction
-        TUpdateMode updateMode = TUpdateMode.APPEND;
-        if (insertCtx.isPresent()) {
-            updateMode = ((BaseExternalTableInsertCommandContext) insertCtx.get()).isOverwrite() ? TUpdateMode.OVERWRITE
-                    : TUpdateMode.APPEND;
-        }
-        updateManifestAfterInsert(updateMode);
     }
 
     private void updateManifestAfterInsert(TUpdateMode updateMode) {
-        PartitionSpec spec = table.spec();
-        FileFormat fileFormat = IcebergUtils.getFileFormat(table);
+        PartitionSpec spec = transaction.table().spec();
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
 
-        //convert commitDataList to writeResult
-        WriteResult writeResult = IcebergWriterHelper
-                .convertToWriterResult(fileFormat, spec, commitDataList);
-        List<WriteResult> pendingResults = Lists.newArrayList(writeResult);
-
-        if (spec.isPartitioned()) {
-            partitionManifestUpdate(updateMode, table, pendingResults);
-            if (LOG.isDebugEnabled()) {
-                LOG.info("{} {} table partition manifest  successful and writeResult : {}..", tableInfo, updateMode,
-                        writeResult);
-            }
+        List<WriteResult> pendingResults;
+        if (commitDataList.isEmpty()) {
+            pendingResults = Collections.emptyList();
         } else {
-            tableManifestUpdate(updateMode, table, pendingResults);
-            if (LOG.isDebugEnabled()) {
-                LOG.info("{} {}  table  manifest  successful and writeResult : {}..", tableInfo, updateMode,
-                        writeResult);
-            }
+            //convert commitDataList to writeResult
+            WriteResult writeResult = IcebergWriterHelper
+                    .convertToWriterResult(fileFormat, spec, commitDataList);
+            pendingResults = Lists.newArrayList(writeResult);
+        }
+
+        if (updateMode == TUpdateMode.APPEND) {
+            commitAppendTxn(pendingResults);
+        } else {
+            commitReplaceTxn(pendingResults);
         }
     }
 
@@ -126,64 +161,55 @@ public class IcebergTransaction implements Transaction {
         return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
     }
 
-
-    private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
-        Objects.requireNonNull(tableInfo);
-        IcebergExternalCatalog externalCatalog = ops.getExternalCatalog();
-        return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
-    }
-
-    private void partitionManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
-        if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
-            LOG.warn("{} partitionManifestUp method call but pendingResults is null or empty!", table.name());
-            return;
+    private void commitAppendTxn(List<WriteResult> pendingResults) {
+        // commit append files.
+        AppendFiles appendFiles = transaction.newAppend().scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        if (branchName != null) {
+            appendFiles = appendFiles.toBranch(branchName);
         }
-        // Commit the appendPartitionOperator transaction.
-        if (updateMode == TUpdateMode.APPEND) {
-            commitAppendTxn(table, pendingResults);
-        } else {
-            ReplacePartitions appendPartitionOp = table.newReplacePartitions();
-            for (WriteResult result : pendingResults) {
-                Preconditions.checkState(result.referencedDataFiles().length == 0,
-                        "Should have no referenced data files.");
-                Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
-            }
-            appendPartitionOp.commit();
-        }
-    }
-
-    private void tableManifestUpdate(TUpdateMode updateMode, Table table, List<WriteResult> pendingResults) {
-        if (Objects.isNull(pendingResults) || pendingResults.isEmpty()) {
-            LOG.warn("{} tableManifestUp method call but pendingResults is null or empty!", table.name());
-            return;
-        }
-        // Commit the appendPartitionOperator transaction.
-        if (LOG.isDebugEnabled()) {
-            LOG.info("{} tableManifestUp method call  ", table.name());
-        }
-        if (updateMode == TUpdateMode.APPEND) {
-            commitAppendTxn(table, pendingResults);
-        } else {
-            ReplacePartitions appendPartitionOp = table.newReplacePartitions();
-            for (WriteResult result : pendingResults) {
-                Preconditions.checkState(result.referencedDataFiles().length == 0,
-                        "Should have no referenced data files.");
-                Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
-            }
-            appendPartitionOp.commit();
-        }
-    }
-
-
-    private void commitAppendTxn(Table table, List<WriteResult> pendingResults) {
-        // To be compatible with iceberg format V1.
-        AppendFiles appendFiles = table.newAppend();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files for append.");
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+    }
+
+
+    private void commitReplaceTxn(List<WriteResult> pendingResults) {
+        if (pendingResults.isEmpty()) {
+            // such as : insert overwrite table `dst_tb` select * from `empty_tb`
+            // 1. if dst_tb is a partitioned table, it will return directly.
+            // 2. if dst_tb is an unpartitioned table, the `dst_tb` table will be emptied.
+            if (!transaction.table().spec().isPartitioned()) {
+                OverwriteFiles overwriteFiles = transaction.newOverwrite();
+                if (branchName != null) {
+                    overwriteFiles = overwriteFiles.toBranch(branchName);
+                }
+                overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+                try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
+                    OverwriteFiles finalOverwriteFiles = overwriteFiles;
+                    fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                overwriteFiles.commit();
+            }
+            return;
+        }
+
+        // commit replace partitions
+        ReplacePartitions appendPartitionOp = transaction.newReplacePartitions();
+        if (branchName != null) {
+            appendPartitionOp = appendPartitionOp.toBranch(branchName);
+        }
+        appendPartitionOp = appendPartitionOp.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files.");
+            Arrays.stream(result.dataFiles()).forEach(appendPartitionOp::addFile);
+        }
+        appendPartitionOp.commit();
     }
 
 }

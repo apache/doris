@@ -50,6 +50,8 @@ public:
     IntCounter* fragment_requests_total = nullptr;
     IntCounter* fragment_request_duration_us = nullptr;
     IntCounter* query_scan_bytes = nullptr;
+    IntCounter* query_scan_bytes_from_local = nullptr;
+    IntCounter* query_scan_bytes_from_remote = nullptr;
     IntCounter* query_scan_rows = nullptr;
 
     IntCounter* push_requests_success_total = nullptr;
@@ -80,6 +82,8 @@ public:
     IntCounter* finish_task_requests_total = nullptr;
     IntCounter* finish_task_requests_failed = nullptr;
 
+    IntCounter* compaction_producer_callback_a_round_time = nullptr;
+
     IntCounter* base_compaction_request_total = nullptr;
     IntCounter* base_compaction_request_failed = nullptr;
     IntCounter* cumulative_compaction_request_total = nullptr;
@@ -88,12 +92,26 @@ public:
     IntCounter* single_compaction_request_failed = nullptr;
     IntCounter* single_compaction_request_cancelled = nullptr;
 
+    IntCounter* local_compaction_read_rows_total = nullptr;
+    IntCounter* local_compaction_read_bytes_total = nullptr;
+    IntCounter* local_compaction_write_rows_total = nullptr;
+    IntCounter* local_compaction_write_bytes_total = nullptr;
+    IntCounter* remote_compaction_read_rows_total = nullptr;
+    IntCounter* remote_compaction_read_bytes_total = nullptr;
+    IntCounter* remote_compaction_write_rows_total = nullptr;
+    IntCounter* remote_compaction_write_bytes_total = nullptr;
+
     IntCounter* base_compaction_deltas_total = nullptr;
     IntCounter* base_compaction_bytes_total = nullptr;
     IntCounter* cumulative_compaction_deltas_total = nullptr;
     IntCounter* cumulative_compaction_bytes_total = nullptr;
     IntCounter* full_compaction_deltas_total = nullptr;
     IntCounter* full_compaction_bytes_total = nullptr;
+
+    IntCounter* base_compaction_task_running_total = nullptr;
+    IntCounter* base_compaction_task_pending_total = nullptr;
+    IntCounter* cumulative_compaction_task_running_total = nullptr;
+    IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
@@ -112,6 +130,11 @@ public:
     IntCounter* stream_load_rows_total = nullptr;
     IntCounter* load_rows = nullptr;
     IntCounter* load_bytes = nullptr;
+
+    IntCounter* routine_load_get_msg_latency = nullptr;
+    IntCounter* routine_load_get_msg_count = nullptr;
+    IntCounter* routine_load_consume_bytes = nullptr;
+    IntCounter* routine_load_consume_rows = nullptr;
 
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
@@ -178,6 +201,7 @@ public:
     UIntGauge* stream_load_pipe_count = nullptr;
     UIntGauge* new_stream_load_pipe_count = nullptr;
     UIntGauge* brpc_endpoint_stub_count = nullptr;
+    UIntGauge* brpc_stream_endpoint_stub_count = nullptr;
     UIntGauge* brpc_function_endpoint_stub_count = nullptr;
     UIntGauge* tablet_writer_count = nullptr;
 
@@ -196,12 +220,6 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    UIntGauge* scanner_thread_pool_queue_size = nullptr;
-    UIntGauge* add_batch_task_queue_size = nullptr;
-    UIntGauge* send_batch_thread_pool_thread_num = nullptr;
-    UIntGauge* send_batch_thread_pool_queue_size = nullptr;
-    UIntGauge* fragment_thread_pool_queue_size = nullptr;
-
     // Upload metrics
     UIntGauge* upload_total_byte = nullptr;
     IntCounter* upload_rowset_count = nullptr;
@@ -217,21 +235,32 @@ public:
     UIntGauge* heavy_work_max_threads = nullptr;
     UIntGauge* light_work_max_threads = nullptr;
 
-    UIntGauge* flush_thread_pool_queue_size = nullptr;
-    UIntGauge* flush_thread_pool_thread_num = nullptr;
+    UIntGauge* arrow_flight_work_pool_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_active_threads = nullptr;
+    UIntGauge* arrow_flight_work_pool_max_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_max_threads = nullptr;
 
-    UIntGauge* local_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* local_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* remote_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* remote_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* limited_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* limited_scan_thread_pool_thread_num = nullptr;
-    UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
-    UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
+    IntCounter* num_io_bytes_read_total = nullptr;
+    IntCounter* num_io_bytes_read_from_cache = nullptr;
+    IntCounter* num_io_bytes_read_from_remote = nullptr;
 
-    IntAtomicCounter* num_io_bytes_read_total = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_cache = nullptr;
-    IntAtomicCounter* num_io_bytes_read_from_remote = nullptr;
+    IntCounter* query_ctx_cnt = nullptr;
+    IntCounter* scanner_ctx_cnt = nullptr;
+    IntCounter* scanner_cnt = nullptr;
+    IntCounter* scanner_task_cnt = nullptr;
+    IntCounter* pipeline_task_queue_size = nullptr;
+    IntCounter* ann_index_load_costs_ms = nullptr;
+    IntCounter* ann_index_load_cnt = nullptr;
+    IntCounter* ann_index_search_costs_ms = nullptr;
+    IntCounter* ann_index_search_cnt = nullptr;
+
+    IntGauge* runtime_filter_consumer_num = nullptr;
+    IntGauge* runtime_filter_consumer_ready_num = nullptr;
+    IntCounter* runtime_filter_consumer_wait_ready_ms = nullptr;
+    IntGauge* runtime_filter_consumer_timeout_num = nullptr;
+
+    IntCounter* get_remote_tablet_slow_time_ms = nullptr;
+    IntCounter* get_remote_tablet_slow_cnt = nullptr;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

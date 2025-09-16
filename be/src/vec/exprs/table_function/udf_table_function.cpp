@@ -24,6 +24,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -32,14 +33,15 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
 const char* EXECUTOR_CLOSE_SIGNATURE = "()V";
 UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
-    _return_type = DataTypeFactory::instance().create_data_type(
-            TypeDescriptor::from_thrift(t_fn.ret_type));
+    _return_type = DataTypeFactory::instance().create_data_type(t_fn.ret_type);
     // as the java-utdf function in java code is eg: ArrayList<String>
     // so we need a array column to save the execute result, and make_nullable could help deal with nullmap
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(_return_type)));
@@ -48,9 +50,6 @@ UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_
 Status UDFTableFunction::open() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
     _jni_ctx = std::make_shared<JniContext>();
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
@@ -70,14 +69,22 @@ Status UDFTableFunction::open() {
         RETURN_IF_ERROR(jni_frame.push(env));
         RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
-        _jni_ctx->executor_ctor_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE);
-        _jni_ctx->executor_evaluate_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE);
-        _jni_ctx->executor_close_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);
-        _jni_ctx->executor = env->NewObject(_jni_ctx->executor_cl, _jni_ctx->executor_ctor_id,
-                                            ctor_params_bytes);
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_ctor_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_evaluate_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_close_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor, env,
+                NewObject(_jni_ctx->executor_cl, _jni_ctx->executor_ctor_id, ctor_params_bytes));
         jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
         env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
         env->DeleteLocalRef(ctor_params_bytes);
@@ -90,7 +97,7 @@ Status UDFTableFunction::open() {
 
 Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     auto child_size = _expr_context->root()->children().size();
-    std::vector<size_t> child_column_idxs;
+    ColumnNumbers child_column_idxs;
     child_column_idxs.resize(child_size);
     for (int i = 0; i < child_size; ++i) {
         int result_id = -1;
@@ -110,7 +117,8 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
             {"required_fields", input_table_schema.first},
             {"columns_types", input_table_schema.second}};
 
-    jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+    jobject input_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
     _array_result_column = _return_type->create_column();
     _result_column_idx = block->columns();
     block->insert({_array_result_column, _return_type, "res"});
@@ -120,14 +128,17 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                                               {"required_fields", output_table_schema.first},
                                               {"columns_types", output_table_schema.second}};
 
-    jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+    jobject output_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
     DCHECK(_jni_ctx != nullptr);
     DCHECK(_jni_ctx->executor != nullptr);
     long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
                                               input_map, output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteLocalRef(input_map);
-    env->DeleteLocalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(input_map);
+    RETURN_ERROR_IF_EXC(env);
+    env->DeleteGlobalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
@@ -199,4 +210,6 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     forward(max_step);
     return max_step;
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

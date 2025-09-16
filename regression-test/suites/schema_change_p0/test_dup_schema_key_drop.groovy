@@ -67,7 +67,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990,  60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -113,7 +113,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29,  7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
 
@@ -159,7 +159,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
 
@@ -206,7 +206,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true,  6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -251,7 +251,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60,  '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -296,7 +296,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
 
@@ -342,7 +342,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -387,7 +387,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -431,7 +431,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16',  '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -476,7 +476,7 @@ suite("test_dup_schema_key_drop", "p0") {
     insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000,  '2024-06-16', '2024-06-16',  '2024-06-16 17:00:00'); "
     waitForSchemaChangeDone({
         sql getTableStatusSql
-        time 60
+        time 600
     }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """
@@ -521,7 +521,7 @@ suite("test_dup_schema_key_drop", "p0") {
         insertSql = "insert into ${tbName1} values(6, 'Sophia Lee', 91.3, 29, 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, false, "${tbName1}")
 
 
@@ -567,7 +567,7 @@ suite("test_dup_schema_key_drop", "p0") {
         insertSql = "insert into ${tbName1} values(6, 91.3, 'Boston', 29, 2, 7778889990, true, 60, 6000000000, '2024-06-16', '2024-06-16', '2024-06-16 17:00:00', '2024-06-16 17:00:00'); "
         waitForSchemaChangeDone({
             sql getTableStatusSql
-            time 60
+            time 600
         }, insertSql, false, "${tbName1}")
 
     sql """ DROP TABLE IF EXISTS ${tbName2} """

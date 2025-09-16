@@ -29,10 +29,8 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
-import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
@@ -69,7 +67,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
 
     private Env env;
 
-    private ForkJoinPool taskPool = new ForkJoinPool();
+    private static ForkJoinPool taskPool = new ForkJoinPool();
 
     public TabletHealthProcDir(Env env) {
         Preconditions.checkNotNull(env);
@@ -207,12 +205,10 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                         replicaAlloc = groupSchema.getReplicaAlloc();
                                     }
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(visibleVersion, replicaAlloc, backendsSet);
+                                    res = tablet.getColocateHealth(visibleVersion, replicaAlloc, backendsSet).status;
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair
-                                            = tablet.getHealthStatusWithPriority(infoService,
-                                            visibleVersion, replicaAlloc, aliveBeIds);
-                                    res = pair.first;
+                                    res = tablet.getHealth(infoService, visibleVersion, replicaAlloc,
+                                            aliveBeIds).status;
                                 }
                                 switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                                     case HEALTHY:
@@ -266,7 +262,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     inconsistentNum++;
                                     inconsistentTabletIds.add(tablet.getId());
                                 }
-                                if (tablet.getDataSize(true) > Config.min_bytes_indicate_replica_too_large) {
+                                if (tablet.getDataSize(true, false) > Config.min_bytes_indicate_replica_too_large) {
                                     oversizeNum++;
                                     oversizeTabletIds.add(tablet.getId());
                                 }

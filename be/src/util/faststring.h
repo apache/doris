@@ -18,16 +18,16 @@
 #pragma once
 
 #include <butil/macros.h>
+#include <sanitizer/asan_interface.h>
 
 #include <cstdint>
 #include <cstring>
 #include <string>
 
-#include "gutil/dynamic_annotations.h"
-#include "gutil/port.h"
 #include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 
@@ -35,7 +35,7 @@ namespace doris {
 // common use cases (in particular, resize() will fill with uninitialized data
 // instead of memsetting to \0)
 // only build() can transfer data to the outside.
-class faststring : private Allocator<false, false, false> {
+class faststring : private Allocator<false, false, false, DefaultMemoryAllocator> {
 public:
     enum { kInitialCapacity = 32 };
 
@@ -85,7 +85,8 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
+            ret = reinterpret_cast<uint8_t*>(Allocator::alloc(capacity_));
+            DCHECK(len_ <= capacity_);
             memcpy(ret, data_, len_);
         }
         OwnedSlice result(ret, len_, capacity_);
@@ -102,7 +103,9 @@ public:
     // NOTE: even though the new capacity is reserved, it is illegal to begin writing into that memory
     // directly using pointers. If ASAN is enabled, this is ensured using manual memory poisoning.
     void reserve(size_t newcapacity) {
-        if (PREDICT_TRUE(newcapacity <= capacity_)) return;
+        if (newcapacity <= capacity_) [[likely]] {
+            return;
+        }
         GrowArray(newcapacity);
     }
 
@@ -205,7 +208,7 @@ private:
     // If necessary, expand the buffer to fit at least 'count' more bytes.
     // If the array has to be grown, it is grown by at least 50%.
     void EnsureRoomForAppend(size_t count) {
-        if (PREDICT_TRUE(len_ + count <= capacity_)) {
+        if (len_ + count <= capacity_) [[likely]] {
             return;
         }
 

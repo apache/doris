@@ -26,22 +26,26 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaWorkloadGroupsScanner::_s_tbls_columns = {
         {"ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"NAME", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"CPU_SHARE", TYPE_BIGINT, sizeof(int64_t), true},
-        {"MEMORY_LIMIT", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"ENABLE_MEMORY_OVERCOMMIT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MIN_CPU_PERCENT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MAX_CPU_PERCENT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MIN_MEMORY_PERCENT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MAX_MEMORY_PERCENT", TYPE_VARCHAR, sizeof(StringRef), true},
         {"MAX_CONCURRENCY", TYPE_BIGINT, sizeof(int64_t), true},
         {"MAX_QUEUE_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
         {"QUEUE_TIMEOUT", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CPU_HARD_LIMIT", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MAX_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
         {"MIN_REMOTE_SCAN_THREAD_NUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"SPILL_THRESHOLD_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"SPILL_THRESHOLD_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"TAG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MEMORY_LOW_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"MEMORY_HIGH_WATERMARK", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COMPUTE_GROUP", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REMOTE_READ_BYTES_PER_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
 SchemaWorkloadGroupsScanner::SchemaWorkloadGroupsScanner()
@@ -56,7 +60,7 @@ Status SchemaWorkloadGroupsScanner::start(RuntimeState* state) {
 }
 
 Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_request_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
@@ -87,8 +91,8 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
 
     _workload_groups_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _workload_groups_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
@@ -96,7 +100,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     _workload_groups_block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>(
                     "workload groups schema is not match for FE and BE");
@@ -114,7 +118,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
     return Status::OK();
 }
 
-Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaWorkloadGroupsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -125,7 +129,7 @@ Status SchemaWorkloadGroupsScanner::get_next_block(vectorized::Block* block, boo
 
     if (_workload_groups_block == nullptr) {
         RETURN_IF_ERROR(_get_workload_groups_block_from_fe());
-        _total_rows = _workload_groups_block->rows();
+        _total_rows = (int)_workload_groups_block->rows();
     }
 
     if (_row_idx == _total_rows) {

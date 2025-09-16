@@ -17,11 +17,17 @@
 
 #include "recycler/recycler.h"
 
+#include <butil/strings/string_split.h>
+#include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <future>
 #include <memory>
 #include <random>
 #include <string>
@@ -29,24 +35,73 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
+#include "common/simple_thread_pool.h"
 #include "common/util.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/blob_message.h"
+#include "meta-store/document_message.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
+#include "mock_accessor.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/checker.h"
+#include "recycler/recycler.cpp"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/util.h"
 #include "recycler/white_black_list.h"
 
 using namespace doris;
 
-static const std::string instance_id = "instance_id_recycle_test";
-static int64_t current_time = 0;
+std::string instance_id = "instance_id_recycle_test";
+int64_t current_time = 0;
 static constexpr int64_t db_id = 1000;
+static RecyclerMetricsContext ctx;
+
+std::vector<std::string> index_v2_file_path = {
+        "data/1753202639945/0200000000001a5c92f4e7d9j8f2b4c8a3e6f8b1c9d2e5f8_0.idx",
+        "data/1753202639947/0200000000001b8d45a74r6c7sf3e9c2b6d4a8e1f7c3d9e2_0.idx",
+        "data/1753202639951/0200000000001c9e56b8g4f0x8s7g2f0d3c7e5b9f2e8d4f0_0.idx",
+        "data/1753202639953/0200000000001d0f67c9h5g8a3e6f8b1e4d8f6c0g3f9e5g1_0.idx",
+        "data/1753202639955/0200000000001e1g78d067c9h5g8i6h2f5e9g7d1h4g0f6h2_0.idx",
+        "data/1753202639957/0200000000001f2h89e1jg7d1h4g07i3g6f0h8e2i5h1g7i3_0.idx",
+        "data/1753202639959/020000000000208i90f2k0h8e2i5h8j4h7g1i9f3j6i2h8j4_0.idx",
+        "data/1753202639961/02000000000021aj01g3l9k5i8h2j8e2i5h8j0g4k7j3i9k5_0.idx",
+        "data/1753202639963/02000000000022bk12h4m0lk0h8e2i56j9i3k1h5l8k4j0l6_0.idx",
+        "data/1753202639965/02000000000023cl23i5n1m7g3l9k5i8k0j4l2i6m9l5k1m7_0.idx",
+        "data/1753202639967/02000000000024dm34j1m7g3l9k6o2n8l1k5m3j7n0m6l2n8_0.idx",
+        "data/1753202639969/02000000000025en45k7p3o9m2l6n4k34j1m7g38o1n7m3o9_0.idx",
+        "data/1753202639971/02000000000026fo56l8q4p0n2l6n4k343m7o5l9p2o8n4p0_0.idx",
+        "data/1753202639973/02000000000027gp67m9r5q8q4p0n2l1o4n8p6m0q3p9o5q1_0.idx",
+        "data/1753202639975/02000000000028hq78n0s6rm9r5q8q42p5o9q7n1r4q0p6r2_0.idx",
+        "data/1753202639977/02000000000029ir89o1t7s78n0s6rm3q6p0r8o2s5r1q7s3_0.idx",
+        "data/1753202639979/0200000000002ajs90p2u8t4m3q6p0r8r7q1s9p3t6s2r8t4_0.idx",
+        "data/1753202639981/0200000000002bkt01q3v9u2u8t4m3q5s8r2t0q4u7t3s9u5_0.idx",
+        "data/1753202639983/0200000000002clu12r4w1q3v9u2u0v6t9s3u1r5v8u4t0v6_0.idx",
+        "data/1753202639985/0200000000002dmv23s5x1w7u0t4t9s3u1r5v2s6w9v5u1w7_0.idx"};
+
+// clang-format off
+std::vector<std::string> index_v1_file_path = {
+        "data/1753202846974/0200000000007864994f6aa97288842758c2e89b03e65682_0_1753202846943.idx",
+        "data/1753202845724/020000000000786635407b55b72242ac167cf83cd4c598a2_0_1753202841593.idx",
+        "data/1753202846984/020000000000788bdd40fcf18bcaa1bbd4058ef92606e79a_0_1753202846923.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a0_0_1753202846963.idx",
+        "data/1753202846986/02000000000078e635407b55b72242ac167cf83cd4c598a1_0_1753202846963.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a0_0_1753202844931.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a1_0_1753202844931.idx",
+        "data/1753202847030/020000000000791335407b55b72242ac167cf83cd4c598a2_0_1753202844931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65680_0_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65681_0_1753202843931.idx",
+        "data/1753202858558/0200000000007aed994f6aa97288842758c2e89b03e65682_0_1753202843931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65680_0_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65681_0_1753202824931.idx",
+        "data/1753202858458/0200000000007afc994f6aa97288842758c2e89b03e65682_0_1753202824931.idx"};
+// clang-format on
+
+doris::cloud::RecyclerThreadPoolGroup thread_group;
 
 int main(int argc, char** argv) {
     auto conf_file = "doris_cloud.conf";
@@ -61,8 +116,19 @@ int main(int argc, char** argv) {
 
     using namespace std::chrono;
     current_time = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    config::recycler_sleep_before_scheduling_seconds = 0; // we dont have to wait in UT
 
     ::testing::InitGoogleTest(&argc, argv);
+    auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    s3_producer_pool->start();
+    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_tablet_pool->start();
+    auto group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    group_recycle_function_pool->start();
+    thread_group =
+            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
+                                    std::move(group_recycle_function_pool));
     return RUN_ALL_TESTS();
 }
 
@@ -107,9 +173,48 @@ static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, in
     return rowset;
 }
 
+static doris::RowsetMetaCloudPB create_rowset(const std::string& resource_id, int64_t tablet_id,
+                                              int64_t index_id, int num_segments,
+                                              const doris::TabletSchemaCloudPB& schema,
+                                              RowsetStatePB rowset_state, int64_t txn_id = 0) {
+    doris::RowsetMetaCloudPB rowset;
+    rowset.set_rowset_id(0); // useless but required
+    rowset.set_rowset_id_v2(next_rowset_id());
+    rowset.set_txn_id(txn_id);
+    rowset.set_num_segments(num_segments);
+    rowset.set_tablet_id(tablet_id);
+    rowset.set_index_id(index_id);
+    rowset.set_resource_id(resource_id);
+    rowset.set_schema_version(schema.schema_version());
+    rowset.mutable_tablet_schema()->CopyFrom(schema);
+    rowset.set_rowset_state(rowset_state);
+    return rowset;
+}
+
+static int create_delete_bitmaps_v2(TxnKv* txn_kv, StorageVaultAccessor* accessor,
+                                    int64_t tablet_id, std::string rowset_id) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    DeleteBitmapPB delete_bitmap;
+    DeleteBitmapStoragePB delete_bitmap_storage;
+    delete_bitmap_storage.set_store_in_fdb(false);
+    auto key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, rowset_id});
+    std::string val;
+    delete_bitmap_storage.SerializeToString(&val);
+    txn->put(key, val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return accessor->put_file(delete_bitmap_path(tablet_id, rowset_id), "");
+}
+
 static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                  const doris::RowsetMetaCloudPB& rowset, RecycleRowsetPB::Type type,
-                                 bool write_schema_kv) {
+                                 bool write_schema_kv,
+                                 bool enable_create_delete_bitmaps_v2 = false) {
     std::string key;
     std::string val;
 
@@ -140,6 +245,10 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         meta_schema_key({instance_id, rowset.index_id(), rowset.schema_version()}, &schema_key);
         rowset.tablet_schema().SerializeToString(&schema_val);
         txn->put(schema_key, schema_val);
+        auto versioned_schema_key = versioned::meta_schema_key(
+                {instance_id, rowset.index_id(), rowset.schema_version()});
+        doris::TabletSchemaCloudPB tablet_schema(rowset.tablet_schema());
+        versioned::document_put(txn.get(), versioned_schema_key, std::move(tablet_schema));
     }
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
@@ -149,16 +258,22 @@ static int create_recycle_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         accessor->put_file(path, "");
         for (auto& index : rowset.tablet_schema().index()) {
-            auto path = inverted_index_path(rowset.tablet_id(), rowset.rowset_id_v2(), i,
-                                            index.index_id());
+            auto path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
+                                               index.index_id(), index.index_suffix_name());
             accessor->put_file(path, "");
         }
+    }
+    if (enable_create_delete_bitmaps_v2) {
+        return create_delete_bitmaps_v2(txn_kv, accessor, rowset.tablet_id(),
+                                        rowset.rowset_id_v2());
     }
     return 0;
 }
 
 static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
-                             const doris::RowsetMetaCloudPB& rowset, bool write_schema_kv) {
+                             const doris::RowsetMetaCloudPB& rowset, bool write_schema_kv,
+                             bool is_inverted_idx_v2 = false,
+                             bool enable_create_delete_bitmaps_v2 = false) {
     std::string key, val;
     meta_rowset_tmp_key({instance_id, rowset.txn_id(), rowset.tablet_id()}, &key);
     if (write_schema_kv) {
@@ -179,6 +294,12 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         rowset.tablet_schema().SerializeToString(&schema_val);
         txn->put(schema_key, schema_val);
     }
+    // Add rowset ref count key
+    std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
+            {instance_id, rowset.tablet_id(), rowset.rowset_id_v2()});
+    LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
+              << "key=" << hex(rowset_ref_count_key);
+    txn->atomic_add(rowset_ref_count_key, 1);
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -187,24 +308,355 @@ static int create_tmp_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
         auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), i);
         accessor->put_file(path, path);
         for (auto& index : rowset.tablet_schema().index()) {
-            auto path = inverted_index_path(rowset.tablet_id(), rowset.rowset_id_v2(), i,
-                                            index.index_id());
+            std::string path;
+            if (!is_inverted_idx_v2) {
+                path = inverted_index_path_v1(rowset.tablet_id(), rowset.rowset_id_v2(), i,
+                                              index.index_id(), index.index_suffix_name());
+            } else {
+                path = inverted_index_path_v2(rowset.tablet_id(), rowset.rowset_id_v2(), i);
+            }
             accessor->put_file(path, path);
         }
     }
+    if (enable_create_delete_bitmaps_v2) {
+        return create_delete_bitmaps_v2(txn_kv, accessor, rowset.tablet_id(),
+                                        rowset.rowset_id_v2());
+    }
+    return 0;
+}
+
+static int create_committed_rowset_by_real_index_v2_file(TxnKv* txn_kv,
+                                                         StorageVaultAccessor* accessor,
+                                                         const std::string& resource_id,
+                                                         const std::string& file_path,
+                                                         int64_t version = 1) {
+    std::string val;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err;
+
+    // Parse file path to extract tablet_id and rowset_id
+    // Expected format: data/{tablet_id}/{rowset_id}_{segment_id}.{ext}
+    std::vector<std::string> path_parts;
+    butil::SplitString(file_path, '/', &path_parts);
+
+    if (path_parts.size() < 3 || path_parts[0] != "data") {
+        LOG(WARNING) << "Invalid file path format: " << file_path;
+        return -1;
+    }
+
+    int64_t tablet_id = std::stoll(path_parts[1]);
+    std::string filename = path_parts[2];
+
+    // Extract rowset_id and segment_id from filename
+    size_t underscore_pos = filename.find_last_of('_');
+    size_t dot_pos = filename.find_last_of('.');
+
+    if (underscore_pos == std::string::npos || dot_pos == std::string::npos ||
+        underscore_pos >= dot_pos) {
+        LOG(WARNING) << "Invalid filename format: " << filename;
+        return -1;
+    }
+
+    std::string rowset_id = filename.substr(0, underscore_pos);
+    std::string segment_str = filename.substr(underscore_pos + 1, dot_pos - underscore_pos - 1);
+    std::string extension = filename.substr(dot_pos + 1);
+
+    int64_t segment_id = stoll(segment_str);
+    int64_t tablet_index_id = tablet_id + 10;
+    // take the last 4 digits of tablet_id as the unique identifier
+    int64_t schema_version =
+            std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str()) + version;
+
+    // Create rowset meta data
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    std::string rowset_meta_key = meta_rowset_key(key_info);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0); // useless but required
+    rowset_pb.set_rowset_id_v2(rowset_id);
+    rowset_pb.set_num_segments(segment_id + 1); // segment_id is 0-based
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id(resource_id);
+    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_schema_version(schema_version);
+    rowset_pb.SerializeToString(&val);
+
+    err = txn_kv->create_txn(&txn);
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
+    txn->put(rowset_meta_key, val);
+
+    // Create tablet index meta data
+    TabletIndexPB tablet_index;
+    tablet_index.set_index_id(tablet_index_id);
+    tablet_index.set_tablet_id(tablet_id);
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    tablet_index.SerializeToString(&val);
+    txn->put(tablet_index_key, val);
+
+    // Create tablet schema if dealing with index files
+    if (extension == "idx") {
+        std::string tablet_schema_key =
+                meta_schema_key({instance_id, tablet_index_id, schema_version});
+
+        doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        tablet_schema.set_schema_version(schema_version);
+        auto index = tablet_schema.add_index();
+        index->set_index_id(tablet_schema.index().size());
+        index->set_index_type(IndexType::INVERTED);
+
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
+    }
+
+    err = txn->commit();
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
+
+    std::string segment_path = file_path.substr(0, file_path.size() - 4) + ".dat";
+    accessor->put_file(segment_path, "");
+    accessor->put_file(file_path, "");
+
+    return 0;
+}
+
+static int create_committed_rowset_by_real_index_v1_file(TxnKv* txn_kv,
+                                                         StorageVaultAccessor* accessor,
+                                                         const std::string& resource_id,
+                                                         const std::string& file_path,
+                                                         size_t& version) {
+    std::string val;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err;
+
+    // Parse file path to extract tablet_id and rowset_id
+    // Expected format: data/{tablet_id}/{rowset_id}_{segment_id}_{index_id}{suffix}.idx
+    std::vector<std::string> path_parts;
+    butil::SplitString(file_path, '/', &path_parts);
+
+    if (path_parts.size() < 3 || path_parts[0] != "data") {
+        LOG(WARNING) << "Invalid file path format: " << file_path;
+        return -1;
+    }
+
+    int64_t tablet_id = std::stoll(path_parts[1]);
+    std::string filename = path_parts[2];
+
+    // Extract rowset_id, segment_id, index_id, and suffix from filename
+    // Format: {rowset_id}_{segment_id}_{index_id}{suffix}.idx
+    size_t first_underscore_pos = filename.find('_');
+    size_t second_underscore_pos = filename.find('_', first_underscore_pos + 1);
+    size_t dot_pos = filename.find_last_of('.');
+
+    if (first_underscore_pos == std::string::npos || second_underscore_pos == std::string::npos ||
+        dot_pos == std::string::npos || first_underscore_pos >= second_underscore_pos ||
+        second_underscore_pos >= dot_pos) {
+        LOG(WARNING) << "Invalid filename format: " << filename;
+        return -1;
+    }
+
+    std::string rowset_id = filename.substr(0, first_underscore_pos);
+    std::string segment_str = filename.substr(first_underscore_pos + 1,
+                                              second_underscore_pos - first_underscore_pos - 1);
+    std::string remaining =
+            filename.substr(second_underscore_pos + 1, dot_pos - second_underscore_pos - 1);
+    std::string extension = filename.substr(dot_pos + 1);
+
+    // Parse index_id and suffix from remaining part
+    // Format: {index_id}{suffix} or just {index_id}
+    std::string index_id_str = remaining;
+    std::string index_suffix = "";
+
+    int segment_id = stoll(segment_str);
+    int64_t index_id = std::stoll(index_id_str);
+    int64_t tablet_index_id = tablet_id + 10;
+    int64_t schema_version =
+            std::atoll(path_parts[1].substr(path_parts[1].size() - 4).c_str()) + version;
+
+    // Create rowset meta data
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    std::string rowset_meta_key = meta_rowset_key(key_info);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0); // useless but required
+    rowset_pb.set_rowset_id_v2(rowset_id);
+    rowset_pb.set_num_segments(segment_id + 1); // segment_id is 0-based
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id(resource_id);
+    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_schema_version(schema_version);
+    rowset_pb.SerializeToString(&val);
+
+    err = txn_kv->create_txn(&txn);
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
+    txn->put(rowset_meta_key, val);
+
+    // Create tablet index meta data
+    TabletIndexPB tablet_index;
+    tablet_index.set_index_id(tablet_index_id);
+    tablet_index.set_tablet_id(tablet_id);
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    tablet_index.SerializeToString(&val);
+
+    txn->put(tablet_index_key, val);
+
+    // Create tablet schema if dealing with index files
+    if (extension == "idx") {
+        std::string tablet_schema_key =
+                meta_schema_key({instance_id, tablet_index_id, schema_version});
+
+        doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        tablet_schema.set_schema_version(schema_version);
+
+        auto index = tablet_schema.add_index();
+        index->set_index_id(index_id);
+        index->set_index_type(IndexType::INVERTED);
+        if (!index_suffix.empty()) {
+            index->set_index_suffix_name(index_suffix);
+        }
+
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
+    }
+    err = txn->commit();
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK) << err;
+    std::string segment_path = fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
+    accessor->put_file(segment_path, "");
+    accessor->put_file(file_path, "");
+
     return 0;
 }
 
 static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                    const std::string& resource_id, int64_t tablet_id,
-                                   int64_t version, int num_segments = 1,
-                                   int num_inverted_indexes = 1) {
+                                   int64_t version, int64_t index_id, int num_segments = 1,
+                                   int num_inverted_indexes = 1,
+                                   bool enable_create_delete_bitmaps_v2 = false) {
     std::string key;
     std::string val;
+    int64_t schema_version = tablet_id + version + num_inverted_indexes + 1;
 
     auto rowset_id = next_rowset_id();
     MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
     meta_rowset_key(key_info, &key);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0); // useless but required
+    rowset_pb.set_rowset_id_v2(rowset_id);
+    rowset_pb.set_num_segments(num_segments);
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id(resource_id);
+    rowset_pb.set_creation_time(current_time);
+    rowset_pb.set_schema_version(schema_version);
+    rowset_pb.set_index_id(index_id);
+    rowset_pb.SerializeToString(&val);
+
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+
+    std::string key1;
+    std::string val1;
+    MetaTabletIdxKeyInfo key_info1 {instance_id, tablet_id};
+    meta_tablet_idx_key(key_info1, &key1);
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_db_id(db_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    if (!tablet_idx_pb.SerializeToString(&val1)) {
+        return -1;
+    }
+
+    txn->put(key1, val1);
+
+    int64_t tablet_schema_version_cnt = tablet_id + version + 1;
+
+    for (size_t i = 0; i < num_inverted_indexes; i++) {
+        std::string tablet_schema_key =
+                meta_schema_key({instance_id, index_id, ++tablet_schema_version_cnt});
+        doris::TabletSchemaCloudPB tablet_schema;
+        tablet_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        tablet_schema.set_schema_version(tablet_schema_version_cnt);
+        auto index = tablet_schema.add_index();
+        index->set_index_id(i);
+        index->set_index_type(IndexType::INVERTED);
+        MetaServiceCode code;
+        std::string msg;
+        put_schema_kv(code, msg, txn.get(), tablet_schema_key, tablet_schema);
+    }
+
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    for (int i = 0; i < num_segments; ++i) {
+        auto path = segment_path(tablet_id, rowset_id, i);
+        accessor->put_file(path, "");
+        for (int j = 0; j < num_inverted_indexes; ++j) {
+            auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
+            accessor->put_file(path, "");
+        }
+    }
+    if (enable_create_delete_bitmaps_v2) {
+        return create_delete_bitmaps_v2(txn_kv, accessor, tablet_id, rowset_id);
+    }
+    return 0;
+}
+
+static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAccessor* accessor,
+                                                  const std::string& resource_id, int64_t tablet_id,
+                                                  int64_t start_version, int64_t end_version,
+                                                  std::string rowset_id, bool segments_overlap,
+                                                  int num_segments,
+                                                  int64_t create_time = current_time) {
+    std::string key;
+    std::string val;
+
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, end_version};
+    meta_rowset_key(key_info, &key);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0); // useless but required
+    rowset_pb.set_rowset_id_v2(rowset_id);
+    rowset_pb.set_num_segments(num_segments);
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id(resource_id);
+    rowset_pb.set_creation_time(create_time);
+    rowset_pb.set_start_version(start_version);
+    rowset_pb.set_end_version(end_version);
+    rowset_pb.set_segments_overlap_pb(segments_overlap ? OVERLAPPING : NONOVERLAPPING);
+    rowset_pb.SerializeToString(&val);
+
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+
+    for (int i = 0; i < num_segments; ++i) {
+        auto path = segment_path(tablet_id, rowset_id, i);
+        accessor->put_file(path, "");
+    }
+    return 0;
+}
+
+static int create_restore_job_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor,
+                                     const std::string& resource_id, int64_t tablet_id,
+                                     int64_t version, int num_segments = 1,
+                                     int num_inverted_indexes = 1) {
+    std::string key;
+    std::string val;
+
+    auto rowset_id = next_rowset_id();
+    JobRestoreRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    job_restore_rowset_key(key_info, &key);
 
     doris::RowsetMetaCloudPB rowset_pb;
     rowset_pb.set_rowset_id(0); // useless but required
@@ -226,6 +678,8 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         return -1;
     }
     txn->put(key, val);
+    LOG(INFO) << "rowset_pb:" << rowset_pb.DebugString() << " key=" << hex(key);
+
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -234,30 +688,122 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
         auto path = segment_path(tablet_id, rowset_id, i);
         accessor->put_file(path, "");
         for (int j = 0; j < num_inverted_indexes; ++j) {
-            auto path = inverted_index_path(tablet_id, rowset_id, i, j);
+            auto path = inverted_index_path_v1(tablet_id, rowset_id, i, j, "");
             accessor->put_file(path, "");
         }
     }
     return 0;
 }
 
-static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t partition_id,
-                         int64_t tablet_id) {
+static int create_restore_job_tablet(TxnKv* txn_kv, int64_t tablet_id,
+                                     RestoreJobCloudPB::State state) {
+    std::string key;
+    std::string val;
+
+    JobRestoreTabletKeyInfo key_info {instance_id, tablet_id};
+    job_restore_tablet_key(key_info, &key);
+
+    RestoreJobCloudPB restore_job_pb;
+    restore_job_pb.set_tablet_id(tablet_id);
+    restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
+    restore_job_pb.set_expired_at_s(0);
+    restore_job_pb.set_state(state);
+    restore_job_pb.SerializeToString(&val);
+
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
     }
-    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val);
+    LOG(INFO) << "restore_job_pb:" << restore_job_pb.DebugString() << " key=" << hex(key);
+
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::string rowset_id,
+                                  int64_t start_version, int64_t end_version) {
+    for (int64_t ver {start_version}; ver <= end_version; ver++) {
+        auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+        std::string val {"test_data"};
+        txn->put(key, val);
+    }
+}
+
+static void create_delete_bitmaps(Transaction* txn, int64_t tablet_id, std::string rowset_id,
+                                  std::vector<int64_t> versions, int64_t segment_num = 1) {
+    for (int64_t ver : versions) {
+        for (int64_t segment_id {0}; segment_id < segment_num; segment_id++) {
+            auto key = meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, segment_id});
+            if (segment_id % 2 == 0) {
+                std::string val {"test_data"};
+                txn->put(key, val);
+            } else {
+                std::string val(1000, 'A');
+                cloud::blob_put(txn, key, val, 0, 300);
+            }
+        }
+    }
+}
+
+static int create_tablet(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t partition_id,
+                         int64_t tablet_id, bool is_mow = false, bool has_sequence_col = false) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
     doris::TabletMetaCloudPB tablet_meta;
     tablet_meta.set_tablet_id(tablet_id);
+    tablet_meta.set_enable_unique_key_merge_on_write(is_mow);
+    if (has_sequence_col) {
+        tablet_meta.mutable_schema()->set_sequence_col_idx(1);
+    }
     auto val = tablet_meta.SerializeAsString();
+    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     txn->put(key, val);
-    key = meta_tablet_idx_key({instance_id, tablet_id});
-    txn->put(key, val); // val is not necessary
     key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     txn->put(key, val); // val is not necessary
     key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
     txn->put(key, val); // val is not necessary
+
+    // mock tablet index
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_db_id(db_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    auto idx_val = tablet_idx_pb.SerializeAsString();
+    key = meta_tablet_idx_key({instance_id, tablet_id});
+    txn->put(key, idx_val);
+    LOG(INFO) << "tablet_idx_pb:" << tablet_idx_pb.DebugString() << " key=" << hex(key);
+
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+static int create_partition_meta_and_index_keys(TxnKv* txn_kv, int64_t db_id, int64_t table_id,
+                                                int64_t partition_id) {
+    std::string meta_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string meta_index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string meta_inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    std::string val;
+    PartitionIndexPB partition_index_pb;
+    partition_index_pb.set_db_id(db_id);
+    partition_index_pb.set_table_id(table_id);
+    partition_index_pb.SerializeToString(&val);
+    versioned_put(txn.get(), meta_key, "");
+    txn->put(meta_index_key, partition_index_pb.SerializeAsString());
+    txn->put(meta_inverted_index_key, "");
     if (txn->commit() != TxnErrorCode::TXN_OK) {
         return -1;
     }
@@ -309,10 +855,33 @@ static int create_partition_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t 
     return 0;
 }
 
-static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id) {
+static int create_delete_bitmap_update_lock_kv(TxnKv* txn_kv, int64_t table_id, int64_t lock_id,
+                                               int64_t initiator, int64_t expiration) {
+    auto key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    DeleteBitmapUpdateLockPB lock_info;
+    lock_info.set_lock_id(lock_id);
+    auto val = lock_info.SerializeAsString();
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    txn->put(key, val);
+    std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, initiator});
+    std::string tablet_job_val;
+    MowTabletJobPB mow_tablet_job;
+    mow_tablet_job.set_expiration(expiration);
+    mow_tablet_job.SerializeToString(&tablet_job_val);
+    txn->put(tablet_job_key, tablet_job_val);
+    if (txn->commit() != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    return 0;
+}
+
+static int create_table_version_kv(TxnKv* txn_kv, int64_t table_id, int64_t version = 1) {
     auto key = table_version_key({instance_id, db_id, table_id});
     std::string val(sizeof(int64_t), 0);
-    *reinterpret_cast<int64_t*>(val.data()) = (int64_t)1;
+    *reinterpret_cast<int64_t*>(val.data()) = version;
     std::unique_ptr<Transaction> txn;
     if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) {
         return -1;
@@ -603,6 +1172,16 @@ static int get_copy_file_num(TxnKv* txn_kv, const std::string& stage_id, int64_t
     return 0;
 }
 
+static void check_delete_bitmap_keys_size(TxnKv* txn_kv, int64_t tablet_id, int expected_size) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto dbm_start_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id, ""});
+    std::string dbm_end_key = versioned::meta_delete_bitmap_key({instance_id, tablet_id + 1, ""});
+    ASSERT_EQ(txn->get(dbm_start_key, dbm_end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), expected_size);
+}
+
 TEST(RecyclerTest, recycle_empty) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -618,7 +1197,8 @@ TEST(RecyclerTest, recycle_empty) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_empty");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
@@ -645,22 +1225,26 @@ TEST(RecyclerTest, recycle_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InvertedIndexIdCache::insert1",
-                      [&](void* p) { ++insert_no_inverted_index; });
-    sp->set_call_back("InvertedIndexIdCache::insert2", [&](void* p) { ++insert_inverted_index; });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -670,12 +1254,15 @@ TEST(RecyclerTest, recycle_rowsets) {
         auto rowset = create_rowset("recycle_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
         create_recycle_rowset(
                 txn_kv.get(), accessor.get(), rowset,
-                static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), i & 1);
+                static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), i & 1,
+                i < 500);
     }
     for (int i = 0; i < 1000; ++i) {
         auto rowset = create_rowset("recycle_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
-        create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT, true);
+        create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT, true,
+                              i < 500);
     }
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1000);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
 
@@ -694,6 +1281,90 @@ TEST(RecyclerTest, recycle_rowsets) {
     // Check InvertedIndexIdCache
     EXPECT_EQ(insert_inverted_index, 4);
     EXPECT_EQ(insert_no_inverted_index, 1);
+    // check all versioned delete bitmap kv have been deleted
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+}
+
+TEST(RecyclerTest, recycle_rowsets_with_data_ref_count) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_rowsets_with_data_ref_count");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_rowsets_with_data_ref_count");
+
+    config::instance_recycler_worker_pool_size = 1;
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    doris::TabletSchemaCloudPB schema;
+    std::vector<doris::TabletSchemaCloudPB> schemas;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+    auto* index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    auto accessor = recycler.accessor_map_.begin()->second;
+    constexpr int index_id = 10001, tablet_id = 10002;
+    for (int i = 0; i < 5; ++i) {
+        auto rowset = create_rowset("recycle_rowsets_with_data_ref_count", tablet_id, index_id, 5,
+                                    schema);
+        // Add rowset ref count key for i < 3, so that the rowset data will not be deleted
+        if (i < 3) {
+            std::string rowset_ref_count_key = versioned::data_rowset_ref_count_key(
+                    {instance_id, rowset.tablet_id(), rowset.rowset_id_v2()});
+            LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
+                      << "key=" << hex(rowset_ref_count_key);
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            txn->atomic_add(rowset_ref_count_key, 2); // base + 1 ref
+            ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        }
+
+        // Only DROP or COMPACT will delete the rowset data
+        create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                              i % 2 == 0 ? RecycleRowsetPB::COMPACT : RecycleRowsetPB::DROP, i & 1);
+    }
+
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+
+    // // check rowset does not exist on obj store
+    // std::unique_ptr<ListIterator> list_iter;
+    // ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
+    // EXPECT_FALSE(list_iter->has_next());
+    // check all recycle rowset kv have been deleted
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = recycle_key_prefix(instance_id);
+    auto end_key = recycle_key_prefix(instance_id + '\xff');
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), 0);
+    // check the rowset ref count key exists
+    begin_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id, ""});
+    end_key = versioned::data_rowset_ref_count_key({instance_id, tablet_id + 1, ""});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    size_t total_ref_count_keys = 0;
+    while (it->has_next()) {
+        auto [k, v] = it->next();
+        int64_t ref_count = 0;
+        ASSERT_TRUE(txn->decode_atomic_int(v, &ref_count));
+        ASSERT_EQ(ref_count, 1);
+        ++total_ref_count_keys;
+    }
+    ASSERT_EQ(total_ref_count_keys, 3);
 }
 
 TEST(RecyclerTest, bench_recycle_rowsets) {
@@ -714,31 +1385,37 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
 
     config::instance_recycler_worker_pool_size = 10;
     config::recycle_task_threshold_seconds = 0;
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("memkv::Transaction::get", [](void* limit) {
-        *((int*)limit) = 100;
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("memkv::Transaction::get", [](auto&& args) {
+        auto* limit = try_any_cast<int*>(args[0]);
+        *limit = 100;
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     });
-    sp->set_call_back("MockAccessor::delete_files", [&](void* p) {
+    sp->set_call_back("MockAccessor::delete_files", [&](auto&& args) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         bool found = recycler.check_recycle_tasks();
         ASSERT_EQ(found, true);
     });
     sp->set_call_back("MockAccessor::delete_prefix",
-                      [&](void* p) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+                      [&](auto&&) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
     sp->enable_processing();
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -748,8 +1425,9 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
         auto rowset = create_rowset("recycle_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
         create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
                               i % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT,
-                              i & 1);
+                              i & 1, i < 1000);
     }
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 100);
 
     ASSERT_EQ(recycler.recycle_rowsets(), 0);
     ASSERT_EQ(recycler.check_recycle_tasks(), false);
@@ -766,15 +1444,19 @@ TEST(RecyclerTest, bench_recycle_rowsets) {
     auto end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_tmp_rowsets) {
     config::retention_seconds = 0;
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
-
+    config::instance_recycler_worker_pool_size = 10;
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
     auto obj_info = instance.add_obj_info();
     obj_info->set_id("recycle_tmp_rowsets");
     obj_info->set_ak(config::test_s3_ak);
@@ -787,22 +1469,26 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int insert_no_inverted_index = 0;
     int insert_inverted_index = 0;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InvertedIndexIdCache::insert1",
-                      [&](void* p) { ++insert_no_inverted_index; });
-    sp->set_call_back("InvertedIndexIdCache::insert2", [&](void* p) { ++insert_inverted_index; });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("InvertedIndexIdCache::insert1", [&](auto&&) { ++insert_no_inverted_index; });
+    sp->set_call_back("InvertedIndexIdCache::insert2", [&](auto&&) { ++insert_inverted_index; });
     sp->enable_processing();
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -810,16 +1496,24 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     int64_t txn_id_base = 114115;
     int64_t tablet_id_base = 10015;
     int64_t index_id_base = 1000;
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < 50; ++i) {
         int64_t txn_id = txn_id_base + i;
-        for (int j = 0; j < 20; ++j) {
+        for (int j = 0; j < 1000; ++j) {
             auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
-                                        index_id_base + j % 4, 5, schemas[i % 5], txn_id);
-            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1);
+                                        index_id_base + j, 5, schemas[i % 5], txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, i < 50);
         }
     }
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 50);
+    }
 
+    auto start = std::chrono::steady_clock::now();
     ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    auto finish = std::chrono::steady_clock::now();
+    std::cout << "recycle tmp rowsets cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << std::endl;
 
     // check rowset does not exist on obj store
     std::unique_ptr<ListIterator> list_iter;
@@ -834,8 +1528,88 @@ TEST(RecyclerTest, recycle_tmp_rowsets) {
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     // Check InvertedIndexIdCache
-    EXPECT_EQ(insert_inverted_index, 16);
-    EXPECT_EQ(insert_no_inverted_index, 4);
+    // EXPECT_GE for InvertedIndexIdCache::get
+    EXPECT_GE(insert_inverted_index, 4000);
+    EXPECT_GE(insert_no_inverted_index, 1000);
+    // check rowset ref count key has been deleted
+    begin_key = versioned::data_rowset_ref_count_key({instance_id, 0, ""});
+    end_key = versioned::data_rowset_ref_count_key({instance_id, INT64_MAX, ""});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+    for (int j = 0; j < 20; ++j) {
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id_base + j, 0);
+    }
+}
+
+TEST(RecyclerTest, recycle_tmp_rowsets_partial_update) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.set_multi_version_status(MULTI_VERSION_WRITE_ONLY);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tmp_rowsets_partial_update");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tmp_rowsets_partial_update");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    doris::TabletSchemaCloudPB schema;
+
+    auto accessor = recycler.accessor_map_.begin()->second;
+    int64_t tablet_id = 10015;
+    int64_t index_id = 1000;
+    int64_t txn_id_base = 293039;
+    for (int j = 0; j < 20; ++j) {
+        int64_t txn_id = txn_id_base + j;
+        int segment_num = 5;
+        if (j < 15) {
+            auto rowset = create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, index_id,
+                                        segment_num, schema, RowsetStatePB::VISIBLE, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false, false, j < 8);
+        } else {
+            auto rowset =
+                    create_rowset("recycle_tmp_rowsets_partial_update", tablet_id, tablet_id,
+                                  segment_num, schema, RowsetStatePB::BEGIN_PARTIAL_UPDATE, txn_id);
+            create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false, false, j > 17);
+
+            // partial update may write new segment to an existing tmp rowsets
+            // we simulate that partial update load fails after it writes a segment
+            // and before it updates the segments num in tmp rowset meta
+            int extra_segment_id = segment_num;
+            auto path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), extra_segment_id);
+            accessor->put_file(path, path);
+        }
+    }
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    // check rowset does not exist on obj store
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
+    ASSERT_FALSE(list_iter->has_next());
+    // check all tmp rowset kv have been deleted
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+    auto begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
+    auto end_key = meta_rowset_tmp_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+    // check rowset ref count key has been deleted
+    begin_key = versioned::data_rowset_ref_count_key({instance_id, 0, ""});
+    end_key = versioned::data_rowset_ref_count_key({instance_id, INT64_MAX, ""});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_tablet) {
@@ -853,7 +1627,8 @@ TEST(RecyclerTest, recycle_tablet) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_tablet");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -861,7 +1636,9 @@ TEST(RecyclerTest, recycle_tablet) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -872,18 +1649,28 @@ TEST(RecyclerTest, recycle_tablet) {
         auto rowset = create_rowset("recycle_tablet", tablet_id, index_id, 5, schemas[i % 5]);
         create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
                               i % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT,
-                              i & 1);
+                              i & 1, i < 200);
     }
     for (int i = 0; i < 500; ++i) {
-        create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, i);
+        create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_tablet", tablet_id, i,
+                                index_id, 1, 1, i < 200);
     }
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 400);
 
-    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id));
+    ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
+
+    ASSERT_EQ(0, recycler.recycle_tablets(table_id, index_id, ctx));
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory(tablet_path_prefix(tablet_id), &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next()) << [&]() -> std::string {
+        std::string paths;
+        while (list_iter->has_next()) {
+            paths += list_iter->next()->path + ", ";
+        }
+        return paths;
+    }();
     // check all related kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -908,6 +1695,14 @@ TEST(RecyclerTest, recycle_tablet) {
     end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    // recycle tablet index/inverted index keys
+    std::string idx_key = versioned::tablet_index_key({instance_id, table_id});
+    std::string inverted_idx_key = versioned::tablet_inverted_index_key(
+            {instance_id, db_id, table_id, index_id, partition_id, tablet_id});
+    std::string empty_value;
+    ASSERT_EQ(txn->get(idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(txn->get(inverted_idx_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
 }
 
 TEST(RecyclerTest, recycle_indexes) {
@@ -926,15 +1721,19 @@ TEST(RecyclerTest, recycle_indexes) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_indexes");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -947,24 +1746,41 @@ TEST(RecyclerTest, recycle_indexes) {
         create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
         for (int j = 0; j < 10; ++j) {
             auto rowset = create_rowset("recycle_tablet", tablet_id, index_id, 5, schemas[j % 5]);
+            rowset.set_resource_id("recycle_indexes");
             create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
                                   j % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT,
                                   j & 1);
             auto tmp_rowset = create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5,
                                             schemas[j % 5], txn_id_base + j);
-            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1);
+            tmp_rowset.set_resource_id("recycle_indexes");
+            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1, false, j < 5);
         }
         for (int j = 0; j < 10; ++j) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j,
+                                    index_id, 1, 1, j < 5);
         }
     }
+
+    ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
     create_recycle_index(txn_kv.get(), table_id, index_id);
+    for (int i = 0; i < 100; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+    }
     ASSERT_EQ(recycler.recycle_indexes(), 0);
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0); // Recycle tmp rowsets too, since
+                                                  // recycle_indexes does not recycle tmp rowsets
 
     // check rowset does not exist on s3
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
-    ASSERT_FALSE(list_iter->has_next());
+    ASSERT_FALSE(list_iter->has_next()) << [&]() -> std::string {
+        std::string out;
+        while (list_iter->has_next()) {
+            out += list_iter->next().value().path + "\n";
+        }
+        return out;
+    }();
     // check all related kv have been deleted
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -978,7 +1794,7 @@ TEST(RecyclerTest, recycle_indexes) {
     begin_key = meta_rowset_tmp_key({instance_id, 0, 0});
     end_key = meta_rowset_tmp_key({instance_id, INT64_MAX, 0});
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
-    ASSERT_EQ(it->size(), 1000);
+    ASSERT_EQ(it->size(), 0);
     // meta_tablet_idx_key
     begin_key = meta_tablet_idx_key({instance_id, 0});
     end_key = meta_tablet_idx_key({instance_id, INT64_MAX});
@@ -992,6 +1808,11 @@ TEST(RecyclerTest, recycle_indexes) {
     // meta_schema_key
     begin_key = meta_schema_key({instance_id, 0, 0});
     end_key = meta_schema_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+    // versioned meta_schema_key
+    begin_key = versioned::meta_schema_key({instance_id, 0, 0});
+    end_key = versioned::meta_schema_key({instance_id, INT64_MAX, 0});
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
     // job_tablet_key
@@ -1017,6 +1838,10 @@ TEST(RecyclerTest, recycle_indexes) {
     end_key = meta_rowset_tmp_key({instance_id, INT64_MAX, 0});
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    for (int i = 0; i < 100; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    }
 }
 
 TEST(RecyclerTest, recycle_partitions) {
@@ -1035,15 +1860,19 @@ TEST(RecyclerTest, recycle_partitions) {
     obj_info->set_bucket(config::test_s3_bucket);
     obj_info->set_prefix("recycle_partitions");
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
 
     std::vector<doris::TabletSchemaCloudPB> schemas;
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -1052,24 +1881,35 @@ TEST(RecyclerTest, recycle_partitions) {
     std::vector<int64_t> index_ids {20200, 20201, 20202, 20203, 20204};
 
     int64_t tablet_id_base = 10100;
+    int64_t tablet_id_base2 = tablet_id_base;
     for (auto index_id : index_ids) {
         for (int i = 0; i < 20; ++i) {
-            int64_t tablet_id = tablet_id_base + i;
-            create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+            int64_t tablet_id = tablet_id_base++;
+            ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id), 0);
             for (int j = 0; j < 10; ++j) {
                 auto rowset =
                         create_rowset("recycle_tablet", tablet_id, index_id, 5, schemas[j % 5]);
+                rowset.set_resource_id("recycle_partitions");
                 create_recycle_rowset(
                         txn_kv.get(), accessor.get(), rowset,
-                        j % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT, j & 1);
+                        j % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT, j & 1,
+                        j < 5);
             }
             for (int j = 0; j < 10; ++j) {
                 create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_partitions",
-                                        tablet_id, j);
+                                        tablet_id, j, index_id, 1, 1, j < 5);
             }
         }
     }
+
+    ASSERT_EQ(create_partition_meta_and_index_keys(txn_kv.get(), db_id, table_id, partition_id), 0);
+    ASSERT_EQ(create_partition_version_kv(txn_kv.get(), table_id, partition_id), 0);
+
     create_recycle_partiton(txn_kv.get(), table_id, partition_id, index_ids);
+    for (int i = 0; i < 20 * index_ids.size(); ++i) {
+        int64_t tablet_id = tablet_id_base2 + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+    }
     ASSERT_EQ(recycler.recycle_partitions(), 0);
 
     // check rowset does not exist on s3
@@ -1115,6 +1955,23 @@ TEST(RecyclerTest, recycle_partitions) {
     end_key = recycle_key_prefix(instance_id + '\xff');
     ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    // meta_partition_key
+    std::string meta_partition_key = versioned::meta_partition_key({instance_id, partition_id});
+    std::string index_key = versioned::partition_index_key({instance_id, partition_id});
+    std::string inverted_index_key =
+            versioned::partition_inverted_index_key({instance_id, db_id, table_id, partition_id});
+    std::string empty_value;
+    Versionstamp versionstamp;
+    ASSERT_EQ(versioned_get(txn.get(), meta_partition_key, &versionstamp, &empty_value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_index_key
+    ASSERT_EQ(txn->get(index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    // meta_partition_inverted_index_key
+    ASSERT_EQ(txn->get(inverted_index_key, &empty_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    for (int i = 0; i < 20 * index_ids.size(); ++i) {
+        int64_t tablet_id = tablet_id_base2 + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    }
 }
 
 TEST(RecyclerTest, recycle_versions) {
@@ -1124,7 +1981,7 @@ TEST(RecyclerTest, recycle_versions) {
 
     std::vector<int64_t> index_ids {20001, 20002, 20003, 20004, 20005};
     std::vector<int64_t> partition_ids {30001, 30002, 30003, 30004, 30005, 30006};
-    constexpr int64_t table_id = 10000;
+    constexpr int table_id = 10000;
 
     int64_t tablet_id = 40000;
     for (auto index_id : index_ids) {
@@ -1140,10 +1997,14 @@ TEST(RecyclerTest, recycle_versions) {
     for (int i = 0; i < 5; ++i) {
         create_recycle_partiton(txn_kv.get(), table_id, partition_ids[i], index_ids);
     }
+    // create delete bitmap update lock kv
+    create_delete_bitmap_update_lock_kv(txn_kv.get(), table_id, -1, 100, 60);
+    create_delete_bitmap_update_lock_kv(txn_kv.get(), table_id, -1, 110, 60);
 
     InstanceInfoPB instance;
     instance.set_instance_id(instance_id);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     // Recycle all partitions in table except 30006
     ASSERT_EQ(recycler.recycle_partitions(), 0);
@@ -1165,6 +2026,16 @@ TEST(RecyclerTest, recycle_versions) {
     ASSERT_EQ(iter->size(), 1);
     auto [tk, tv] = iter->next();
     EXPECT_EQ(tk, table_version_key({instance_id, db_id, 10000}));
+    // delete bitmap update lock must not be deleted
+    auto delete_bitmap_update_lock_key =
+            meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    std::string delete_bitmap_update_lock_val;
+    ASSERT_EQ(txn->get(delete_bitmap_update_lock_key, &delete_bitmap_update_lock_val),
+              TxnErrorCode::TXN_OK);
+    auto tablet_job_key0 = mow_tablet_job_key({instance_id, table_id, 0});
+    auto tablet_job_key1 = mow_tablet_job_key({instance_id, table_id + 1, 0});
+    ASSERT_EQ(txn->get(tablet_job_key0, tablet_job_key1, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(iter->size(), 2);
 
     // Drop indexes
     for (auto index_id : index_ids) {
@@ -1179,14 +2050,107 @@ TEST(RecyclerTest, recycle_versions) {
     ASSERT_EQ(iter->size(), 0);
     ASSERT_EQ(txn->get(table_key_begin, table_key_end, &iter), TxnErrorCode::TXN_OK);
     ASSERT_EQ(iter->size(), 0);
+    // delete bitmap update lock must be deleted
+    ASSERT_EQ(txn->get(delete_bitmap_update_lock_key, &delete_bitmap_update_lock_val),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(txn->get(tablet_job_key0, tablet_job_key1, &iter), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(iter->size(), 0);
 }
 
-TEST(RecyclerTest, abort_timeout_txn) {
+TEST(RecyclerTest, recycle_restore_jobs) {
+    config::retention_seconds = 0;
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_restore_jobs");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_restore_jobs");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    std::vector<doris::TabletSchemaCloudPB> schemas;
+    for (int i = 0; i < 5; ++i) {
+        auto& schema = schemas.emplace_back();
+        schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        for (int j = 0; j < i; ++j) {
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
+        }
+    }
+
+    constexpr int table_id = 10000, partition_id = 30020;
+    auto accessor = recycler.accessor_map_.begin()->second;
+    int64_t tablet_id_base = 10100;
+
+    for (int i = 0; i < 20; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        ASSERT_EQ(create_tablet(txn_kv.get(), table_id, i, partition_id, tablet_id), 0);
+        // create restore job for recycle
+        ASSERT_EQ(create_restore_job_tablet(txn_kv.get(), tablet_id, RestoreJobCloudPB::COMPLETED),
+                  0);
+        for (int j = 0; j < 5; ++j) {
+            ASSERT_EQ(
+                    create_restore_job_rowset(txn_kv.get(), accessor.get(), "recycle_restore_jobs",
+                                              tablet_id, j, 5, schemas[j % 5].index_size()),
+                    0);
+        }
+    }
+
+    // not recycle and change restore job from COMPLETED to RECYCLING
+    ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::unique_ptr<RangeGetIterator> it;
+
+    auto begin_key = job_restore_tablet_key({instance_id, 0});
+    auto end_key = job_restore_tablet_key({instance_id, INT64_MAX});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 20);
+
+    begin_key = job_restore_rowset_key({instance_id, 0, 0});
+    end_key = job_restore_rowset_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 100);
+
+    // recycle restore job with status RECYCLING
+    ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
+
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    begin_key = job_restore_tablet_key({instance_id, 0});
+    end_key = job_restore_tablet_key({instance_id, INT64_MAX});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+
+    begin_key = job_restore_rowset_key({instance_id, 0, 0});
+    end_key = job_restore_rowset_key({instance_id, INT64_MAX, 0});
+    ASSERT_EQ(txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(it->size(), 0);
+
+    // check rowset does not exist on s3
+    std::unique_ptr<ListIterator> list_iter;
+    ASSERT_EQ(0, accessor->list_directory("data/", &list_iter));
+}
+
+TEST(RecyclerTest, advance_pending_txn) {
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 666;
@@ -1199,7 +2163,7 @@ TEST(RecyclerTest, abort_timeout_txn) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         TxnInfoPB txn_info_pb;
         txn_info_pb.set_db_id(db_id);
-        txn_info_pb.set_label("abort_timeout_txn");
+        txn_info_pb.set_label("advance_pending_txn");
         txn_info_pb.add_table_ids(table_id);
         txn_info_pb.set_timeout_ms(1);
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
@@ -1212,7 +2176,8 @@ TEST(RecyclerTest, abort_timeout_txn) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
     ASSERT_EQ(recycler.abort_timeout_txn(), 0);
@@ -1221,20 +2186,21 @@ TEST(RecyclerTest, abort_timeout_txn) {
     ASSERT_EQ(txn_info_pb.status(), TxnStatusPB::TXN_STATUS_ABORTED);
 }
 
-TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
+TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
     config::label_keep_max_second = 0;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 888;
     int64_t table_id = 1234;
     int64_t txn_id = -1;
     std::string cloud_unique_id = "test_cloud_unique_id22131";
-    std::string label = "abort_timeout_txn_and_rebegin";
+    std::string label = "advance_pending_txn_and_rebegin";
     {
         brpc::Controller cntl;
         BeginTxnRequest req;
@@ -1255,7 +2221,8 @@ TEST(RecyclerTest, abort_timeout_txn_and_rebegin) {
     }
     InstanceInfoPB instance;
     instance.set_instance_id(mock_instance);
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     sleep(1);
     ASSERT_EQ(recycler.abort_timeout_txn(), 0);
@@ -1289,7 +2256,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
     ASSERT_NE(txn_kv.get(), nullptr);
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     ASSERT_EQ(txn_kv->init(), 0);
 
     int64_t db_id = 88812123;
@@ -1322,7 +2290,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         recycler.abort_timeout_txn();
         TxnInfoPB txn_info_pb;
@@ -1373,7 +2342,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1425,7 +2395,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1484,7 +2455,8 @@ TEST(RecyclerTest, recycle_expired_txn_label) {
         }
         InstanceInfoPB instance;
         instance.set_instance_id(mock_instance);
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         sleep(1);
         recycler.abort_timeout_txn();
@@ -1621,7 +2593,8 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1759,9 +2732,14 @@ TEST(RecyclerTest, recycle_copy_jobs) {
 
 TEST(RecyclerTest, recycle_batch_copy_jobs) {
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("MockAccessor::delete_files::pred", [](void* p) { *((bool*)p) = true; });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("MockAccessor::delete_files", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
     sp->enable_processing();
     using namespace std::chrono;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
@@ -1776,7 +2754,8 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     const auto& internal_accessor = recycler.accessor_map_.find(internal_stage_id)->second;
 
@@ -1839,7 +2818,7 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
         EXPECT_EQ(expected_job_exists, exist) << table_id;
     }
 
-    sp->clear_call_back("MockAccessor::delete_files::pred");
+    sp->clear_call_back("MockAccessor::delete_files");
     ASSERT_EQ(recycler.recycle_copy_jobs(), 0);
 
     // check object files
@@ -1877,8 +2856,9 @@ TEST(RecyclerTest, recycle_batch_copy_jobs) {
 
 TEST(RecyclerTest, recycle_stage) {
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
     ASSERT_NE(txn_kv.get(), nullptr);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -1890,15 +2870,24 @@ TEST(RecyclerTest, recycle_stage) {
     instance.set_instance_id(mock_instance);
     instance.add_obj_info()->CopyFrom(object_info);
 
-    InstanceRecycler recycler(txn_kv, instance);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
     for (int i = 0; i < 10; ++i) {
         accessor->put_file(std::to_string(i) + ".csv", "");
     }
-    sp->set_call_back("recycle_stage:get_accessor", [&](void* ret) {
-        *reinterpret_cast<std::shared_ptr<StorageVaultAccessor>*>(ret) = accessor;
-    });
+
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "recycle_stage:get_accessor",
+            [&](auto&& args) {
+                *try_any_cast<std::shared_ptr<StorageVaultAccessor>*>(args[0]) = accessor;
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
 
     std::string key;
@@ -1942,7 +2931,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
-    InstanceRecycler recycler(txn_kv, instance_info);
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     // create txn key
     for (size_t i = 0; i < 100; i++) {
@@ -1962,7 +2952,9 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -1972,23 +2964,59 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     int64_t txn_id_base = 114115;
     for (int i = 0; i < 100; ++i) {
         int64_t tablet_id = tablet_id_base + i;
-        // creare stats key
+        // create stats key
         create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
         for (int j = 0; j < 10; ++j) {
             auto rowset = create_rowset("recycle_tablet", tablet_id, index_id, 5, schemas[j % 5]);
             // create recycle key
             create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
                                   j % 10 < 2 ? RecycleRowsetPB::PREPARE : RecycleRowsetPB::COMPACT,
-                                  j & 1);
+                                  j & 1, j < 5);
             auto tmp_rowset = create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5,
                                             schemas[j % 5], txn_id_base + j);
             // create meta key
-            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1);
+            // create meta , 1, 1, key
+            create_tmp_rowset(txn_kv.get(), accessor.get(), tmp_rowset, j & 1, j < 5);
         }
         for (int j = 0; j < 10; ++j) {
             // create meta key
-            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "recycle_indexes", tablet_id, j,
+                                    index_id, 1, 1, j < 5);
         }
+    }
+    for (int i = 0; i < 100; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 10);
+    }
+
+    {
+        // Create some snapshots
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string snapshot_key = versioned::snapshot_full_key(instance_id);
+        SnapshotPB snapshot;
+        versioned_put(txn.get(), snapshot_key, snapshot.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+
+    {
+        // No thing to recycle
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::unique_ptr<RangeGetIterator> it;
+
+        std::string start_meta_key = meta_key_prefix(instance_id);
+        std::string end_meta_key = meta_key_prefix(instance_id + '\x00');
+        ASSERT_EQ(txn->get(start_meta_key, end_meta_key, &it), TxnErrorCode::TXN_OK);
+        ASSERT_GT(it->size(), 0);
+
+        // Now remove the snapshot key
+        std::string snapshot_key = versioned::snapshot_full_key(instance_id);
+        versioned_remove_all(txn.get(), snapshot_key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
@@ -2048,6 +3076,10 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     std::string end_copy_key = copy_key_prefix(instance_id + '\x00');
     ASSERT_EQ(txn->get(start_copy_key, end_copy_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
+    for (int i = 0; i < 100; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
+    }
 }
 
 TEST(RecyclerTest, multi_recycler) {
@@ -2059,12 +3091,15 @@ TEST(RecyclerTest, multi_recycler) {
 
     std::atomic_int count {0};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceRecycler.do_recycle", [&count](void*) {
-        sleep(1);
-        ++count;
-    });
+
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler.do_recycle",
+            [&count](auto&&) {
+                sleep(1);
+                ++count;
+            },
+            &guard);
     sp->enable_processing();
 
     std::unique_ptr<Transaction> txn;
@@ -2150,14 +3185,19 @@ TEST(CheckerTest, normal_inverted_check) {
     obj_info->set_id("1");
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("InstanceChecker::do_inverted_check::pred",
-                      [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("InstanceChecker::do_inverted_check", [&](void* p) { *((int*)p) = 0; });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
-        SyncPoint::get_instance()->clear_all_call_backs();
+    DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->disable_processing();
-    });
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2166,12 +3206,12 @@ TEST(CheckerTest, normal_inverted_check) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 5);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5);
         }
     }
     ASSERT_EQ(checker.do_inverted_check(), 0);
@@ -2195,14 +3235,19 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     obj_info->set_prefix("CheckerTest");
 
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("InstanceChecker::do_inverted_check::pred",
-                      [](void* p) { *((bool*)p) = true; });
-    sp->set_call_back("InstanceChecker::do_inverted_check", [&](void* p) { *((int*)p) = 0; });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
     sp->enable_processing();
-    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [](int*) {
-        SyncPoint::get_instance()->clear_all_call_backs();
+    DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->disable_processing();
-    });
+    };
 
     InstanceChecker checker(txn_kv, instance_id);
     ASSERT_EQ(checker.init(instance), 0);
@@ -2211,7 +3256,7 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     std::vector<doris::TabletSchemaCloudPB> schemas;
@@ -2219,7 +3264,9 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
@@ -2233,6 +3280,482 @@ TEST(CheckerTest, DISABLED_abnormal_inverted_check) {
                               i & 1);
     }
     ASSERT_NE(checker.do_inverted_check(), 0);
+}
+
+TEST(CheckerTest, normal_check_index_file_v1) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
+    }
+
+    ASSERT_EQ(checker.do_check(), 0);
+}
+
+TEST(CheckerTest, normal_inverted_check_index_file_v1) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    auto sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker::do_inverted_check",
+            [](auto&& args) {
+                auto* ret = try_any_cast_ret<int>(args);
+                ret->first = 0;
+                ret->second = true;
+            },
+            &guard);
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
+    }
+
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+}
+
+TEST(CheckerTest, normal_check_index_file_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_check(), 0);
+}
+
+TEST(CheckerTest, normal_inverted_check_index_file_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 0);
+}
+
+TEST(CheckerTest, abnormal_check_index_file_v1) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    int64_t tablet_to_delete = -1;
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        std::vector<std::string> str;
+        butil::SplitString(file->path, '/', &str);
+        int64_t tablet_id = atol(str[1].c_str());
+
+        // delete all index files of ever tablet for mock missing
+        if (file->path.ends_with(".idx") && tablet_to_delete != tablet_id) {
+            tablet_to_delete = tablet_id;
+            accessor->delete_file(file->path);
+        }
+    }
+    ASSERT_EQ(checker.do_check(), 1);
+}
+
+TEST(CheckerTest, abnormal_inverted_check_index_file_v1) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+    size_t version = 0;
+    for (const auto& file : index_v1_file_path) {
+        create_committed_rowset_by_real_index_v1_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version);
+    }
+
+    size_t delete_kv_num = 5;
+    std::string meta_rowset_key_begin, meta_rowset_key_end;
+    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
+    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
+    std::vector<std::string> rowset_key_to_delete;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            if (rowset_key_to_delete.size() < delete_kv_num) {
+                rowset_key_to_delete.emplace_back(k);
+            }
+            if (!it->has_next()) {
+                meta_rowset_key_begin = k;
+            }
+        }
+        meta_rowset_key_begin.push_back('\x00');
+    } while (it->more());
+
+    for (const auto& key : rowset_key_to_delete) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+        txn->remove(key);
+        err = txn->commit();
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+}
+
+TEST(CheckerTest, abnormal_inverted_check_index_file_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
+    }
+
+    size_t delete_kv_num = 5;
+    std::string meta_rowset_key_begin, meta_rowset_key_end;
+    meta_rowset_key({instance_id, 0, 1}, &meta_rowset_key_begin);
+    meta_rowset_key({instance_id, INT64_MAX, 1}, &meta_rowset_key_end);
+    std::vector<std::string> rowset_key_to_delete;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv->create_txn(&txn);
+    DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(meta_rowset_key_begin, meta_rowset_key_end, &it);
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            if (rowset_key_to_delete.size() < delete_kv_num) {
+                rowset_key_to_delete.emplace_back(k);
+            }
+            if (!it->has_next()) {
+                meta_rowset_key_begin = k;
+            }
+        }
+        meta_rowset_key_begin.push_back('\x00');
+    } while (it->more());
+
+    for (const auto& key : rowset_key_to_delete) {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv->create_txn(&txn);
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+        txn->remove(key);
+        err = txn->commit();
+        DCHECK_EQ(err, TxnErrorCode::TXN_OK) << err;
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    ASSERT_EQ(checker.do_inverted_check(), 1);
+}
+
+TEST(CheckerTest, abnormal_check_index_file_v2) {
+    auto* sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&sp](int*) {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    });
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("CheckerTest");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    // Add some visible rowsets along with some rowsets that should be recycled
+    // call inverted check after do recycle which would sweep all the rowsets not visible
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->enable_processing();
+
+    size_t version = 1;
+    for (const auto& file : index_v2_file_path) {
+        create_committed_rowset_by_real_index_v2_file(txn_kv.get(), accessor.get(), "1", file,
+                                                      version++);
+    }
+
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = accessor->list_directory("data", &list_iter);
+    ASSERT_EQ(ret, 0) << "Failed to list directory: " << ret;
+
+    int64_t tablet_to_delete = -1;
+    for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+        std::vector<std::string> str;
+        butil::SplitString(file->path, '/', &str);
+        int64_t tablet_id = atol(str[1].c_str());
+
+        // delete all index files of ever tablet for mock missing
+        if (file->path.ends_with(".idx") && tablet_to_delete != tablet_id) {
+            accessor->delete_file(file->path);
+            tablet_to_delete = tablet_id;
+        }
+    }
+    ASSERT_EQ(checker.do_check(), 1);
 }
 
 TEST(CheckerTest, normal) {
@@ -2249,12 +3772,12 @@ TEST(CheckerTest, normal) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 5);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5);
         }
     }
     ASSERT_EQ(checker.do_check(), 0);
@@ -2275,12 +3798,12 @@ TEST(CheckerTest, abnormal) {
     auto accessor = checker.accessor_map_.begin()->second;
     for (int t = 10001; t <= 10100; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 1, 0);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 1, 0);
         }
     }
     for (int t = 10101; t <= 10200; ++t) {
         for (int v = 0; v < 10; ++v) {
-            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, 5, 0);
+            create_committed_rowset(txn_kv.get(), accessor.get(), "1", t, v, t * 2, 5, 0);
         }
     }
 
@@ -2307,10 +3830,13 @@ TEST(CheckerTest, abnormal) {
 
     std::vector<std::string> lost_paths;
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceChecker.do_check1",
-                      [&lost_paths](void* arg) { lost_paths.push_back(*(std::string*)arg); });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker.do_check1",
+            [&lost_paths](auto&& args) {
+                lost_paths.push_back(*try_any_cast<std::string*>(args[0]));
+            },
+            &guard);
     sp->enable_processing();
 
     ASSERT_NE(checker.do_check(), 0);
@@ -2326,12 +3852,14 @@ TEST(CheckerTest, multi_checker) {
 
     std::atomic_int count {0};
     auto sp = SyncPoint::get_instance();
-    std::unique_ptr<int, std::function<void(int*)>> defer(
-            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-    sp->set_call_back("InstanceChecker.do_check", [&count](void*) {
-        sleep(1);
-        ++count;
-    });
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceChecker.do_check",
+            [&count](auto&&) {
+                sleep(1);
+                ++count;
+            },
+            &guard);
     sp->enable_processing();
 
     std::unique_ptr<Transaction> txn;
@@ -2400,11 +3928,13 @@ TEST(CheckerTest, do_inspect) {
         {
             // empty job info
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 11111);
-                std::cout << "last_ctime: " << *reinterpret_cast<int64_t*>(p) << std::endl;
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                auto last_ctime = *try_any_cast<int64_t*>(args[0]);
+                ASSERT_EQ(last_ctime, 11111);
+                std::cout << "last_ctime: " << last_ctime << std::endl;
             });
             sp->enable_processing();
         }
@@ -2421,10 +3951,11 @@ TEST(CheckerTest, do_inspect) {
             ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
             checker.do_inspect(instance);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 11111);
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 11111);
             });
             sp->enable_processing();
         }
@@ -2437,10 +3968,11 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(12345);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
-            sp->set_call_back("Checker:do_inspect", [](void* p) {
-                ASSERT_TRUE(*reinterpret_cast<int64_t*>(p) == 12345);
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
+            sp->set_call_back("Checker:do_inspect", [](auto&& args) {
+                ASSERT_EQ(*try_any_cast<int64_t*>(args[0]), 12345);
             });
             sp->enable_processing();
             std::string key = job_check_key({instance_id});
@@ -2461,11 +3993,12 @@ TEST(CheckerTest, do_inspect) {
             job_info.set_instance_id(instance_id);
             job_info.set_last_ctime_ms(now - expiration_ms - 10);
             auto sp = SyncPoint::get_instance();
-            std::unique_ptr<int, std::function<void(int*)>> defer(
-                    (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+            DORIS_CLOUD_DEFER {
+                SyncPoint::get_instance()->clear_all_call_backs();
+            };
 
             bool alarm = false;
-            sp->set_call_back("Checker:do_inspect", [&alarm](void*) { alarm = true; });
+            sp->set_call_back("Checker:do_inspect", [&alarm](auto&&) { alarm = true; });
             sp->enable_processing();
             std::string key = job_check_key({instance_id});
             std::string val = job_info.SerializeAsString();
@@ -2476,6 +4009,1125 @@ TEST(CheckerTest, do_inspect) {
             //ASSERT_TRUE(alarm);
         }
     }
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
+    // normal case, all delete bitmaps belong to a rowset
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        // for last tablet, create pending delete bitmap
+        bool is_last_tablet = tablet_id == 600010;
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 400;
+        std::vector<std::string> rowset_ids;
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            bool is_last_version = ver == 10;
+            bool skip_create_rowset = is_last_tablet && is_last_version;
+            rowset_ids.push_back(rowset_id);
+            if (!skip_create_rowset) {
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, ver, rowset_id, false, 1);
+            }
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+        if (is_last_tablet) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowset_ids.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowset_ids[j], 10, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
+    // abnormal case, some delete bitmaps arem leaked
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id, version, segment_id]
+    std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
+            expected_abnormal_delete_bitmaps {}, real_abnormal_delete_bitmaps {};
+    std::map<std::int64_t, std::set<std::tuple<std::string, int64_t, int64_t>>>
+            expected_leaked_delete_bitmaps {}, real_leaked_delete_bitmaps {};
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back(
+            "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
+            [&real_abnormal_delete_bitmaps](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                int64_t version = *try_any_cast<int64_t*>(args[2]);
+                int64_t segment_id = *try_any_cast<int64_t*>(args[3]);
+                real_abnormal_delete_bitmaps[tablet_id].insert({rowset_id, version, segment_id});
+            });
+    sp->set_call_back(
+            "InstanceChecker::do_delete_bitmap_inverted_check.get_leaked_delete_bitmap",
+            [&real_leaked_delete_bitmaps](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                int64_t version = *try_any_cast<int64_t*>(args[2]);
+                int64_t segment_id = *try_any_cast<int64_t*>(args[3]);
+                real_leaked_delete_bitmaps[tablet_id].insert({rowset_id, version, segment_id});
+            });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 800001; tablet_id <= 800010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 600;
+        for (int ver = 2; ver <= 20; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+
+            if (ver >= 10) {
+                // only create rowsets for some versions
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, ver, rowset_id, false, 1);
+            } else {
+                expected_leaked_delete_bitmaps[tablet_id].insert({rowset_id, ver, 0});
+            }
+
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::blob_put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
+    // create some rowsets with delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 900001; tablet_id <= 900010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 700;
+        for (int ver = 2; ver < 6; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+            auto delete_bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+            std::string delete_bitmap_val {"test2"};
+            txn->put(delete_bitmap_key, delete_bitmap_val);
+
+            expected_abnormal_delete_bitmaps[tablet_id].insert({rowset_id, ver, 0});
+        }
+    }
+
+    // create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 1);
+    ASSERT_EQ(expected_leaked_delete_bitmaps, real_leaked_delete_bitmaps);
+    ASSERT_EQ(expected_abnormal_delete_bitmaps, real_abnormal_delete_bitmaps);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 800001; tablet_id <= 800005; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {7, 9}, {8, 9}, {7, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800006; tablet_id <= 800010; ++tablet_id) {
+        // [7-7] cumu compaction output rowset start_version == end_version
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {7, 9}, {8, 9}, {7, 9}, {7, 9}, {7, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, false, true, false, true, true, true};
+        for (size_t i {0}; i < 8; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800011; tablet_id <= 800015; ++tablet_id) {
+        // no rowsets are compacted
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {2, 9}, {3, 9}, {4, 9}, {5, 9}, {6, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {true, true, true, true, true, true, true, true};
+        for (size_t i {0}; i < 8; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    for (int tablet_id = 800016; tablet_id <= 800020; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {
+                {2, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 9}};
+        std::vector<std::pair<int64_t, int64_t>> delete_bitmaps_vers {
+                {5, 9}, {6, 9}, {7, 9}, {8, 9}, {9, 9}};
+        std::vector<bool> segments_overlap {false, true, true, true, true};
+        for (size_t i {0}; i < 5; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i].first,
+                                  delete_bitmaps_vers[i].second);
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, ver, rowset_id, false, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
+}
+
+std::unique_ptr<MetaServiceProxy> get_meta_service() {
+    int ret = 0;
+    // MemKv
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    if (txn_kv != nullptr) {
+        ret = txn_kv->init();
+        [&] { ASSERT_EQ(ret, 0); }();
+    }
+    [&] { ASSERT_NE(txn_kv.get(), nullptr); }();
+
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove("\x00", "\xfe"); // This is dangerous if the fdb is not correctly set
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto rs = std::make_shared<MockResourceManager>(txn_kv);
+    auto rl = std::make_shared<RateLimiter>();
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
+    return std::make_unique<MetaServiceProxy>(std::move(meta_service));
+}
+
+MetaServiceCode get_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
+                                       int64_t lock_id, int64_t initiator, int64_t expiration = 5) {
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.set_expiration(expiration);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    return res.status().code();
+}
+
+MetaServiceCode remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id,
+                                          int64_t lock_id, int64_t initiator) {
+    brpc::Controller cntl;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    return res.status().code();
+}
+
+void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id) {
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_check_job_key", table_id, -1});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(lock_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+} // namespace
+
+TEST(CheckerTest, check_job_key) {
+    config::enable_mow_job_key_check = true;
+    config::mow_job_key_check_expiration_diff_seconds = 0;
+    config::delete_bitmap_lock_v2_white_list = "*";
+    std::string instance_id = "test_check_job_key";
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+    int64_t table_id = 2;
+
+    //test 1:
+    //1.compaction get lock and write compaction key, but not release lock
+    //2.after lock expired, load get lock, compaction key is removed
+    auto meta_service = get_meta_service();
+    auto res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 123);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    std::this_thread::sleep_for(std::chrono::seconds(6));
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(meta_service->txn_kv(), instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    ASSERT_EQ(checker.do_mow_job_key_check(), 0);
+    res_code = remove_delete_bitmap_lock(meta_service.get(), table_id, 100, -1);
+
+    //test 2:
+    //1.compaction a get lock and write compaction key, but not release lock
+    //2.compaction key is expired
+    //3.remove delete bitmap lock accidentally（it should not happen）
+    //4.load get lock
+    //5.checker found residual compaction key
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 124, 0);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, 101, -1);
+    ASSERT_EQ(checker.do_mow_job_key_check(), -1);
+    std::this_thread::sleep_for(std::chrono::seconds(6));
+
+    //test 3:
+    //1.compaction a get lock and write compaction key, but not release lock
+    //2.compaction key is expired
+    //3.remove delete bitmap lock accidentally（it should not happen）
+    //4.checker found residual compaction key
+    table_id = 3;
+    res_code = get_delete_bitmap_lock(meta_service.get(), table_id, -1, 126, 0);
+    ASSERT_EQ(res_code, MetaServiceCode::OK);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    ASSERT_EQ(checker.do_mow_job_key_check(), -1);
+}
+
+TEST(CheckerTest, do_restore_job_check) {
+    config::enable_restore_job_check = true;
+    std::string instance_id = "test_do_restore_job_check";
+    [[maybe_unused]] auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    // Prepare test data: simulate restore jobs in different states
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    // Add a PREPARED restore job
+    RestoreJobCloudPB prepared_job;
+    prepared_job.set_tablet_id(10001);
+    prepared_job.set_state(RestoreJobCloudPB::PREPARED);
+    prepared_job.set_ctime_s(::time(nullptr) - 1800); // 30 minutes ago
+    std::string prepared_key;
+    job_restore_tablet_key({instance_id, prepared_job.tablet_id()}, &prepared_key);
+    txn->put(prepared_key, prepared_job.SerializeAsString());
+
+    // Add a COMMITTED restore job
+    RestoreJobCloudPB committed_job;
+    committed_job.set_tablet_id(10002);
+    committed_job.set_state(RestoreJobCloudPB::COMMITTED);
+    committed_job.set_ctime_s(::time(nullptr) - 7200); // 2 hours ago
+    std::string committed_key;
+    job_restore_tablet_key({instance_id, committed_job.tablet_id()}, &committed_key);
+    txn->put(committed_key, committed_job.SerializeAsString());
+
+    // Add a COMPLETED restore job
+    RestoreJobCloudPB completed_job;
+    completed_job.set_tablet_id(10003);
+    completed_job.set_state(RestoreJobCloudPB::COMPLETED);
+    completed_job.set_ctime_s(::time(nullptr) - 3600); // 1 hour ago
+    std::string completed_key;
+    job_restore_tablet_key({instance_id, completed_job.tablet_id()}, &completed_key);
+    txn->put(completed_key, completed_job.SerializeAsString());
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    // Run the check
+    ASSERT_EQ(checker.do_restore_job_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+
+    for (int tablet_id = 900011; tablet_id <= 900015; ++tablet_id) {
+        bool has_sequence_col = tablet_id % 2 == 0;
+        ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true,
+                                   has_sequence_col));
+        std::vector<std::pair<int64_t, int64_t>> rowset_vers {{2, 2}, {3, 3}, {4, 4}, {5, 5},
+                                                              {6, 7}, {8, 8}, {9, 9}};
+        std::vector<std::vector<int64_t>> delete_bitmaps_vers {
+                {3, 5, 7, 9}, {4, 5, 7, 8, 9}, {7, 8, 9}, {8, 9}, {8, 9}, {}, {9}};
+        std::vector<bool> segments_overlap {true, true, true, true, false, true, true};
+        for (size_t i {0}; i < 7; i++) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   rowset_vers[i].first, rowset_vers[i].second,
+                                                   rowset_id, segments_overlap[i], 1);
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, delete_bitmaps_vers[i],
+                                  i == 2 ? 2 : 1 /*segment_num*/);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_storage_optimize_v2_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    // tablet_id -> [rowset_id]
+    std::map<std::int64_t, std::set<std::string>> expected_abnormal_rowsets {};
+    std::map<std::int64_t, std::set<std::string>> real_abnormal_rowsets {};
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back(
+            "InstanceChecker::check_delete_bitmap_storage_optimize_v2.get_abnormal_rowset",
+            [&](auto&& args) {
+                int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                real_abnormal_rowsets[tablet_id].insert(rowset_id);
+            });
+    sp->enable_processing();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    int64_t rowset_start_id = 600;
+    int64_t expire_time = current_time - 500;
+
+    struct Rowset {
+        int64_t start_version;
+        int64_t end_version;
+        std::vector<int64_t> delete_bitmap_versions;
+        int64_t create_time;
+        int segment_num;
+        bool is_abnormal;
+        std::string rowset_id;
+    };
+    struct Tablet {
+        std::vector<Rowset> rowsets;
+        bool skip_create_rowset = false;
+        std::unordered_set<int> skip_create_rowset_index;
+        bool has_seq_col = false;
+        bool create_pending_delete_bitmap;
+        int64_t pending_delete_bitmap_version;
+    };
+
+    std::vector<Tablet> tablets;
+    // current_time is skipped
+    tablets.push_back({{{2, 2, {3, 5, 7, 9}, current_time, 2, false},
+                        {3, 3, {5, 7, 8, 9, 10}, current_time, 1, false},
+                        {4, 4, {7, 11}, current_time, 3, false},
+                        {5, 7, {8, 10}, current_time, 1, false},
+                        {8, 11, {}, current_time, 2, false}}});
+    tablets.push_back({{{2, 2, {3, 5, 7, 9}, expire_time, 2, true},
+                        {3, 3, {5, 7, 8, 9, 10}, expire_time, 1, true},
+                        {4, 4, {7, 11}, expire_time, 3, false},
+                        {5, 7, {8, 10}, expire_time, 1, true},
+                        {8, 11, {12}, expire_time, 1, true}}});
+    // skip create rowset
+    tablets.push_back({{{2, 2, {5}, expire_time, 2, false},
+                        {3, 3, {4}, expire_time, 1, false} /*skip create rowset*/,
+                        {3, 5, {}, expire_time, 2, false}},
+                       true /* skip_create_rowset */,
+                       {1}});
+    // pending delete bitmap
+    Tablet tablet3 {{{{2, 2, {3, 4, 5}, expire_time, 2, false},
+                      {3, 3, {4, 5}, expire_time, 1, false},
+                      {4, 4, {5}, expire_time, 3, false}}}};
+    tablet3.create_pending_delete_bitmap = true;
+    tablet3.pending_delete_bitmap_version = 5;
+    tablets.push_back(tablet3);
+    // tablet with sequence col
+    Tablet tablet4 = {{{2, 2, {3, 7, 11}, current_time, 2, false},
+                       {3, 3, {7, 11}, current_time, 1, false},
+                       {4, 4, {7, 11}, current_time, 3, false},
+                       {5, 7, {5, 6, 7, 11}, expire_time, 1, false},
+                       {8, 11, {8, 9, 10}, expire_time, 2, false}}};
+    tablet4.has_seq_col = true;
+    tablets.push_back(tablet4);
+
+    for (int i = 0; i < tablets.size(); ++i) {
+        int tablet_id = 900021 + i;
+        auto& tablet = tablets[i];
+        ASSERT_EQ(0, create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true,
+                                   tablet.has_seq_col));
+        auto& rowsets = tablet.rowsets;
+        for (int j = 0; j < rowsets.size(); j++) {
+            auto& rowset = rowsets[j];
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            rowset.rowset_id = rowset_id;
+            bool skip_create_rowset =
+                    tablet.skip_create_rowset && tablet.skip_create_rowset_index.contains(j);
+            if (!skip_create_rowset) {
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       rowset.start_version, rowset.end_version,
+                                                       rowset_id, true, 1, rowset.create_time);
+            }
+            create_delete_bitmaps(txn.get(), tablet_id, rowset_id, rowset.delete_bitmap_versions,
+                                  rowset.segment_num /*segment_num*/);
+            if (rowset.is_abnormal) {
+                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
+            }
+        }
+        if (tablet.create_pending_delete_bitmap) {
+            std::string pending_key = meta_pending_delete_bitmap_key({instance_id, tablet_id});
+            std::string pending_val;
+            PendingDeleteBitmapPB delete_bitmap_keys;
+            for (int j = 0; j < rowsets.size(); j++) {
+                MetaDeleteBitmapInfo key_info {instance_id, tablet_id, rowsets[j].rowset_id,
+                                               tablet.pending_delete_bitmap_version, 0};
+                std::string key;
+                meta_delete_bitmap_key(key_info, &key);
+                delete_bitmap_keys.add_delete_bitmap_keys(key);
+            }
+            delete_bitmap_keys.SerializeToString(&pending_val);
+            txn->put(pending_key, pending_val);
+        }
+    }
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    ASSERT_EQ(checker.do_delete_bitmap_storage_optimize_check(2), 1);
+    ASSERT_EQ(expected_abnormal_rowsets, real_abnormal_rowsets);
+}
+TEST(CheckerTest, meta_rowset_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t tablet_id = 10001;
+    int64_t version = 1;
+    int64_t index_id = 1001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TabletIndexPB tablet_index;
+    tablet_index.set_index_id(index_id);
+    tablet_index.set_tablet_id(tablet_id);
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id, tablet_id});
+    txn->put(tablet_index_key, tablet_index.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    rowset_pb.set_resource_id("resource_id");
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+    txn2->put(rowset_key, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = meta_rowset_key({instance_id, tablet_id, version});
+    std::string val;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 0);
+}
+
+TEST(CheckerTest, meta_rowset_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t version = 1;
+    int64_t non_existent_tablet_id = 10002;
+
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(non_existent_tablet_id);
+    rowset_pb.set_resource_id("resource_id");
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string rowset_key = meta_rowset_key({instance_id, non_existent_tablet_id, version});
+    txn->put(rowset_key, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = meta_rowset_key({instance_id, non_existent_tablet_id, version});
+    std::string val;
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn1->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_rowset_key(key, val), 1);
+}
+
+TEST(CheckerTest, meta_tmp_rowset_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1000;
+    int64_t txn_id = 2000;
+    int64_t tablet_id = 3000;
+
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    TxnIndexPB txn_index_pb;
+    auto* tablet_index = txn_index_pb.mutable_tablet_index();
+    tablet_index->set_tablet_id(tablet_id);
+    std::string txn_index_key_str = txn_index_key({instance_id, txn_id});
+    txn1->put(txn_index_key_str, txn_index_pb.SerializeAsString());
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_PREPARED);
+    std::string txn_info_key_str = txn_info_key({instance_id, db_id, txn_id});
+    txn2->put(txn_info_key_str, txn_info_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn3;
+    ASSERT_EQ(txn_kv->create_txn(&txn3), TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    std::string meta_tmp_rowset_key_str = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 0);
+}
+
+TEST(CheckerTest, meta_tmp_rowset_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    constexpr int64_t db_id = 1000;
+    constexpr int64_t txn_id = 2000;
+    constexpr int64_t tablet_id = 3000;
+
+    std::unique_ptr<Transaction> txn1;
+    ASSERT_EQ(txn_kv->create_txn(&txn1), TxnErrorCode::TXN_OK);
+    TxnIndexPB txn_index_pb;
+    auto* tablet_index = txn_index_pb.mutable_tablet_index();
+    tablet_index->set_tablet_id(tablet_id);
+    std::string txn_index_key_str = txn_index_key({instance_id, txn_id});
+    txn1->put(txn_index_key_str, txn_index_pb.SerializeAsString());
+    ASSERT_EQ(txn1->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn2;
+    ASSERT_EQ(txn_kv->create_txn(&txn2), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    std::string txn_info_key_str = txn_info_key({instance_id, db_id, txn_id});
+    txn2->put(txn_info_key_str, txn_info_pb.SerializeAsString());
+    ASSERT_EQ(txn2->commit(), TxnErrorCode::TXN_OK);
+
+    std::unique_ptr<Transaction> txn3;
+    ASSERT_EQ(txn_kv->create_txn(&txn3), TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_pb;
+    rowset_pb.set_rowset_id(0);
+    rowset_pb.set_rowset_id_v2("rowset_id_1");
+    rowset_pb.set_tablet_id(tablet_id);
+    std::string meta_tmp_rowset_key_str = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    txn3->put(meta_tmp_rowset_key_str, rowset_pb.SerializeAsString());
+    ASSERT_EQ(txn3->commit(), TxnErrorCode::TXN_OK);
+
+    std::string key = txn_info_key({instance_id, db_id, txn_id});
+    std::string val;
+    std::unique_ptr<Transaction> txn4;
+    ASSERT_EQ(txn_kv->create_txn(&txn4), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(txn4->get(key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(checker.check_meta_tmp_rowset_key(key, val), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_leak) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t table_id = 1001;
+    int64_t index_id = 2001;
+    int64_t partition_id = 3001;
+    int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // normal tablet stats
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    table_id = 1002;
+    index_id = 2002;
+    partition_id = 3002;
+    tablet_id = 4002;
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(100);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_loss) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    doris::TabletMetaCloudPB tablet_meta;
+    tablet_meta.set_tablet_id(tablet_id);
+    auto val = tablet_meta.SerializeAsString();
+    auto key = meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    txn->put(key, val);
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_inconsistent_data) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(1000);
+    stats.set_num_rows(50);
+    stats.set_num_rowsets(5);
+    stats.set_num_segments(10);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 1);
+}
+
+TEST(CheckerTest, tablet_stats_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    const int64_t table_id = 1001;
+    const int64_t index_id = 2001;
+    const int64_t partition_id = 3001;
+    const int64_t tablet_id = 4001;
+
+    create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id);
+
+    auto accessor = checker.accessor_map_.begin()->second;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    create_committed_rowset(txn_kv.get(), accessor.get(), "resource_id", tablet_id, 1, index_id, 2);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    TabletStatsPB stats;
+    stats.mutable_idx()->set_tablet_id(tablet_id);
+    stats.mutable_idx()->set_table_id(table_id);
+    stats.mutable_idx()->set_index_id(index_id);
+    stats.mutable_idx()->set_partition_id(partition_id);
+    stats.set_data_size(0);
+    stats.set_num_rows(0);
+    stats.set_num_rowsets(1);
+    stats.set_num_segments(2);
+
+    std::string key = stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+    std::string val = stats.SerializeAsString();
+    txn->put(key, val);
+
+    std::string tablet_idx_key = meta_tablet_idx_key({instance_id, tablet_id});
+    std::string tablet_idx_val;
+    TabletIndexPB tablet_idx_pb;
+    tablet_idx_pb.set_tablet_id(tablet_id);
+    tablet_idx_pb.set_table_id(table_id);
+    tablet_idx_pb.set_index_id(index_id);
+    tablet_idx_pb.set_partition_id(partition_id);
+    tablet_idx_pb.SerializeToString(&tablet_idx_val);
+    txn->put(tablet_idx_key, tablet_idx_val);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ASSERT_EQ(checker.do_tablet_stats_key_check(), 0);
+}
+
+TEST(CheckerTest, version_key_check_normal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("version_key_check_normal");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("version_key_check_normal");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    int64_t table_id = 998;
+    size_t part_num = 5;
+    size_t table_version = 20;
+    size_t part_version = 10;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    create_table_version_kv(txn_kv.get(), table_id, table_version);
+    for (size_t partition_id = 0; partition_id < part_num; partition_id++) {
+        std::string part_ver_key =
+                partition_version_key({instance_id, db_id, table_id, partition_id});
+        std::string part_ver_val;
+        VersionPB version_pb;
+        version_pb.set_version(part_version);
+        version_pb.SerializeToString(&part_ver_val);
+        txn->put(part_ver_key, part_ver_val);
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_version_key_check(), 0);
+}
+
+TEST(CheckerTest, version_key_check_abnormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* obj_info = instance.add_obj_info();
+    obj_info->set_id("version_key_check_abnormal");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("version_key_check_normal");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    int64_t table_id = 998;
+    size_t part_num = 6;
+    size_t table_version = 20;
+    size_t part_version_normal = 10;
+    size_t part_version_abnormal = 30;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    create_table_version_kv(txn_kv.get(), table_id, table_version);
+    for (size_t partition_id = 0; partition_id < part_num; partition_id++) {
+        std::string part_ver_key =
+                partition_version_key({instance_id, db_id, table_id, partition_id});
+        std::string part_ver_val;
+        VersionPB version_pb;
+        if (partition_id < part_num / 2) {
+            version_pb.set_version(part_version_normal);
+        } else {
+            version_pb.set_version(part_version_abnormal);
+        }
+        version_pb.SerializeToString(&part_ver_val);
+        txn->put(part_ver_key, part_ver_val);
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_version_key_check(), -1);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {
@@ -2497,13 +5149,17 @@ TEST(RecyclerTest, delete_rowset_data) {
     for (int i = 0; i < 5; ++i) {
         auto& schema = schemas.emplace_back();
         schema.set_schema_version(i);
+        schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         for (int j = 0; j < i; ++j) {
-            schema.add_index()->set_index_id(j);
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
         }
     }
 
     {
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         int64_t txn_id_base = 114115;
@@ -2515,7 +5171,7 @@ TEST(RecyclerTest, delete_rowset_data) {
             for (int j = 0; j < 20; ++j) {
                 auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
                                             index_id_base + j % 4, 5, schemas[i % 5], txn_id);
-                create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1);
+                create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, j < 10);
                 ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
             }
         }
@@ -2537,27 +5193,31 @@ TEST(RecyclerTest, delete_rowset_data) {
         tmp_obj_info->set_bucket(config::test_s3_bucket);
         tmp_obj_info->set_prefix(resource_id);
 
-        InstanceRecycler recycler(txn_kv, tmp_instance);
+        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
         constexpr int index_id = 10001, tablet_id = 10002;
-        std::vector<doris::RowsetMetaCloudPB> rowset_pbs;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
         for (int i = 0; i < 10; ++i) {
             auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(
                     txn_kv.get(), accessor.get(), rowset,
-                    static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true);
+                    static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true,
+                    i < 5);
 
-            rowset_pbs.emplace_back(std::move(rowset));
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
         }
-        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs));
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
     }
     {
-        InstanceRecycler recycler(txn_kv, instance);
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
         ASSERT_EQ(recycler.init(), 0);
         auto accessor = recycler.accessor_map_.begin()->second;
         // Delete multiple rowset files using one series of RowsetPB
@@ -2567,13 +5227,1969 @@ TEST(RecyclerTest, delete_rowset_data) {
             auto rowset =
                     create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
             create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
-                                  true);
+                                  true, i < 100);
             ASSERT_EQ(0, recycler.delete_rowset_data(rowset.resource_id(), rowset.tablet_id(),
                                                      rowset.rowset_id_v2()));
         }
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
+    }
+}
+
+TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_tmp_rowsets");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_tmp_rowsets");
+
+    std::vector<doris::TabletSchemaCloudPB> schemas;
+    for (int i = 0; i < 5; ++i) {
+        auto& schema = schemas.emplace_back();
+        schema.set_schema_version(i);
+        //schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        for (int j = 0; j < i; ++j) {
+            auto index = schema.add_index();
+            index->set_index_id(j);
+            index->set_index_type(IndexType::INVERTED);
+        }
+    }
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        int64_t txn_id_base = 114115;
+        int64_t tablet_id_base = 10015;
+        int64_t index_id_base = 1000;
+        // Delete each rowset directly using one RowsetPB
+        for (int i = 0; i < 100; ++i) {
+            int64_t txn_id = txn_id_base + i;
+            for (int j = 0; j < 20; ++j) {
+                auto rowset = create_rowset("recycle_tmp_rowsets", tablet_id_base + j,
+                                            index_id_base + j % 4, 5, schemas[i % 5], txn_id);
+                create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, i & 1, false, j < 10);
+                ASSERT_EQ(0, recycler.delete_rowset_data(rowset));
+            }
+        }
+
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+    {
+        InstanceInfoPB tmp_instance;
+        std::string resource_id = "recycle_tmp_rowsets";
+        tmp_instance.set_instance_id(instance_id);
+        auto tmp_obj_info = tmp_instance.add_obj_info();
+        tmp_obj_info->set_id(resource_id);
+        tmp_obj_info->set_ak(config::test_s3_ak);
+        tmp_obj_info->set_sk(config::test_s3_sk);
+        tmp_obj_info->set_endpoint(config::test_s3_endpoint);
+        tmp_obj_info->set_region(config::test_s3_region);
+        tmp_obj_info->set_bucket(config::test_s3_bucket);
+        tmp_obj_info->set_prefix(resource_id);
+
+        InstanceRecycler recycler(txn_kv, tmp_instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        // Delete multiple rowset files using one series of RowsetPB
+        constexpr int index_id = 10001, tablet_id = 10002;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
+        for (int i = 0; i < 10; ++i) {
+            auto rowset = create_rowset(resource_id, tablet_id, index_id, 5, schemas[i % 5]);
+            create_recycle_rowset(
+                    txn_kv.get(), accessor.get(), rowset,
+                    static_cast<RecycleRowsetPB::Type>(i % (RecycleRowsetPB::Type_MAX + 1)), true,
+                    i < 5);
+
+            rowset_pbs.emplace(rowset.rowset_id_v2(), std::move(rowset));
+        }
+        ASSERT_EQ(0, recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::FORMAL_ROWSET,
+                                                 ctx));
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        // Delete multiple rowset files using one series of RowsetPB
+        constexpr int index_id = 20001, tablet_id = 20002;
+        // Delete each rowset file directly using it's id to construct one path
+        for (int i = 0; i < 1000; ++i) {
+            auto rowset =
+                    create_rowset("recycle_tmp_rowsets", tablet_id, index_id, 5, schemas[i % 5]);
+            create_recycle_rowset(txn_kv.get(), accessor.get(), rowset, RecycleRowsetPB::COMPACT,
+                                  true, i < 100);
+            ASSERT_EQ(0, recycler.delete_rowset_data(rowset.resource_id(), rowset.tablet_id(),
+                                                     rowset.rowset_id_v2()));
+        }
+        std::unique_ptr<ListIterator> list_iter;
+        ASSERT_EQ(0, accessor->list_all(&list_iter));
+        ASSERT_FALSE(list_iter->has_next());
+    }
+}
+
+TEST(RecyclerTest, init_vault_accessor_failed_test) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    // failed to init because S3Conf::from_obj_store_info() fails
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("test_failed_s3_vault_1");
+        vault.set_id("failed_s3_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
+    }
+
+    // succeed to init but unuseful
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("test_failed_s3_vault_2");
+        vault.set_id("failed_s3_2");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    }
+
+    // failed to init because accessor->init() fails
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_failed_hdfs_vault_1");
+        vault.set_id("failed_hdfs_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "3"}), vault.SerializeAsString());
+    }
+
+    auto accessor = std::make_shared<MockAccessor>();
+    EXPECT_EQ(accessor->put_file("data/0/rowset_id_test.csv", ""), 0);
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(1); // force delete rowset data
+        rs->set_resource_id("failed_s3_2");
+        rs->set_rowset_id_v2("rowset_id");
+        rs = resp->add_rowset_meta();
+        rs->set_num_segments(1); // force delete rowset data
+        rs->set_rowset_id_v2("rowset_id");
+        rs->set_resource_id("success_vault");
+    });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // succeed to init MockAccessor
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_success_hdfs_vault");
+        vault.set_id("success_vault");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
+    }
+
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    EXPECT_EQ(accessor->exists("data/0/rowset_id_test.csv"), 0);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+    EXPECT_EQ(recycler.accessor_map_.size(), 2);
+
+    // unuseful obj accessor
+    EXPECT_EQ(recycler.accessor_map_.at("failed_s3_2")->exists("data/0/rowset_id_test.csv"), -1);
+    // useful mock accessor
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 0);
+
+    // recycle tablet will fail because unuseful obj accessor can not connectted
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
+    // however, useful mock accessor can recycle tablet
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 1);
+}
+
+TEST(RecyclerTest, recycle_tablet_without_resource_id) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+
+    auto accessor = std::make_shared<MockAccessor>();
+    EXPECT_EQ(accessor->put_file("data/0/test.csv", ""), 0);
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(1); // force delete rowset data
+        EXPECT_EQ(rs->has_resource_id(), false);
+    });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // succeed to init MockAccessor
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_success_hdfs_vault");
+        vault.set_id("success_vault");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
+    }
+
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+    EXPECT_EQ(recycler.accessor_map_.size(), 1);
+
+    // useful mock accessor
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+
+    // recycle tablet will fail because unuseful obj accessor can not connectted
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
+    // no resource id, cannot recycle
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+}
+
+TEST(RecyclerTest, recycle_tablet_with_wrong_resource_id) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+
+    auto accessor = std::make_shared<MockAccessor>();
+    EXPECT_EQ(accessor->put_file("data/0/test.csv", ""), 0);
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                if (vault->name() == "test_success_hdfs_vault") {
+                    map->emplace(vault->id(), accessor);
+                }
+            });
+    sp->set_call_back("InstanceRecycler::recycle_tablet.create_rowset_meta", [](auto&& args) {
+        auto* resp = try_any_cast<GetRowsetResponse*>(args[0]);
+        auto* rs = resp->add_rowset_meta();
+        rs->set_num_segments(1); // force delete rowset data
+        rs->set_resource_id("no_id");
+    });
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    // succeed to init MockAccessor
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("test_success_hdfs_vault");
+        vault.set_id("success_vault");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
+    }
+
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), 0);
+    EXPECT_EQ(recycler.accessor_map_.size(), 1);
+
+    // useful mock accessor
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+
+    // recycle tablet will fail because unuseful obj accessor can not connectted
+    EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
+    // no resource id, cannot recycle
+    EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/test.csv"), 0);
+}
+
+TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    // failed to init because S3Conf::from_obj_store_info() fails
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("test_failed_s3_vault");
+        vault.set_id("failed_s3");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
+    }
+
+    sp->set_call_back("S3Accessor::init.s3_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = -1;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    EXPECT_EQ(recycler.init(), -2);
+}
+
+TEST(RecyclerTest, recycler_storage_vault_white_list_test) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    EXPECT_EQ(txn_kv->init(), 0);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key;
+    std::string val;
+
+    InstanceKeyInfo key_info {"test_instance"};
+    instance_key(key_info, &key);
+    InstanceInfoPB instance;
+    instance.set_instance_id("GetObjStoreInfoTestInstance");
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("s3_1");
+        vault.set_id("s3_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
+    }
+
+    {
+        ObjectStoreInfoPB obj_info;
+        StorageVaultPB vault;
+        obj_info.set_id("id");
+        obj_info.set_ak("ak");
+        obj_info.set_sk("sk");
+        obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        vault.mutable_obj_info()->MergeFrom(obj_info);
+        vault.set_name("s3_2");
+        vault.set_id("s3_2");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    }
+
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("hdfs_1");
+        vault.set_id("hdfs_1");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "3"}), vault.SerializeAsString());
+    }
+
+    {
+        HdfsBuildConf hdfs_build_conf;
+        StorageVaultPB vault;
+        hdfs_build_conf.set_fs_name("fs_name");
+        hdfs_build_conf.set_user("root");
+        HdfsVaultInfo hdfs_info;
+        hdfs_info.set_prefix("root_path");
+        hdfs_info.mutable_build_conf()->MergeFrom(hdfs_build_conf);
+        vault.mutable_hdfs_info()->MergeFrom(hdfs_info);
+        vault.set_name("hdfs_2");
+        vault.set_id("hdfs_2");
+        instance.add_storage_vault_names(vault.name());
+        instance.add_resource_ids(vault.id());
+        instance.set_instance_id("GetObjStoreInfoTestInstance");
+        txn->put(storage_vault_key({instance.instance_id(), "4"}), vault.SerializeAsString());
+    }
+
+    auto accessor = std::make_shared<MockAccessor>();
+    EXPECT_EQ(accessor->put_file("data/0/test.csv", ""), 0);
+    sp->set_call_back("HdfsAccessor::init.hdfs_init_failed", [](auto&& args) {
+        auto* ret = try_any_cast_ret<int>(args);
+        ret->first = 0;
+        ret->second = true;
+    });
+    sp->set_call_back(
+            "InstanceRecycler::init_storage_vault_accessors.mock_vault", [&accessor](auto&& args) {
+                auto* map = try_any_cast<
+                        std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(
+                        args[0]);
+                auto* vault = try_any_cast<StorageVaultPB*>(args[1]);
+                map->emplace(vault->id(), accessor);
+            });
+    sp->enable_processing();
+
+    val = instance.SerializeAsString();
+    txn->put(key, val);
+    EXPECT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    EXPECT_EQ(accessor->exists("data/0/test.csv"), 0);
+
+    {
+        config::recycler_storage_vault_white_list = {};
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        EXPECT_EQ(recycler.init(), 0);
+        EXPECT_EQ(recycler.accessor_map_.size(), 4);
+    }
+
+    {
+        config::recycler_storage_vault_white_list = {"s3_1", "s3_2", "hdfs_1", "hdfs_2"};
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        EXPECT_EQ(recycler.init(), 0);
+        EXPECT_EQ(recycler.accessor_map_.size(), 4);
+    }
+
+    {
+        config::recycler_storage_vault_white_list = {"s3_1", "hdfs_1"};
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        EXPECT_EQ(recycler.init(), 0);
+        EXPECT_EQ(recycler.accessor_map_.size(), 2);
+        EXPECT_EQ(recycler.accessor_map_.at("s3_1")->exists("data/0/test.csv"), 0);
+        EXPECT_EQ(recycler.accessor_map_.at("hdfs_1")->exists("data/0/test.csv"), 0);
+    }
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v1) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_idx_v1");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v1");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.tmp_rowset", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    });
+    sp->enable_processing();
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_idx_v1");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        list_files.clear();
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 2);
+        // before delete tmp rowset, segment file and idx v1 exist
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
+
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 1);
+        // after delete tmp rowset, idx v1 exists
+        EXPECT_TRUE(list_files.contains("data/10000/1_0_1.idx"));
+    }
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_data_with_idx_v2) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_idx_v2");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v2");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.tmp_rowset", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    });
+    sp->enable_processing();
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_idx_v2");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        list_files.clear();
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 2);
+        // before delete tmp rowset, segment file and idx v2 exist
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
+
+        ASSERT_EQ(0,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_FALSE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        // after delete tmp rowset, both file and idx v2 are removed
+        EXPECT_EQ(list_files.size(), 0);
+    }
+}
+
+TEST(RecyclerTest, delete_tmp_rowset_without_resource_id) {
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("delete_tmp_rowset_data_with_idx_v2");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("delete_tmp_rowset_data_with_idx_v2");
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto index = schema.add_index();
+    index->set_index_id(1);
+    index->set_index_type(IndexType::INVERTED);
+
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.tmp_rowset", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 1;
+    });
+    sp->set_call_back("InstanceRecycler::delete_rowset_data.no_resource_id", [](auto&& args) {
+        auto* map = try_any_cast<
+                std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>>*>(args[0]);
+        map->erase("no_resource_id");
+        ;
+    });
+    sp->enable_processing();
+
+    {
+        InstanceRecycler recycler(txn_kv, instance, thread_group,
+                                  std::make_shared<TxnLazyCommitter>(txn_kv));
+        ASSERT_EQ(recycler.init(), 0);
+        auto accessor = recycler.accessor_map_.begin()->second;
+        std::map<std::string, doris::RowsetMetaCloudPB> rowset_pbs;
+        doris::RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("1");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(10000);
+        rowset.set_index_id(10001);
+        rowset.set_resource_id("delete_tmp_rowset_data_with_idx_v2");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
+
+        rowset.set_rowset_id(0); // useless but required
+        rowset.set_rowset_id_v2("2");
+        rowset.set_num_segments(1);
+        rowset.set_tablet_id(20000);
+        rowset.set_index_id(20001);
+        rowset.set_resource_id("no_resource_id");
+        rowset.set_schema_version(schema.schema_version());
+        rowset.mutable_tablet_schema()->CopyFrom(schema);
+        create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, 1, true);
+        rowset.clear_tablet_schema();
+        rowset_pbs.emplace(rowset.rowset_id_v2(), rowset);
+
+        std::unordered_set<std::string> list_files;
+        std::unique_ptr<ListIterator> iter;
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        list_files.clear();
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_EQ(list_files.size(), 4);
+        // before delete tmp rowset, segment file and idx v2 exist
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/10000/1_0.idx"));
+        EXPECT_TRUE(list_files.contains("data/20000/2_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/20000/2_0.idx"));
+
+        EXPECT_EQ(-1,
+                  recycler.delete_rowset_data(rowset_pbs, RowsetRecyclingState::TMP_ROWSET, ctx));
+        list_files.clear();
+        iter.reset();
+        EXPECT_EQ(accessor->list_all(&iter), 0);
+        EXPECT_TRUE(iter->has_next());
+        for (auto file = iter->next(); file.has_value(); file = iter->next()) {
+            list_files.insert(file->path);
+        }
+        EXPECT_TRUE(list_files.contains("data/20000/2_0.dat"));
+        EXPECT_TRUE(list_files.contains("data/20000/2_0.idx"));
+        // after delete tmp rowset, for valit resource id rowset, both file and idx v2 are removed
+        EXPECT_EQ(list_files.size(), 2);
+    }
+}
+
+static std::string generate_random_string(int length) {
+    std::string char_set = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    std::random_device rd;
+    std::mt19937 generator(rd());
+    std::uniform_int_distribution<int> distribution(0, char_set.length() - 1);
+
+    std::string randomString;
+    for (int i = 0; i < length; ++i) {
+        randomString += char_set[distribution(generator)];
+    }
+    return randomString;
+}
+
+std::string instance_id = "concurrent_recycle_txn_label_test_" + generate_random_string(10);
+
+/**
+ * Creates key-value pairs for a single transaction
+ * Includes key-value pairs for RecycleTxnKeyInfo, TxnIndexKey, TxnInfoKey, SubTxnIndex, and TxnLabel
+ * @param txn_kv Transaction key-value storage object
+ * @param i Index number used to generate unique IDs
+ * @param expired_kv_num Number of expired key-value pairs
+ */
+void make_single_txn_related_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t i,
+                                 int64_t expired_kv_num) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    std::string recycle_txn_info_key;
+    std::string recycle_txn_info_val;
+    int64_t db_id = i;
+    int64_t txn_id = 1000000 + i;
+    int64_t sub_txn_id = 2000000 + i;
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    // RecycleTxnKeyInfo -> RecycleTxnPB
+    RecycleTxnKeyInfo recycle_txn_key_info {instance_id, db_id, txn_id};
+    recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+    RecycleTxnPB recycle_txn_pb;
+    if (i < expired_kv_num) {
+        recycle_txn_pb.set_creation_time(current_time - 4 * 24 * 3600 * 1000L);
+    } else {
+        recycle_txn_pb.set_creation_time(current_time);
+    }
+    recycle_txn_pb.set_label("recycle_txn_key_info_label_" + std::to_string(i));
+    if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+        LOG_WARNING("failed to serialize recycle txn info")
+                .tag("key", hex(recycle_txn_info_key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id);
+        return;
+    }
+    LOG(INFO) << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
+                             recycle_txn_pb.label(), hex(recycle_txn_info_key));
+    txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+    // TxnIndexKey -> TxnIndexPB
+    std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+    std::string txn_idx_val;
+    TxnIndexPB txn_index_pb;
+    if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+        LOG_WARNING("failed to serialize txn index")
+                .tag("key", hex(txn_idx_key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id);
+        return;
+    }
+    txn->put(txn_idx_key, txn_idx_val);
+
+    // TxnInfoKey -> TxnInfoPB
+    std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+    std::string info_val;
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.add_sub_txn_ids(sub_txn_id);
+    txn_info_pb.set_label("txn_info_label_" + std::to_string(i));
+    if (!txn_info_pb.SerializeToString(&info_val)) {
+        LOG_WARNING("failed to serialize txn info")
+                .tag("key", hex(info_key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id);
+        return;
+    }
+    txn->put(info_key, info_val);
+
+    // SubTxnIndex -> TxnIndexPB
+    std::string idx_key = txn_index_key({instance_id, sub_txn_id});
+    std::string idx_val;
+    TxnIndexPB sub_txn_index_pb;
+    if (!sub_txn_index_pb.SerializeToString(&idx_val)) {
+        LOG_WARNING("failed to serialize sub txn index")
+                .tag("key", hex(idx_key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id);
+        return;
+    }
+    txn->put(idx_key, idx_val);
+
+    // TxnLabel -> TxnLabelPB
+    std::string label_key;
+    std::string label_val;
+    txn_label_key({instance_id, db_id, txn_info_pb.label()}, &label_key);
+    TxnLabelPB txn_label_pb;
+    txn_label_pb.add_txn_ids(txn_id);
+    LOG(INFO) << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
+                             txn_info_pb.label(), hex(label_key));
+    if (!txn_label_pb.SerializeToString(&label_val)) {
+        LOG_WARNING("failed to serialize txn label")
+                .tag("key", hex(label_key))
+                .tag("db_id", db_id)
+                .tag("txn_id", txn_id);
+        return;
+    }
+
+    uint32_t offset = label_val.size();
+    label_val.append(10, '\x00'); // 10 bytes for versionstamp
+    label_val.append((const char*)&offset, 4);
+    MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+    txn->put(label_key, label_val);
+
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+/**
+ * Creates multiple transaction info key-value pairs in batches
+ * Processes in batches of 2000 entries
+ * @param txn_kv Transaction key-value storage object
+ * @param total_kv_num Total number of key-value pairs to create
+ * @param expired_kv_num Number of expired key-value pairs
+ */
+void make_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t total_kv_num,
+                                int64_t expired_kv_num) {
+    using namespace doris::cloud;
+    for (int64_t i = 0; i < total_kv_num; i += 2000) {
+        for (int64_t j = i; j < i + 2000; j++) {
+            make_single_txn_related_kvs(txn_kv, j, expired_kv_num);
+        }
+    }
+}
+
+/**
+ * Verifies key-value pairs related to a single transaction
+ * Validates existence and format of RecycleTxnInfo, TxnIndex, TxnInfo, SubTxnIndex, and TxnLabel
+ * @param k Key
+ * @param v Value
+ * @param txn_kv Transaction key-value storage object
+ */
+void check_single_txn_info_kvs(const std::string_view& k, const std::string_view& v,
+                               std::shared_ptr<cloud::TxnKv> txn_kv) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+    // check RecycleTxnInfo
+    RecycleTxnPB recycle_txn_pb;
+    ASSERT_TRUE(recycle_txn_pb.ParseFromArray(v.data(), v.size()));
+    std::string_view k1 = k;
+
+    // check TxnIndex
+    std::string index_key, index_value;
+    k1.remove_prefix(1); // Remove key space
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    ASSERT_EQ(decode_key(&k1, &out), 0);
+    int64_t db_id = std::get<int64_t>(std::get<0>(out[3]));
+    int64_t txn_id = std::get<int64_t>(std::get<0>(out[4]));
+    index_key = txn_index_key({instance_id, txn_id});
+    ASSERT_EQ(txn->get(index_key, &index_value), TxnErrorCode::TXN_OK);
+
+    // check TxnInfo
+    std::string info_key, info_val;
+    txn_info_key({instance_id, db_id, txn_id}, &info_key);
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+
+    // check SubTxnIndex
+    TxnInfoPB txn_info;
+    ASSERT_TRUE(txn_info.ParseFromString(info_val));
+    std::vector<std::string> sub_txn_index_keys;
+    std::string sub_txn_index_value;
+    for (auto sub_txn_id : txn_info.sub_txn_ids()) {
+        auto sub_txn_index_key = txn_index_key({instance_id, sub_txn_id});
+        sub_txn_index_keys.push_back(sub_txn_index_key);
+    }
+    for (auto& sub_txn_index_key : sub_txn_index_keys) {
+        ASSERT_EQ(txn->get(sub_txn_index_key, &sub_txn_index_value), TxnErrorCode::TXN_OK);
+    }
+
+    // check TxnLabel
+    std::string label_key, label_val;
+    txn_label_key({instance_id, db_id, txn_info.label()}, &label_key);
+    ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK)
+            << fmt::format("instance_id: {}, db_id: {}, label: {}, k: {}", instance_id, db_id,
+                           txn_info.label(), hex(label_key));
+}
+
+/**
+ * Verifies multiple transaction info key-value pairs
+ * Uses an iterator to traverse and validate key-value pairs within a specified range
+ * @param txn_kv Transaction key-value storage object
+ * @param size Expected number of key-value pairs
+ */
+void check_multiple_txn_info_kvs(std::shared_ptr<cloud::TxnKv> txn_kv, int64_t size) {
+    using namespace doris::cloud;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id, 0, 0};
+    RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id, INT64_MAX, INT64_MAX};
+    std::string begin = recycle_txn_key(recycle_txn_key_info0);
+    std::string end = recycle_txn_key(recycle_txn_key_info1);
+    int64_t total_kv = 0;
+
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        int get_ret = txn_get(txn_kv.get(), begin, end, it);
+        if (get_ret != 0) { // txn kv may complain "Request for future version"
+            LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
+                         << ") txn_get_ret=" << get_ret;
+            ASSERT_TRUE(false);
+        }
+        if (!it->has_next()) {
+            LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
+            break; // scan finished
+        }
+        while (it->has_next()) {
+            // recycle corresponding resources
+            auto [k, v] = it->next();
+            if (!it->has_next()) {
+                begin = k;
+                VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
+            }
+            check_single_txn_info_kvs(k, v, txn_kv);
+            total_kv++;
+        }
+        begin.push_back('\x00'); // Update to next smallest key for iteration
+    } while (it->more());
+    ASSERT_EQ(total_kv, size);
+}
+
+TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
+    config::label_keep_max_second = 259200;
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    config::recycle_pool_parallelism = 10;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto fdb_txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
+    // fdb_txn_kv->init();
+
+    auto txn_kv = mem_txn_kv;
+    ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
+    make_multiple_txn_info_kvs(txn_kv, 10000, 8000);
+    check_multiple_txn_info_kvs(txn_kv, 10000);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    auto finish = std::chrono::steady_clock::now();
+    std::cout << "recycle expired txn label cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    check_multiple_txn_info_kvs(txn_kv, 2000);
+}
+
+TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
+    config::label_keep_max_second = 259200;
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    config::recycle_pool_parallelism = 40;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+
+    auto txn_kv = mem_txn_kv;
+    ASSERT_TRUE(txn_kv.get()) << "exit get MemTxnKv error" << std::endl;
+    make_multiple_txn_info_kvs(txn_kv, 20000, 15000);
+    check_multiple_txn_info_kvs(txn_kv, 20000);
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.check_recycle_txn_info_keys",
+                      [](auto&& args) {
+                          auto* recycle_txn_info_keys =
+                                  try_any_cast<std::vector<std::string>*>(args[0]);
+
+                          ASSERT_LE(recycle_txn_info_keys->size(), 10000);
+                      });
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.failure", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = -1;
+    });
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
+    auto finish = std::chrono::steady_clock::now();
+    std::cout << "recycle expired txn label cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    check_multiple_txn_info_kvs(txn_kv, 5000);
+}
+TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        uint32_t offset = label_val.size();
+        label_val.append(10, '\x00'); // 10 bytes for versionstamp
+        label_val.append((const char*)&offset, 4);
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    auto start = std::chrono::steady_clock::now();
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), 0);
+    auto finish = std::chrono::steady_clock::now();
+
+    std::cout << "Concurrent recycle cost="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(finish - start).count()
+              << "ms" << std::endl;
+    std::cout << "Update label before count: " << update_label_before_count << std::endl;
+    std::cout << "Update label after count: " << update_label_after_count << std::endl;
+    std::cout << "Transaction conflict count: " << txn_conflict_count << std::endl;
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+
+    std::unique_ptr<Transaction> verify_txn;
+    ASSERT_EQ(mem_txn_kv->create_txn(&verify_txn), TxnErrorCode::TXN_OK);
+
+    RecycleTxnKeyInfo recycle_txn_key_info0 {instance_id, 0, 0};
+    RecycleTxnKeyInfo recycle_txn_key_info1 {instance_id, INT64_MAX, INT64_MAX};
+    std::string begin_key = recycle_txn_key(recycle_txn_key_info0);
+    std::string end_key = recycle_txn_key(recycle_txn_key_info1);
+
+    std::unique_ptr<RangeGetIterator> it;
+    ASSERT_EQ(verify_txn->get(begin_key, end_key, &it), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(it->size(), 0) << "All recycle txn keys should be deleted";
+
+    std::string label_key;
+    std::string label_val;
+    txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+    EXPECT_EQ(verify_txn->get(label_key, &label_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+            << "Shared label should be deleted";
+
+    for (auto txn_id : shared_txn_ids) {
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        EXPECT_EQ(verify_txn->get(info_key, &info_val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                << "TxnInfo for txn_id " << txn_id << " should be deleted";
+    }
+}
+
+TEST(RecyclerTest, recycle_txn_label_deal_with_conflict_error_test) {
+    config::label_keep_max_second = 0;
+    config::recycle_pool_parallelism = 20;
+
+    doris::cloud::RecyclerThreadPoolGroup recycle_txn_label_thread_group;
+    auto recycle_txn_label_s3_producer_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_s3_producer_pool->start();
+    auto recycle_txn_label_recycle_tablet_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_recycle_tablet_pool->start();
+    auto recycle_txn_label_group_recycle_function_pool =
+            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
+    recycle_txn_label_group_recycle_function_pool->start();
+    recycle_txn_label_thread_group =
+            RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
+                                    std::move(recycle_txn_label_recycle_tablet_pool),
+                                    std::move(recycle_txn_label_group_recycle_function_pool));
+
+    auto mem_txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    std::string shared_label = "shared_conflict_label";
+    int64_t shared_db_id = 1000;
+    std::vector<int64_t> shared_txn_ids = {2001, 2002, 2003, 2004, 2005,
+                                           2006, 2007, 2008, 2009, 2010};
+
+    // create shared TxnLabel
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key;
+        std::string label_val;
+        txn_label_key({instance_id, shared_db_id, shared_label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : shared_txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        if (!txn_label_pb.SerializeToString(&label_val)) {
+            FAIL() << "Failed to serialize txn label";
+        }
+
+        uint32_t offset = label_val.size();
+        label_val.append(10, '\x00'); // 10 bytes for versionstamp
+        label_val.append((const char*)&offset, 4);
+        MemTxnKv::gen_version_timestamp(123456790, 0, &label_val);
+        txn->put(label_key, label_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    int64_t current_time = duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    for (auto txn_id : shared_txn_ids) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        // RecycleTxnKeyInfo -> RecycleTxnPB (set to expired)
+        std::string recycle_txn_info_key;
+        std::string recycle_txn_info_val;
+        RecycleTxnKeyInfo recycle_txn_key_info {instance_id, shared_db_id, txn_id};
+        recycle_txn_key(recycle_txn_key_info, &recycle_txn_info_key);
+        RecycleTxnPB recycle_txn_pb;
+        recycle_txn_pb.set_creation_time(current_time - 300000);
+        recycle_txn_pb.set_label(shared_label);
+        if (!recycle_txn_pb.SerializeToString(&recycle_txn_info_val)) {
+            FAIL() << "Failed to serialize recycle txn";
+        }
+        txn->put(recycle_txn_info_key, recycle_txn_info_val);
+
+        // TxnIndexKey -> TxnIndexPB
+        std::string txn_idx_key = txn_index_key({instance_id, txn_id});
+        std::string txn_idx_val;
+        TxnIndexPB txn_index_pb;
+        if (!txn_index_pb.SerializeToString(&txn_idx_val)) {
+            FAIL() << "Failed to serialize txn index";
+        }
+        txn->put(txn_idx_key, txn_idx_val);
+
+        // TxnInfoKey -> TxnInfoPB
+        std::string info_key = txn_info_key({instance_id, shared_db_id, txn_id});
+        std::string info_val;
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(shared_label);
+        if (!txn_info_pb.SerializeToString(&info_val)) {
+            FAIL() << "Failed to serialize txn info";
+        }
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+
+    std::atomic<int> update_label_before_count {0};
+    std::atomic<int> remove_label_before_count {0};
+    std::atomic<int> update_label_after_count {0};
+    std::atomic<int> txn_conflict_count {0};
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.remove_label_before",
+                      [&](auto&& args) {
+                          remove_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(60));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_before",
+                      [&](auto&& args) {
+                          update_label_before_count++;
+                          std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                      });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.update_label_after",
+                      [&](auto&& args) { update_label_after_count++; });
+
+    sp->set_call_back(
+            "InstanceRecycler::recycle_expired_txn_label.before_commit",
+            [&](auto&& args) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.txn_conflict", [&](auto&& args) {
+        txn_conflict_count++;
+        LOG(WARNING) << "Transaction conflict detected in test";
+    });
+
+    sp->set_call_back("InstanceRecycler::recycle_expired_txn_label.delete_recycle_txn_kv_error",
+                      [&](auto&& args) {
+                          auto ret = try_any_cast<int*>(args[0]);
+                          *ret = -1;
+                          LOG(WARNING)
+                                  << "Simulating delete recycle txn kv error in deal with conflict";
+                      });
+
+    sp->enable_processing();
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    InstanceRecycler recycler(mem_txn_kv, instance, recycle_txn_label_thread_group,
+                              std::make_shared<TxnLazyCommitter>(mem_txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    // deal with conflict but error during recycle
+    ASSERT_EQ(recycler.recycle_expired_txn_label(), -1);
+
+    EXPECT_GT(txn_conflict_count, 0) << "txn_conflict sync point should be triggered";
+}
+
+TEST(RecyclerTest, recycle_restore_job_complete_state) {
+    // cloud::config::fdb_cluster_file_path = "fdb.cluster";
+    // auto txn_kv = std::dynamic_pointer_cast<cloud::TxnKv>(std::make_shared<cloud::FdbTxnKv>());
+    // txn_kv->init();
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_restore_job_transaction");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_restore_job_transaction");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    int64_t tablet_id = 9876;
+    std::string key;
+    JobRestoreTabletKeyInfo key_info {instance_id, tablet_id};
+    job_restore_tablet_key(key_info, &key);
+
+    RestoreJobCloudPB restore_job_pb;
+    restore_job_pb.set_tablet_id(tablet_id);
+    restore_job_pb.set_ctime_s(::time(nullptr) - 3600);
+    restore_job_pb.set_expired_at_s(0);
+    // set job state to COMPLETED
+    restore_job_pb.set_state(RestoreJobCloudPB::COMPLETED);
+
+    std::string val = restore_job_pb.SerializeAsString();
+    std::unique_ptr<Transaction> setup_txn;
+    ASSERT_EQ(txn_kv->create_txn(&setup_txn), TxnErrorCode::TXN_OK);
+    setup_txn->put(key, val);
+    ASSERT_EQ(setup_txn->commit(), TxnErrorCode::TXN_OK);
+
+    for (int i = 0; i < 3; i++) {
+        ASSERT_EQ(create_restore_job_rowset(txn_kv.get(), accessor.get(),
+                                            "recycle_restore_job_transaction", tablet_id, i),
+                  0);
+    }
+
+    ASSERT_EQ(recycler.recycle_restore_jobs(), 0);
+}
+
+TEST(CheckerTest, check_txn_info_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    std::string label = "test_label";
+    std::vector<int64_t> txn_ids = {2001, 2002, 2003};
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key, label_val;
+        txn_label_key({instance_id, db_id, label}, &label_key);
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        std::string serialized_label;
+        ASSERT_TRUE(txn_label_pb.SerializeToString(&serialized_label));
+
+        uint32_t offset = serialized_label.size();
+        serialized_label.append(10, '\x00'); // 10 bytes for versionstamp
+        serialized_label.append((const char*)&offset, 4);
+        MemTxnKv::gen_version_timestamp(123456790, 0, &serialized_label);
+
+        txn->put(label_key, serialized_label);
+
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_label(label);
+            std::string info_val;
+            ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+            txn->put(info_key, info_val);
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+        std::string label_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, label_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t mismatch_txn_id = txn_ids[0];
+        std::string info_key = txn_info_key({instance_id, db_id, mismatch_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("mismatched_label");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+        std::string label_val;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(label_key, &label_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, label_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, "invalid_label"});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        uint32_t offset = invalid_val.size();
+        invalid_val.append(10, '\x00');
+        invalid_val.append((const char*)&offset, 4);
+
+        txn->put(label_key, invalid_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_info_key(label_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_label_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    std::string label = "test_label";
+    std::vector<int64_t> txn_ids = {2001, 2002, 2003};
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string label_key = txn_label_key({instance_id, db_id, label});
+
+        TxnLabelPB txn_label_pb;
+        for (auto txn_id : txn_ids) {
+            txn_label_pb.add_txn_ids(txn_id);
+        }
+
+        std::string label_val;
+        ASSERT_TRUE(txn_label_pb.SerializeToString(&label_val));
+        txn->put(label_key, label_val);
+
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            TxnInfoPB txn_info_pb;
+            txn_info_pb.set_label(label);
+            std::string info_val;
+            ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+            txn->put(info_key, info_val);
+        }
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        for (auto txn_id : txn_ids) {
+            std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+            std::string info_val;
+            std::unique_ptr<Transaction> txn;
+            ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+            ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+
+            int ret = checker.check_txn_label_key(info_key, info_val);
+            ASSERT_EQ(ret, 0);
+        }
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t missing_txn_id = 2004;
+        std::string info_key = txn_info_key({instance_id, db_id, missing_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(label);
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_label_key(info_key, info_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_info_key({instance_id, db_id, 9999});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        int ret = checker.check_txn_label_key(invalid_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string non_existent_label = "non_existent_label";
+        int64_t txn_id = 3001;
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label(non_existent_label);
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_label_key(info_key, info_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_index_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    int64_t txn_id = 2001;
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        std::string index_key = txn_index_key({instance_id, txn_id});
+        TxnIndexPB txn_index_pb;
+        TabletIndexPB* tablet_index = txn_index_pb.mutable_tablet_index();
+        tablet_index->set_db_id(db_id);
+        std::string index_val;
+        ASSERT_TRUE(txn_index_pb.SerializeToString(&index_val));
+        txn->put(index_key, index_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        std::string info_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t different_db_id = 1002;
+        int64_t new_txn_id = 2002;
+
+        std::string info_key = txn_info_key({instance_id, db_id, new_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label_2");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        std::string index_key = txn_index_key({instance_id, new_txn_id});
+        TxnIndexPB txn_index_pb;
+        TabletIndexPB* tablet_index = txn_index_pb.mutable_tablet_index();
+        tablet_index->set_db_id(different_db_id);
+        std::string index_val;
+        ASSERT_TRUE(txn_index_pb.SerializeToString(&index_val));
+        txn->put(index_key, index_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_info_key({instance_id, db_id, 9999});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        int ret = checker.check_txn_index_key(invalid_key, invalid_val);
+        ASSERT_EQ(ret, -1);
+    }
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        int64_t non_existent_txn_id = 3001;
+        std::string info_key = txn_info_key({instance_id, db_id, non_existent_txn_id});
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_label("test_label_3");
+        std::string info_val;
+        ASSERT_TRUE(txn_info_pb.SerializeToString(&info_val));
+        txn->put(info_key, info_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_index_key(info_key, info_val);
+        ASSERT_EQ(ret, -1);
+    }
+}
+
+TEST(CheckerTest, check_txn_running_key) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+
+    int64_t db_id = 1001;
+    int64_t txn_id = 2001;
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        TxnRunningPB txn_running_pb;
+
+        int64_t current_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                       std::chrono::system_clock::now().time_since_epoch())
+                                       .count();
+        txn_running_pb.set_timeout_time(current_time + 3600000);
+
+        std::string running_val;
+        ASSERT_TRUE(txn_running_pb.SerializeToString(&running_val));
+        txn->put(running_key, running_val);
+
+        std::string expired_key = txn_running_key({instance_id, db_id, txn_id + 1});
+        TxnRunningPB expired_running_pb;
+        expired_running_pb.set_timeout_time(current_time - 3600000);
+
+        std::string expired_val;
+        ASSERT_TRUE(expired_running_pb.SerializeToString(&expired_val));
+        txn->put(expired_key, expired_val);
+
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    {
+        std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        std::string running_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(running_key, &running_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(running_key, running_val);
+        ASSERT_EQ(ret, 0);
+    }
+
+    {
+        std::string expired_key = txn_running_key({instance_id, db_id, txn_id + 1});
+        std::string expired_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(expired_key, &expired_val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(expired_key, expired_val);
+        ASSERT_EQ(ret, 1);
+    }
+
+    {
+        std::string invalid_key = txn_running_key({instance_id, db_id, txn_id + 2});
+        std::string invalid_val = "invalid_protobuf_data";
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(invalid_key, invalid_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(read_txn->get(invalid_key, &val), TxnErrorCode::TXN_OK);
+
+        int ret = checker.check_txn_running_key(invalid_key, val);
+        ASSERT_EQ(ret, -1);
     }
 }
 

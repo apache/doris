@@ -29,7 +29,6 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -39,7 +38,9 @@ struct ColumnWithTypeAndName;
 
 class VHiveTableWriter final : public AsyncResultWriter {
 public:
-    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VHiveTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                     std::shared_ptr<pipeline::Dependency> dep,
+                     std::shared_ptr<pipeline::Dependency> fin_dep);
 
     ~VHiveTableWriter() override = default;
 
@@ -58,7 +59,7 @@ private:
 
     std::vector<std::string> _create_partition_values(vectorized::Block& block, int position);
 
-    std::string _to_partition_value(const TypeDescriptor& type_desc,
+    std::string _to_partition_value(const DataTypePtr& type_desc,
                                     const ColumnWithTypeAndName& partition_column, int position);
 
     std::string _compute_file_name();
@@ -69,7 +70,6 @@ private:
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
     std::vector<int> _partition_columns_input_index;
     std::set<size_t> _non_write_columns_indices;
     std::unordered_map<std::string, std::shared_ptr<VHivePartitionWriter>> _partitions_to_writers;

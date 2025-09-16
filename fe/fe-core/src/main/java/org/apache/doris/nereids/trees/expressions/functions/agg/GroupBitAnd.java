@@ -40,11 +40,11 @@ public class GroupBitAnd extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -62,7 +62,12 @@ public class GroupBitAnd extends NullableAggregateFunction
     }
 
     private GroupBitAnd(boolean distinct, boolean alwaysNullable, Expression child) {
-        super("group_bit_and", distinct, alwaysNullable, child);
+        super("group_bit_and", false, alwaysNullable, child);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private GroupBitAnd(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     /**
@@ -71,12 +76,12 @@ public class GroupBitAnd extends NullableAggregateFunction
     @Override
     public GroupBitAnd withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitAnd(distinct, alwaysNullable, children.get(0));
+        return new GroupBitAnd(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupBitAnd(distinct, alwaysNullable, children.get(0));
+        return new GroupBitAnd(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

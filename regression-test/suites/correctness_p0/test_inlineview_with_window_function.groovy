@@ -106,7 +106,7 @@ suite("test_inlineview_with_window_function") {
 
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa;"""
     sql """create materialized view ods_zn_dnt_max1 as
-            select ordernum,max(dnt) as dnt from test_table_aaa
+            select ordernum as a1,max(dnt) as a2 from test_table_aaa
             group by ordernum
             ORDER BY ordernum;"""
 
@@ -136,11 +136,11 @@ suite("test_inlineview_with_window_function") {
                     max(fzl)*1600*0.278 solar
                 from(
                     select ordernum,dnt,
-                            cast(if(json_extract(data,'\$.LJRL1')=0 or json_extract(data,'\$.LJRL1') like '%E%',null,json_extract(data,'\$.LJRL1')) as double) ljrl1,
-                            cast(if(json_extract(data,'\$.LJRL2')=0 or json_extract(data,'\$.LJRL2') like '%E%',null,json_extract(data,'\$.LJRL2')) as double) ljrl2,
-                            first_value(cast(if(json_extract(data,'\$.FZL')=0 or json_extract(data,'\$.FZL') like '%E%',null,
-                            json_extract(data,'\$.FZL')) as double)) over (partition by ordernum order by dnt desc) fzl,
-                            cast(if(json_extract(data,'\$.DB1')=0 or json_extract(data,'\$.DB1') like '%E%',null,json_extract(data,'\$.DB1')) as double) db1
+                            cast(if(json_extract_double(data,'\$.LJRL1')=0 or json_extract_double(data,'\$.LJRL1') like '%E%',null,json_extract_double(data,'\$.LJRL1')) as double) ljrl1,
+                            cast(if(json_extract_double(data,'\$.LJRL2')=0 or json_extract_double(data,'\$.LJRL2') like '%E%',null,json_extract_double(data,'\$.LJRL2')) as double) ljrl2,
+                            first_value(cast(if(json_extract_double(data,'\$.FZL')=0 or json_extract_double(data,'\$.FZL') like '%E%',null,
+                            json_extract_double(data,'\$.FZL')) as double)) over (partition by ordernum order by dnt desc) fzl,
+                            cast(if(json_extract_double(data,'\$.DB1')=0 or json_extract_double(data,'\$.DB1') like '%E%',null,json_extract_double(data,'\$.DB1')) as double) db1
                     from test_table_aaa
                         )a1
                 group by ordernum

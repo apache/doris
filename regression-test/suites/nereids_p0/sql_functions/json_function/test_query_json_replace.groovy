@@ -43,6 +43,6 @@ suite("test_query_json_replace", "query") {
     sql "insert into ${tableName} values(2,'2022-01-01 11:45:14',null);"
     sql "insert into ${tableName} values(3,null,9);"
     sql "insert into ${tableName} values(4,null,null);"
-    order_qt_sql1 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', time, '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName};"
+    order_qt_sql1 "select json_replace('{\"id\": 0, \"time\": \"1970-01-01 00:00:00\", \"a1\": [1, 2], \"a2\": [1, 2]}', '\$.id', id, '\$.time', cast(time as string), '\$.a1[1]', k, '\$.a2[3]', k) from ${tableName};"
     sql "DROP TABLE ${tableName};"
 }

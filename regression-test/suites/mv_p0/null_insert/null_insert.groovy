@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("null_insert") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """ DROP TABLE IF EXISTS test; """
 
@@ -49,7 +51,7 @@ suite ("null_insert") {
     sql """INSERT INTO `test` (`date`) VALUES ('2023-07-19');"""
 
     createMV("""CREATE materialized view mv_test AS
-                SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+                SELECT date as x1, vid as x2, os as x3, ver as x4, ip_country as x5, hll_union(hll_hash(uid))
                 FROM test
                 GROUP BY date,vid,os,ver,ip_country;""")
 
@@ -67,22 +69,17 @@ suite ("null_insert") {
     sql "analyze table test with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
-                GROUP BY date,vid,os,ver,ip_country;""")
-        contains "(mv_test)"
-    }
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 
     qt_select_mv """SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                     FROM test
                     GROUP BY date,vid,os,ver,ip_country;"""
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
+    sql """alter table test modify column date set stats ('row_count'='3');"""
+    mv_rewrite_success("""SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test
-                GROUP BY date,vid,os,ver,ip_country;""")
-        contains "(mv_test)"
-    }
+                GROUP BY date,vid,os,ver,ip_country;""", "mv_test")
 }

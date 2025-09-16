@@ -27,22 +27,29 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <string>
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
+#include "common/cast_set.h"
+#include "common/config.h"
+#include "common/exception.h"
 #include "io/io_common.h"
+#include "olap/inverted_index_stats.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_fwd.h"
+#include "util/countdown_latch.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
 
@@ -54,6 +61,12 @@ using TabletUid = UniqueId;
 
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
 
+enum DataDirType {
+    SPILL_DISK_DIR,
+    OLAP_DATA_DIR,
+    DATA_CACHE_DIR,
+};
+
 struct DataDirInfo {
     std::string path;
     size_t path_hash = 0;
@@ -64,12 +77,10 @@ struct DataDirInfo {
     int64_t trash_used_capacity = 0;
     bool is_used = false;                                      // whether available mark
     TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
+    DataDirType data_dir_type = DataDirType::OLAP_DATA_DIR;
+    std::string metric_name;
 };
-struct PredicateFilterInfo {
-    int type = 0;
-    uint64_t input_row = 0;
-    uint64_t filtered_row = 0;
-};
+
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
     bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
@@ -136,7 +147,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_OBJECT = 25,
+    OLAP_FIELD_TYPE_BITMAP = 25,
     OLAP_FIELD_TYPE_STRING = 26,
     OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
     OLAP_FIELD_TYPE_DATEV2 = 28,
@@ -296,43 +307,40 @@ struct OlapReaderStatistics {
     // block_load_ns
     //      block_init_ns
     //          block_init_seek_ns
-    //          block_conditions_filtered_ns
-    //      first_read_ns
-    //          block_first_read_seek_ns
+    //          generate_row_ranges_ns
+    //      predicate_column_read_ns
+    //          predicate_column_read_seek_ns
     //      lazy_read_ns
     //          block_lazy_read_seek_ns
     int64_t block_init_ns = 0;
     int64_t block_init_seek_num = 0;
     int64_t block_init_seek_ns = 0;
-    int64_t first_read_ns = 0;
-    int64_t second_read_ns = 0;
-    int64_t block_first_read_seek_num = 0;
-    int64_t block_first_read_seek_ns = 0;
+    int64_t predicate_column_read_ns = 0;
+    int64_t non_predicate_read_ns = 0;
+    int64_t predicate_column_read_seek_num = 0;
+    int64_t predicate_column_read_seek_ns = 0;
     int64_t lazy_read_ns = 0;
     int64_t block_lazy_read_seek_num = 0;
     int64_t block_lazy_read_seek_ns = 0;
-
-    int64_t block_convert_ns = 0;
 
     int64_t raw_rows_read = 0;
 
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_short_circuit_cond_filtered = 0;
+    int64_t rows_expr_cond_filtered = 0;
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
+    int64_t expr_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
     int64_t expr_filter_ns = 0;
     int64_t output_col_ns = 0;
-
-    std::map<int, PredicateFilterInfo> filter_info;
-
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
-    int64_t rows_dict_filtered = 0;
+    int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
     // This metric is mainly used to record the number of rows filtered by the delete condition in Segment V1,
@@ -342,11 +350,11 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t block_conditions_filtered_ns = 0;
-    int64_t block_conditions_filtered_bf_ns = 0;
-    int64_t block_conditions_filtered_zonemap_ns = 0;
-    int64_t block_conditions_filtered_zonemap_rp_ns = 0;
-    int64_t block_conditions_filtered_dict_ns = 0;
+    int64_t generate_row_ranges_by_keys_ns = 0;
+    int64_t generate_row_ranges_by_column_conditions_ns = 0;
+    int64_t generate_row_ranges_by_bf_ns = 0;
+    int64_t generate_row_ranges_by_zonemap_ns = 0;
+    int64_t generate_row_ranges_by_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -361,10 +369,40 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
-    int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_search_init_timer = 0;
+    int64_t inverted_index_searcher_search_exec_timer = 0;
+    int64_t inverted_index_searcher_cache_hit = 0;
+    int64_t inverted_index_searcher_cache_miss = 0;
+    int64_t inverted_index_downgrade_count = 0;
+    int64_t inverted_index_analyzer_timer = 0;
+    int64_t inverted_index_lookup_timer = 0;
+    InvertedIndexStatistics inverted_index_stats;
+
+    int64_t ann_index_load_ns = 0;
+    int64_t ann_topn_search_ns = 0;
+    int64_t ann_index_topn_search_cnt = 0;
+
+    // Detailed timing for ANN operations
+    int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
+    int64_t ann_index_topn_result_process_ns = 0; // time spent processing TopN results
+    int64_t ann_index_topn_engine_convert_ns = 0; // time spent on FAISS-side conversions (TopN)
+    int64_t ann_index_topn_engine_prepare_ns =
+            0; // time spent preparing before engine search (TopN)
+    int64_t rows_ann_index_topn_filtered = 0;
+
+    int64_t ann_index_range_search_ns = 0;
+    int64_t ann_index_range_search_cnt = 0;
+    // Detailed timing for ANN Range search
+    int64_t ann_range_engine_search_ns = 0; // time spent in engine for range search
+    int64_t ann_range_pre_process_ns = 0;   // time spent preparing before engine search
+
+    int64_t ann_range_result_convert_ns = 0; // time spent processing range results
+    int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
+    int64_t rows_ann_index_range_filtered = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
@@ -378,6 +416,30 @@ struct OlapReaderStatistics {
     int64_t collect_iterator_merge_next_timer = 0;
     int64_t collect_iterator_normal_next_timer = 0;
     int64_t delete_bitmap_get_agg_ns = 0;
+
+    int64_t tablet_reader_init_timer_ns = 0;
+    int64_t tablet_reader_capture_rs_readers_timer_ns = 0;
+    int64_t tablet_reader_init_return_columns_timer_ns = 0;
+    int64_t tablet_reader_init_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_orderby_keys_param_timer_ns = 0;
+    int64_t tablet_reader_init_conditions_param_timer_ns = 0;
+    int64_t tablet_reader_init_delete_condition_param_timer_ns = 0;
+    int64_t block_reader_vcollect_iter_init_timer_ns = 0;
+    int64_t block_reader_rs_readers_init_timer_ns = 0;
+    int64_t block_reader_build_heap_init_timer_ns = 0;
+
+    int64_t rowset_reader_get_segment_iterators_timer_ns = 0;
+    int64_t rowset_reader_create_iterators_timer_ns = 0;
+    int64_t rowset_reader_init_iterators_timer_ns = 0;
+    int64_t rowset_reader_load_segments_timer_ns = 0;
+
+    int64_t segment_iterator_init_timer_ns = 0;
+    int64_t segment_iterator_init_return_column_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_bitmap_index_iterators_timer_ns = 0;
+    int64_t segment_iterator_init_index_iterators_timer_ns = 0;
+
+    int64_t segment_create_column_readers_timer_ns = 0;
+    int64_t segment_load_index_timer_ns = 0;
 };
 
 using ColumnId = uint32_t;
@@ -403,7 +465,13 @@ struct RowsetId {
             auto [_, ec] = std::from_chars(rowset_id_str.data(),
                                            rowset_id_str.data() + rowset_id_str.length(), high);
             if (ec != std::errc {}) [[unlikely]] {
-                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                if (config::force_regenerate_rowsetid_on_start_error) {
+                    LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
+                    high = MAX_ROWSET_ID - 1;
+                } else {
+                    throw Exception(
+                            Status::FatalError("failed to init rowset id: {}", rowset_id_str));
+                }
             }
             init(1, high, 0, 0);
         } else {
@@ -421,9 +489,9 @@ struct RowsetId {
     void init(int64_t rowset_id) { init(1, rowset_id, 0, 0); }
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
-        version = id_version;
+        version = cast_set<int8_t>(id_version);
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            LOG(FATAL) << "inc rowsetid is too large:" << high;
+            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;
@@ -494,30 +562,55 @@ inline RowsetId extract_rowset_id(std::string_view filename) {
 }
 
 class DeleteBitmap;
+
+struct CalcDeleteBitmapTask {
+    std::mutex m;
+    Status status {Status::OK()};
+    CountDownLatch latch {1};
+
+    void set_status(Status st) {
+        {
+            std::unique_lock l(m);
+            status = std::move(st);
+        }
+        latch.count_down(1);
+    }
+
+    Status get_status() {
+        if (!latch.wait_for(
+                    std::chrono::seconds(config::segcompaction_wait_for_dbm_task_timeout_s))) {
+            return Status::InternalError<false>("wait for calc delete bitmap task timeout");
+        };
+        std::unique_lock l(m);
+        return status;
+    }
+};
+
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
-               const std::vector<RowsetSharedPtr>& rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
+    MowContext(int64_t version, int64_t txnid, std::shared_ptr<RowsetIdUnorderedSet> ids,
+               std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
             : max_version(version),
               txn_id(txnid),
-              rowset_ids(ids),
-              rowset_ptrs(rowset_ptrs),
-              delete_bitmap(db) {}
+              rowset_ids(std::move(ids)),
+              rowset_ptrs(std::move(rowset_ptrs)),
+              delete_bitmap(std::move(db)) {}
+
+    CalcDeleteBitmapTask* get_calc_dbm_task(int32_t segment_id) {
+        std::lock_guard l(m);
+        return &calc_dbm_tasks[segment_id];
+    }
+
     int64_t max_version;
     int64_t txn_id;
-    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<RowsetIdUnorderedSet> rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
-};
 
-// used in mow partial update
-struct RidAndPos {
-    uint32_t rid;
-    // pos in block
-    size_t pos;
+    std::mutex m;
+    // status of calc delete bitmap task in flush phase
+    std::unordered_map<int32_t /* origin seg id*/, CalcDeleteBitmapTask> calc_dbm_tasks;
 };
-
-using PartialUpdateReadPlan = std::map<RowsetId, std::map<uint32_t, std::vector<RidAndPos>>>;
 
 // used for controll compaction
 struct VersionWithTime {
@@ -537,7 +630,7 @@ struct VersionWithTime {
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris
 
 // This intended to be a "good" hash function.  It may change from time to time.

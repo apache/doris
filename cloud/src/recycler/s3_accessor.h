@@ -17,22 +17,75 @@
 
 #pragma once
 
+#include <aws/core/Aws.h>
+#include <bvar/latency_recorder.h>
+
+#include <array>
 #include <cstdint>
 #include <memory>
 
-#include "recycler/s3_obj_client.h"
+#include "cpp/aws_common.h"
+#include "recycler/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace Aws::S3 {
 class S3Client;
 } // namespace Aws::S3
 
-namespace doris::cloud {
-class ObjectStoreInfoPB;
+namespace doris {
+class S3RateLimiterHolder;
 
 enum class S3RateLimitType;
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
-                                 size_t limit);
+namespace cloud {
+class ObjectStoreInfoPB;
+class SimpleThreadPool;
+
+namespace s3_bvar {
+extern bvar::LatencyRecorder s3_get_latency;
+extern bvar::LatencyRecorder s3_put_latency;
+extern bvar::LatencyRecorder s3_delete_object_latency;
+extern bvar::LatencyRecorder s3_delete_objects_latency;
+extern bvar::LatencyRecorder s3_head_latency;
+extern bvar::LatencyRecorder s3_multi_part_upload_latency;
+extern bvar::LatencyRecorder s3_list_latency;
+extern bvar::LatencyRecorder s3_list_object_versions_latency;
+extern bvar::LatencyRecorder s3_get_bucket_version_latency;
+extern bvar::LatencyRecorder s3_copy_object_latency;
+}; // namespace s3_bvar
+
+class S3Environment {
+public:
+    S3Environment(const S3Environment&) = delete;
+    S3Environment& operator=(const S3Environment&) = delete;
+
+    static S3Environment& getInstance();
+
+    static Aws::Client::ClientConfiguration& getClientConfiguration() {
+        // The default constructor of ClientConfiguration will do some http call
+        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
+        // which is unnecessary.
+        // So here we use a static instance, and deep copy every time
+        // to avoid unnecessary operations.
+        static Aws::Client::ClientConfiguration instance;
+        return instance;
+    }
+
+    ~S3Environment();
+
+private:
+    S3Environment();
+    Aws::SDKOptions aws_options_;
+};
+struct AccessorRateLimiter {
+public:
+    ~AccessorRateLimiter() = default;
+    static AccessorRateLimiter& instance();
+    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+
+private:
+    AccessorRateLimiter();
+    std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
+};
 
 struct S3Conf {
     std::string ak;
@@ -41,6 +94,11 @@ struct S3Conf {
     std::string region;
     std::string bucket;
     std::string prefix;
+    bool use_virtual_addressing {true};
+
+    CredProviderType cred_provider_type = CredProviderType::Default;
+    std::string role_arn;
+    std::string external_id;
 
     enum Provider : uint8_t {
         S3,
@@ -96,11 +154,15 @@ protected:
 
     virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
 
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> get_aws_credentials_provider(
+            const S3Conf& s3_conf);
+
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;
 
     S3Conf conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
+    std::string _ca_cert_file_path;
 };
 
 class GcsAccessor final : public S3Accessor {
@@ -114,4 +176,5 @@ private:
     int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0) override;
 };
 
-} // namespace doris::cloud
+} // namespace cloud
+} // namespace doris

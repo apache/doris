@@ -24,8 +24,10 @@
 #include <cstdio>
 #include <functional>
 #include <string>
+#include <unordered_set>
 
 #include "common/status.h"
+#include "http/http_headers.h"
 #include "http/http_method.h"
 
 namespace doris {
@@ -45,7 +47,7 @@ public:
 
     // this function must call before other function,
     // you can call this multiple times to reuse this object
-    Status init(const std::string& url);
+    Status init(const std::string& url, bool set_fail_on_error = true);
 
     void set_method(HttpMethod method);
 
@@ -53,6 +55,20 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_easy_setopt(_curl, CURLOPT_USERNAME, user.c_str());
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
+    }
+
+    // Auth-Token: xxxx
+    void set_auth_token(const std::string& token) {
+        std::string scratch_str = HttpHeaders::AUTH_TOKEN + ": " + token;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
+
+    // Authorization: xxxx
+    void set_authorization(const std::string& auth) {
+        std::string scratch_str = std::string(HttpHeaders::AUTHORIZATION) + ": " + auth;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
     // content_type such as "application/json"
@@ -73,10 +89,14 @@ public:
         curl_easy_setopt(_curl, CURLOPT_SSL_VERIFYHOST, 0L);
     }
 
-    // TODO(zc): support set header
-    // void set_header(const std::string& key, const std::string& value) {
-    // _cntl.http_request().SetHeader(key, value);
-    // }
+    void set_speed_limit();
+
+    // key: value
+    void set_header(const std::string& key, const std::string& value) {
+        std::string header = key + ": " + value;
+        _header_list = curl_slist_append(_header_list, header.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
+    }
 
     std::string get_response_content_type() {
         char* ct = nullptr;
@@ -133,6 +153,8 @@ public:
     // helper function to download a file, you can call this function to download
     // a file to local_path
     Status download(const std::string& local_path);
+    Status download_multi_files(const std::string& local_dir,
+                                const std::unordered_set<std::string>& expected_files);
 
     Status execute_post_request(const std::string& payload, std::string* response);
 
@@ -144,10 +166,24 @@ public:
     // execute remote call action
     Status execute(const std::function<bool(const void* data, size_t length)>& callback = {});
 
+    // execute remote call action with retry, like execute_with_retry but keep the http client instance
+    Status execute(int retry_times, int sleep_time,
+                   const std::function<Status(HttpClient*)>& callback);
+
     size_t on_response_data(const void* data, size_t length);
 
+    // The file name of the variant column with the inverted index contains %
+    // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+    //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+    // We need to handle %, otherwise it will cause an HTTP 404 error.
+    // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+    // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+    // https://datatracker.ietf.org/doc/html/rfc3986
+    Status _escape_url(const std::string& url, std::string* escaped_url);
+
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;
@@ -155,6 +191,7 @@ private:
     const HttpCallback* _callback = nullptr;
     char _error_buf[CURL_ERROR_SIZE];
     curl_slist* _header_list = nullptr;
+    HttpMethod _method = GET;
 };
 
 } // namespace doris

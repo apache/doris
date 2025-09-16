@@ -18,17 +18,33 @@
 package org.apache.doris.common.security.authentication;
 
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 
+@EqualsAndHashCode(callSuper = true)
 @Data
 public class KerberosAuthenticationConfig extends AuthenticationConfig {
     private String kerberosPrincipal;
     private String kerberosKeytab;
     private Configuration conf;
+    private boolean printDebugLog;
 
     @Override
     public boolean isValid() {
         return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
+    }
+
+    public KerberosAuthenticationConfig(String kerberosPrincipal, String kerberosKeytab, Configuration conf) {
+        this.kerberosPrincipal = kerberosPrincipal;
+        this.kerberosKeytab = kerberosKeytab;
+        this.conf = conf;
+        this.printDebugLog = false;
+    }
+
+    public KerberosAuthenticationConfig(String kerberosPrincipal, String kerberosKeytab, Configuration conf,
+                                        boolean printDebugLog) {
+        this(kerberosPrincipal, kerberosKeytab, conf);
+        this.printDebugLog = printDebugLog;
     }
 }

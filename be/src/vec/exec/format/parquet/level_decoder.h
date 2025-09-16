@@ -29,7 +29,7 @@
 #include "util/slice.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class LevelDecoder {
 public:
     LevelDecoder() = default;
@@ -56,6 +56,8 @@ public:
 
     inline void rewind_one() { _rle_decoder.RewindOne(); }
 
+    const RleDecoder<level_t>& rle_decoder() const { return _rle_decoder; }
+
 private:
     tparquet::Encoding::type _encoding;
     level_t _bit_width = 0;
@@ -64,5 +66,6 @@ private:
     RleDecoder<level_t> _rle_decoder;
     BitReader _bit_packed_decoder;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

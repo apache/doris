@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("create_mv_complex_type") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS base_table; """
     sql """
             create table base_table (
@@ -37,12 +40,23 @@ suite ("create_mv_complex_type") {
 
     sql """insert into base_table select 1, 100000, 1.0, '{"jsonk1": 123}', [100, 200], {"k1": 10}, {1, 2};"""
 
+    sql """alter table base_table modify column c_int set stats ('row_count'='1');"""
+
     def success = false
 
     // 1. special column - mv dup key
     success = false
     try {
-        sql """create materialized view mv as select c_jsonb, c_int from base_table;"""
+        sql """create materialized view mv as select c_jsonb as a1, c_int as a2 from base_table;"""
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
+    }
+    assertFalse(success)
+
+    success = false
+    try {
+        sql """create materialized view mv as select c_bigint as a3, c_jsonb as a4 from base_table;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
@@ -51,7 +65,16 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_jsonb from base_table;"""
+        sql """create materialized view mv as select c_array as a5, c_int as a6 from base_table;"""
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
+    }
+    assertFalse(success)
+
+    success = false
+    try {
+        sql """create materialized view mv as select c_bigint as x1, c_array as x2 from base_table;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
@@ -60,7 +83,16 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_array, c_int from base_table;"""
+        sql """create materialized view mv as select c_map as x3, c_int as x4 from base_table;"""
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
+    }
+    assertFalse(success)
+
+    success = false
+    try {
+        sql """create materialized view mv as select c_bigint as x5, c_map as x6 from base_table;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
@@ -69,122 +101,19 @@ suite ("create_mv_complex_type") {
 
     success = false
     try {
-        sql """create materialized view mv as select c_bigint, c_array from base_table;"""
+        sql """create materialized view mv as select c_struct as b1, c_int as b2 from base_table;"""
+        success = true
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("The first column could not be"), e.getMessage())
+    }
+    assertFalse(success)
+
+    success = false
+    try {
+        sql """create materialized view mv as select c_bigint as b3, c_struct as b4 from base_table;"""
         success = true
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_map, c_int from base_table;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_map from base_table;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_struct, c_int from base_table;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_struct from base_table;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("not support to create materialized view"), e.getMessage())
-    }
-    assertFalse(success)
-
-
-    // 2. special column - mv agg key
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_jsonb, count(c_bigint) from base_table group by c_bigint, c_int, c_jsonb;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_array, count(c_bigint) from base_table group by c_bigint, c_int, c_array;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_map, count(c_bigint) from base_table group by c_bigint, c_int, c_map;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_struct, count(c_bigint) from base_table group by c_bigint, c_int, c_struct;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-
-    // 3. special column - ORDER BY
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_jsonb from base_table order by c_bigint, c_int, c_jsonb;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_array from base_table order by c_bigint, c_int, c_array;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_map from base_table order by c_bigint, c_int, c_map;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
-    }
-    assertFalse(success)
-
-    success = false
-    try {
-        sql """create materialized view mv as select c_bigint, c_int, c_struct from base_table order by c_bigint, c_int, c_struct;"""
-        success = true
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("don't support filter, group by"), e.getMessage())
     }
     assertFalse(success)
 }

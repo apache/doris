@@ -29,19 +29,21 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
@@ -50,6 +52,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
@@ -61,6 +64,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -87,6 +91,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected boolean enableProfile = false;
 
     private boolean enableMemTableOnSinkNode = false;
+    private int batchSize = 0;
 
     // for log replay and unit test
     public BrokerLoadJob() {
@@ -105,6 +110,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (ConnectContext.get() != null) {
             enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
             enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
+            batchSize = ConnectContext.get().getSessionVariable().brokerLoadBatchSize;
         }
     }
 
@@ -215,18 +221,56 @@ public class BrokerLoadJob extends BulkLoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
+    // make public for UT
+    public void setComputeGroup() {
+        ComputeGroup computeGroup = null;
+        ConnectContext context = ConnectContext.get();
+        try {
+            if (context == null) {
+                context = new ConnectContext();
+                context.setThreadLocalInfo();
+            }
+            if (context.getEnv() == null) {
+                context.setEnv(Env.getCurrentEnv());
+            }
+
+            String currentUser = getUserInfo().getQualifiedUser();
+            // user is null or get an invalid compute group should not be normal case,
+            // broker load job can get all backends when meets it.
+            if (StringUtils.isEmpty(currentUser)) {
+                computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                LOG.warn("can not find user in broker load, then skip compute group.");
+            } else {
+                computeGroup = Env.getCurrentEnv().getAuth().getComputeGroup(currentUser);
+                if (ComputeGroup.INVALID_COMPUTE_GROUP.equals(computeGroup)) {
+                    LOG.warn("get an invalid compute group in broker load job.");
+                    computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+                }
+            }
+        } catch (Throwable t) {
+            LOG.warn("error happens when set compute group for broker load", t);
+            computeGroup = Env.getCurrentEnv().getComputeGroupMgr().getAllBackendComputeGroup();
+        }
+
+        context.setComputeGroup(computeGroup);
+    }
+
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
-            boolean isEnableMemtableOnSinkNode, FileGroupAggKey aggKey, BrokerPendingTaskAttachment attachment)
-            throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+            boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
+            BrokerPendingTaskAttachment attachment) throws UserException {
+        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+
+        setComputeGroup();
+
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
         task.settWorkloadGroups(tWorkloadGroups);
@@ -239,10 +283,13 @@ public class BrokerLoadJob extends BulkLoadJob {
         // divide job into broker loading task by table
         List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
         if (enableProfile) {
-            this.jobProfile = new Profile("BrokerLoadJob " + id + ". " + label, true,
-                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")));
-            // profile is registered in ProfileManager, so that we can get realtime profile
-            jobProfile.updateSummary(loadStartTimestamp, getSummaryInfo(false), false, null);
+            this.jobProfile = new Profile(
+                    true,
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "1")),
+                    Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, "-1")));
+            this.jobProfile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
+            // TODO: 怎么给这些 load job 设置 profile 记录时间
+            // this.jobProfile.setId("BrokerLoadJob " + id + ". " + label);
         }
         ProgressManager progressManager = Env.getCurrentProgressManager();
         progressManager.registerProgressSimple(String.valueOf(id));
@@ -254,11 +301,15 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
-                boolean isEnableMemtableOnSinkNode = ((OlapTable) table).getTableProperty().getUseSchemaLightChange()
-                        ? this.enableMemTableOnSinkNode : false;
+                if (table.isTemporary())  {
+                    throw new UserException("Do not support load into temporary table "
+                        + table.getDisplayName());
+                }
+                boolean isEnableMemtableOnSinkNode =
+                        table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = createTask(db, table, brokerFileGroups,
-                        isEnableMemtableOnSinkNode, aggKey, attachment);
+                        isEnableMemtableOnSinkNode, batchSize, aggKey, attachment);
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
@@ -330,42 +381,59 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         Database db = null;
         List<Table> tableList = null;
-        try {
-            db = getDb();
-            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitLockTables(tableList);
-            } else {
-                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        int retryTimes = 0;
+        while (true) {
+            try {
+                db = getDb();
+                tableList = db.getTablesOnIdOrderOrThrowException(
+                        Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitLockTables(tableList);
+                } else {
+                    MetaLockUtils.writeLockTablesOrMetaException(tableList);
+                }
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("error_msg", "db has been deleted when job is loading")
+                        .build(), e);
+                cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                return;
             }
-        } catch (MetaNotFoundException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
-        }
-        try {
-            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("txn_id", transactionId)
-                    .add("msg", "Load job try to commit txn")
-                    .build());
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
-            afterLoadingTaskCommitTransaction(tableList);
-            afterCommit();
-        } catch (UserException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-        } finally {
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitUnlockTables(tableList);
-            } else {
-                MetaLockUtils.writeUnlockTables(tableList);
+            try {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("txn_id", transactionId)
+                        .add("msg", "Load job try to commit txn")
+                        .build());
+                Env.getCurrentGlobalTransactionMgr().commitTransactionWithoutLock(
+                        dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
+                afterLoadingTaskCommitTransaction(tableList);
+                afterCommit();
+                return;
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
+                        .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                        .build(), e);
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob {} because up to max retry time,exception {}", id, e);
+                        cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
+                                true);
+                        return;
+                    }
+                } else {
+                    cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                    return;
+                }
+            } finally {
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitUnlockTables(tableList);
+                } else {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
             }
         }
     }
@@ -384,6 +452,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
         SummaryBuilder builder = new SummaryBuilder();
+        // Id of summary profile will be shown as the profile id in the web page
         builder.profileId(String.valueOf(id));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
             builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
@@ -398,6 +467,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         builder.taskState(isFinished ? "FINISHED" : "RUNNING");
         builder.user(getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
+        builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);
         return builder.build();
@@ -455,7 +525,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         if (!enableProfile) {
             return;
         }
-        jobProfile.updateSummary(createTimestamp, getSummaryInfo(true), true, null);
+        jobProfile.updateSummary(getSummaryInfo(true), true, null);
         // jobProfile has been pushed into ProfileManager, remove reference in brokerLoadJob
         jobProfile = null;
     }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -61,9 +62,11 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public List<Slot> computeOutput() {
-        return outputExprs.stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Slot> slotOutput = ImmutableList.builderWithExpectedSize(outputExprs.size());
+        for (NamedExpression outputExpr : outputExprs) {
+            slotOutput.add(outputExpr.toSlot());
+        }
+        return slotOutput.build();
     }
 
     @Override
@@ -80,6 +83,26 @@ public abstract class LogicalSink<CHILD_TYPE extends Plan> extends LogicalUnary<
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), outputExprs);
+        return Objects.hash(getClass().hashCode(), outputExprs);
+    }
+
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        // should not be invoked
+    }
+
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        // should not be invoked
     }
 }

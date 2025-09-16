@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
@@ -30,13 +30,14 @@ import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * AggregateFunction 'array_agg'.
  */
-public class ArrayAgg extends AggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+public class ArrayAgg extends NotNullableAggregateFunction
+        implements UnaryExpression, ExplicitlyCastableSignature {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0))
     );
@@ -49,10 +50,15 @@ public class ArrayAgg extends AggregateFunction
         super("array_agg", distinct, arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayAgg(AggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayAgg(distinct, children.get(0));
+        return new ArrayAgg(getFunctionParams(distinct, children));
     }
 
     @Override
@@ -63,5 +69,10 @@ public class ArrayAgg extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new ArrayLiteral(new ArrayList<>(), this.getDataType());
     }
 }

@@ -23,6 +23,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "pipeline/common/distinct_agg_utils.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -32,7 +33,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class DistinctStreamingAggOperatorX;
 
 class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -55,7 +56,7 @@ private:
     Status _init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs);
     void _emplace_into_hash_table_to_distinct(vectorized::IColumn::Selector& distinct_row,
                                               vectorized::ColumnRawPtrs& key_columns,
-                                              const size_t num_rows);
+                                              const uint32_t num_rows);
     void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
 
@@ -65,7 +66,6 @@ private:
         _cache_block = block->clone_empty();
     }
 
-    std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     size_t _input_num_rows = 0;
@@ -73,8 +73,7 @@ private:
     bool _stop_emplace_flag = false;
     const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    AggregatedDataVariantsUPtr _agg_data = nullptr;
-    std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
+    std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     std::unique_ptr<vectorized::Arena> _agg_profile_arena = nullptr;
@@ -97,16 +96,27 @@ class DistinctStreamingAggOperatorX final
 public:
     DistinctStreamingAggOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                   const DescriptorTbl& descs, bool require_bucket_distribution);
+#ifdef BE_TEST
+    DistinctStreamingAggOperatorX()
+            : _needs_finalize(false),
+              _is_first_phase(true),
+              _partition_exprs({}),
+              _is_colocate(false),
+              _require_bucket_distribution {false} {}
+#endif
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
     Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) const override;
     Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
+        if (_needs_finalize && _probe_expr_ctxs.empty()) {
+            return {ExchangeType::NOOP};
+        }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
-            return _is_colocate && _require_bucket_distribution
+            return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
@@ -117,9 +127,7 @@ public:
 
 private:
     friend class DistinctStreamingAggLocalState;
-    TupleId _intermediate_tuple_id;
-    TupleDescriptor* _intermediate_tuple_desc = nullptr;
-
+    void init_make_nullable(RuntimeState* state);
     TupleId _output_tuple_id;
     TupleDescriptor* _output_tuple_desc = nullptr;
     const bool _needs_finalize;
@@ -129,12 +137,12 @@ private:
     const bool _require_bucket_distribution;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     std::vector<size_t> _make_nullable_keys;
-    /// The total size of the row from the aggregate functions.
-    size_t _total_size_of_aggregate_states = 0;
+
+    // If _is_streaming_preagg = true, deduplication will be abandoned in cases where the deduplication rate is low.
     bool _is_streaming_preagg = false;
 };
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

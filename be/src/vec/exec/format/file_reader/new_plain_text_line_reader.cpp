@@ -19,13 +19,16 @@
 
 #include <gen_cpp/Metrics_types.h>
 #include <glog/logging.h>
-#include <string.h>
 
+#include "util/debug_points.h"
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
-#include <memory>
 #include <ostream>
+#include <utility>
 
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
@@ -42,9 +45,14 @@
 // leave these 2 size small for debugging
 
 namespace doris {
-
-const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
-                                                           const size_t length) {
+#include "common/compile_check_begin.h"
+const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
+    // Avoid part bytes of the multi-char column separator have already been parsed,
+    // causing parse column separator error.
+    if (_state.curr_state == ReaderState::NORMAL ||
+        _state.curr_state == ReaderState::MATCH_ENCLOSE) {
+        _idx -= std::min(_column_sep_len - 1, _idx);
+    }
     _total_len = length;
     size_t bound = update_reading_bound(start);
 
@@ -72,8 +80,7 @@ const uint8_t* EncloseCsvLineReaderContext::read_line_impl(const uint8_t* start,
     return _result;
 }
 
-void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
-                                                   const uint8_t* col_sep_pos) {
+void EncloseCsvLineReaderCtx::on_col_sep_found(const uint8_t* start, const uint8_t* col_sep_pos) {
     const uint8_t* field_start = start + _idx;
     // record column separator's position
     _column_sep_positions.push_back(col_sep_pos - start);
@@ -81,20 +88,19 @@ void EncloseCsvLineReaderContext::on_col_sep_found(const uint8_t* start,
     _idx += forward_distance;
 }
 
-size_t EncloseCsvLineReaderContext::update_reading_bound(const uint8_t* start) {
-    _result = (uint8_t*)memmem(start + _idx, _total_len - _idx, line_delimiter.c_str(),
-                               line_delimiter_len);
+size_t EncloseCsvLineReaderCtx::update_reading_bound(const uint8_t* start) {
+    _result = call_find_line_sep(start + _idx, _total_len - _idx);
     if (_result == nullptr) {
         return _total_len;
     }
-    return _result - start + line_delimiter_len;
+    return _result - start + line_delimiter_length();
 }
 
 template <bool SingleChar>
-const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos(const uint8_t* curr_start,
-                                                                    size_t curr_len,
-                                                                    const char* column_sep,
-                                                                    size_t column_sep_len) {
+const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos(const uint8_t* curr_start,
+                                                                size_t curr_len,
+                                                                const char* column_sep,
+                                                                size_t column_sep_len) {
     const uint8_t* col_sep_pos = nullptr;
 
     if constexpr (SingleChar) {
@@ -112,13 +118,13 @@ const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos(const uint8_
     return col_sep_pos;
 }
 
-template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<true>(
+template const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos<true>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
 
-template const uint8_t* EncloseCsvLineReaderContext::look_for_column_sep_pos<false>(
+template const uint8_t* EncloseCsvLineReaderCtx::look_for_column_sep_pos<false>(
         const uint8_t* curr_start, size_t curr_len, const char* column_sep, size_t column_sep_len);
 
-void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_start(const uint8_t* start, size_t& len) {
     if (start[_idx] == _enclose) [[unlikely]] {
         _state.forward_to(ReaderState::PRE_MATCH_ENCLOSE);
         ++_idx;
@@ -127,7 +133,7 @@ void EncloseCsvLineReaderContext::_on_start(const uint8_t* start, size_t& len) {
     }
 }
 
-void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_normal(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
     size_t curr_len = len - _idx;
     const uint8_t* col_sep_pos =
@@ -138,37 +144,54 @@ void EncloseCsvLineReaderContext::_on_normal(const uint8_t* start, size_t& len) 
         _state.forward_to(ReaderState::START);
         return;
     }
-    // TODO(tsy): maybe potential bug when a multi-char is not read completely
     _idx = len;
 }
 
-void EncloseCsvLineReaderContext::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t& len) {
     do {
         do {
             if (start[_idx] == _escape) [[unlikely]] {
                 _should_escape = !_should_escape;
             } else if (_should_escape) [[unlikely]] {
                 _should_escape = false;
-            } else if (start[_idx] == _enclose) [[unlikely]] {
-                _state.forward_to(ReaderState::MATCH_ENCLOSE);
-                ++_idx;
-                return;
+            } else if (_quote_escape) {
+                // the last char is quote, so we need to check if the current char is quote to determine if it is escaped by quote
+                if (start[_idx] == _enclose) {
+                    // double quote, escaped by quote
+                    _quote_escape = false;
+                } else {
+                    // match enclose
+                    _quote_escape = false;
+                    _state.forward_to(ReaderState::MATCH_ENCLOSE);
+                    return;
+                }
+            } else if (start[_idx] == _enclose) {
+                _quote_escape = true;
+            } else {
+                _quote_escape = false;
             }
+
             ++_idx;
         } while (_idx != len);
 
         if (_idx != _total_len) {
             len = update_reading_bound(start);
         } else {
+            // It needs to set the result to nullptr for matching enclose may not be read
+            // after reading the output buf.
+            // Therefore, if the result is not set to nullptr,
+            // the parser will consider reading a line as there is a line delimiter.
+            _result = nullptr;
             break;
         }
     } while (true);
 }
 
-void EncloseCsvLineReaderContext::_on_match_enclose(const uint8_t* start, size_t& len) {
+void EncloseCsvLineReaderCtx::_on_match_enclose(const uint8_t* start, size_t& len) {
     const uint8_t* curr_start = start + _idx;
+    size_t curr_len = len - _idx;
     const uint8_t* delim_pos =
-            find_col_sep_func(curr_start, _column_sep_len, _column_sep.c_str(), _column_sep_len);
+            find_col_sep_func(curr_start, curr_len, _column_sep.c_str(), _column_sep_len);
 
     if (delim_pos != nullptr) [[likely]] {
         on_col_sep_found(start, delim_pos);
@@ -185,11 +208,11 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
                                                TextLineReaderCtxPtr line_reader_ctx, size_t length,
                                                size_t current_offset)
         : _profile(profile),
-          _file_reader(file_reader),
+          _file_reader(std::move(file_reader)),
           _decompressor(decompressor),
           _min_length(length),
           _total_read_bytes(0),
-          _line_reader_ctx(line_reader_ctx),
+          _line_reader_ctx(std::move(line_reader_ctx)),
           _input_buf(new uint8_t[INPUT_CHUNK]),
           _input_buf_size(INPUT_CHUNK),
           _input_buf_pos(0),
@@ -203,12 +226,8 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _more_input_bytes(0),
           _more_output_bytes(0),
           _current_offset(current_offset),
-          _bytes_read_counter(nullptr),
-          _read_timer(nullptr),
           _bytes_decompress_counter(nullptr),
           _decompress_timer(nullptr) {
-    _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
-    _read_timer = ADD_TIMER(_profile, "FileReadTime");
     _bytes_decompress_counter = ADD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES);
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
 }
@@ -265,7 +284,7 @@ void NewPlainTextLineReader::extend_input_buf() {
             _input_buf_size = _input_buf_size * 2;
         }
 
-        uint8_t* new_input_buf = new uint8_t[_input_buf_size];
+        auto* new_input_buf = new uint8_t[_input_buf_size];
         memmove(new_input_buf, _input_buf + _input_buf_pos, input_buf_read_remaining());
         delete[] _input_buf;
 
@@ -275,7 +294,19 @@ void NewPlainTextLineReader::extend_input_buf() {
     } while (false);
 }
 
-void NewPlainTextLineReader::extend_output_buf() {
+Status NewPlainTextLineReader::extend_output_buf() {
+    DBUG_EXECUTE_IF("NewPlainTextLineReader.read_line.limit_output_buf_size",
+                    { _output_buf_size = 4294967296; });
+
+    if (_output_buf_size >= config::max_csv_line_reader_output_buffer_size) [[unlikely]] {
+        return Status::InternalError(
+                "Output buffer size exceeds configured limit of " +
+                std::to_string(config::max_csv_line_reader_output_buffer_size /
+                               (1024 * 1024 * 1024)) +
+                "GB. "
+                "It may be due to a configuration error or a very large row of data.");
+    }
+
     // left capacity
     size_t capacity = _output_buf_size - _output_buf_limit;
     // we want at least 1024 bytes capacity left
@@ -302,7 +333,7 @@ void NewPlainTextLineReader::extend_output_buf() {
             _output_buf_size = _output_buf_size * 2;
         }
 
-        uint8_t* new_output_buf = new uint8_t[_output_buf_size];
+        auto* new_output_buf = new uint8_t[_output_buf_size];
         memmove(new_output_buf, _output_buf + _output_buf_pos, output_buf_read_remaining());
         delete[] _output_buf;
 
@@ -310,6 +341,8 @@ void NewPlainTextLineReader::extend_output_buf() {
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
     } while (false);
+
+    return Status::OK();
 }
 
 Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof,
@@ -320,7 +353,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         return Status::OK();
     }
     _line_reader_ctx->refresh();
-    int found_line_delimiter = 0;
+    size_t found_line_delimiter = 0;
     size_t offset = 0;
     bool stream_end = true;
     while (!done()) {
@@ -328,13 +361,16 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
         uint8_t* cur_ptr = _output_buf + _output_buf_pos;
         const uint8_t* pos = _line_reader_ctx->read_line(cur_ptr, output_buf_read_remaining());
 
+        DBUG_EXECUTE_IF("NewPlainTextLineReader.read_line.limit_output_buf_size",
+                        { pos = nullptr; });
+
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor
             // for multi bytes delimiter we cannot set offset to avoid incomplete
             // delimiter
             // read from file reader
             offset = output_buf_read_remaining();
-            extend_output_buf();
+            RETURN_IF_ERROR(extend_output_buf());
             if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
                 // we still have data in input which is not decompressed.
                 // and no more data is required for input
@@ -366,16 +402,12 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                     }
                 }
 
-                {
-                    SCOPED_TIMER(_read_timer);
-                    Slice file_slice(file_buf, buffer_len);
-                    RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
-                    _current_offset += read_len;
-                    if (read_len == 0) {
-                        _file_eof = true;
-                    }
-                    COUNTER_UPDATE(_bytes_read_counter, read_len);
+                Slice file_slice(file_buf, buffer_len);
+                RETURN_IF_ERROR(
+                        _file_reader->read_at(_current_offset, file_slice, &read_len, io_ctx));
+                _current_offset += read_len;
+                if (read_len == 0) {
+                    _file_eof = true;
                 }
                 if (_file_eof || read_len == 0) {
                     if (!stream_end) {
@@ -413,18 +445,19 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 _more_input_bytes = 0;
                 _more_output_bytes = 0;
                 RETURN_IF_ERROR(_decompressor->decompress(
-                        _input_buf + _input_buf_pos,                        /* input */
-                        _input_buf_limit - _input_buf_pos,                  /* input_len */
-                        &input_read_bytes, _output_buf + _output_buf_limit, /* output */
-                        _output_buf_size - _output_buf_limit,               /* output_max_len */
+                        _input_buf + _input_buf_pos,                           /* input */
+                        cast_set<uint32_t>(_input_buf_limit - _input_buf_pos), /* input_len */
+                        &input_read_bytes, _output_buf + _output_buf_limit,    /* output */
+                        cast_set<uint32_t>(_output_buf_size -
+                                           _output_buf_limit), /* output_max_len */
                         &decompressed_len, &stream_end, &_more_input_bytes, &_more_output_bytes));
 
-                // LOG(INFO) << "after decompress:"
-                //           << " stream_end: " << stream_end
-                //           << " input_read_bytes: " << input_read_bytes
-                //           << " decompressed_len: " << decompressed_len
-                //           << " more_input_bytes: " << _more_input_bytes
-                //           << " more_output_bytes: " << _more_output_bytes;
+                VLOG_DEBUG << "after decompress:"
+                           << " stream_end: " << stream_end
+                           << " input_read_bytes: " << input_read_bytes
+                           << " decompressed_len: " << decompressed_len
+                           << " more_input_bytes: " << _more_input_bytes
+                           << " more_output_bytes: " << _more_output_bytes;
 
                 // update pos and limit
                 _input_buf_pos += input_read_bytes;
@@ -486,4 +519,5 @@ void NewPlainTextLineReader::_collect_profile_before_close() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

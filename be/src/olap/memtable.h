@@ -23,20 +23,16 @@
 #include <cstring>
 #include <functional>
 #include <memory>
-#include <optional>
-#include <ostream>
 #include <vector>
 
-#include "common/object_pool.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
-#include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
 #include "olap/tablet_schema.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/arena.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -46,6 +42,11 @@ class SlotDescriptor;
 class TabletSchema;
 class TupleDescriptor;
 enum KeysType : int;
+
+// Active: the memtable is currently used by writer to insert into blocks
+// Write_finished: the memtable finished write blocks and in the queue waiting for flush
+// FLUSH: the memtable is under flushing, write segment to disk.
+enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
 
 // row pos in _input_mutable_block
 struct RowInBlock {
@@ -117,8 +118,8 @@ public:
     Tie(size_t begin, size_t end) : _begin(begin), _end(end) {
         _bits = std::vector<uint8_t>(_end - _begin, 1);
     }
-    uint8_t operator[](int i) const { return _bits[i - _begin]; }
-    uint8_t& operator[](int i) { return _bits[i - _begin]; }
+    uint8_t operator[](size_t i) const { return _bits[i - _begin]; }
+    uint8_t& operator[](size_t i) { return _bits[i - _begin]; }
     Iter iter() { return Iter(*this); }
 
 private:
@@ -129,7 +130,8 @@ private:
 
 class RowInBlockComparator {
 public:
-    RowInBlockComparator(const TabletSchema* tablet_schema) : _tablet_schema(tablet_schema) {}
+    RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema)
+            : _tablet_schema(tablet_schema) {}
     // call set_block before operator().
     // only first time insert block to create _input_mutable_block,
     // so can not Comparator of construct to set pblock
@@ -137,7 +139,7 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
     vectorized::MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
@@ -168,20 +170,17 @@ public:
 
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, const TabletSchema* tablet_schema,
+    MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<MemTracker>& insert_mem_tracker,
-             const std::shared_ptr<MemTracker>& flush_mem_tracker);
+             const std::shared_ptr<ResourceContext>& resource_ctx);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
-    size_t memory_usage() const {
-        return _insert_mem_tracker->consumption() + _arena->used_size() +
-               _flush_mem_tracker->consumption();
-    }
+    size_t memory_usage() const { return _mem_tracker->consumption(); }
+    size_t get_flush_reserve_memory_size() const;
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    Status insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs);
+    Status insert(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs);
 
     void shrink_memtable_by_agg();
 
@@ -195,38 +194,43 @@ public:
 
     const MemTableStat& stat() { return _stat; }
 
-    std::shared_ptr<MemTracker> flush_mem_tracker() { return _flush_mem_tracker; }
+    std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
-    QueryThreadContext query_thread_context() { return _query_thread_context; }
+    std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
+
+    void set_flush_success() { _is_flush_success = true; }
+
+    MemType get_mem_type() { return _mem_type; }
+
+    void update_mem_type(MemType memtype) { _mem_type = memtype; }
 
 private:
     // for vectorized
+    template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(vectorized::MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
 
+    // Used to wrapped by to_block to do exception handle logic
+    Status _to_block(std::unique_ptr<vectorized::Block>* res);
+
 private:
+    std::atomic<MemType> _mem_type;
     int64_t _tablet_id;
     bool _enable_unique_key_mow = false;
-    bool _is_partial_update = false;
+    bool _is_flush_success = false;
+    UniqueKeyUpdateModePB _partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
     const KeysType _keys_type;
-    const TabletSchema* _tablet_schema = nullptr;
+    std::shared_ptr<TabletSchema> _tablet_schema;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
-    QueryThreadContext _query_thread_context;
+    std::shared_ptr<ResourceContext> _resource_ctx;
 
-    // `_insert_manual_mem_tracker` manually records the memory value of memtable insert()
-    // `_flush_hook_mem_tracker` automatically records the memory value of memtable flush() through mem hook.
-    // Is used to flush when _insert_manual_mem_tracker larger than write_buffer_size and run flush memtable
-    // when the sum of all memtable (_insert_manual_mem_tracker + _flush_hook_mem_tracker) exceeds the limit.
-    std::shared_ptr<MemTracker> _insert_mem_tracker;
-    std::shared_ptr<MemTracker> _flush_mem_tracker;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // Only the rows will be inserted into block can allocate memory from _arena.
     // In this way, we can make MemTable::memory_usage() to be more accurate, and eventually
     // reduce the number of segment files that are generated by current load
-    std::unique_ptr<vectorized::Arena> _arena;
-    // The object buffer pool for convert tuple to row
-    ObjectPool _agg_buffer_pool;
+    vectorized::Arena _arena;
 
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
@@ -241,17 +245,34 @@ private:
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
     size_t _last_sorted_pos = 0;
+    size_t _last_agg_pos = 0;
 
     //return number of same keys
     size_t _sort();
     Status _sort_by_cluster_keys();
-    void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
-                          std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
+    void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
+                          std::function<int(RowInBlock*, RowInBlock*)> cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, const vectorized::ColumnsWithTypeAndName& block_data,
                            int row_pos);
-    template <bool is_final>
+    void _init_row_for_agg(RowInBlock* row, vectorized::MutableBlock& mutable_block);
+    void _clear_row_agg(RowInBlock* row);
+
+    template <bool is_final, bool has_skip_bitmap_col = false>
     void _aggregate();
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_without_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block,
+            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+
+    template <bool is_final>
+    void _aggregate_for_flexible_partial_update_with_seq_col(
+            const vectorized::ColumnsWithTypeAndName& block_data,
+            vectorized::MutableBlock& mutable_block,
+            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
+
     Status _put_into_output(vectorized::Block& in_block);
     bool _is_first_insertion;
 
@@ -259,12 +280,14 @@ private:
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
-    std::vector<RowInBlock*> _row_in_blocks;
-    // Memory usage without _arena.
-    size_t _mem_usage;
+    std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
 
     size_t _num_columns;
-    int32_t _seq_col_idx_in_block = -1;
+    int32_t _seq_col_idx_in_block {-1};
+    int32_t _skip_bitmap_col_idx {-1};
+    int32_t _delete_sign_col_idx {-1};
+    int32_t _delete_sign_col_unique_id {-1};
+    int32_t _seq_col_unique_id {-1};
 
     bool _is_partial_update_and_auto_inc = false;
 }; // class MemTable

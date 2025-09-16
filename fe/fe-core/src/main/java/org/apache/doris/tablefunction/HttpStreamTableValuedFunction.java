@@ -40,9 +40,9 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
         // 1. analyze common properties
         super.parseCommonProperties(properties);
 
-        if (fileFormatType == TFileFormatType.FORMAT_PARQUET
-                || fileFormatType == TFileFormatType.FORMAT_AVRO
-                || fileFormatType == TFileFormatType.FORMAT_ORC) {
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_PARQUET
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_AVRO
+                || fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_ORC) {
             throw new AnalysisException("http_stream does not yet support parquet, avro and orc");
         }
     }
@@ -60,7 +60,7 @@ public class HttpStreamTableValuedFunction extends ExternalFileTableValuedFuncti
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("HttpStreamTvfBroker", StorageType.STREAM, locationProperties);
+        return new BrokerDesc("HttpStreamTvfBroker", StorageType.STREAM, processedParams);
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================

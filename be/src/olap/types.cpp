@@ -48,7 +48,7 @@ bool is_olap_string_type(FieldType field_type) {
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:
     case FieldType::OLAP_FIELD_TYPE_HLL:
-    case FieldType::OLAP_FIELD_TYPE_OBJECT:
+    case FieldType::OLAP_FIELD_TYPE_BITMAP:
     case FieldType::OLAP_FIELD_TYPE_STRING:
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         return true;
@@ -85,7 +85,7 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
             nullptr,
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_HLL>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BOOL>(),
-            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_OBJECT>(),
+            get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_BITMAP>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_STRING>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE>(),
             get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_DATEV2>(),
@@ -161,7 +161,7 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
             {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_HLL),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_BOOL),
-            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_OBJECT),
+            INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_BITMAP),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_STRING),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE),
             INIT_ARRAY_TYPE_INFO_LIST(FieldType::OLAP_FIELD_TYPE_DATEV2),

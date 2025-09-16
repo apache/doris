@@ -28,18 +28,18 @@ import java.util.List;
 import java.util.Map;
 
 /** UnknownPartitionEvaluator */
-public class UnknownPartitionEvaluator implements OnePartitionEvaluator {
-    private final long partitionId;
+public class UnknownPartitionEvaluator<K> implements OnePartitionEvaluator<K> {
+    private final K partitionIdent;
     private final PartitionItem partitionItem;
 
-    public UnknownPartitionEvaluator(long partitionId, PartitionItem partitionItem) {
-        this.partitionId = partitionId;
+    public UnknownPartitionEvaluator(K partitionId, PartitionItem partitionItem) {
+        this.partitionIdent = partitionId;
         this.partitionItem = partitionItem;
     }
 
     @Override
-    public long getPartitionId() {
-        return partitionId;
+    public K getPartitionIdent() {
+        return partitionIdent;
     }
 
     @Override

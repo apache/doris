@@ -35,36 +35,32 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
 
-class DataTypeIPv6 final : public DataTypeNumberBase<IPv6> {
+class DataTypeIPv6 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV6> {
 public:
-    TypeIndex get_type_id() const override { return TypeIndex::IPv6; }
-    TypeDescriptor get_type_as_type_descriptor() const override {
-        return TypeDescriptor(TYPE_IPV6);
-    }
+    PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_IPV6; }
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_IPV6;
     }
-    const char* get_family_name() const override { return "IPv6"; }
+    const std::string get_family_name() const override { return "IPv6"; }
     std::string do_get_name() const override { return "IPv6"; }
 
     bool equals(const IDataType& rhs) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<IPv6>::template to_string_batch_impl<DataTypeIPv6>(column, column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_IPV6>::template to_string_batch_impl<DataTypeIPv6>(
+                column, column_to);
     }
 
     size_t number_length() const;
-    void push_bumber(ColumnString::Chars& chars, const IPv6& num) const;
+    void push_number(ColumnString::Chars& chars, const IPv6& num) const;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    std::string to_string(const IPv6& value) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    static std::string to_string(const IPv6& value);
 
     Field get_field(const TExprNode& node) const override {
         IPv6 value;
@@ -72,13 +68,14 @@ public:
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type IPv6", node.ipv6_literal.value);
         }
-        return value;
+        return Field::create_field<TYPE_IPV6>(value);
     }
 
     MutableColumnPtr create_column() const override;
 
+    using SerDeType = DataTypeIPv6SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeIPv6SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 };
 

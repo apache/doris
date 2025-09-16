@@ -17,13 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -32,7 +29,7 @@ import org.apache.logging.log4j.Logger;
 /**
  * Representation of a USE db statement.
  */
-public class UseStmt extends StatementBase {
+public class UseStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(UseStmt.class);
     private String catalogName;
     private String database;
@@ -66,21 +63,19 @@ public class UseStmt extends StatementBase {
     }
 
     @Override
+    public StmtType stmtType() {
+        return StmtType.USE;
+    }
+
+    @Override
     public String toString() {
         return toSql();
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        super.analyze(analyzer);
+    public void analyze() throws AnalysisException, UserException {
+        super.analyze();
         if (Strings.isNullOrEmpty(database)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
-
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), ConnectContext.get().getDefaultCatalog(), database,
-                        PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    analyzer.getQualifiedUser(), database);
         }
     }
 

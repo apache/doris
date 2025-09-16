@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
@@ -37,11 +40,19 @@ public interface ComputePrecisionForRound extends ComputePrecision {
             Expression floatLength = getArgument(1);
             int scale;
 
+            if (!floatLength.isLiteral() && !floatLength.isSlot()) {
+                ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(
+                        CascadesContext.initTempContext());
+                floatLength = FoldConstantRuleOnFE.evaluate(floatLength, rewriteContext);
+            }
+
             // If scale arg is an integer literal, or it is a cast(Integer as Integer)
             // then we will try to use its value as result scale
             // In any other cases, we will make sure result decimal has same scale with input.
-            if ((floatLength.isLiteral() && floatLength.getDataType() instanceof Int32OrLessType)
+            if ((floatLength.isLiteral() && !floatLength.isNullLiteral()
+                    && floatLength.getDataType() instanceof Int32OrLessType)
                     || (floatLength instanceof Cast && floatLength.child(0).isLiteral()
+                    && !floatLength.child(0).isNullLiteral()
                     && floatLength.child(0).getDataType() instanceof Int32OrLessType)) {
                 if (floatLength instanceof Cast) {
                     scale = ((IntegerLikeLiteral) floatLength.child(0)).getIntValue();

@@ -28,6 +28,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -61,10 +63,11 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -79,8 +82,17 @@ import java.util.stream.Collectors;
  * Update mv by partition
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
+    private static final Logger LOG = LogManager.getLogger(UpdateMvByPartitionCommand.class);
+
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty(), Optional.empty());
+        super(logicalQuery, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    @Override
+    public boolean isForceDropPartition() {
+        // After refreshing the data in MTMV, it will be synchronized with the base table
+        // and there is no need to put it in the recycle bin
+        return true;
     }
 
     /**
@@ -104,6 +116,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         }
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
                 ImmutableList.of(), ImmutableList.of(), parts, plan);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
+                    sink.treeString());
+        }
         return new UpdateMvByPartitionCommand(sink);
     }
 
@@ -225,10 +241,14 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             }
             List<String> tableQualifier = RelationUtil.getQualifierName(ConnectContext.get(),
                     unboundRelation.getNameParts());
-            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
+            TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv(), Optional.empty());
             if (predicates.getPredicates().containsKey(table)) {
-                return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
-                        unboundRelation);
+                return new LogicalFilter<>(
+                        ExpressionUtils.extractConjunctionToSet(
+                                ExpressionUtils.or(predicates.getPredicates().get(table))
+                        ),
+                        unboundRelation
+                );
             }
             return unboundRelation;
         }
@@ -238,11 +258,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.isEmpty()) {
                 return cte;
             }
+            List<LogicalSubQueryAlias<Plan>> rewrittenSubQueryAlias = new ArrayList<>();
             for (LogicalSubQueryAlias<Plan> subQueryAlias : cte.getAliasQueries()) {
+                List<Plan> subQueryAliasChildren = new ArrayList<>();
                 this.virtualRelationNamePartSet.add(subQueryAlias.getQualifier());
-                subQueryAlias.children().forEach(subQuery -> subQuery.accept(this, predicates));
+                subQueryAlias.children().forEach(subQuery ->
+                        subQueryAliasChildren.add(subQuery.accept(this, predicates))
+                );
+                rewrittenSubQueryAlias.add(subQueryAlias.withChildren(subQueryAliasChildren));
             }
-            return super.visitLogicalCTE(cte, predicates);
+            return super.visitLogicalCTE(new LogicalCTE<>(rewrittenSubQueryAlias, cte.child()), predicates);
         }
 
         @Override
@@ -265,7 +290,9 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             if (predicates.getPredicates() != null) {
                 if (predicates.getPredicates().containsKey(table)) {
                     return new LogicalFilter<>(
-                            ImmutableSet.of(ExpressionUtils.or(predicates.getPredicates().get(table))),
+                            ExpressionUtils.extractConjunctionToSet(
+                                    ExpressionUtils.or(predicates.getPredicates().get(table))
+                            ),
                             catalogRelation);
                 }
             }
@@ -293,25 +320,28 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     MTMVRelatedTableIf targetTable = (MTMVRelatedTableIf) table;
                     for (String partitionName : filterTableEntry.getValue()) {
                         Partition partition = targetTable.getPartition(partitionName);
-                        if (!(targetTable instanceof OlapTable)) {
-                            // check partition is have data or not, only support olap table
-                            break;
-                        }
-                        if (!((OlapTable) targetTable).selectNonEmptyPartitionIds(
+                        if (targetTable instanceof OlapTable && !((OlapTable) targetTable).selectNonEmptyPartitionIds(
                                 Lists.newArrayList(partition.getId())).isEmpty()) {
-                            // Add filter only when partition has data
+                            // Add filter only when partition has data when olap table
                             partitionHasDataItems.add(
                                     ((OlapTable) targetTable).getPartitionInfo().getItem(partition.getId()));
+                        }
+                        if (targetTable instanceof ExternalTable) {
+                            // Add filter only when partition has data when external table
+                            partitionHasDataItems.add(((ExternalTable) targetTable).getNameToPartitionItems(
+                                    MvccUtil.getSnapshotFromContext(targetTable)).get(partitionName));
                         }
                     }
                     if (partitionHasDataItems.isEmpty()) {
                         predicates.setNeedAddFilter(false);
                     }
                     if (!partitionHasDataItems.isEmpty()) {
-                        Set<Expression> partitionExpressions =
-                                constructPredicates(partitionHasDataItems, partitionSlot);
-                        return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
-                                catalogRelation);
+                        return new LogicalFilter<>(
+                                ExpressionUtils.extractConjunctionToSet(
+                                        ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot))
+                                ),
+                                catalogRelation
+                        );
                     }
                 }
             }

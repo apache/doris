@@ -31,7 +31,6 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -40,14 +39,11 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopUGI;
-import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -61,13 +57,15 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
-import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
+import java.io.IOException;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -94,6 +92,13 @@ public class HiveMetaStoreClientHelper {
     public static final String COMMENT = "comment";
 
     private static final Pattern digitPattern = Pattern.compile("(\\d+)");
+
+    public static final String HIVE_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
+    public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
+    public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
+    public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    public static final String HIVE_OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    public static final String HIVE_MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -711,7 +716,10 @@ public class HiveMetaStoreClientHelper {
         return Type.UNSUPPORTED;
     }
 
-    public static String showCreateTable(org.apache.hadoop.hive.metastore.api.Table remoteTable) {
+    public static String showCreateTable(HMSExternalTable hmsTable) {
+        // Always use the latest schema
+        HMSExternalCatalog catalog = (HMSExternalCatalog) hmsTable.getCatalog();
+        Table remoteTable = catalog.getClient().getTable(hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         StringBuilder output = new StringBuilder();
         if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
             output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
@@ -801,53 +809,50 @@ public class HiveMetaStoreClientHelper {
         return output.toString();
     }
 
-    public static Schema getHudiTableSchema(HMSExternalTable table) {
-        HoodieTableMetaClient metaClient = getHudiClient(table);
+    public static InternalSchema getHudiTableSchema(HMSExternalTable table, boolean[] enableSchemaEvolution,
+            String timestamp) {
+        HoodieTableMetaClient metaClient = table.getHudiClient();
         TableSchemaResolver schemaUtil = new TableSchemaResolver(metaClient);
-        Schema hudiSchema;
-        try {
-            hudiSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchema());
-        } catch (Exception e) {
-            throw new RuntimeException("Cannot get hudi table schema.", e);
-        }
-        return hudiSchema;
-    }
 
-    public static <T> T ugiDoAs(long catalogId, PrivilegedExceptionAction<T> action) {
-        return ugiDoAs(((ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId)).getConfiguration(),
-                action);
+        // Here, the timestamp should be reloaded again.
+        // Because when hudi obtains the schema in `getTableAvroSchema`, it needs to read the specified commit file,
+        // which is saved in the `metaClient`.
+        // But the `metaClient` is obtained from cache, so the file obtained may be an old file.
+        // This file may be deleted by hudi clean task, and an error will be reported.
+        // So, we should reload timeline so that we can read the latest commit files.
+        metaClient.reloadActiveTimeline();
+
+        Option<InternalSchema> internalSchemaOption = schemaUtil.getTableInternalSchemaFromCommitMetadata(timestamp);
+
+        if (internalSchemaOption.isPresent()) {
+            enableSchemaEvolution[0] = true;
+            return internalSchemaOption.get();
+        } else {
+            try {
+                // schema evolution is not enabled. (hoodie.schema.on.read.enable = false).
+                enableSchemaEvolution[0] = false;
+                // AvroInternalSchemaConverter.convert() will generator field id.
+                return AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot get hudi table schema.", e);
+            }
+        }
     }
 
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
-        AuthenticationConfig krbConfig = AuthenticationConfig.getKerberosConfig(conf,
-                AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
-                AuthenticationConfig.HADOOP_KERBEROS_KEYTAB);
-        return HadoopUGI.ugiDoAs(krbConfig, action);
-    }
-
-    public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
-        String hudiBasePath = table.getRemoteTable().getSd().getLocation();
-        Configuration conf = getConfiguration(table);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("try setting 'fs.xxx.impl.disable.cache' to true for hudi's base path: {}", hudiBasePath);
+        AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        try {
+            return hadoopAuthenticator.doAs(action);
+        } catch (IOException e) {
+            LOG.warn("HiveMetaStoreClientHelper ugiDoAs failed.", e);
+            throw new RuntimeException(e);
         }
-        URI hudiBasePathUri = URI.create(hudiBasePath);
-        String scheme = hudiBasePathUri.getScheme();
-        if (!Strings.isNullOrEmpty(scheme)) {
-            // Avoid using Cache in Hadoop FileSystem, which may cause FE OOM.
-            conf.set("fs." + scheme + ".impl.disable.cache", "true");
-        }
-        return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
-                () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }
 
     public static Configuration getConfiguration(HMSExternalTable table) {
-        Configuration conf = DFSFileSystem.getHdfsConf(table.getCatalog().ifNotSetFallbackToSimpleAuth());
-        for (Map.Entry<String, String> entry : table.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
+        return table.getCatalog().getConfiguration();
     }
 
     public static Optional<String> getSerdeProperty(Table table, String key) {
@@ -858,7 +863,7 @@ public class HiveMetaStoreClientHelper {
 
     private static Optional<String> firstNonNullable(String... values) {
         for (String value : values) {
-            if (!Strings.isNullOrEmpty(value)) {
+            if (value != null) {
                 return Optional.of(value);
             }
         }
@@ -872,5 +877,24 @@ public class HiveMetaStoreClientHelper {
             }
         }
         return defaultValue;
+    }
+
+    /**
+     * Return the byte value of the number string.
+     *
+     * @param altValue
+     *                 The string containing a number.
+     * @param defValue
+     *                 The default value to return if altValue is invalid.
+     */
+    public static String getByte(String altValue, String defValue) {
+        if (altValue != null && altValue.length() > 0) {
+            try {
+                return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
+            } catch (NumberFormatException e) {
+                return altValue.substring(0, 1);
+            }
+        }
+        return defValue;
     }
 }

@@ -62,7 +62,7 @@ public class DropIndexClause extends AlterTableClause {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (StringUtils.isEmpty(indexName)) {
             throw new AnalysisException("index name is excepted");
         }
@@ -80,8 +80,12 @@ public class DropIndexClause extends AlterTableClause {
 
     @Override
     public String toSql() {
+        return toSql(alter);
+    }
+
+    public String toSql(boolean alter) {
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("DROP INDEX ").append(indexName);
+        stringBuilder.append("DROP INDEX ").append("`" + indexName + "`");
         if (!alter) {
             stringBuilder.append(" ON ").append(tableName.toSql());
         }

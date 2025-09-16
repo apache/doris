@@ -25,8 +25,8 @@
 #include "parallel_hashmap/phmap_utils.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 // Here is an empirical value.
 static constexpr size_t HASH_MAP_PREFETCH_DIST = 16;
@@ -118,6 +118,11 @@ inline size_t hash_crc32(doris::vectorized::UInt128 u) {
 }
 
 template <>
+inline size_t hash_crc32(unsigned __int128 u) {
+    return doris::vectorized::UInt128HashCRC32()(u);
+}
+
+template <>
 inline size_t hash_crc32(doris::vectorized::Int128 u) {
     return doris::vectorized::UInt128HashCRC32()({(u >> 64) & int64_t(-1), u & int64_t(-1)});
 }
@@ -142,6 +147,7 @@ DEFINE_HASH(doris::vectorized::Int64)
 DEFINE_HASH(doris::vectorized::Int128)
 DEFINE_HASH(doris::vectorized::Float32)
 DEFINE_HASH(doris::vectorized::Float64)
+DEFINE_HASH(unsigned __int128)
 
 #undef DEFINE_HASH
 
@@ -188,7 +194,10 @@ struct HashCRC32<doris::vectorized::UInt136> {
     size_t operator()(const doris::vectorized::UInt136& x) const {
 #if defined(__SSE4_2__) || defined(__aarch64__)
         doris::vectorized::UInt64 crc = -1ULL;
+#include "common/compile_check_avoid_begin.h"
+        //_mm_crc32_u8 does not provide a u64 interface, so there is an unavoidable conversion from u64 to u32 here.
         crc = _mm_crc32_u8(crc, x.a);
+#include "common/compile_check_avoid_end.h"
         crc = _mm_crc32_u64(crc, x.b);
         crc = _mm_crc32_u64(crc, x.c);
         return crc;

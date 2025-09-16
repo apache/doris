@@ -17,6 +17,8 @@
 
 // nereids_testJoinOnLeftProjectToJoin
 suite ("joinOnLeftPToJoin") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS joinOnLeftPToJoin; """
@@ -30,6 +32,8 @@ suite ("joinOnLeftPToJoin") {
                 commission int)
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
+
+    sql """alter table joinOnLeftPToJoin modify column time_col set stats ('row_count'='3');"""
 
     sql """insert into joinOnLeftPToJoin values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into joinOnLeftPToJoin values("2020-01-03",3,"c",3,3,3);"""
@@ -45,30 +49,29 @@ suite ("joinOnLeftPToJoin") {
         partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into joinOnLeftPToJoin_1 values("2020-01-02",2,"b",2);"""
     sql """insert into joinOnLeftPToJoin_1 values("2020-01-03",3,"c",3);"""
     sql """insert into joinOnLeftPToJoin_1 values("2020-01-02",2,"b",1);"""
 
-    createMV("create materialized view joinOnLeftPToJoin_mv as select deptno, sum(salary), sum(commission) from joinOnLeftPToJoin group by deptno;")
+    createMV("create materialized view joinOnLeftPToJoin_mv as select deptno as a1, sum(salary) as a2, sum(commission) as a3 from joinOnLeftPToJoin group by deptno;")
     sleep(3000)
-    createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno;")
+    createMV("create materialized view joinOnLeftPToJoin_1_mv as select deptno as a4, max(cost) as a5 from joinOnLeftPToJoin_1 group by deptno;")
     sleep(3000)
 
     sql "analyze table joinOnLeftPToJoin with sync;"
     sql "analyze table joinOnLeftPToJoin_1 with sync;"
+    sql """alter table joinOnLeftPToJoin_1 modify column time_col set stats ('row_count'='3');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;")
-        contains "(joinOnLeftPToJoin_mv)"
-        contains "(joinOnLeftPToJoin_1_mv)"
-    }
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;",
+    ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
+
     order_qt_select_mv "select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;")
-        contains "(joinOnLeftPToJoin_mv)"
-        contains "(joinOnLeftPToJoin_1_mv)"
-    }
+
+    mv_rewrite_all_success("select * from (select deptno , sum(salary) from joinOnLeftPToJoin group by deptno) A join (select deptno, max(cost) from joinOnLeftPToJoin_1 group by deptno ) B on A.deptno = B.deptno;",
+            ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 }

@@ -20,17 +20,17 @@
 
 #pragma once
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/arithmetic_overflow.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/array/function_array_utils.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct AggregateFunctionForEachData {
     size_t dynamic_array_size = 0;
@@ -53,7 +53,9 @@ struct AggregateFunctionForEachData {
   * TODO Allow variable number of arguments.
   */
 class AggregateFunctionForEach : public IAggregateFunctionDataHelper<AggregateFunctionForEachData,
-                                                                     AggregateFunctionForEach> {
+                                                                     AggregateFunctionForEach>,
+                                 VarargsExpression,
+                                 NullableAggregateFunction {
 protected:
     using Base =
             IAggregateFunctionDataHelper<AggregateFunctionForEachData, AggregateFunctionForEach>;
@@ -112,7 +114,7 @@ protected:
 
             for (i = 0; i < old_size; ++i) {
                 nested_function->merge(&new_state[i * nested_size_of_data],
-                                       &old_state[i * nested_size_of_data], &arena);
+                                       &old_state[i * nested_size_of_data], arena);
                 nested_function->destroy(&old_state[i * nested_size_of_data]);
             }
 
@@ -161,10 +163,10 @@ public:
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena* arena) const override {
+               Arena& arena) const override {
         const AggregateFunctionForEachData& rhs_state = data(rhs);
         AggregateFunctionForEachData& state =
-                ensure_aggregate_data(place, rhs_state.dynamic_array_size, *arena);
+                ensure_aggregate_data(place, rhs_state.dynamic_array_size, arena);
 
         const char* rhs_nested_state = rhs_state.array_of_aggregate_datas;
         char* nested_state = state.array_of_aggregate_datas;
@@ -179,7 +181,7 @@ public:
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         const AggregateFunctionForEachData& state = data(place);
-        write_binary(state.dynamic_array_size, buf);
+        buf.write_binary(state.dynamic_array_size);
         const char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < state.dynamic_array_size; ++i) {
             nested_function->serialize(nested_state, buf);
@@ -188,13 +190,13 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena* arena) const override {
+                     Arena& arena) const override {
         AggregateFunctionForEachData& state = data(place);
 
         size_t new_size = 0;
-        read_binary(new_size, buf);
+        buf.read_binary(new_size);
 
-        ensure_aggregate_data(place, new_size, *arena);
+        ensure_aggregate_data(place, new_size, arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = 0; i < new_size; ++i) {
@@ -219,21 +221,17 @@ public:
         offsets_to.push_back(offsets_to.back() + state.dynamic_array_size);
     }
 
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
-
-    bool is_state() const override { return nested_function->is_state(); }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena& arena) const override {
         std::vector<const IColumn*> nested(num_arguments);
 
         for (size_t i = 0; i < num_arguments; ++i) {
-            nested[i] = &assert_cast<const ColumnArray&>(*columns[i]).get_data();
+            nested[i] = &assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i])
+                                 .get_data();
         }
 
-        const auto& first_array_column = assert_cast<const ColumnArray&>(*columns[0]);
+        const auto& first_array_column =
+                assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& offsets = first_array_column.get_offsets();
 
         size_t begin = offsets[row_num - 1];
@@ -241,7 +239,8 @@ public:
 
         /// Sanity check. NOTE We can implement specialization for a case with single argument, if the check will hurt performance.
         for (size_t i = 1; i < num_arguments; ++i) {
-            const auto& ith_column = assert_cast<const ColumnArray&>(*columns[i]);
+            const auto& ith_column =
+                    assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
             const auto& ith_offsets = ith_column.get_offsets();
 
             if (ith_offsets[row_num] != end ||
@@ -252,7 +251,7 @@ public:
             }
         }
 
-        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, *arena);
+        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = begin; i < end; ++i) {
@@ -262,3 +261,5 @@ public:
     }
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

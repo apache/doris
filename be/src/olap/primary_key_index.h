@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -33,6 +34,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TypeInfo;
 
 namespace io {
@@ -107,13 +109,16 @@ public:
     }
 
     Status parse_index(io::FileReaderSPtr file_reader,
-                       const segment_v2::PrimaryKeyIndexMetaPB& meta);
+                       const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                       OlapReaderStatistics* pk_index_load_stats);
 
-    Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
+    Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta,
+                    OlapReaderStatistics* pk_index_load_stats);
 
-    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
+    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
+                        OlapReaderStatistics* stats) const {
         DCHECK(_index_parsed);
-        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
+        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
         return Status::OK();
     }
 
@@ -128,7 +133,7 @@ public:
         return _bf->test_bytes(key.data, key.size);
     }
 
-    uint32_t num_rows() const {
+    int64_t num_rows() const {
         DCHECK(_index_parsed);
         return _index_reader->num_values();
     }
@@ -151,7 +156,7 @@ private:
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
     size_t _bf_num = 0;
-    uint64 _bf_bytes = 0;
+    uint64_t _bf_bytes = 0;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

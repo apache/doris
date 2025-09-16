@@ -15,11 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_desc", "nonConcurrent"){
-    if (isCloudMode()) {
-        return
-    }
-
+suite("regression_test_variant_desc", "p0"){
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -80,41 +76,32 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         """
     }
 
-    def set_be_config = { key, value ->
-        // String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        // backend_id = backendId_to_backendIP.keySet()[0]
-        for (backend_id in  backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     try {
+        sql """set default_variant_max_subcolumns_count = 2"""
         // sparse columns
         def table_name = "sparse_columns"
         create_table table_name
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """set describe_extend_variant_column = true"""
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        // select for sync rowsets
+        sql "select * from sparse_columns limit 1"
         qt_sql_1 """desc ${table_name}"""
         sql "truncate table sparse_columns"
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql "select * from sparse_columns limit 1"
         qt_sql_2 """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
+        sql """set default_variant_max_subcolumns_count = 0"""
         // no sparse columns
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
         sql """insert into  ${table_name} select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
+        sql "select * from no_sparse_columns limit 1"
         qt_sql_3 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
@@ -122,12 +109,12 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         table_name = "partition_data"
         create_table_partition.call(table_name, "4")
         sql "set enable_two_phase_read_opt = false;"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """insert into  ${table_name} select 2500, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 2500, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         sql """insert into  ${table_name} select 45000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 45000, '{"a": 1123}' as json_str union all select 45000, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+        sql "select * from partition_data limit 1"
         qt_sql_6_1 """desc ${table_name} partition p1"""
         qt_sql_6_2 """desc ${table_name} partition p2"""
         qt_sql_6_3 """desc ${table_name} partition p3"""
@@ -145,6 +132,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
          sql """insert into  ${table_name} values(95000, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
         // drop p1
         sql """alter table ${table_name} drop partition p1"""
+        sql "select * from drop_partition limit 1"
         qt_sql_7 """desc ${table_name}"""
         qt_sql_7_1 """desc ${table_name} partition p2"""
         qt_sql_7_2 """desc ${table_name} partition p3"""
@@ -165,6 +153,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}', '{"a": 11245, "xxxx" : "kaana"}', '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}')"""
+         sql "select * from ${table_name} limit 1"
         qt_sql_8 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
@@ -181,6 +170,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+         sql "select * from ${table_name} limit 1"
         qt_sql_9 """desc ${table_name}"""
         sql """set describe_extend_variant_column = true"""
         qt_sql_9_1 """desc ${table_name}"""
@@ -191,12 +181,14 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         create_table.call(table_name, "5")
         // add, drop columns
         sql """INSERT INTO ${table_name} values(0, '{"k1":1, "k2": "hello world", "k3" : [1234], "k4" : 1.10000, "k5" : [[123]]}')"""
+        sql "select * from ${table_name} limit 1"
         sql """set describe_extend_variant_column = true"""
         qt_sql_10 """desc ${table_name}"""
         // add column
         sql "alter table ${table_name} add column v2 variant default null"
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
                  '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql "select * from ${table_name} limit 1"
         qt_sql_10_1 """desc ${table_name}"""
         // drop cloumn
         sql "alter table ${table_name} drop column v2"
@@ -205,6 +197,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql "alter table ${table_name} add column v3 variant default null"
         sql """ insert into ${table_name} values (0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}',
                      '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}')"""
+        sql "select * from ${table_name} limit 1"
         qt_sql_10_3 """desc ${table_name}"""
         //sql "truncate table ${table_name}"
 
@@ -221,6 +214,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         """
         sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
         sql """set describe_extend_variant_column = true"""
+        sql "select * from ${table_name} limit 1"
         qt_sql_11 """desc ${table_name}"""
 
         // varaint subcolumn: empty
@@ -237,6 +231,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql """ insert into ${table_name} values (0, '{}')"""
         sql """ insert into ${table_name} values (0, '100')"""
         sql """set describe_extend_variant_column = true"""
+        sql "select * from ${table_name} limit 1"
         qt_sql_12 """desc ${table_name}"""
 
 
@@ -247,6 +242,7 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql """insert into large_tablets values (3001, '{"b" : 10}')"""
         sql """insert into large_tablets values (50001, '{"c" : 10}')"""
         sql """insert into large_tablets values (99999, '{"d" : 10}')"""
+        sql "select * from ${table_name} limit 1"
         sql """set max_fetch_remote_schema_tablet_count = 2"""
         sql "desc large_tablets"
         sql """set max_fetch_remote_schema_tablet_count = 128"""
@@ -260,6 +256,5 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql "desc large_tablets"
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     }
 }

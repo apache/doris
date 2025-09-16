@@ -202,7 +202,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
             LOG.warn("get mtmv failed", e);
             return Lists.newArrayList();
         }
-        return Lists.newArrayList(mtmv.getJobInfo().getHistoryTasks());
+        return Lists.newArrayList(mtmv.getHistoryTasks());
     }
 
     @Override
@@ -216,6 +216,13 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         data.add(TimeUtils.longToTimeString(super.getCreateTimeMs()));
         data.add(super.getComment());
         return data;
+    }
+
+    @Override
+    public String formatMsgWhenExecuteQueueFull(Long taskId) {
+        return commonFormatMsgWhenExecuteQueueFull(taskId, "mtmv_task_queue_size",
+                "job_mtmv_task_consumer_thread_num");
+
     }
 
     @Override
@@ -260,6 +267,15 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private MTMV getMTMV() throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+    }
+
+    public long getMtmvId() {
+        return mtmvId;
+    }
+
+    @Override
+    public boolean needPersist() {
+        return false;
     }
 
     public void readLock() {

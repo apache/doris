@@ -18,6 +18,9 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_bin") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -36,79 +39,56 @@ suite ("test_dup_mv_bin") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV( "create materialized view k12b as select k1,bin(k2) from d_table;")
+    createMV( "create materialized view k12b as select k1 as a1,bin(k2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select k1,bin(k2) from d_table order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_mv "select k1,bin(k2) from d_table order by k1;"
+    mv_rewrite_success_without_check_chosen("select k1,bin(k2) from d_table order by k1;", "k12b")
 
-    explain {
-        sql("select bin(k2) from d_table order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_mv_sub "select bin(k2) from d_table order by k1;"
+    mv_rewrite_success_without_check_chosen("select bin(k2) from d_table order by k1;", "k12b")
 
-    explain {
-        sql("select bin(k2)+1 from d_table order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_mv_sub_add "select concat(bin(k2),'a') from d_table order by k1;"
+    mv_rewrite_success_without_check_chosen("select bin(k2)+1 from d_table order by k1;", "k12b")
 
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_group_mv "select group_concat(bin(k2)) from d_table group by k1 order by k1;"
+    mv_rewrite_success_without_check_chosen("select group_concat(bin(k2)) from d_table group by k1 order by k1;", "k12b")
 
-    explain {
-        sql("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_group_mv_add "select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;"
+    mv_rewrite_success_without_check_chosen("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;", "k12b")
 
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k3;")
-        contains "(d_table)"
-    }
-    qt_select_group_mv_not "select group_concat(bin(k2)) from d_table group by k3 order by k3;"
+    mv_rewrite_fail("select group_concat(bin(k2)) from d_table group by k3;", "k12b")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,bin(k2) from d_table order by k1;")
-        contains "(k12b)"
-    }
 
-    explain {
-        sql("select bin(k2) from d_table order by k1;")
-        contains "(k12b)"
-    }
+    mv_rewrite_success("select k1,bin(k2) from d_table order by k1;", "k12b")
+    qt_select_mv "select k1,bin(k2) from d_table order by k1;"
 
-    explain {
-        sql("select bin(k2)+1 from d_table order by k1;")
-        contains "(k12b)"
-    }
 
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
+    mv_rewrite_success("select bin(k2) from d_table order by k1;", "k12b")
+    qt_select_mv_sub "select bin(k2) from d_table order by k1;"
 
-    explain {
-        sql("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
 
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k3;")
-        contains "(d_table)"
-    }
+    mv_rewrite_success("select bin(k2)+1 from d_table order by k1;", "k12b")
+    qt_select_mv_sub_add "select concat(bin(k2),'a') from d_table order by k1;"
+
+
+    mv_rewrite_success("select group_concat(bin(k2)) from d_table group by k1 order by k1;",
+            "k12b", true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("select group_concat(bin(k2)) from d_table group by k1 order by k1;",
+            "k12b", [FORCE_IN_RBO])
+    qt_select_group_mv "select group_concat(bin(k2)) from d_table group by k1 order by k1;"
+
+
+    mv_rewrite_success("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;",
+            "k12b", true, [TRY_IN_RBO, NOT_IN_RBO])
+    mv_rewrite_success_without_check_chosen("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;",
+            "k12b", [FORCE_IN_RBO])
+    qt_select_group_mv_add "select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;"
+
+
+    mv_rewrite_fail("select group_concat(bin(k2)) from d_table group by k3;", "k12b")
+    qt_select_group_mv_not "select group_concat(bin(k2)) from d_table group by k3 order by k3;"
 }

@@ -29,7 +29,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
@@ -46,6 +45,7 @@
   *  Another example: for an approximate calculation of the number of unique visitors, there is a hash table for UniquesHashSet.
   *  It has the concept of "degree". At each overflow, cells with keys that do not divide by the corresponding power of the two are deleted.
   */
+#include "common/compile_check_begin.h"
 struct HashTableNoState {
     /// Serialization, in binary and text form.
     void write(doris::vectorized::BufferWritable&) const {}
@@ -197,12 +197,10 @@ struct HashTableCell {
     void set_mapped(const value_type& /*value*/) {}
 
     /// Serialization, in binary and text form.
-    void write(doris::vectorized::BufferWritable& wb) const {
-        doris::vectorized::write_binary(key, wb);
-    }
+    void write(doris::vectorized::BufferWritable& wb) const { wb.write_binary(key); }
 
     /// Deserialization, in binary and text form.
-    void read(doris::vectorized::BufferReadable& rb) { doris::vectorized::read_binary(key, rb); }
+    void read(doris::vectorized::BufferReadable& rb) { rb.read_binary(key); }
 };
 
 template <typename Key, typename Hash, typename State>
@@ -342,14 +340,15 @@ public:
                                    ? fill_capacity
                                    : fill_capacity + 1);
 
-        size_degree_ = num_elems <= 1 ? initial_size_degree
-                                      : (initial_size_degree > fill_capacity ? initial_size_degree
-                                                                             : fill_capacity);
+        size_degree_ =
+                uint8_t(num_elems <= 1 ? initial_size_degree
+                                       : (initial_size_degree > fill_capacity ? initial_size_degree
+                                                                              : fill_capacity));
         increase_size_degree(0);
     }
 
     void set_buf_size(size_t buf_size_) {
-        size_degree_ = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        size_degree_ = static_cast<uint8_t>(log2(buf_size_ - 1) + 1);
         increase_size_degree(0);
     }
 };
@@ -419,27 +418,11 @@ protected:
     Cell* buf = nullptr; /// A piece of memory for all elements except the element with zero key.
     Grower grower;
     int64_t _resize_timer_ns;
-    // the bucket count threshold above which it's converted to partioned hash table
-    // > 0: enable convert dynamically
-    // 0: convert is disabled
-    int _partitioned_threshold = 0;
-    // if need resize and bucket count after resize will be >= _partitioned_threshold,
-    // this flag is set to true, and resize does not actually happen,
-    // PartitionedHashTable will convert this hash table to partitioned hash table
-    bool _need_partition = false;
 
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
     mutable size_t collisions = 0;
-
-    void set_partitioned_threshold(int threshold) { _partitioned_threshold = threshold; }
-
-    bool check_if_need_partition(size_t bucket_count) {
-        return _partitioned_threshold > 0 && bucket_count >= _partitioned_threshold;
-    }
-
-    bool need_partition() { return _need_partition; }
 
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
@@ -609,8 +592,6 @@ public:
         std::swap(buf, rhs.buf);
         std::swap(m_size, rhs.m_size);
         std::swap(grower, rhs.grower);
-        std::swap(_need_partition, rhs._need_partition);
-        std::swap(_partitioned_threshold, rhs._partitioned_threshold);
 
         Hash::operator=(std::move(rhs));        // NOLINT(bugprone-use-after-move)
         Allocator::operator=(std::move(rhs));   // NOLINT(bugprone-use-after-move)
@@ -740,12 +721,10 @@ protected:
                 throw;
             }
 
-            if (LIKELY(!_need_partition)) {
-                // The hash table was rehashed, so we have to re-find the key.
-                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-                assert(!buf[new_place].is_zero(*this));
-                it = &buf[new_place];
-            }
+            // The hash table was rehashed, so we have to re-find the key.
+            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+            assert(!buf[new_place].is_zero(*this));
+            it = &buf[new_place];
         }
     }
 
@@ -776,12 +755,10 @@ protected:
                 throw;
             }
 
-            if (LIKELY(!_need_partition)) {
-                // The hash table was rehashed, so we have to re-find the key.
-                size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
-                assert(!buf[new_place].is_zero(*this));
-                it = &buf[new_place];
-            }
+            // The hash table was rehashed, so we have to re-find the key.
+            size_t new_place = find_cell(key, hash_value, grower.place(hash_value));
+            assert(!buf[new_place].is_zero(*this));
+            it = &buf[new_place];
         }
     }
 
@@ -805,6 +782,18 @@ public:
         if (add_elem_size_overflow(num_elem)) {
             resize(grower.buf_size() + num_elem);
         }
+    }
+
+    size_t estimate_memory(size_t num_elem) const {
+        if (!add_elem_size_overflow(num_elem)) {
+            return 0;
+        }
+
+        auto new_size = num_elem + grower.buf_size();
+        Grower new_grower = grower;
+        new_grower.set(new_size);
+
+        return new_grower.buf_size() * sizeof(Cell);
     }
 
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
@@ -959,7 +948,7 @@ public:
 
     void write(doris::vectorized::BufferWritable& wb) const {
         Cell::State::write(wb);
-        doris::vectorized::write_var_uint(m_size, wb);
+        wb.write_var_uint(m_size);
 
         if (this->get_has_zero()) this->zero_value()->write(wb);
 
@@ -975,7 +964,7 @@ public:
         m_size = 0;
 
         doris::vectorized::UInt64 new_size = 0;
-        doris::vectorized::read_var_uint(new_size, rb);
+        rb.read_var_uint(new_size);
 
         free();
         Grower new_grower = grower;
@@ -1060,13 +1049,6 @@ private:
         } else
             new_grower.increase_size();
 
-        // new bucket count exceed partitioned hash table bucket count threshold,
-        // don't resize and set need partition flag
-        if (check_if_need_partition(new_grower.buf_size())) {
-            _need_partition = true;
-            return;
-        }
-
         /// Expand the space.
         buf = reinterpret_cast<Cell*>(Allocator::realloc(buf, get_buffer_size_in_bytes(),
                                                          new_grower.buf_size() * sizeof(Cell)));
@@ -1096,3 +1078,4 @@ private:
         }
     }
 };
+#include "common/compile_check_end.h"

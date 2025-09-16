@@ -20,10 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -36,8 +36,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** count agg function. */
-public class Count extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic, RollUpTrait {
+public class Count extends NotNullableAggregateFunction
+        implements ExplicitlyCastableSignature, SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -60,8 +60,18 @@ public class Count extends AggregateFunction
     }
 
     public Count(boolean distinct, Expression arg0, Expression... varArgs) {
-        super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
+        this(distinct, false, arg0, varArgs);
+    }
+
+    public Count(boolean distinct, boolean isSkew, Expression arg0, Expression... varArgs) {
+        super("count", distinct, isSkew, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Count(boolean isStar, AggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.isStar = isStar;
     }
 
     public boolean isCountStar() {
@@ -105,25 +115,29 @@ public class Count extends AggregateFunction
 
     @Override
     public Count withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        if (children.size() == 0) {
-            if (distinct) {
-                throw new AnalysisException("Can not count distinct empty arguments");
-            }
-            return new Count();
-        } else if (children.size() == 1) {
-            return new Count(distinct, children.get(0));
-        } else {
-            return new Count(distinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        }
+        return withAttribute(distinct, isSkew, children);
     }
 
     @Override
-    public String toSql() {
+    public Expression withIsSkew(boolean isSkew) {
+        return withAttribute(distinct, isSkew, children);
+    }
+
+    private Count withAttribute(boolean distinct, boolean isSkew, List<Expression> children) {
+        if (children.isEmpty()) {
+            if (distinct) {
+                throw new AnalysisException("Can not count distinct empty arguments");
+            }
+        }
+        return new Count(isStar, getFunctionParams(distinct, isSkew, children));
+    }
+
+    @Override
+    public String computeToSql() {
         if (isStar) {
             return "count(*)";
         }
-        return super.toSql();
+        return super.computeToSql();
     }
 
     @Override
@@ -156,5 +170,16 @@ public class Count extends AggregateFunction
     @Override
     public boolean canRollUp() {
         return true;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BigIntLiteral(0);
+    }
+
+    @Override
+    public AggregateFunction convertToMultiDistinct() {
+        return new MultiDistinctCount(getArgument(0),
+                getArguments().subList(1, arity()).toArray(new Expression[0]));
     }
 }

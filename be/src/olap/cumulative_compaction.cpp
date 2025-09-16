@@ -17,34 +17,46 @@
 
 #include "olap/cumulative_compaction.h"
 
+#include <cpp/sync_point.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/Types_types.h>
+
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <vector>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/cumulative_compaction_policy.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
-namespace {
-
-void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                      std::vector<Version>* missing_version) {
+void CumulativeCompaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                                            std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return;
     }
 
     RowsetSharedPtr prev_rowset = rowsets->front();
-    size_t i = 1;
+    int i = 1;
+    int max_start = 0;
+    int max_length = 1;
+
+    int start = 0;
+    int length = 1;
     for (; i < rowsets->size(); ++i) {
         RowsetSharedPtr rowset = (*rowsets)[i];
         if (rowset->start_version() != prev_rowset->end_version() + 1) {
@@ -52,15 +64,21 @@ void find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                 missing_version->push_back(prev_rowset->version());
                 missing_version->push_back(rowset->version());
             }
-            break;
+            start = i;
+            length = 1;
+        } else {
+            length++;
         }
+
+        if (length > max_length) {
+            max_start = start;
+            max_length = length;
+        }
+
         prev_rowset = rowset;
     }
-
-    rowsets->resize(i);
+    *rowsets = {rowsets->begin() + max_start, rowsets->begin() + max_start + max_length};
 }
-
-} // namespace
 
 CumulativeCompaction::CumulativeCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)
         : CompactionMixin(engine, tablet,
@@ -69,51 +87,93 @@ CumulativeCompaction::CumulativeCompaction(StorageEngine& engine, const TabletSh
 CumulativeCompaction::~CumulativeCompaction() = default;
 
 Status CumulativeCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            tablet()->set_last_cumu_compaction_status(st.to_string());
+        }
+    });
+
     if (!tablet()->init_succeeded()) {
-        return Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        st = Status::Error<CUMULATIVE_INVALID_PARAMETERS, false>("_tablet init failed");
+        return st;
     }
 
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        return st;
     }
 
     tablet()->calculate_cumulative_point();
     VLOG_CRITICAL << "after calculate, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
+
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CumulativeCompaction::execute_compact() {
+    DBUG_EXECUTE_IF("CumulativeCompaction::execute_compact.block", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == _tablet->tablet_id()) {
+            LOG(INFO) << "start debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+            while (DebugPoints::instance()->is_enable(
+                    "CumulativeCompaction::execute_compact.block")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+            LOG(INFO) << "end debug block "
+                      << "CumulativeCompaction::execute_compact.block";
+        }
+    })
+
+    Status st;
+    Defer defer_set_st([&] {
+        tablet()->set_last_cumu_compaction_status(st.to_string());
+        if (!st.ok()) {
+            tablet()->set_last_cumu_compaction_failure_time(UnixMillis());
+        } else {
+            // TIME_SERIES_POLICY, generating an empty rowset doesn't need to update the timestamp.
+            if (!(tablet()->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY &&
+                  _output_rowset->num_segments() == 0)) {
+                tablet()->set_last_cumu_compaction_success_time(UnixMillis());
+            }
+        }
+    });
     std::unique_lock<std::mutex> lock(tablet()->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED, false>(
+        st = Status::Error<TRY_LOCK_FAILED, false>(
                 "The tablet is under cumulative compaction. tablet={}", _tablet->tablet_id());
+        return st;
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
-    RETURN_IF_ERROR(CompactionMixin::execute_compact());
-    DCHECK_EQ(_state, CompactionState::SUCCESS);
+    st = CompactionMixin::execute_compact();
+    RETURN_IF_ERROR(st);
 
-    tablet()->cumulative_compaction_policy()->update_compaction_level(tablet(), _input_rowsets,
-                                                                      _output_rowset);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "cumulative_compaction::CumulativeCompaction::execute_compact", Status::OK());
+
+    DCHECK_EQ(_state, CompactionState::SUCCESS);
 
     tablet()->cumulative_compaction_policy()->update_cumulative_point(
             tablet(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
-
-    tablet()->set_last_cumu_compaction_success_time(UnixMillis());
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
+    DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(
+            _input_rowsets_total_size);
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CumulativeCompaction::pick_rowsets_to_compact() {
@@ -127,16 +187,36 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<Version> missing_versions;
     find_longest_consecutive_version(&candidate_rowsets, &missing_versions);
     if (!missing_versions.empty()) {
-        DCHECK(missing_versions.size() == 2);
+        DCHECK(missing_versions.size() % 2 == 0);
         LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "prev rowset verison=" << missing_versions[0]
-                     << ", next rowset version=" << missing_versions[1]
+                     << "total missed version size: " << missing_versions.size() / 2
+                     << ", first missed version prev rowset verison=" << missing_versions[0]
+                     << ", first missed version next rowset version=" << missing_versions[1]
                      << ", tablet=" << _tablet->tablet_id();
+        if (config::enable_auto_clone_on_compaction_missing_version) {
+            int64_t max_version = tablet()->max_version_unlocked();
+            LOG_INFO("cumulative compaction submit missing rowset clone task.")
+                    .tag("tablet_id", _tablet->tablet_id())
+                    .tag("max_version", max_version)
+                    .tag("replica_id", tablet()->replica_id())
+                    .tag("partition_id", _tablet->partition_id())
+                    .tag("table_id", _tablet->table_id());
+            Status st = _engine.submit_clone_task(tablet(), max_version);
+            if (!st) {
+                LOG_WARNING("cumulative compaction failed to submit missing rowset clone task.")
+                        .tag("st", st.msg())
+                        .tag("tablet_id", _tablet->tablet_id())
+                        .tag("max_version", max_version)
+                        .tag("replica_id", tablet()->replica_id())
+                        .tag("partition_id", _tablet->partition_id())
+                        .tag("table_id", _tablet->table_id());
+            }
+        }
     }
 
     int64_t max_score = config::cumulative_compaction_max_deltas;
-    auto process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
-    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 0.8;
+    int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
+    bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 8 / 10;
     if (tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || memory_usage_high) {
         max_score = std::max(config::cumulative_compaction_max_deltas /
                                      config::cumulative_compaction_max_deltas_factor,
@@ -157,8 +237,15 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             tablet()->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>(
-                    "_last_delete_version.first not equal to -1");
+            LOG_INFO(
+                    "cumulative compaction meet delete rowset, increase cumu point without "
+                    "other "
+                    "operation.")
+                    .tag("tablet id:", tablet()->tablet_id())
+                    .tag("after cumulative compaction, cumu point:",
+                         tablet()->cumulative_layer_point());
+            return Status::Error<CUMULATIVE_MEET_DELETE_VERSION>(
+                    "cumulative compaction meet delete version");
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -203,5 +290,6 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris

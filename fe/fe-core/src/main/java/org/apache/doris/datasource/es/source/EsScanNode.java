@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.es.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -42,8 +40,8 @@ import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -63,6 +61,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,10 +80,6 @@ public class EsScanNode extends ExternalScanNode {
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
 
-    public EsScanNode(PlanNodeId id, TupleDescriptor desc) {
-        this(id, desc, false);
-    }
-
     /**
      * For multicatalog es.
      **/
@@ -100,24 +95,14 @@ public class EsScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        buildQuery();
-    }
-
-    @Override
     public void init() throws UserException {
         super.init();
         buildQuery();
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        doFinalize();
-    }
-
-    @Override
     public void finalizeForNereids() throws UserException {
+        buildQuery();
         doFinalize();
     }
 
@@ -218,8 +203,15 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
+        boolean enableESParallelScroll = isEnableESParallelScroll();
         for (EsShardPartitions indexState : selectedIndex) {
-            for (List<EsShardRouting> shardRouting : indexState.getShardRoutings().values()) {
+            // When disabling parallel scroll, only use the first shard routing.
+            // Because we only need plan a single scan range.
+            List<List<EsShardRouting>> shardRoutings = enableESParallelScroll
+                    ? new ArrayList<>(indexState.getShardRoutings().values()) :
+                    Collections.singletonList(indexState.getShardRoutings().get(0));
+
+            for (List<EsShardRouting> shardRouting : shardRoutings) {
                 // get backends
                 List<TNetworkAddress> shardAllocations = new ArrayList<>();
                 List<String> preLocations = new ArrayList<>();
@@ -231,7 +223,10 @@ public class EsScanNode extends ExternalScanNode {
                 FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
                 backendPolicy.init(preLocations);
                 TScanRangeLocations locations = new TScanRangeLocations();
-                for (int i = 0; i < backendPolicy.numBackends(); ++i) {
+                // When disabling parallel scroll, only use the first backend.
+                // Because we only need plan a single query to one backend.
+                int numBackends = enableESParallelScroll ? backendPolicy.numBackends() : 1;
+                for (int i = 0; i < numBackends; ++i) {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = backendPolicy.getNextBe();
                     location.setBackendId(be.getId());
@@ -242,11 +237,18 @@ public class EsScanNode extends ExternalScanNode {
                 // Generate on es scan range
                 TEsScanRange esScanRange = new TEsScanRange();
                 esScanRange.setEsHosts(shardAllocations);
-                esScanRange.setIndex(shardRouting.get(0).getIndexName());
+                // When disabling parallel scroll, use the index state's index name to prevent the index aliases from
+                // being expanded.
+                // eg: index alias `log-20240501` may point to multiple indices,
+                // such as `log-20240501-1`/`log-20240501-2`.
+                // When we plan a single query, we should use the index alias instead of the real indices names.
+                esScanRange.setIndex(
+                        enableESParallelScroll ? shardRouting.get(0).getIndexName() : indexState.getIndexName());
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
-                esScanRange.setShardId(shardRouting.get(0).getShardId());
+                // When disabling parallel scroll, set shard id to -1 to disable shard preference in query option.
+                esScanRange.setShardId(enableESParallelScroll ? shardRouting.get(0).getShardId() : -1);
                 // Scan range
                 TScanRange scanRange = new TScanRange();
                 scanRange.setEsScanRange(esScanRange);
@@ -267,6 +269,11 @@ public class EsScanNode extends ExternalScanNode {
             }
         }
         return result;
+    }
+
+    private boolean isEnableESParallelScroll() {
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null && connectContext.getSessionVariable().isEnableESParallelScroll();
     }
 
     /**
@@ -339,10 +346,14 @@ public class EsScanNode extends ExternalScanNode {
             boolean hasFilter = false;
             BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
             List<Expr> notPushDownList = new ArrayList<>();
+            if (table.getColumn2typeMap() == null) {
+                table.genColumnsFromEs();
+            }
             for (Expr expr : conjuncts) {
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
                         BuilderOptions.builder().likePushDown(table.isLikePushDown())
-                                .needCompatDateFields(table.needCompatDateFields()).build());
+                                .needCompatDateFields(table.needCompatDateFields()).build(),
+                        table.getColumn2typeMap());
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);
@@ -357,10 +368,4 @@ public class EsScanNode extends ExternalScanNode {
         }
     }
 
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(table.getQualifiedDbName()).getId(),
-                table.getId(), -1L);
-    }
 }

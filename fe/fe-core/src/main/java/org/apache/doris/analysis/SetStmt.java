@@ -23,7 +23,7 @@ import org.apache.doris.common.UserException;
 import java.util.List;
 
 // Set variables statement. Now only support simple string
-public class SetStmt extends StatementBase {
+public class SetStmt extends StatementBase implements NotFallbackInParser {
     // variables to modify
     private final List<SetVar> setVars;
 
@@ -57,12 +57,12 @@ public class SetStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
         if (setVars == null || setVars.isEmpty()) {
             throw new AnalysisException("Empty set statement.");
         }
         for (SetVar var : setVars) {
-            var.analyze(analyzer);
+            var.analyze();
         }
     }
 
@@ -85,6 +85,11 @@ public class SetStmt extends StatementBase {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SET;
     }
 
     @Override

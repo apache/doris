@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ExecNode;
 class RuntimeState;
 
@@ -42,32 +43,27 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
+    bool is_blockable() const override;
+
     Status setup_in_memory_sort_op(RuntimeState* state);
 
     Status initiate_merge_sort_spill_streams(RuntimeState* state);
 
 protected:
-    int _calc_spill_blocks_to_merge() const;
+    int _calc_spill_blocks_to_merge(RuntimeState* state) const;
     Status _create_intermediate_merger(int num_blocks,
                                        const vectorized::SortDescription& sort_description);
     friend class SpillSortSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;
 
     bool _opened = false;
-    Status _status;
 
-    int64_t _external_sort_bytes_threshold = 134217728; // 128M
     std::vector<vectorized::SpillStreamSPtr> _current_merging_streams;
     std::unique_ptr<vectorized::VSortedRunMerger> _merger;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     // counters for spill merge sort
-    RuntimeProfile::Counter* _spill_timer = nullptr;
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
-    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
-    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
-    RuntimeProfile::Counter* _spill_data_size = nullptr;
-    RuntimeProfile::Counter* _spill_block_count = nullptr;
 };
 class SortSourceOperatorX;
 class SpillSortSourceOperatorX : public OperatorX<SpillSortLocalState> {
@@ -79,8 +75,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-
-    Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
 
@@ -94,4 +88,5 @@ private:
     std::unique_ptr<SortSourceOperatorX> _sort_source_operator;
 };
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

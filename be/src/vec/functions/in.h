@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
@@ -37,7 +38,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -108,18 +108,17 @@ public:
         std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() >= 1);
-        if (context->get_arg_type(0)->type == PrimitiveType::TYPE_NULL) {
-            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0));
-        } else if (context->get_arg_type(0)->type == PrimitiveType::TYPE_CHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_VARCHAR ||
-                   context->get_arg_type(0)->type == PrimitiveType::TYPE_STRING) {
+        if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_NULL) {
+            state->hybrid_set.reset(create_set(TYPE_BOOLEAN, 0, true));
+        } else if (context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_CHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_VARCHAR ||
+                   context->get_arg_type(0)->get_primitive_type() == PrimitiveType::TYPE_STRING) {
             // the StringValue's memory is held by FunctionContext, so we can use StringValueSet here directly
-            state->hybrid_set.reset(create_string_value_set((size_t)(context->get_num_args() - 1)));
+            state->hybrid_set.reset(create_string_value_set(get_size_with_out_null(context)));
         } else {
-            state->hybrid_set.reset(
-                    create_set(context->get_arg_type(0)->type, get_size_with_out_null(context)));
+            state->hybrid_set.reset(create_set(context->get_arg_type(0)->get_primitive_type(),
+                                               get_size_with_out_null(context), true));
         }
-        state->hybrid_set->set_null_aware(true);
 
         for (int i = 1; i < context->get_num_args(); ++i) {
             const auto& const_column_ptr = context->get_constant_col(i);
@@ -135,8 +134,69 @@ public:
         return Status::OK();
     }
 
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        DCHECK(data_type_with_names.size() == 1);
+        DCHECK(iterators.size() == 1);
+        auto* iter = iterators[0];
+        auto data_type_with_name = data_type_with_names[0];
+        std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+        std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+
+        if (iter == nullptr) {
+            return Status::OK();
+        }
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::OK();
+        }
+        if (iter->has_null()) {
+            segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
+        for (const auto& arg : arguments) {
+            Field param_value;
+            arg.column->get(0, param_value);
+            auto param_type = arg.type->get_primitive_type();
+            if (param_value.is_null()) {
+                // predicate like column NOT IN (NULL, '') should not push down to index.
+                if (negative) {
+                    return Status::OK();
+                }
+                *roaring |= *null_bitmap;
+                continue;
+            }
+            std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
+                    param_type, &param_value, query_param));
+            InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
+            segment_v2::InvertedIndexParam param;
+            param.column_name = data_type_with_name.first;
+            param.column_type = data_type_with_name.second;
+            param.query_value = query_param->get_value();
+            param.query_type = query_type;
+            param.num_rows = num_rows;
+            param.roaring = std::make_shared<roaring::Roaring>();
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+            *roaring |= *param.roaring;
+        }
+        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
+        bitmap_result = result;
+        bitmap_result.mask_out_null();
+        if constexpr (negative) {
+            roaring::Roaring full_result;
+            full_result.addRange(0, num_rows);
+            bitmap_result.op_not(&full_result);
+        }
+        return Status::OK();
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto* in_state = reinterpret_cast<InState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -158,7 +218,7 @@ public:
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                materialized_column);
+                                materialized_column.get());
                 const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                                null_col_ptr->get_null_map_column())
                                                .get_data();
@@ -186,7 +246,7 @@ public:
                 }
 
             } else { // non-nullable
-                if (WhichDataType(left_arg.type).is_string()) {
+                if (is_string_type(left_arg.type->get_primitive_type())) {
                     const auto* column_string_ptr =
                             assert_cast<const vectorized::ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
@@ -221,10 +281,6 @@ public:
             block.replace_by_position(result, std::move(res));
         }
 
-        return Status::OK();
-    }
-
-    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
 
@@ -278,8 +334,8 @@ private:
                     set_datas.push_back(set_data);
                 }
             }
-            std::unique_ptr<HybridSetBase> hybrid_set(
-                    create_set(context->get_arg_type(0)->type, set_datas.size()));
+            std::unique_ptr<HybridSetBase> hybrid_set(create_set(
+                    context->get_arg_type(0)->get_primitive_type(), set_datas.size(), true));
             for (auto& set_data : set_datas) {
                 hybrid_set->insert((void*)(set_data.data), set_data.size);
             }

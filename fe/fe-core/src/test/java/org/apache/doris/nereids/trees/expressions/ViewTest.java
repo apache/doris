@@ -25,6 +25,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -101,7 +102,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
             System.out.println("\n\n***** " + sql + " *****\n\n");
             StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
             NereidsPlanner planner = new NereidsPlanner(statementContext);
-            PhysicalPlan plan = planner.plan(
+            PhysicalPlan plan = planner.planWithLock(
                     new NereidsParser().parseSingle(sql),
                     PhysicalProperties.ANY
             );
@@ -115,7 +116,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
         PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM V1")
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .matches(
                       logicalProject(
                               logicalOlapScan()

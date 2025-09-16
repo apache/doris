@@ -35,6 +35,13 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+struct FileReaderStats {
+    size_t read_calls = 0;
+    size_t read_bytes = 0;
+    int64_t read_time_ns = 0;
+    size_t read_rows = 0;
+};
+
 struct FileCacheStatistics {
     int64_t num_local_io_total = 0;
     int64_t num_remote_io_total = 0;
@@ -45,6 +52,19 @@ struct FileCacheStatistics {
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
     int64_t num_skip_cache_io_total = 0;
+    int64_t read_cache_file_directly_timer = 0;
+    int64_t cache_get_or_set_timer = 0;
+    int64_t lock_wait_timer = 0;
+    int64_t get_timer = 0;
+    int64_t set_timer = 0;
+
+    int64_t inverted_index_num_local_io_total = 0;
+    int64_t inverted_index_num_remote_io_total = 0;
+    int64_t inverted_index_bytes_read_from_local = 0;
+    int64_t inverted_index_bytes_read_from_remote = 0;
+    int64_t inverted_index_local_io_timer = 0;
+    int64_t inverted_index_remote_io_timer = 0;
+    int64_t inverted_index_io_timer = 0;
 };
 
 struct IOContext {
@@ -60,6 +80,11 @@ struct IOContext {
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
+    FileReaderStats* file_reader_stats = nullptr;    // Ref
+    bool is_inverted_index = false;
+    // if is_dryrun, read IO will download data to cache but return no data to reader
+    // useful to skip cache data read from local disk to accelarate warm up
+    bool is_dryrun = false;
 };
 
 } // namespace io

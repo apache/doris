@@ -31,7 +31,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -57,12 +60,13 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.stream.Collectors;
 
 public class PointQueryExecutor implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(PointQueryExecutor.class);
@@ -140,33 +144,45 @@ public class PointQueryExecutor implements CoordInterface {
         Preconditions.checkNotNull(preparedStmtCtx.shortCircuitQueryContext);
         ShortCircuitQueryContext shortCircuitQueryContext = preparedStmtCtx.shortCircuitQueryContext.get();
         // update conjuncts
-        List<Expr> conjunctVals = statementContext.getIdToPlaceholderRealExpr().values().stream().map(
-                        expression -> (
-                                (Literal) expression).toLegacyLiteral())
-                .collect(Collectors.toList());
-        if (conjunctVals.size() != preparedStmtCtx.command.placeholderCount()) {
+        Map<String, Expr> colNameToConjunct = Maps.newHashMap();
+        for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
+            String colName = entry.getValue().getOriginalColumn().get().getName();
+            Expr conjunctVal = ((Literal)  statementContext.getIdToPlaceholderRealExpr()
+                    .get(entry.getKey())).toLegacyLiteral();
+            colNameToConjunct.put(colName, conjunctVal);
+        }
+        if (colNameToConjunct.size() != preparedStmtCtx.command.placeholderCount()) {
             throw new AnalysisException("Mismatched conjuncts values size with prepared"
                     + "statement parameters size, expected "
                     + preparedStmtCtx.command.placeholderCount()
-                    + ", but meet " + conjunctVals.size());
+                    + ", but meet " + colNameToConjunct.size());
         }
-        updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, conjunctVals);
+        updateScanNodeConjuncts(shortCircuitQueryContext.scanNode, colNameToConjunct);
         // short circuit plan and execution
         executor.executeAndSendResult(false, false,
                 shortCircuitQueryContext.analzyedQuery, executor.getContext()
                         .getMysqlChannel(), null, null);
     }
 
-    private static void updateScanNodeConjuncts(OlapScanNode scanNode, List<Expr> conjunctVals) {
-        for (int i = 0; i < conjunctVals.size(); ++i) {
-            BinaryPredicate binaryPredicate = (BinaryPredicate) scanNode.getConjuncts().get(i);
+    private static void updateScanNodeConjuncts(OlapScanNode scanNode,
+                Map<String, Expr> colNameToConjunct) {
+        for (Expr conjunct : scanNode.getConjuncts()) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) conjunct;
+            SlotRef slot = null;
+            int updateChildIdx = 0;
             if (binaryPredicate.getChild(0) instanceof LiteralExpr) {
-                binaryPredicate.setChild(0, conjunctVals.get(i));
+                slot = (SlotRef) binaryPredicate.getChildWithoutCast(1);
             } else if (binaryPredicate.getChild(1) instanceof LiteralExpr) {
-                binaryPredicate.setChild(1, conjunctVals.get(i));
+                slot = (SlotRef) binaryPredicate.getChildWithoutCast(0);
+                updateChildIdx = 1;
             } else {
-                Preconditions.checkState(false, "Should conatains literal in " + binaryPredicate.toSqlImpl());
+                Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
             }
+            // not a placeholder to replace
+            if (!colNameToConjunct.containsKey(slot.getColumnName())) {
+                continue;
+            }
+            binaryPredicate.setChild(updateChildIdx, colNameToConjunct.get(slot.getColumnName()));
         }
     }
 
@@ -177,16 +193,18 @@ public class PointQueryExecutor implements CoordInterface {
     void addKeyTuples(
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
         // TODO handle IN predicates
+        Map<String, Expr> columnExpr = Maps.newHashMap();
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
             BinaryPredicate predicate = (BinaryPredicate) expr;
             Expr left = predicate.getChild(0);
             Expr right = predicate.getChild(1);
-            // ignore delete sign conjuncts only collect key conjuncts
-            if (left instanceof SlotRef && ((SlotRef) left).getColumnName().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                continue;
-            }
-            kBuilder.addKeyColumnRep(right.getStringValue());
+            SlotRef columnSlot = left.unwrapSlotRef();
+            columnExpr.put(columnSlot.getColumnName(), right);
+        }
+        // add key tuple in keys order
+        for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
+            kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
         }
         requestBuilder.addKeyTuples(kBuilder);
     }
@@ -263,7 +281,10 @@ public class PointQueryExecutor implements CoordInterface {
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }
-            if (shortCircuitQueryContext.cacheID != null) {
+            // Only set cacheID for prepared statement excute phase,
+            // otherwise leading to many redundant cost in BE side
+            if (shortCircuitQueryContext.cacheID != null
+                        && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE) {
                 InternalService.UUID.Builder uuidBuilder = InternalService.UUID.newBuilder();
                 uuidBuilder.setUuidHigh(shortCircuitQueryContext.cacheID.getMostSignificantBits());
                 uuidBuilder.setUuidLow(shortCircuitQueryContext.cacheID.getLeastSignificantBits());
@@ -357,5 +378,10 @@ public class PointQueryExecutor implements CoordInterface {
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         return Lists.newArrayList();
+    }
+
+    @Override
+    public void setIsProfileSafeStmt(boolean isSafe) {
+        // Do nothing
     }
 }

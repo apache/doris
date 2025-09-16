@@ -34,14 +34,14 @@ suite("test_stale_rowset") {
         }
     }
     String backendId = backendId_to_backendIP.keySet()[0]
-    def url = backendId_to_backendIP.get(backendId) + ":" + backendId_to_backendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendId_to_backendIP.get(backendId) + ":" + backendId_to_backendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }
@@ -87,15 +87,13 @@ suite("test_stale_rowset") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
 
     def table = "nation"
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     // create table if not exists
     sql new File("""${context.file.parent}/../ddl/${table}.sql""").text
 
-    def load_nation_once =  { 
+    def load_nation_once =  {
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         def loadLabel = table + "_" + uniqueID
         // load data from cos
@@ -116,7 +114,7 @@ suite("test_stale_rowset") {
         }
     }
     def getCurCacheSize = {
-        backendIdToCacheSize = [:]
+        def backendIdToCacheSize = [:]
         for (String[] backend in backends) {
             if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
                 StringBuilder sb = new StringBuilder();
@@ -160,63 +158,7 @@ suite("test_stale_rowset") {
     String[][] tablets = sql """ show tablets from ${tableName}; """
 
     // trigger compactions for all tablets in ${tableName}
-    for (String[] tablet in tablets) {
-        String tablet_id = tablet[0]
-        backend_id = tablet[2]
-        StringBuilder sb = new StringBuilder();
-        sb.append("curl -X POST http://")
-        sb.append(backendId_to_backendIP.get(backend_id))
-        sb.append(":")
-        sb.append(backendId_to_backendHttpPort.get(backend_id))
-        sb.append("/api/compaction/run?tablet_id=")
-        sb.append(tablet_id)
-        sb.append("&compact_type=cumulative")
-
-        String command = sb.toString()
-        process = command.execute()
-        code = process.waitFor()
-        err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        out = process.getText()
-        logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def compactJson = parseJson(out.trim())
-        if (compactJson.status.toLowerCase() == "fail") {
-            assertEquals(disableAutoCompaction, false)
-            logger.info("Compaction was done automatically!")
-        }
-        if (disableAutoCompaction) {
-            assertEquals("success", compactJson.status.toLowerCase())
-        }
-    }
-
-    // wait for all compactions done
-    for (String[] tablet in tablets) {
-        boolean running = true
-        do {
-            Thread.sleep(1000)
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X GET http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run_status?tablet_id=")
-            sb.append(tablet_id)
-
-            String command = sb.toString()
-            logger.info(command)
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactionStatus = parseJson(out.trim())
-            assertEquals("success", compactionStatus.status.toLowerCase())
-            running = compactionStatus.run_status
-        } while (running)
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
     sql """
     select count(*) from ${tableName};

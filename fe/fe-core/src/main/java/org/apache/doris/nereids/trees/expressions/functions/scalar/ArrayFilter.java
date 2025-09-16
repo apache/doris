@@ -40,16 +40,12 @@ public class ArrayFilter extends ScalarFunction
                     ArrayType.of(BooleanType.INSTANCE))
     );
 
-    private ArrayFilter(List<Expression> expressions) {
-        super("array_filter", expressions);
-    }
-
     /**
      * constructor with arguments.
      * array_filter(lambda, a1, ...) = array_filter(a1, array_map(lambda, a1, ...))
      */
     public ArrayFilter(Expression arg) {
-        super("array_filter", arg.child(1).child(0), new ArrayMap(arg));
+        super("array_filter", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
         if (!(arg instanceof Lambda)) {
             throw new AnalysisException(
                     String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
@@ -60,9 +56,14 @@ public class ArrayFilter extends ScalarFunction
         super("array_filter", arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayFilter(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public ArrayFilter withChildren(List<Expression> children) {
-        return new ArrayFilter(children);
+        return new ArrayFilter(getFunctionParams(children));
     }
 
     @Override

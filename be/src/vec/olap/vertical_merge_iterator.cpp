@@ -39,6 +39,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace vectorized {
@@ -69,12 +70,12 @@ uint16_t RowSource::data() const {
 
 // current row_sources must save in memory so agg key can update agg flag
 Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
-    if (_buffer->allocated_bytes() + row_sources.size() * sizeof(UInt16) >
+    if (_buffer.allocated_bytes() + row_sources.size() * sizeof(UInt16) >
         config::vertical_compaction_max_row_source_memory_mb * 1024 * 1024) {
-        if (_buffer->allocated_bytes() - _buffer->size() * sizeof(UInt16) <
+        if (_buffer.allocated_bytes() - _buffer.size() * sizeof(UInt16) <
             row_sources.size() * sizeof(UInt16)) {
             VLOG_NOTICE << "RowSourceBuffer is too large, serialize and reset buffer: "
-                        << _buffer->allocated_bytes() << ", total size: " << _total_size;
+                        << _buffer.allocated_bytes() << ", total size: " << _total_size;
             // serialize current buffer
             RETURN_IF_ERROR(_create_buffer_file());
             RETURN_IF_ERROR(_serialize());
@@ -82,7 +83,7 @@ Status RowSourcesBuffer::append(const std::vector<RowSource>& row_sources) {
         }
     }
     for (const auto& source : row_sources) {
-        _buffer->insert_value(source.data());
+        _buffer.push_back(source.data());
     }
     _total_size += row_sources.size();
     return Status::OK();
@@ -102,10 +103,10 @@ Status RowSourcesBuffer::seek_to_begin() {
 }
 
 Status RowSourcesBuffer::has_remaining() {
-    if (_buf_idx < _buffer->size()) {
+    if (_buf_idx < _buffer.size()) {
         return Status::OK();
     }
-    DCHECK(_buf_idx == _buffer->size());
+    DCHECK(_buf_idx == _buffer.size());
     if (_fd > 0) {
         _reset_buffer();
         auto st = _deserialize();
@@ -118,24 +119,24 @@ Status RowSourcesBuffer::has_remaining() {
 }
 
 void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
-    DCHECK(index < _buffer->size());
-    RowSource ori(_buffer->get_data()[index]);
+    DCHECK(index < _buffer.size());
+    RowSource ori(_buffer[index]);
     ori.set_agg_flag(agg);
-    _buffer->get_data()[index] = ori.data();
+    _buffer[index] = ori.data();
 }
 
 bool RowSourcesBuffer::get_agg_flag(uint64_t index) {
-    DCHECK(index < _buffer->size());
-    RowSource ori(_buffer->get_data()[index]);
+    DCHECK(index < _buffer.size());
+    RowSource ori(_buffer[index]);
     return ori.agg_flag();
 }
 
 size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
     size_t result = 1;
-    int start = index + 1;
-    int end = _buffer->size();
+    int64_t start = index + 1;
+    int64_t end = _buffer.size();
     while (start < end) {
-        RowSource next(_buffer->get_element(start++));
+        RowSource next(_buffer[start++]);
         if (next.agg_flag()) {
             ++result;
         } else {
@@ -147,10 +148,10 @@ size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
 
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
     int result = 1;
-    int start = _buf_idx + 1;
-    int end = _buffer->size();
+    int64_t start = _buf_idx + 1;
+    int64_t end = _buffer.size();
     while (result < limit && start < end) {
-        RowSource next(_buffer->get_element(start++));
+        RowSource next(_buffer[start++]);
         if (source != next.get_source_num()) {
             break;
         }
@@ -170,7 +171,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
             return Status::InternalError("fail to create write buffer due to missing cache path");
         }
         std::size_t hash_val = std::hash<int64_t> {}(_tablet_id);
-        int idx = hash_val % paths.size();
+        int64_t idx = hash_val % paths.size();
         file_path_ss << paths[idx] << "/compaction_row_source_" << _tablet_id;
     } else {
         file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
@@ -181,6 +182,8 @@ Status RowSourcesBuffer::_create_buffer_file() {
     } else if (_reader_type == ReaderType::READER_CUMULATIVE_COMPACTION ||
                _reader_type == ReaderType::READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
+    } else if (_reader_type == ReaderType::READER_FULL_COMPACTION) {
+        file_path_ss << "_full";
     } else if (_reader_type == ReaderType::READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";
     } else {
@@ -202,7 +205,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
 }
 
 Status RowSourcesBuffer::flush() {
-    if (_fd > 0 && !_buffer->empty()) {
+    if (_fd > 0 && !_buffer.empty()) {
         RETURN_IF_ERROR(_serialize());
         _reset_buffer();
     }
@@ -210,7 +213,7 @@ Status RowSourcesBuffer::flush() {
 }
 
 Status RowSourcesBuffer::_serialize() {
-    size_t rows = _buffer->size();
+    size_t rows = _buffer.size();
     if (rows == 0) {
         return Status::OK();
     }
@@ -221,11 +224,10 @@ Status RowSourcesBuffer::_serialize() {
         return Status::InternalError("fail to write buffer size to file");
     }
     // write data
-    StringRef ref = _buffer->get_raw_data();
-    bytes_written = ::write(_fd, ref.data, ref.size * sizeof(UInt16));
-    if (bytes_written != _buffer->byte_size()) {
+    bytes_written = ::write(_fd, _buffer.data(), _buffer.size() * sizeof(UInt16));
+    if (bytes_written != _buffer.size() * sizeof(UInt16)) {
         LOG(WARNING) << "failed to write buffer data to file, bytes_written=" << bytes_written
-                     << " buffer size=" << _buffer->byte_size();
+                     << " buffer size=" << _buffer.size() * sizeof(UInt16);
         return Status::InternalError("fail to write buffer size to file");
     }
     return Status::OK();
@@ -241,8 +243,8 @@ Status RowSourcesBuffer::_deserialize() {
         LOG(WARNING) << "failed to read buffer size from file, bytes_read=" << bytes_read;
         return Status::InternalError("failed to read buffer size from file");
     }
-    _buffer->resize(rows);
-    auto& internal_data = _buffer->get_data();
+    _buffer.resize(rows);
+    auto& internal_data = _buffer;
     bytes_read = ::read(_fd, internal_data.data(), rows * sizeof(UInt16));
     if (bytes_read != rows * sizeof(UInt16)) {
         LOG(WARNING) << "failed to read buffer data from file, bytes_read=" << bytes_read
@@ -821,4 +823,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
 }
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

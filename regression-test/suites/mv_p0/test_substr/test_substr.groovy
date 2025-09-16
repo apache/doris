@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_substr") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true"""
     sql """SET enable_fallback_to_original_planner=false"""
     sql """ drop table if exists dwd;"""
@@ -41,7 +43,7 @@ suite ("test_substr") {
             create materialized view dwd_mv as 
             SELECT  
             substr(created_at,1,10) as statistic_date,
-            max(dt) as dt
+            max(dt) as dt2
             FROM dwd 
             group by substr(created_at,1,10);
     """)
@@ -49,17 +51,14 @@ suite ("test_substr") {
     sql """insert into dwd(id) values(2);"""
 
     sql """analyze table dwd with sync;"""
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);",
+            "dwd_mv")
     qt_select_mv "SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("SELECT substr(created_at,1,10) as statistic_date, max(dt) as dt FROM dwd  group by substr(created_at,1,10);",
+            "dwd_mv")
 }

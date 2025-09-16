@@ -32,54 +32,33 @@
 #include "pipeline_task.h"
 
 namespace doris::pipeline {
-
-class TaskQueue {
-public:
-    TaskQueue(size_t core_size) : _core_size(core_size) {}
-    virtual ~TaskQueue();
-    virtual void close() = 0;
-    // Get the task by core id.
-    // TODO: To think the logic is useful?
-    virtual PipelineTask* take(size_t core_id) = 0;
-
-    // push from scheduler
-    virtual Status push_back(PipelineTask* task) = 0;
-
-    // push from worker
-    virtual Status push_back(PipelineTask* task, size_t core_id) = 0;
-
-    virtual void update_statistics(PipelineTask* task, int64_t time_spent) {}
-
-    int cores() const { return _core_size; }
-
-protected:
-    size_t _core_size;
-    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
-};
+#include "common/compile_check_begin.h"
 
 class SubTaskQueue {
     friend class PriorityTaskQueue;
 
 public:
-    void push_back(PipelineTask* task) { _queue.emplace(task); }
+    void push_back(PipelineTaskSPtr task) { _queue.emplace(task); }
 
-    PipelineTask* try_take(bool is_steal);
+    PipelineTaskSPtr try_take(bool is_steal);
 
     void set_level_factor(double level_factor) { _level_factor = level_factor; }
 
     // note:
     // runtime is the time consumed by the actual execution of the task
     // vruntime(means virtual runtime) = runtime / _level_factor
-    double get_vruntime() { return _runtime / _level_factor; }
+    double get_vruntime() { return double(_runtime) / _level_factor; }
 
     void inc_runtime(uint64_t delta_time) { _runtime += delta_time; }
 
-    void adjust_runtime(uint64_t vruntime) { this->_runtime = uint64_t(vruntime * _level_factor); }
+    void adjust_runtime(uint64_t vruntime) {
+        this->_runtime = uint64_t(double(vruntime) * _level_factor);
+    }
 
     bool empty() { return _queue.empty(); }
 
 private:
-    std::queue<PipelineTask*> _queue;
+    std::queue<PipelineTaskSPtr> _queue;
     // depends on LEVEL_QUEUE_TIME_FACTOR
     double _level_factor = 1;
 
@@ -93,20 +72,18 @@ public:
 
     void close();
 
-    PipelineTask* try_take(bool is_steal);
+    PipelineTaskSPtr try_take(bool is_steal);
 
-    PipelineTask* take(uint32_t timeout_ms = 0);
+    PipelineTaskSPtr take(uint32_t timeout_ms = 0);
 
-    Status push(PipelineTask* task);
+    Status push(PipelineTaskSPtr task);
 
     void inc_sub_queue_runtime(int level, uint64_t runtime) {
         _sub_queues[level].inc_runtime(runtime);
     }
 
-    int task_size();
-
 private:
-    PipelineTask* _try_take_unprotected(bool is_steal);
+    PipelineTaskSPtr _try_take_unprotected(bool is_steal);
     static constexpr auto LEVEL_QUEUE_TIME_FACTOR = 2;
     static constexpr size_t SUB_QUEUE_LEVEL = 6;
     SubTaskQueue _sub_queues[SUB_QUEUE_LEVEL];
@@ -126,30 +103,38 @@ private:
 };
 
 // Need consider NUMA architecture
-class MultiCoreTaskQueue : public TaskQueue {
+class MultiCoreTaskQueue {
 public:
-    explicit MultiCoreTaskQueue(size_t core_size);
+    explicit MultiCoreTaskQueue(int core_size);
 
-    ~MultiCoreTaskQueue() override;
-
-    void close() override;
-
+#ifndef BE_TEST
+    ~MultiCoreTaskQueue();
     // Get the task by core id.
-    PipelineTask* take(size_t core_id) override;
+    PipelineTaskSPtr take(int core_id);
+#else
+    virtual ~MultiCoreTaskQueue();
+    virtual PipelineTaskSPtr take(int core_id);
+#endif
+    void close();
 
     // TODO combine these methods to `push_back(task, core_id = -1)`
-    Status push_back(PipelineTask* task) override;
+    Status push_back(PipelineTaskSPtr task);
 
-    Status push_back(PipelineTask* task, size_t core_id) override;
+    Status push_back(PipelineTaskSPtr task, int core_id);
 
-    void update_statistics(PipelineTask* task, int64_t time_spent) override;
+    void update_statistics(PipelineTask* task, int64_t time_spent);
+
+    int cores() const { return _core_size; }
 
 private:
-    PipelineTask* _steal_take(size_t core_id);
+    PipelineTaskSPtr _steal_take(int core_id);
 
-    std::unique_ptr<PriorityTaskQueue[]> _prio_task_queue_list;
-    std::atomic<size_t> _next_core = 0;
+    std::vector<PriorityTaskQueue> _prio_task_queues;
+    std::atomic<uint32_t> _next_core = 0;
     std::atomic<bool> _closed;
-};
 
+    int _core_size;
+    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
+};
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

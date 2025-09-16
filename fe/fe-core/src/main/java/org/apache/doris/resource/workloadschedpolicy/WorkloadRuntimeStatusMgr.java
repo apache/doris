@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 
@@ -35,7 +35,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 // NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
 // this may cause in some corner case missing statistics update,for example:
@@ -48,8 +48,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
-    private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
+    private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    private volatile long lastWarnTime;
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -71,20 +72,37 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         Map<String, TQueryStatistics> queryStatisticsMap = getQueryStatisticsMap();
 
         // 2 log query audit
-        List<AuditEvent> auditEventList = getQueryNeedAudit();
-        for (AuditEvent auditEvent : auditEventList) {
-            TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-            if (queryStats != null) {
-                auditEvent.scanRows = queryStats.scan_rows;
-                auditEvent.scanBytes = queryStats.scan_bytes;
-                auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
-                auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
-                auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+        try {
+            List<AuditEvent> auditEventList = getQueryNeedAudit();
+            int missedLogCount = 0;
+            int succLogCount = 0;
+            for (AuditEvent auditEvent : auditEventList) {
+                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                if (queryStats != null) {
+                    auditEvent.scanRows = queryStats.scan_rows;
+                    auditEvent.scanBytes = queryStats.scan_bytes;
+                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
+                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                }
+                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+                if (!ret) {
+                    missedLogCount++;
+                } else {
+                    succLogCount++;
+                }
             }
-            Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+            if (missedLogCount > 0) {
+                LOG.warn("discard audit event because of log queue is full, discard num : {}, succ num : {}",
+                        missedLogCount, succLogCount);
+            }
+        } catch (Throwable t) {
+            LOG.warn("exception happens when handleAuditEvent, ", t);
         }
 
         // 3 clear beToQueryStatsMap when be report timeout
@@ -94,14 +112,32 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     public void submitFinishQueryToAudit(AuditEvent event) {
         queryAuditEventLogWriteLock();
         try {
-            event.pushToAuditLogQueueTime = System.currentTimeMillis();
-            queryAuditEventList.add(event);
+            if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
+                long now = System.currentTimeMillis();
+
+                if (now - lastWarnTime >= 1000) {
+                    lastWarnTime = now;
+                    // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
+                    // so that the statistic info of this audit event will be ignored,
+                    // and event will be logged directly.
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                    + "you can check whether qps is too high or "
+                                    + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                            queryAuditEventList.size(), event.queryId);
+                }
+                Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
+            } else {
+                // put the event to queryAuditEventList and let the worker thread to handle it.
+                // the worker thread will try best to wait for the statistic info before logging this event.
+                event.pushToAuditLogQueueTime = System.currentTimeMillis();
+                queryAuditEventList.add(event);
+            }
         } finally {
             queryAuditEventLogWriteUnlock();
         }
     }
 
-    public List<AuditEvent> getQueryNeedAudit() {
+    private List<AuditEvent> getQueryNeedAudit() {
         List<AuditEvent> ret = new ArrayList<>();
         long currentTime = System.currentTimeMillis();
         queryAuditEventLogWriteLock();
@@ -205,13 +241,15 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {
-        queryAuditEventLock.writeLock().lock();
+        queryAuditEventLock.lock();
     }
 
     private void queryAuditEventLogWriteUnlock() {
-        queryAuditEventLock.writeLock().unlock();
+        queryAuditEventLock.unlock();
     }
 }

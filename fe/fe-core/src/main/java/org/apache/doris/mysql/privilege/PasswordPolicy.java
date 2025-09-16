@@ -21,11 +21,8 @@ import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Joiner;
@@ -35,9 +32,6 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -53,7 +47,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *  FAILED_LOGIN_ATTEMPTS
  *  PASSWORD_LOCK_TIME
  */
-public class PasswordPolicy implements Writable {
+public class PasswordPolicy {
     private static final Logger LOG = LogManager.getLogger(PasswordPolicy.class);
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -143,15 +137,6 @@ public class PasswordPolicy implements Writable {
         return expirePolicy;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public static PasswordPolicy read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), PasswordPolicy.class);
-    }
-
     public List<List<String>> getInfo() {
         lock.readLock().lock();
         try {
@@ -178,7 +163,7 @@ public class PasswordPolicy implements Writable {
      * Password expire policy.
      * If a password is expired, user can no longer login with this password
      */
-    public static class ExpirePolicy implements Writable {
+    public static class ExpirePolicy {
         // -1: default, will use session variable: default_password_lifetime
         // 0: never
         // > 0: seconds
@@ -238,21 +223,13 @@ public class PasswordPolicy implements Writable {
             rows.add(row2);
         }
 
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        public static ExpirePolicy read(DataInput in) throws IOException {
-            return GsonUtils.GSON.fromJson(Text.readString(in), ExpirePolicy.class);
-        }
     }
 
     /**
      * Password history num.
      * The password saved in this policy can not be reused.
      */
-    public static class HistoryPolicy implements Writable {
+    public static class HistoryPolicy {
         public static final int MAX_HISTORY_SIZE = 10;
         public static final int DEFAULT = -1;
         public static final int NO_RESTRICTION = 0;
@@ -344,22 +321,13 @@ public class PasswordPolicy implements Writable {
             rows.add(row1);
             rows.add(row2);
         }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        public static HistoryPolicy read(DataInput in) throws IOException {
-            return GsonUtils.GSON.fromJson(Text.readString(in), HistoryPolicy.class);
-        }
     }
 
     /**
      * If a user is failed to login for a certain time,
      * the account will be locked for a certain period.
      */
-    public static class FailedLoginPolicy implements Writable {
+    public static class FailedLoginPolicy {
         public static final int DISABLED = 0;
         public static final int UNBOUNDED = -1;
         public static final int LOCK_ACCOUNT = -1;
@@ -435,15 +403,6 @@ public class PasswordPolicy implements Writable {
         public void unlock() {
             this.failedLoginCounter.set(0);
             this.lockTime.set(0);
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        public static FailedLoginPolicy read(DataInput in) throws IOException {
-            return GsonUtils.GSON.fromJson(Text.readString(in), FailedLoginPolicy.class);
         }
 
         private String passwordLockSecondsToString() {

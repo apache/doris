@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -42,6 +43,8 @@ public class Percentile extends NullableAggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE),
+            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(LargeIntType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE, DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE, DoubleType.INSTANCE),
@@ -68,6 +71,11 @@ public class Percentile extends NullableAggregateFunction
         super("percentile", distinct, alwaysNullable, arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Percentile(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!getArgument(1).isConstant()) {
@@ -82,12 +90,12 @@ public class Percentile extends NullableAggregateFunction
     @Override
     public Percentile withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Percentile(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Percentile(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Percentile(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new Percentile(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

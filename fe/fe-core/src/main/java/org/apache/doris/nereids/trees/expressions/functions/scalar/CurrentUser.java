@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -33,7 +34,7 @@ import java.util.List;
  * ScalarFunction 'CurrentUser'.
  */
 public class CurrentUser extends ScalarFunction
-        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Nondeterministic {
+        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args()
@@ -43,13 +44,29 @@ public class CurrentUser extends ScalarFunction
         super("current_user", ImmutableList.of());
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CurrentUser(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
 
     @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.isEmpty());
+        return new CurrentUser(getFunctionParams(children));
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCurrentUser(this, context);
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
     }
 }

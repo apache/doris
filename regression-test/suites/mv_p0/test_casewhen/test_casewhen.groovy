@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_casewhen") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS sales_records; """
 
     sql """
@@ -27,24 +30,19 @@ suite ("test_casewhen") {
 
     sql """insert into sales_records values(1,1,1,"2020-02-02",11),(1,1,1,"2020-02-02",1);"""
 
-    createMV ("create materialized view store_amt as select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id;")
+    createMV ("create materialized view store_amt as select store_id as a1, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id;")
 
     sql """insert into sales_records values(1,1,1,"2020-02-02",1),(1,2,2,"2020-02-02",1);"""
 
     sql """analyze table sales_records with sync;"""
+    sql """alter table sales_records modify column record_id set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from sales_records order by 1,2;"
 
-    explain {
-        sql("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;")
-        contains "(store_amt)"
-    }
+    mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")
     qt_select_mv "select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;")
-        contains "(store_amt)"
-    }
+    mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")
 }

@@ -24,6 +24,7 @@
 #include "olap/storage_policy.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 CloudRowsetBuilder::CloudRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& req,
@@ -51,8 +52,8 @@ Status CloudRowsetBuilder::init() {
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 
     // build tablet schema in request level
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_tablet->tablet_schema());
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_tablet->tablet_schema()));
 
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
@@ -80,20 +81,25 @@ Status CloudRowsetBuilder::init() {
 
     _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta()));
+    if (!_skip_writing_rowset_metadata) {
+        RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_rowset_writer->rowset_meta(), ""));
+    }
 
     _is_init = true;
     return Status::OK();
 }
 
 Status CloudRowsetBuilder::check_tablet_version_count() {
-    int version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
+    int64_t version_count = cloud_tablet()->fetch_add_approximate_num_rowsets(0);
     // TODO(plat1ko): load backoff algorithm
-    if (version_count > config::max_tablet_version_num) {
+    int32_t max_version_config = cloud_tablet()->max_version_config();
+    if (version_count > max_version_config) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
-                "tablet: {}",
-                version_count, config::max_tablet_version_num, _tablet->tablet_id());
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num or time_series_max_tablet_version_numin be.conf to a "
+                "larger value.",
+                version_count, max_version_config, _tablet->tablet_id());
     }
     return Status::OK();
 }
@@ -105,7 +111,7 @@ void CloudRowsetBuilder::update_tablet_stats() {
     tablet->fetch_add_approximate_num_rowsets(1);
     tablet->fetch_add_approximate_num_segments(_rowset->num_segments());
     tablet->fetch_add_approximate_num_rows(_rowset->num_rows());
-    tablet->fetch_add_approximate_data_size(_rowset->data_disk_size());
+    tablet->fetch_add_approximate_data_size(_rowset->total_disk_size());
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_deltas(_rowset->num_segments());
     tablet->write_count.fetch_add(1, std::memory_order_relaxed);
@@ -123,7 +129,7 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
     if (_tablet->enable_unique_key_merge_on_write()) {
         if (config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0) {
             auto st = _tablet->check_delete_bitmap_correctness(
-                    _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, _rowset_ids);
+                    _delete_bitmap, _rowset->end_version() - 1, _req.txn_id, *_rowset_ids);
             if (!st.ok()) {
                 LOG(WARNING) << fmt::format(
                         "[tablet_id:{}][txn_id:{}][load_id:{}][partition_id:{}] "
@@ -134,9 +140,10 @@ Status CloudRowsetBuilder::set_txn_related_delete_bitmap() {
             }
         }
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
-                _req.txn_id, _tablet->tablet_id(), _delete_bitmap, _rowset_ids, _rowset,
+                _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
                 _req.txn_expiration, _partial_update_info);
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 } // namespace doris

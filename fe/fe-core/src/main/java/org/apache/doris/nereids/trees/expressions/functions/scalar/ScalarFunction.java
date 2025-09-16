@@ -32,12 +32,26 @@ public abstract class ScalarFunction extends BoundFunction implements ComputeSig
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    public ScalarFunction(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     public ScalarFunction(String name, List<Expression> arguments) {
-        super(name, arguments);
+        this(name, arguments, false);
+    }
+
+    public ScalarFunction(String name, List<Expression> arguments, boolean inferred) {
+        super(name, arguments, inferred);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitScalarFunction(this, context);
+    }
+
+    @Override
+    protected ScalarFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new ScalarFunctionParams(this, getName(), arguments, isInferred());
     }
 }

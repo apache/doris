@@ -32,8 +32,8 @@
 #include <tuple>
 #include <type_traits>
 
+#include "common/compile_check_begin.h"
 #include "common/exception.h"
-
 // NOLINTBEGIN(*)
 
 /// Use same extended double for all platforms
@@ -46,10 +46,6 @@ using FromDoubleIntermediateType = long double;
 #define CONSTEXPR_FROM_DOUBLE
 using FromDoubleIntermediateType = boost::multiprecision::cpp_bin_float_double_extended;
 #endif
-
-namespace CityHash_v1_0_2 {
-struct uint128;
-}
 
 namespace wide {
 
@@ -259,7 +255,7 @@ struct integer<Bits, Signed>::_impl {
                                                     Integral rhs) noexcept {
         if constexpr (std::is_same_v<Integral, __int128> ||
                       std::is_same_v<Integral, unsigned __int128>) {
-            self.items[little(0)] = rhs;
+            self.items[little(0)] = static_cast<base_type>(rhs);
             self.items[little(1)] = rhs >> 64;
             if (rhs < 0) {
                 for (unsigned i = 2; i < item_count; ++i) {
@@ -304,18 +300,6 @@ struct integer<Bits, Signed>::_impl {
         }
     }
 
-    template <typename CityHashUInt128 = CityHash_v1_0_2::uint128>
-    constexpr static void wide_integer_from_cityhash_uint128(
-            integer<Bits, Signed>& self, const CityHashUInt128& value) noexcept {
-        static_assert(sizeof(item_count) >= 2);
-
-        if constexpr (std::endian::native == std::endian::little) {
-            wide_integer_from_tuple_like(self, std::make_pair(value.low64, value.high64));
-        } else {
-            wide_integer_from_tuple_like(self, std::make_pair(value.high64, value.low64));
-        }
-    }
-
     /**
      * N.B. t is constructed from double, so max(t) = max(double) ~ 2^310
      * the recursive call happens when t / 2^64 > 2^64, so there won't be more than 5 of them.
@@ -357,7 +341,8 @@ struct integer<Bits, Signed>::_impl {
         }
 
         self *= max_int;
-        self += static_cast<uint64_t>(t - floor(alpha) * static_cast<T>(max_int)); // += b_i
+        self += static_cast<uint64_t>(t - floor(static_cast<double>(alpha)) *
+                                                  static_cast<T>(max_int)); // += b_i
     }
 
     CONSTEXPR_FROM_DOUBLE static void wide_integer_from_builtin(integer<Bits, Signed>& self,
@@ -578,7 +563,7 @@ private:
             HalfType a1 = lhs.items[little(1)];
 
             HalfType b01 = rhs;
-            uint64_t b0 = b01;
+            uint64_t b0 = static_cast<uint64_t>(b01);
             uint64_t b1 = 0;
             HalfType b23 = 0;
             if constexpr (sizeof(T) > 8) {
@@ -594,7 +579,7 @@ private:
             HalfType r12_x = a1 * b0;
 
             integer<Bits, Signed> res;
-            res.items[little(0)] = r01;
+            res.items[little(0)] = static_cast<base_type>(r01);
             res.items[little(3)] = r23 >> 64;
 
             if constexpr (sizeof(T) > 8) {
@@ -610,7 +595,7 @@ private:
                 ++res.items[little(3)];
             }
 
-            res.items[little(1)] = r12;
+            res.items[little(1)] = static_cast<base_type>(r12);
             res.items[little(2)] = r12 >> 64;
             return res;
         } else if constexpr (Bits == 128 && sizeof(base_type) == 8) {
@@ -625,7 +610,7 @@ private:
                             0)]; // NOLINT(clang-analyzer-core.UndefinedBinaryOperatorResult)
             CompilerUInt128 c = a * b;
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
             return res;
         } else {
@@ -867,11 +852,11 @@ public:
             CompilerUInt128 c = a / b; // NOLINT
 
             integer<Bits, Signed> res;
-            res.items[little(0)] = c;
+            res.items[little(0)] = static_cast<base_type>(c);
             res.items[little(1)] = c >> 64;
 
             CompilerUInt128 remainder = a - b * c;
-            numerator.items[little(0)] = remainder;
+            numerator.items[little(0)] = static_cast<base_type>(remainder);
             numerator.items[little(1)] = remainder >> 64;
 
             return res;
@@ -1011,14 +996,18 @@ public:
 // Members
 
 template <size_t Bits, typename Signed>
+template <size_t Bits2, typename Signed2>
+constexpr integer<Bits, Signed>::integer(const integer<Bits2, Signed2> rhs) noexcept : items {} {
+    _impl::wide_integer_from_wide_integer(*this, rhs);
+}
+
+template <size_t Bits, typename Signed>
 template <typename T>
+    requires(std::is_arithmetic_v<T> || std::is_same_v<T, __int128> ||
+             std::is_same_v<T, unsigned __int128>)
 constexpr integer<Bits, Signed>::integer(T rhs) noexcept : items {} {
-    if constexpr (IsWideInteger<T>::value) {
-        _impl::wide_integer_from_wide_integer(*this, rhs);
-    } else if constexpr (IsTupleLike<T>::value) {
+    if constexpr (IsTupleLike<T>::value) {
         _impl::wide_integer_from_tuple_like(*this, rhs);
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-        _impl::wide_integer_from_cityhash_uint128(*this, rhs);
     } else {
         _impl::wide_integer_from_builtin(*this, rhs);
     }
@@ -1032,8 +1021,6 @@ constexpr integer<Bits, Signed>::integer(std::initializer_list<T> il) noexcept :
             _impl::wide_integer_from_wide_integer(*this, *il.begin());
         } else if constexpr (IsTupleLike<T>::value) {
             _impl::wide_integer_from_tuple_like(*this, *il.begin());
-        } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-            _impl::wide_integer_from_cityhash_uint128(*this, *il.begin());
         } else {
             _impl::wide_integer_from_builtin(*this, *il.begin());
         }
@@ -1043,7 +1030,7 @@ constexpr integer<Bits, Signed>::integer(std::initializer_list<T> il) noexcept :
         auto it = il.begin();
         for (unsigned i = 0; i < _impl::item_count; ++i) {
             if (it < il.end()) {
-                items[_impl::little(i)] = *it;
+                items[_impl::little(i)] = static_cast<base_type>(*it);
                 ++it;
             } else {
                 items[_impl::little(i)] = 0;
@@ -1065,8 +1052,6 @@ template <typename T>
 constexpr integer<Bits, Signed>& integer<Bits, Signed>::operator=(T rhs) noexcept {
     if constexpr (IsTupleLike<T>::value) {
         _impl::wide_integer_from_tuple_like(*this, rhs);
-    } else if constexpr (std::is_same_v<std::remove_cvref_t<T>, CityHash_v1_0_2::uint128>) {
-        _impl::wide_integer_from_cityhash_uint128(*this, rhs);
     } else {
         _impl::wide_integer_from_builtin(*this, rhs);
     }
@@ -1227,7 +1212,7 @@ constexpr integer<Bits, Signed>::operator long double() const noexcept {
         long double t = res;
         res *= static_cast<long double>(std::numeric_limits<base_type>::max());
         res += t;
-        res += tmp.items[_impl::big(i)];
+        res += static_cast<long double>(tmp.items[_impl::big(i)]);
     }
 
     if (_impl::is_negative(*this)) {
@@ -1489,4 +1474,5 @@ struct hash<wide::integer<Bits, Signed>> {
 
 } // namespace std
 
+#include "common/compile_check_end.h"
 // NOLINTEND(*)

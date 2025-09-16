@@ -19,13 +19,13 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -48,48 +48,48 @@ public class SlotReference extends Slot {
     // e.g. For accessing variant["a"]["b"], the parsed paths is ["a", "b"]
     protected final List<String> subPath;
 
-    // the unique string representation of a SlotReference
-    // different SlotReference will have different internalName
-    // TODO: remove this member variable after mv selection is refactored
-    protected final Supplier<Optional<String>> internalName;
+    // table and column from the original table, fall through views
+    private final TableIf originalTable;
+    private final Column originalColumn;
 
-    private final TableIf table;
-    private final Column column;
+    // table and column from one level table/view, do not fall through views. use for compatible with MySQL protocol
+    // that need return original table and name for view not its original table if u query a view
+    private final TableIf oneLevelTable;
+    private final Column oneLevelColumn;
 
     public SlotReference(String name, DataType dataType) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, true, ImmutableList.of(),
-                null, null, Optional.empty(), ImmutableList.of());
+                null, null, null, null, ImmutableList.of());
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, nullable, ImmutableList.of(),
-                null, null, Optional.empty(), ImmutableList.of());
+                null, null, null, null, ImmutableList.of());
     }
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
         this(StatementScopeIdGenerator.newExprId(), name, dataType, nullable,
-                qualifier, null, null, Optional.empty(), ImmutableList.of());
+                qualifier, null, null, null, null, ImmutableList.of());
     }
 
     public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(exprId, name, dataType, nullable, qualifier, null, null, Optional.empty(), ImmutableList.of());
+        this(exprId, name, dataType, nullable, qualifier, null, null, null, null, ImmutableList.of());
     }
 
-    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
-            List<String> qualifier, @Nullable TableIf table, @Nullable Column column) {
-        this(exprId, name, dataType, nullable, qualifier, table, column, Optional.empty(), ImmutableList.of());
+    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier,
+            @Nullable TableIf originalTable, @Nullable Column originalColumn,
+            @Nullable TableIf oneLevelTable, @Nullable Column oneLevelColumn) {
+        this(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn, ImmutableList.of());
     }
 
-    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
-            List<String> qualifier, @Nullable TableIf table, @Nullable Column column, Optional<String> internalName) {
-        this(exprId, name, dataType, nullable, qualifier, table, column, internalName, ImmutableList.of());
-    }
-
-    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable,
-            List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
-            Optional<String> internalName, List<String> subColLabels) {
-        this(exprId, () -> name, dataType, nullable, qualifier, table, column,
-                buildInternalName(() -> name, subColLabels, internalName), subColLabels);
+    public SlotReference(ExprId exprId, String name, DataType dataType, boolean nullable, List<String> qualifier,
+            @Nullable TableIf originalTable, @Nullable Column originalColumn,
+            @Nullable TableIf oneLevelTable, @Nullable Column oneLevelColumn,
+            List<String> subPath) {
+        this(exprId, () -> name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, Optional.empty());
     }
 
     /**
@@ -100,23 +100,25 @@ public class SlotReference extends Slot {
      * @param dataType slot reference logical data type
      * @param nullable true if nullable
      * @param qualifier slot reference qualifier
-     * @param column the column which this slot come from
-     * @param internalName the internalName of this slot
+     * @param originalColumn the column which this slot come from
      * @param subPath subColumn access labels
      */
     public SlotReference(ExprId exprId, Supplier<String> name, DataType dataType, boolean nullable,
-            List<String> qualifier, @Nullable TableIf table, @Nullable Column column,
-            Supplier<Optional<String>> internalName, List<String> subPath) {
+            List<String> qualifier, @Nullable TableIf originalTable, @Nullable Column originalColumn,
+            @Nullable TableIf oneLevelTable, Column oneLevelColumn,
+            List<String> subPath, Optional<Pair<Integer, Integer>> indexInSql) {
+        super(indexInSql);
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
         this.qualifier = Utils.fastToImmutableList(
                 Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.nullable = nullable;
-        this.table = table;
-        this.column = column;
+        this.originalTable = originalTable;
+        this.originalColumn = originalColumn;
+        this.oneLevelTable = oneLevelTable;
+        this.oneLevelColumn = oneLevelColumn;
         this.subPath = Objects.requireNonNull(subPath, "subPath can not be null");
-        this.internalName = internalName;
     }
 
     public static SlotReference of(String name, DataType type) {
@@ -128,17 +130,15 @@ public class SlotReference extends Slot {
      * @param column the column which contains type info
      * @param qualifier the qualifier of SlotReference
      */
-    public static SlotReference fromColumn(TableIf table, Column column, List<String> qualifier) {
-        DataType dataType = DataType.fromCatalogType(column.getType());
-        return new SlotReference(StatementScopeIdGenerator.newExprId(), column::getName, dataType,
-                column.isAllowNull(), qualifier, table, column,
-                () -> Optional.of(column.getName()), ImmutableList.of());
+    public static SlotReference fromColumn(ExprId exprId, TableIf table, Column column, List<String> qualifier) {
+        return fromColumn(exprId, table, column, column.getName(), qualifier);
     }
 
-    public static SlotReference fromColumn(TableIf table, Column column, String name, List<String> qualifier) {
+    public static SlotReference fromColumn(
+            ExprId exprId, TableIf table, Column column, String name, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
-        return new SlotReference(StatementScopeIdGenerator.newExprId(), name, dataType,
-            column.isAllowNull(), qualifier, table, column, Optional.empty(), ImmutableList.of());
+        return new SlotReference(exprId, name, dataType,
+            column.isAllowNull(), qualifier, table, column, table, column, ImmutableList.of());
     }
 
     @Override
@@ -166,21 +166,24 @@ public class SlotReference extends Slot {
         return nullable;
     }
 
+    public Optional<TableIf> getOriginalTable() {
+        return Optional.ofNullable(originalTable);
+    }
+
+    public Optional<Column> getOriginalColumn() {
+        return Optional.ofNullable(originalColumn);
+    }
+
+    public Optional<TableIf> getOneLevelTable() {
+        return Optional.ofNullable(oneLevelTable);
+    }
+
+    public Optional<Column> getOneLevelColumn() {
+        return Optional.ofNullable(oneLevelColumn);
+    }
+
     @Override
-    public String getInternalName() {
-        return internalName.get().get();
-    }
-
-    public Optional<Column> getColumn() {
-        return Optional.ofNullable(column);
-    }
-
-    public Optional<TableIf> getTable() {
-        return Optional.ofNullable(table);
-    }
-
-    @Override
-    public String toSql() {
+    public String computeToSql() {
         if (subPath.isEmpty()) {
             return name.get();
         } else {
@@ -235,6 +238,11 @@ public class SlotReference extends Slot {
     }
 
     @Override
+    public int fastChildrenHashCode() {
+        return exprId.asInt();
+    }
+
+    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSlotReference(this, context);
     }
@@ -246,17 +254,30 @@ public class SlotReference extends Slot {
     }
 
     @Override
-    public SlotReference withNullable(boolean newNullable) {
-        if (this.nullable == newNullable) {
+    public SlotReference withNullable(boolean nullable) {
+        if (this.nullable == nullable) {
             return this;
         }
-        return new SlotReference(exprId, name, dataType, newNullable,
-                qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
+        if (this.nullable == nullable && this.dataType.equals(dataType)) {
+            return this;
+        }
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
     }
 
     @Override
     public SlotReference withQualifier(List<String> qualifier) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
     }
 
     @Override
@@ -264,22 +285,46 @@ public class SlotReference extends Slot {
         if (this.name.get().equals(name)) {
             return this;
         }
-        return new SlotReference(
-                exprId, () -> name, dataType, nullable, qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, () -> name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
     }
 
     @Override
     public SlotReference withExprId(ExprId exprId) {
-        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
     }
 
     public SlotReference withSubPath(List<String> subPath) {
-        return new SlotReference(exprId, name, dataType, !subPath.isEmpty() || nullable,
-                qualifier, table, column, internalName, subPath);
+        return new SlotReference(exprId, name, dataType, !subPath.isEmpty() || nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, indexInSqlString);
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, originalColumn, oneLevelTable, oneLevelColumn,
+                subPath, Optional.ofNullable(index));
+    }
+
+    public SlotReference withColumn(Column column) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, column, oneLevelTable, column,
+                subPath, indexInSqlString);
+    }
+
+    @Override
+    public Slot withOneLevelTableAndColumnAndQualifier(TableIf oneLevelTable, Column column, List<String> qualifier) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier,
+                originalTable, column, oneLevelTable, column,
+                subPath, indexInSqlString);
     }
 
     public boolean isVisible() {
-        return column == null || column.isVisible();
+        return originalColumn == null || originalColumn.isVisible();
     }
 
     public List<String> getSubPath() {
@@ -290,20 +335,11 @@ public class SlotReference extends Slot {
         return !subPath.isEmpty();
     }
 
-    private static Supplier<Optional<String>> buildInternalName(
-            Supplier<String> name, List<String> subColLabels, Optional<String> internalName) {
-        if (subColLabels != null && !subColLabels.isEmpty()) {
-            // Modify internal name to distinguish from different sub-columns of same top level column,
-            // using the `.` to connect each part of paths
-            return Suppliers.memoize(() ->
-                    Optional.of(internalName.orElse(name.get()) + String.join(".", subColLabels)));
-        } else {
-            return Suppliers.memoize(() ->
-                    internalName.isPresent() ? internalName : Optional.of(name.get()));
-        }
-    }
-
     public String getQualifiedNameWithBackquote() throws UnboundException {
         return Utils.qualifiedNameWithBackquote(getQualifier(), getName());
+    }
+
+    public boolean hasAutoInc() {
+        return originalColumn != null ? originalColumn.isAutoInc() : false;
     }
 }

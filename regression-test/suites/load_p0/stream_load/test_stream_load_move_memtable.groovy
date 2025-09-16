@@ -185,7 +185,7 @@ suite("test_stream_load_move_memtable", "p0") {
     }
 
     sql "sync"
-    rowCount = sql "select count(1) from ${tableName}"
+    def rowCount = sql "select count(1) from ${tableName}"
     assertEquals(3, rowCount[0][0])
 
     // test load_nullable_to_not_nullable
@@ -490,7 +490,7 @@ suite("test_stream_load_move_memtable", "p0") {
         table "${tableName3}"
 
         set 'column_separator', ','
-        set 'columns', 'tmpk1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13, k1=k13'
+        set 'columns', 'k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, k13'
         set 'memtable_on_sink_node', 'true'
 
         file 'all_types.csv'
@@ -712,7 +712,7 @@ suite("test_stream_load_move_memtable", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(5, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -764,8 +764,11 @@ suite("test_stream_load_move_memtable", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.Message.contains('Don\'t support load from type'))
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(0, json.NumberUnselectedRows)
         }
     }
     sql "sync"
@@ -818,7 +821,7 @@ suite("test_stream_load_move_memtable", "p0") {
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
             assertEquals(5, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -937,7 +940,7 @@ suite("test_stream_load_move_memtable", "p0") {
         def clusters = sql " SHOW CLUSTERS; "
         assertTrue(!clusters.isEmpty())
         def validCluster = clusters[0][0]
-        sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ddd""";
+        sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ddd""";
     }
 
     streamLoad {

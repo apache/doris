@@ -33,8 +33,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/integral_types.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
 #include "olap/olap_define.h"
@@ -54,15 +52,16 @@
 #include "runtime/query_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/debug_points.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
@@ -102,8 +101,8 @@ Status DeltaWriterV2::init() {
     if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
         return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
     }
-    _build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
-                                 *_streams[0]->tablet_schema(_req.index_id));
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *_streams[0]->tablet_schema(_req.index_id)));
     RowsetWriterContext context;
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
@@ -124,23 +123,23 @@ Status DeltaWriterV2::init() {
     context.data_dir = nullptr;
     context.partial_update_info = _partial_update_info;
     context.memtable_on_sink_support_index_v2 = true;
+    context.encrypt_algorithm = EncryptionAlgorithmPB::PLAINTEXT;
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    ThreadPool* wg_thread_pool_ptr = nullptr;
+    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (_state->get_query_ctx()) {
-        wg_thread_pool_ptr = _state->get_query_ctx()->get_memtable_flush_pool();
+        wg_sptr = _state->get_query_ctx()->workload_group();
     }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_thread_pool_ptr,
-                                           _streams[0]->enable_unique_mow(_req.index_id)));
+                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+Status DeltaWriterV2::write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -154,7 +153,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
         SCOPED_RAW_TIMER(&_wait_flush_limit_time);
         auto memtable_flush_running_count_limit = config::memtable_flush_running_count_limit;
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
-                        { memtable_flush_running_count_limit = 0; });
+                        { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
             if (_state->is_cancelled()) {
                 return _state->cancel_reason();
@@ -211,9 +210,9 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
     return Status::OK();
 }
 
-void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
-                                                 const OlapTableSchemaParam* table_schema_param,
-                                                 const TabletSchema& ori_tablet_schema) {
+Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
+                                                   const OlapTableSchemaParam* table_schema_param,
+                                                   const TabletSchema& ori_tablet_schema) {
     _tablet_schema->copy_from(ori_tablet_schema);
     // find the right index id
     int i = 0;
@@ -226,8 +225,9 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
 
     if (!indexes.empty() && !indexes[i]->columns.empty() &&
         indexes[i]->columns[0]->unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(index_id, table_schema_param->version(),
-                                                    indexes[i], ori_tablet_schema);
+        _tablet_schema->build_current_tablet_schema(
+                index_id, static_cast<int32_t>(table_schema_param->version()), indexes[i],
+                ori_tablet_schema);
     }
 
     _tablet_schema->set_table_id(table_schema_param->table_id());
@@ -237,11 +237,16 @@ void DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
     }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
-    _partial_update_info->init(*_tablet_schema, table_schema_param->is_partial_update(),
-                               table_schema_param->partial_update_input_columns(),
-                               table_schema_param->is_strict_mode(),
-                               table_schema_param->timestamp_ms(), table_schema_param->timezone(),
-                               table_schema_param->auto_increment_coulumn());
+    RETURN_IF_ERROR(_partial_update_info->init(
+            _req.tablet_id, _req.txn_id, *_tablet_schema,
+            table_schema_param->unique_key_update_mode(),
+            table_schema_param->partial_update_new_key_policy(),
+            table_schema_param->partial_update_input_columns(),
+            table_schema_param->is_strict_mode(), table_schema_param->timestamp_ms(),
+            table_schema_param->nano_seconds(), table_schema_param->timezone(),
+            table_schema_param->auto_increment_coulumn()));
+    return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

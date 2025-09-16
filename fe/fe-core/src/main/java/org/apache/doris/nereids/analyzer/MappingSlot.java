@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -25,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * MappingSlot.
@@ -36,6 +38,7 @@ public class MappingSlot extends Slot {
     private final Expression mappingExpression;
 
     public MappingSlot(Slot slot, Expression mappingExpression) {
+        super(Optional.empty());
         this.slot = slot;
         this.mappingExpression = mappingExpression;
     }
@@ -74,7 +77,7 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return slot.toSql();
     }
 
@@ -89,17 +92,17 @@ public class MappingSlot extends Slot {
     }
 
     @Override
-    public String getInternalName() {
-        return slot.getInternalName();
-    }
-
-    @Override
     public Slot withName(String name) {
         return this;
     }
 
     @Override
-    public Slot withNullable(boolean newNullable) {
+    public Slot withNullable(boolean nullable) {
+        return this;
+    }
+
+    @Override
+    public Slot withNullableAndDataType(boolean nullable, DataType dataType) {
         return this;
     }
 
@@ -110,6 +113,11 @@ public class MappingSlot extends Slot {
 
     @Override
     public Slot withQualifier(List<String> qualifier) {
+        return this;
+    }
+
+    @Override
+    public Slot withIndexInSql(Pair<Integer, Integer> index) {
         return this;
     }
 }

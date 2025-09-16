@@ -27,10 +27,11 @@
 
 #include "common/factory_creator.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gutil/macros.h"
 #include "olap/column_mapping.h"
+#include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
@@ -79,7 +80,7 @@ public:
                 "RowsetWriter not support add_block");
     }
     virtual Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
-                               bool is_key, uint32_t max_rows_per_segment) {
+                               bool is_key, uint32_t max_rows_per_segment, bool has_cluster_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support add_columns");
     }
@@ -93,6 +94,29 @@ public:
     virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
                                       FileType file_type = FileType::SEGMENT_FILE) {
         return Status::NotSupported("RowsetWriter does not support create_file_writer");
+    }
+
+    virtual Status create_index_file_writer(uint32_t segment_id,
+                                            IndexFileWriterPtr* index_file_writer) {
+        // Create file writer for the inverted index format v2.
+        io::FileWriterPtr idx_file_v2_ptr;
+        if (_context.tablet_schema->get_inverted_index_storage_format() !=
+            InvertedIndexStorageFormatPB::V1) {
+            RETURN_IF_ERROR(
+                    create_file_writer(segment_id, idx_file_v2_ptr, FileType::INVERTED_INDEX_FILE));
+        }
+        std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                _context.segment_path(segment_id))};
+        // default to true, only when base compaction, we need to check the config
+        bool can_use_ram_dir = true;
+        if (_context.compaction_type == ReaderType::READER_BASE_COMPACTION) {
+            can_use_ram_dir = config::inverted_index_ram_dir_enable_when_base_compaction;
+        }
+        *index_file_writer = std::make_unique<IndexFileWriter>(
+                _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
+                _context.tablet_schema->get_inverted_index_storage_format(),
+                std::move(idx_file_v2_ptr), can_use_ram_dir);
+        return Status::OK();
     }
 
     // explicit flush all buffered rows into segment file.
@@ -118,8 +142,7 @@ public:
                 "RowsetWriter not support flush_single_block");
     }
 
-    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                               TabletSchemaSPtr flush_schema) {
+    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
@@ -151,7 +174,9 @@ public:
 
     virtual int32_t allocate_segment_id() = 0;
 
-    virtual void set_segment_start_id(int num_segment) { LOG(FATAL) << "not supported!"; }
+    virtual void set_segment_start_id(int num_segment) {
+        throw Exception(Status::FatalError("not supported!"));
+    }
 
     virtual int64_t delete_bitmap_ns() { return 0; }
 

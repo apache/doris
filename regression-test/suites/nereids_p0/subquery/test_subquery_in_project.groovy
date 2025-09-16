@@ -41,6 +41,11 @@ suite("test_subquery_in_project") {
 
     sql """ insert into test_sql values (1,'2020-09-09',2,3);"""
 
+    // in subquery with normalize agg, cast(abs(age) as int) should extract from upper project.
+    sql """
+        SELECT CAST(abs(age) AS int) IN (SELECT age FROM test_sql) FROM test_sql GROUP BY CAST(abs(age) AS int);
+    """
+
     qt_sql1 """
         select (select age from test_sql) col from test_sql order by col; 
     """

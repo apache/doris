@@ -33,11 +33,11 @@ suite("test_autobucket") {
     log.info("show result : ${result}")
     assertTrue(result.toString().containsIgnoreCase("BUCKETS AUTO"))
 
-    result = sql "show partitions from autobucket_test"
+    result = sql_return_maparray "show partitions from autobucket_test"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
     // 10 is the default buckets without partition size
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 10)
+    assertEquals(10, Integer.valueOf(result.get(0).Buckets))
 
     sql "drop table if exists autobucket_test"
 
@@ -57,10 +57,10 @@ suite("test_autobucket") {
         )
         """
 
-    result = sql "show partitions from autobucket_test_min_buckets"
+    result = sql_return_maparray "show partitions from autobucket_test_min_buckets"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 5)
+    assertEquals(5, Integer.valueOf(result.get(0).Buckets))
     // set back to default
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_min_buckets' = '1')"
     sql "drop table if exists autobucket_test_min_buckets"
@@ -81,10 +81,10 @@ suite("test_autobucket") {
         )
         """
 
-    result = sql "show partitions from autobucket_test_max_buckets"
+    result = sql_return_maparray "show partitions from autobucket_test_max_buckets"
     logger.info("${result}")
     // XXX: buckets at pos(8), next maybe impl by sql meta
-    assertEquals(Integer.valueOf(result.get(0).get(8)), 1) //equals max bucket
+    assertEquals(1, Integer.valueOf(result.get(0).Buckets)) //equals max bucket
     // set back to default
     sql "ADMIN SET FRONTEND CONFIG ('autobucket_max_buckets' = '128')"
     sql "drop table if exists autobucket_test_max_buckets"

@@ -38,9 +38,13 @@ import java.util.List;
 public class ArrayContains extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE)
                     .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
+    );
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BooleanType.INSTANCE)
+                    .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
     );
 
     /**
@@ -50,13 +54,18 @@ public class ArrayContains extends ScalarFunction
         super("array_contains", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayContains(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayContains withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayContains(children.get(0), children.get(1));
+        return new ArrayContains(getFunctionParams(children));
     }
 
     @Override
@@ -71,6 +80,13 @@ public class ArrayContains extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (getArgument(0).getDataType().isArrayType()
+                &&
+                ((ArrayType) getArgument(0).getDataType()).getItemType()
+                        .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
+            // return least common type
+            return MIN_COMMON_TYPE_SIGNATURES;
+        }
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }

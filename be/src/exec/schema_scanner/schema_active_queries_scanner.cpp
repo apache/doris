@@ -26,6 +26,8 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -37,6 +39,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_colum
         {"QUEUE_START_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"USER", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SQL", TYPE_STRING, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
@@ -51,7 +54,7 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {
@@ -60,6 +63,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     }
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
+    schema_table_params.__set_time_zone(_timezone_obj.name());
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
@@ -83,8 +87,8 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
 
     _active_query_block = vectorized::Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        TypeDescriptor descriptor(_s_tbls_columns[i].type);
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                _s_tbls_columns[i].type, true);
         _active_query_block->insert(vectorized::ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
@@ -92,52 +96,23 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     _active_query_block->reserve(_block_rows_limit);
 
     if (result_data.size() > 0) {
-        int col_size = result_data[0].column_value.size();
+        auto col_size = result_data[0].column_value.size();
         if (col_size != _s_tbls_columns.size()) {
             return Status::InternalError<false>("active queries schema is not match for FE and BE");
         }
     }
 
-    // todo(wb) reuse this callback function
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
-
-        insert_string_value(0, row.column_value[0].stringVal, _active_query_block.get());
-        insert_string_value(1, row.column_value[1].stringVal, _active_query_block.get());
-        insert_int_value(2, row.column_value[2].longVal, _active_query_block.get());
-        insert_int_value(3, row.column_value[3].longVal, _active_query_block.get());
-        insert_string_value(4, row.column_value[4].stringVal, _active_query_block.get());
-        insert_string_value(5, row.column_value[5].stringVal, _active_query_block.get());
-        insert_string_value(6, row.column_value[6].stringVal, _active_query_block.get());
-        insert_string_value(7, row.column_value[7].stringVal, _active_query_block.get());
-        insert_string_value(8, row.column_value[8].stringVal, _active_query_block.get());
-        insert_string_value(9, row.column_value[9].stringVal, _active_query_block.get());
+        for (int j = 0; j < _s_tbls_columns.size(); j++) {
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _active_query_block.get(),
+                                                _s_tbls_columns[j].type));
+        }
     }
     return Status::OK();
 }
 
-Status SchemaActiveQueriesScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaActiveQueriesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -148,7 +123,7 @@ Status SchemaActiveQueriesScanner::get_next_block(vectorized::Block* block, bool
 
     if (_active_query_block == nullptr) {
         RETURN_IF_ERROR(_get_active_queries_block_from_fe());
-        _total_rows = _active_query_block->rows();
+        _total_rows = (int)_active_query_block->rows();
     }
 
     if (_row_idx == _total_rows) {

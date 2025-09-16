@@ -19,25 +19,40 @@
 
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 
+#include <memory>
 #include <ostream>
-#include <string_view>
-#include <utility>
 
 #include "common/config.h"
-#include "common/consts.h"
+#include "common/logging.h"
 #include "common/status.h"
+#include "common/utils.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_iterator.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/rowset/segment_v2/index_reader.h"
+#include "olap/rowset/segment_v2/virtual_column_iterator.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
-#include "vec/core/column_with_type_and_name.h"
-#include "vec/core/columns_with_type_and_name.h"
+#include "vec/core/column_numbers.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_agg_state.h"
+#include "vec/exprs/varray_literal.h"
+#include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/virtual_slot_ref.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/functions/array/function_array_distance.h"
 #include "vec/functions/function_agg_state.h"
 #include "vec/functions/function_fake.h"
 #include "vec/functions/function_java_udf.h"
@@ -52,8 +67,15 @@ class TExprNode;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
+
+// Now left child is a function call, we need to check if it is a distance function
+const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name,
+                                                     InnerProductApproximate::name};
+const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
+        TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
 
 VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
 
@@ -63,7 +85,14 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        if (child->is_literal()) {
+            // For some functions, he needs some literal columns to derive the return type.
+            auto literal_node = std::dynamic_pointer_cast<VLiteral>(child);
+            argument_template.emplace_back(literal_node->get_column_ptr(), child->data_type(),
+                                           child->expr_name());
+        } else {
+            argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
+        }
     }
 
     _expr_name = fmt::format("VectorizedFnCall[{}](arguments={},return={})", _fn.name.function_name,
@@ -95,7 +124,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
             if (_data_type->is_nullable()) {
                 return Status::InternalError("State function's return type must be not nullable");
             }
-            if (_data_type->get_type_as_type_descriptor().type != PrimitiveType::TYPE_AGG_STATE) {
+            if (_data_type->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "State function's return type must be agg_state but get {}",
                         _data_type->get_family_name());
@@ -109,19 +138,24 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     } else {
         // get the function. won't prepare function.
         _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, _data_type, state->be_exec_version());
+                _fn.name.function_name, argument_template, _data_type,
+                {.enable_decimal256 = state->enable_decimal256(),
+                 .new_version_unix_timestamp = state->query_options().new_version_unix_timestamp},
+                state->be_exec_version());
     }
     if (_function == nullptr) {
-        return Status::InternalError(
-                "Function {} get failed, expr is {} "
-                "and return type is {}.",
-                _fn.name.function_name, _expr_name, _data_type->get_name());
+        return Status::InternalError("Could not find function {}, arg {} return {} ",
+                                     _fn.name.function_name, get_child_type_names(),
+                                     _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
-    _can_fast_execute = _function->can_fast_execute() && _children.size() == 2 &&
-                        _children[0]->is_slot_ref() && _children[1]->is_literal();
     _prepare_finished = true;
+
+    FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+    if (fn().__isset.dict_function) {
+        fn_ctx->set_dict_function(fn().dict_function);
+    }
     return Status::OK();
 }
 
@@ -131,7 +165,7 @@ Status VectorizedFnCall::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
@@ -144,38 +178,38 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
     VExpr::close(context, scope);
 }
 
-Status VectorizedFnCall::eval_inverted_index(
-        VExprContext* context,
-        const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                     segment_v2::InvertedIndexIterator*>>&
-                colid_to_inverted_index_iter,
-        uint32_t num_rows, roaring::Roaring* bitmap) const {
+Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 1);
-    if (get_child(0)->is_slot_ref()) {
-        auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
-        if (auto iter = colid_to_inverted_index_iter.find(column_slot_ref->column_id());
-            iter != colid_to_inverted_index_iter.end()) {
-            const auto& pair = iter->second;
-            return _function->eval_inverted_index(context->fn_context(_fn_context_index),
-                                                  pair.first, pair.second, num_rows, bitmap);
-        } else {
-            return Status::NotSupported("column id {} not found in colid_to_inverted_index_iter",
-                                        column_slot_ref->column_id());
-        }
-    } else {
-        return Status::NotSupported("we can only eval inverted index for slot ref expr, but got ",
-                                    get_child(0)->expr_name());
-    }
-    return Status::OK();
+    return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
 Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
                                      doris::vectorized::Block* block, int* result_column_id,
-                                     std::vector<size_t>& args) {
-    if (is_const_and_have_executed()) { // const have execute in open function
+                                     ColumnNumbers& args) {
+    if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
+    if (fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+    DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
+        if (get_child(0)->is_slot_ref()) {
+            auto debug_col_name = DebugPoints::instance()->get_debug_param_or_default<std::string>(
+                    "VectorizedFnCall.must_in_slow_path", "column_name", "");
 
+            std::vector<std::string> column_names;
+            boost::split(column_names, debug_col_name, boost::algorithm::is_any_of(","));
+
+            auto* column_slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+            std::string column_name = column_slot_ref->expr_name();
+            auto it = std::find(column_names.begin(), column_names.end(), column_name);
+            if (it == column_names.end()) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "column {} should in slow path while VectorizedFnCall::execute.",
+                        column_name);
+            }
+        }
+    })
     DCHECK(_open_finished || _getting_const_col) << debug_string();
     // TODO: not execute const expr again, but use the const column in function context
     args.resize(_children.size());
@@ -187,37 +221,62 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
 
     RETURN_IF_ERROR(check_constant(*block, args));
     // call function
-    size_t num_columns_without_result = block->columns();
+    uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_can_fast_execute) {
-        auto can_fast_execute = fast_execute(*block, args, num_columns_without_result,
-                                             block->rows(), _function->get_name());
-        if (can_fast_execute) {
-            *result_column_id = num_columns_without_result;
-            return Status::OK();
+
+    DBUG_EXECUTE_IF("VectorizedFnCall.wait_before_execute", {
+        auto possibility = DebugPoints::instance()->get_debug_param_or_default<double>(
+                "VectorizedFnCall.wait_before_execute", "possibility", 0);
+        if (random_bool_slow(possibility)) {
+            LOG(WARNING) << "VectorizedFnCall::execute sleep 30s";
+            sleep(30);
         }
-    }
+    });
+
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, args,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
+    RETURN_IF_ERROR(block->check_type_and_column());
     return Status::OK();
 }
 
-Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
+size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 512; /// FIXME: estimated value...
+    }
+    return estimate_size;
+}
+
+Status VectorizedFnCall::execute_runtime_filter(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
-                                                int* result_column_id, std::vector<size_t>& args) {
+                                                int* result_column_id, ColumnNumbers& args) {
     return _do_execute(context, block, result_column_id, args);
 }
 
 Status VectorizedFnCall::execute(VExprContext* context, vectorized::Block* block,
                                  int* result_column_id) {
-    std::vector<size_t> arguments;
+    ColumnNumbers arguments;
     return _do_execute(context, block, result_column_id, arguments);
 }
 
 const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
+}
+
+std::string VectorizedFnCall::function_name() const {
+    return _function_name;
 }
 
 std::string VectorizedFnCall::debug_string() const {
@@ -247,4 +306,273 @@ std::string VectorizedFnCall::debug_string(const std::vector<VectorizedFnCall*>&
     out << "]";
     return out.str();
 }
+
+bool VectorizedFnCall::can_push_down_to_index() const {
+    return _function->can_push_down_to_index();
+}
+
+bool VectorizedFnCall::equals(const VExpr& other) {
+    const auto* other_ptr = dynamic_cast<const VectorizedFnCall*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_function_name != other_ptr->_function_name) {
+        return false;
+    }
+    if (get_num_children() != other_ptr->get_num_children()) {
+        return false;
+    }
+    for (uint16_t i = 0; i < get_num_children(); i++) {
+        if (!this->get_child(i)->equals(*other_ptr->get_child(i))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/*
+    FuncationCall(LE/LT/GE/GT)
+    |----------------
+    |               |
+    |               |
+    CastToDouble    Float64Literal
+    |
+    |
+    VirtualSlotRef
+    |
+    |
+    FuncationCall
+    |----------------
+    |               |
+    |               |
+    SlotRef         ArrayLiteral
+*/
+
+void VectorizedFnCall::prepare_ann_range_search(
+        const doris::VectorSearchUserParams& user_params,
+        segment_v2::AnnRangeSearchRuntime& range_search_runtime, bool& suitable_for_ann_index) {
+    if (!suitable_for_ann_index) {
+        return;
+    }
+
+    if (OPS_FOR_ANN_RANGE_SEARCH.find(this->op()) == OPS_FOR_ANN_RANGE_SEARCH.end()) {
+        suitable_for_ann_index = false;
+        // Not a range search function.
+        return;
+    }
+
+    range_search_runtime.is_le_or_lt =
+            (this->op() == TExprOpcode::LE || this->op() == TExprOpcode::LT);
+
+    DCHECK(_children.size() == 2);
+
+    auto left_child = get_child(0);
+    auto right_child = get_child(1);
+
+    // right side
+    auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);
+    if (right_literal == nullptr) {
+        suitable_for_ann_index = false;
+        // Right child is not a literal.
+        return;
+    }
+
+    auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
+    auto right_type = right_literal->get_data_type();
+    if (right_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
+        suitable_for_ann_index = false;
+        // Right child is not a Float64Literal.
+        return;
+    }
+
+    const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
+    range_search_runtime.radius = cf64_right->get_data()[0];
+
+    // left side
+    auto cast_to_double_expr = std::dynamic_pointer_cast<VCastExpr>(left_child);
+    if (cast_to_double_expr == nullptr) {
+        suitable_for_ann_index = false;
+        return;
+    }
+
+    std::shared_ptr<VectorizedFnCall> function_call;
+    auto vir_slot_ref =
+            std::dynamic_pointer_cast<VirtualSlotRef>(cast_to_double_expr->children()[0]);
+    // Return type of L2Distance is always float.
+    if (vir_slot_ref != nullptr) {
+        DCHECK(vir_slot_ref->get_virtual_column_expr() != nullptr);
+        function_call = std::dynamic_pointer_cast<VectorizedFnCall>(
+                vir_slot_ref->get_virtual_column_expr());
+    } else {
+        function_call =
+                std::dynamic_pointer_cast<VectorizedFnCall>(cast_to_double_expr->children()[0]);
+    }
+
+    if (function_call == nullptr) {
+        suitable_for_ann_index = false;
+        // Left child is not a function call.
+        return;
+    }
+
+    if (DISTANCE_FUNCS.find(function_call->_function_name) == DISTANCE_FUNCS.end()) {
+        // Left child is not a approximate distance function. Got function_call->_function_name
+        suitable_for_ann_index = false;
+        return;
+    } else {
+        // Strip the _approximate suffix.
+        std::string metric_name = function_call->_function_name;
+        metric_name = metric_name.substr(0, metric_name.size() - 12);
+        range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
+    }
+
+    UInt16 idx_of_slot_ref = 0;
+    UInt16 idx_of_array_literal = 0;
+    for (UInt16 i = 0; i < function_call->get_num_children(); ++i) {
+        auto child = function_call->get_child(i);
+        if (std::dynamic_pointer_cast<VSlotRef>(child) != nullptr) {
+            idx_of_slot_ref = i;
+        } else if (std::dynamic_pointer_cast<VArrayLiteral>(child) != nullptr) {
+            idx_of_array_literal = i;
+        }
+    }
+
+    std::shared_ptr<VSlotRef> slot_ref =
+            std::dynamic_pointer_cast<VSlotRef>(function_call->get_child(idx_of_slot_ref));
+    std::shared_ptr<VArrayLiteral> array_literal = std::dynamic_pointer_cast<VArrayLiteral>(
+            function_call->get_child(idx_of_array_literal));
+
+    if (slot_ref == nullptr || array_literal == nullptr) {
+        suitable_for_ann_index = false;
+        // slot ref or array literal is null.
+        return;
+    }
+
+    range_search_runtime.src_col_idx = slot_ref->column_id();
+    range_search_runtime.dst_col_idx = vir_slot_ref == nullptr ? -1 : vir_slot_ref->column_id();
+    auto col_const = array_literal->get_column_ptr();
+    auto col_array = col_const->convert_to_full_column_if_const();
+    const ColumnArray* array_col = assert_cast<const ColumnArray*>(col_array.get());
+    DCHECK(array_col->size() == 1);
+    size_t dim = array_col->get_offsets()[0];
+    range_search_runtime.dim = dim;
+    range_search_runtime.query_value = std::make_unique<float[]>(dim);
+
+    const ColumnNullable* cn = assert_cast<const ColumnNullable*>(array_col->get_data_ptr().get());
+    const ColumnFloat32* cf32 =
+            assert_cast<const ColumnFloat32*>(cn->get_nested_column_ptr().get());
+    for (size_t i = 0; i < dim; ++i) {
+        range_search_runtime.query_value[i] = cf32->get_data()[i];
+    }
+    range_search_runtime.is_ann_range_search = true;
+    range_search_runtime.user_params = user_params;
+    VLOG_DEBUG << fmt::format("Ann range search params: {}", range_search_runtime.to_string());
+    return;
+}
+
+Status VectorizedFnCall::evaluate_ann_range_search(
+        const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) {
+    if (range_search_runtime.is_ann_range_search == false) {
+        return Status::OK();
+    }
+
+    VLOG_DEBUG << fmt::format("Try apply ann range search. Local search params: {}",
+                              range_search_runtime.to_string());
+    size_t origin_num = row_bitmap.cardinality();
+
+    int idx_in_block = static_cast<int>(range_search_runtime.src_col_idx);
+    DCHECK(idx_in_block < idx_to_cid.size())
+            << "idx_in_block: " << idx_in_block << ", idx_to_cid.size(): " << idx_to_cid.size();
+
+    ColumnId src_col_cid = idx_to_cid[idx_in_block];
+    DCHECK(src_col_cid < cid_to_index_iterators.size());
+    segment_v2::IndexIterator* index_iterator = cid_to_index_iterators[src_col_cid].get();
+    if (index_iterator == nullptr) {
+        // No index iterator for column cid
+        return Status::OK();
+    }
+
+    segment_v2::AnnIndexIterator* ann_index_iterator =
+            dynamic_cast<segment_v2::AnnIndexIterator*>(index_iterator);
+    if (ann_index_iterator == nullptr) {
+        // No ann index iterator for column cid
+        return Status::OK();
+    }
+    DCHECK(ann_index_iterator->get_reader(AnnIndexReaderType::ANN) != nullptr)
+            << "Ann index iterator should have reader. Column cid: " << src_col_cid;
+    std::shared_ptr<AnnIndexReader> ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(
+            ann_index_iterator->get_reader(segment_v2::AnnIndexReaderType::ANN));
+    DCHECK(ann_index_reader != nullptr)
+            << "Ann index reader should not be null. Column cid: " << src_col_cid;
+    // Check if metrics type is match.
+    if (ann_index_reader->get_metric_type() != range_search_runtime.metric_type) {
+        // Metric type not match, can not execute range search by index.
+        return Status::OK();
+    }
+
+    AnnRangeSearchParams params = range_search_runtime.to_range_search_params();
+
+    params.roaring = &row_bitmap;
+    DCHECK(params.roaring != nullptr);
+    DCHECK(params.query_value != nullptr);
+    segment_v2::AnnRangeSearchResult result;
+    auto stats = std::make_unique<segment_v2::AnnIndexStats>();
+    RETURN_IF_ERROR(ann_index_iterator->range_search(params, range_search_runtime.user_params,
+                                                     &result, stats.get()));
+
+#ifndef NDEBUG
+    if (range_search_runtime.is_le_or_lt == false &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::L2) {
+        DCHECK(result.distance == nullptr) << "Should not have distance";
+    }
+    if (range_search_runtime.is_le_or_lt == true &&
+        ann_index_reader->get_metric_type() == AnnIndexMetric::IP) {
+        DCHECK(result.distance == nullptr);
+    }
+#endif
+    DCHECK(result.roaring != nullptr);
+    row_bitmap = *result.roaring;
+
+    // Process virtual column
+    if (range_search_runtime.dst_col_idx >= 0) {
+        // Prepare materialization if we can use result from index.
+        // Typical situation: range search and operator is LE or LT.
+        if (result.distance != nullptr) {
+            DCHECK(result.row_ids != nullptr);
+            ColumnId dst_col_cid = idx_to_cid[range_search_runtime.dst_col_idx];
+            DCHECK(dst_col_cid < column_iterators.size());
+            DCHECK(column_iterators[dst_col_cid] != nullptr);
+            segment_v2::ColumnIterator* column_iterator = column_iterators[dst_col_cid].get();
+            DCHECK(column_iterator != nullptr);
+            segment_v2::VirtualColumnIterator* virtual_column_iterator =
+                    dynamic_cast<segment_v2::VirtualColumnIterator*>(column_iterator);
+            DCHECK(virtual_column_iterator != nullptr);
+            // Now convert distance to column
+            size_t size = result.roaring->cardinality();
+            auto distance_col = ColumnFloat32::create(size);
+            const float* src = result.distance.get();
+            float* dst = distance_col->get_data().data();
+            for (size_t i = 0; i < size; ++i) {
+                dst[i] = src[i];
+            }
+            virtual_column_iterator->prepare_materialization(std::move(distance_col),
+                                                             std::move(result.row_ids));
+        } else {
+            DCHECK(this->op() != TExprOpcode::LE && this->op() != TExprOpcode::LT)
+                    << "Should not have distance";
+        }
+    }
+
+    _has_been_executed = true;
+    VLOG_DEBUG << fmt::format("Ann range search filtered {} rows, origin {} rows",
+                              origin_num - row_bitmap.cardinality(), origin_num);
+
+    ann_index_stats = *stats;
+    return Status::OK();
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

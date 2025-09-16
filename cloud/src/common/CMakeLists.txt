@@ -6,7 +6,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/common")
 
 set(COMMON_FILES
     configbase.cpp
-    sync_point.cpp
     util.cpp
     logging.cpp
     bvars.cpp
@@ -18,8 +17,8 @@ set(COMMON_FILES
 
 if (USE_JEMALLOC)
     set(COMMON_FILES ${COMMON_FILES}
-        jemalloc_hook.cpp
-        )
+        ${BUILD_DIR}/../../be/src/runtime/memory/jemalloc_hook.cpp
+    )
 endif()
 
 add_library(Common STATIC

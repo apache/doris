@@ -62,7 +62,7 @@ public:
 
     // Prepare for binary row buffer
     // init bitmap
-    void start_binary_row(uint32_t num_cols);
+    void start_binary_row(uint64_t num_cols);
 
     // TODO(zhaochun): add signed/unsigned support
     int push_tinyint(int8_t data);
@@ -73,7 +73,6 @@ public:
     int push_largeint(int128_t data);
     int push_float(float data);
     int push_double(double data);
-    int push_time(double data);
     int push_timev2(double data, int scale);
     template <typename DateType>
     int push_datetime(const DateType& data, int scale);

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.NameMapping;
 
 import com.google.common.base.Preconditions;
 import lombok.Data;
@@ -31,8 +32,7 @@ public class HivePartition {
     public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
     public static final String FILE_NUM_KEY = "numFiles";
 
-    private String dbName;
-    private String tblName;
+    private NameMapping nameMapping;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
@@ -43,10 +43,9 @@ public class HivePartition {
     private List<FieldSchema> columns;
 
     // If you want to read the data under a partition, you can use this constructor
-    public HivePartition(String dbName, String tblName, boolean isDummyPartition,
+    public HivePartition(NameMapping nameMapping, boolean isDummyPartition,
             String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
-        this.dbName = dbName;
-        this.tblName = tblName;
+        this.nameMapping = nameMapping;
         this.isDummyPartition = isDummyPartition;
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
@@ -59,13 +58,17 @@ public class HivePartition {
 
     // If you want to update hms with partition, then you can use this constructor,
     // as updating hms requires some additional information, such as outputFormat and so on
-    public HivePartition(String dbName, String tblName, boolean isDummyPartition,
-                         String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters,
-                         String outputFormat, String serde, List<FieldSchema> columns) {
-        this(dbName, tblName, isDummyPartition, inputFormat, path, partitionValues, parameters);
+    public HivePartition(NameMapping nameMapping, boolean isDummyPartition,
+            String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters,
+            String outputFormat, String serde, List<FieldSchema> columns) {
+        this(nameMapping, isDummyPartition, inputFormat, path, partitionValues, parameters);
         this.outputFormat = outputFormat;
         this.serde = serde;
         this.columns = columns;
+    }
+
+    public NameMapping getNameMapping() {
+        return nameMapping;
     }
 
     // return partition name like: nation=cn/city=beijing
@@ -94,6 +97,7 @@ public class HivePartition {
 
     /**
      * If there are no files, it proves that there is no data under the partition, we return 0
+     *
      * @return
      */
     public long getLastModifiedTimeIgnoreInit() {
@@ -112,12 +116,17 @@ public class HivePartition {
 
     @Override
     public String toString() {
-        return "HivePartition{"
-                + "dbName='" + dbName + '\''
-                + ", tblName='" + tblName + '\''
-                + ", isDummyPartition='" + isDummyPartition + '\''
-                + ", inputFormat='" + inputFormat + '\''
-                + ", path='" + path + '\''
-                + ", partitionValues=" + partitionValues + '}';
+        final StringBuilder sb = new StringBuilder("HivePartition{");
+        sb.append("nameMapping=").append(nameMapping);
+        sb.append(", inputFormat='").append(inputFormat).append('\'');
+        sb.append(", path='").append(path).append('\'');
+        sb.append(", partitionValues=").append(partitionValues);
+        sb.append(", isDummyPartition=").append(isDummyPartition);
+        sb.append(", parameters=").append(parameters);
+        sb.append(", outputFormat='").append(outputFormat).append('\'');
+        sb.append(", serde='").append(serde).append('\'');
+        sb.append(", columns=").append(columns);
+        sb.append('}');
+        return sb.toString();
     }
 }

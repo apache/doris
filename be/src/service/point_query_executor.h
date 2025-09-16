@@ -39,7 +39,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
@@ -100,6 +99,9 @@ public:
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
+    // delete sign idx in block
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -118,12 +120,14 @@ private:
     std::unordered_set<int32_t> _missing_col_uids;
     // included cids in rowstore(column group)
     std::unordered_set<int32_t> _include_col_uids;
+    // delete sign idx in block
+    int32_t _delete_sign_idx = -1;
 };
 
 // RowCache is a LRU cache for row store
-class RowCache : public LRUCachePolicyTrackingManual {
+class RowCache : public LRUCachePolicy {
 public:
-    using LRUCachePolicyTrackingManual::insert;
+    using LRUCachePolicy::insert;
 
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -134,9 +138,10 @@ public:
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
             std::string full_key;
-            full_key.resize(sizeof(int64_t) + key.size);
-            int8store(&full_key.front(), tablet_id);
-            memcpy((&full_key.front()) + sizeof(tablet_id), key.data, key.size);
+            full_key.reserve(sizeof(int64_t) + key.size);
+            const char* tid = reinterpret_cast<const char*>(&tablet_id);
+            full_key.append(tid, tid + sizeof(int64_t));
+            full_key.append(key.data, key.size);
             return full_key;
         }
     };
@@ -215,7 +220,7 @@ private:
 
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
-class LookupConnectionCache : public LRUCachePolicyTrackingManual {
+class LookupConnectionCache : public LRUCachePolicy {
 public:
     static LookupConnectionCache* instance() {
         return ExecEnv::GetInstance()->get_lookup_connection_cache();
@@ -226,9 +231,9 @@ public:
 private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
-            : LRUCachePolicyTrackingManual(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE,
-                                           capacity, LRUCacheType::NUMBER,
-                                           config::tablet_lookup_cache_stale_sweep_time_sec) {}
+            : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
+                             LRUCacheType::NUMBER,
+                             config::tablet_lookup_cache_stale_sweep_time_sec) {}
 
     static std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;
@@ -240,9 +245,9 @@ private:
         std::string key = encode_key(cache_id);
         auto* value = new CacheValue;
         value->item = item;
-        LOG(INFO) << "Add item mem"
-                  << ", cache_capacity: " << get_total_capacity()
-                  << ", cache_usage: " << get_usage() << ", mem_consum: " << mem_consumption();
+        VLOG_DEBUG << "Add item mem"
+                   << ", cache_capacity: " << get_capacity() << ", cache_usage: " << get_usage()
+                   << ", mem_consum: " << mem_consumption();
         auto* lru_handle = insert(key, value, 1, sizeof(Reusable), CachePriority::NORMAL);
         release(lru_handle);
     }
@@ -260,6 +265,7 @@ private:
 
     class CacheValue : public LRUCacheValueBase {
     public:
+        ~CacheValue() override;
         std::shared_ptr<Reusable> item;
     };
 };
@@ -270,12 +276,16 @@ struct Metrics {
               init_key_ns(TUnit::TIME_NS),
               lookup_key_ns(TUnit::TIME_NS),
               lookup_data_ns(TUnit::TIME_NS),
-              output_data_ns(TUnit::TIME_NS) {}
+              output_data_ns(TUnit::TIME_NS),
+              load_segment_key_stage_ns(TUnit::TIME_NS),
+              load_segment_data_stage_ns(TUnit::TIME_NS) {}
     RuntimeProfile::Counter init_ns;
     RuntimeProfile::Counter init_key_ns;
     RuntimeProfile::Counter lookup_key_ns;
     RuntimeProfile::Counter lookup_data_ns;
     RuntimeProfile::Counter output_data_ns;
+    RuntimeProfile::Counter load_segment_key_stage_ns;
+    RuntimeProfile::Counter load_segment_data_stage_ns;
     OlapReaderStatistics read_stats;
     size_t row_cache_hits = 0;
     bool hit_lookup_cache = false;
@@ -291,7 +301,9 @@ public:
 
     Status lookup_up();
 
-    std::string print_profile();
+    void print_profile();
+
+    const OlapReaderStatistics& read_stats() const { return _read_stats; }
 
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);

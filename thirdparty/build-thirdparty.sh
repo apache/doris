@@ -73,6 +73,8 @@ else
     PARALLEL="$(($(nproc) / 4 + 1))"
 fi
 
+BUILD_AZURE="ON"
+
 while true; do
     case "$1" in
     -j)
@@ -119,6 +121,10 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_AZURE='OFF'
+fi
+
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
@@ -159,6 +165,12 @@ if [[ "${CC}" == *gcc ]]; then
     warning_array_parameter='-Wno-array-parameter'
     warning_narrowing='-Wno-narrowing'
     warning_dangling_reference='-Wno-dangling-reference'
+
+    gcc_major_version=$("${CC}" -dumpversion | cut -d. -f1)
+    if [[ "${gcc_major_version}" -ge 15 ]]; then
+        warning_deprecated_literal_operator='-Wno-deprecated-literal-operator'
+    fi
+
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -338,7 +350,7 @@ build_libevent() {
         CPPLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DEVENT__DISABLE_TESTS=ON \
-        -DEVENT__DISABLE_OPENSSL=ON -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
+        -DEVENT__DISABLE_SAMPLES=ON -DEVENT__DISABLE_REGRESS=ON ..
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -627,7 +639,7 @@ build_bzip() {
     check_if_source_exist "${BZIP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${BZIP_SOURCE}"
 
-    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}"
+    make -j "${PARALLEL}" install PREFIX="${TP_INSTALL_DIR}" CFLAGS="-fPIC"
 }
 
 # lzo2
@@ -642,6 +654,13 @@ build_lzo2() {
     make -j "${PARALLEL}"
     make install
     strip_lib liblzo2.a
+}
+
+# brotli
+build_brotli() {
+    check_if_source_exist "${BROTLI_SOURCE}"
+    # brotli has been builded in build_arrow, so just copy headers
+    cp -r "${TP_SOURCE_DIR}/${BROTLI_SOURCE}/c/include/brotli" "${TP_INCLUDE_DIR}/"
 }
 
 # curl
@@ -745,10 +764,10 @@ build_mysql() {
     fi
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
-        cflags='-static -pthread -lrt'
+        cflags='-static -pthread -lrt -std=gnu89'
         cxxflags='-static -pthread -lrt'
     else
-        cflags='-pthread'
+        cflags='-pthread -std=gnu89'
         cxxflags='-pthread'
     fi
 
@@ -862,7 +881,7 @@ build_cyrus_sasl() {
     check_if_source_exist "${CYRUS_SASL_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CYRUS_SASL_SOURCE}"
 
-    CFLAGS="-fPIC -Wno-implicit-function-declaration" \
+    CFLAGS="-fPIC -std=gnu89 -Wno-implicit-function-declaration" \
         CPPFLAGS="-I${TP_INCLUDE_DIR}" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         LIBS="-lcrypto" \
@@ -906,7 +925,7 @@ build_odbc() {
 
     cd "${TP_SOURCE_DIR}/${ODBC_SOURCE}"
 
-    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -Wno-implicit-function-declaration" \
+    CFLAGS="-I${TP_INCLUDE_DIR} -Wno-int-conversion -std=gnu89 -Wno-implicit-function-declaration" \
         LDFLAGS="-L${TP_LIB_DIR}" \
         ./configure --prefix="${TP_INSTALL_DIR}" --with-included-ltdl --enable-static=yes --enable-shared=no
 
@@ -969,6 +988,12 @@ build_grpc() {
 
     cmake -DgRPC_INSTALL=ON \
         -DgRPC_BUILD_TESTS=OFF \
+        -Dgrpc_csharp_plugin=OFF \
+        -Dgrpc_node_plugin=OFF \
+        -Dgrpc_objective_c_plugin=OFF \
+        -Dgrpc_php_plugin=OFF \
+        -Dgrpc_python_plugin=OFF \
+        -Dgrpc_ruby_plugin=OFF \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DgRPC_CARES_PROVIDER=package \
@@ -1006,7 +1031,6 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1040,13 +1064,13 @@ build_arrow() {
         -DBoost_USE_STATIC_RUNTIME=ON \
         -DARROW_GFLAGS_USE_SHARED=OFF \
         -Dgflags_ROOT="${TP_INSTALL_DIR}" \
-        -DGLOG_ROOT="${TP_INSTALL_DIR}" \
-        -DRE2_ROOT="${TP_INSTALL_DIR}" \
+        -Dglog_ROOT="${TP_INSTALL_DIR}" \
+        -Dre2_ROOT="${TP_INSTALL_DIR}" \
         -DZLIB_SOURCE=SYSTEM \
         -DZLIB_LIBRARY="${TP_INSTALL_DIR}/lib/libz.a" -DZLIB_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DRapidJSON_SOURCE=SYSTEM \
         -DRapidJSON_ROOT="${TP_INSTALL_DIR}" \
-        -DORC_ROOT="${TP_INSTALL_DIR}" \
+        -Dorc_ROOT="${TP_INSTALL_DIR}" \
         -Dxsimd_SOURCE=BUNDLED \
         -DBrotli_SOURCE=BUNDLED \
         -DARROW_LZ4_USE_SHARED=OFF \
@@ -1057,8 +1081,9 @@ build_arrow() {
         -Dzstd_SOURCE=SYSTEM \
         -DSnappy_LIB="${TP_INSTALL_DIR}/lib/libsnappy.a" -DSnappy_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
         -DSnappy_SOURCE=SYSTEM \
-        -DBOOST_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
-        -Djemalloc_SOURCE=BUNDLED \
+        -DBoost_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
+        -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
+        -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
         -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
@@ -1067,12 +1092,10 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
 }
 
@@ -1122,6 +1145,7 @@ build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
     local ld="${DORIS_BIN_UTILS}/ld"
     local ar="${DORIS_BIN_UTILS}/ar"
+    MACHINE_OS=$(uname -s)
 
     if [[ ! -f "${ld}" ]]; then ld="$(command -v ld)"; fi
     if [[ ! -f "${ar}" ]]; then ar="$(command -v ar)"; fi
@@ -1137,7 +1161,7 @@ build_bitshuffle() {
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        arches=('default')
+        arches=('default' 'neon')
     fi
 
     to_link=""
@@ -1149,6 +1173,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx512" ]]; then
             arch_flag="-mavx512bw -mavx512f"
         fi
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && [[ "${arch}" == "neon" ]]; then
+            arch_flag="-march=armv8-a+crc"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1158,7 +1185,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && { [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]] || [[ "${arch}" == "neon" ]]; }; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
@@ -1336,8 +1363,8 @@ build_aws_sdk() {
     "${CMAKE_CMD}" -G "${GENERATOR}" -B"${BUILD_DIR}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DBUILD_SHARED_LIBS=OFF -DENABLE_TESTING=OFF \
         -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DZLIB_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libz.a" \
-        -DBUILD_ONLY="core;s3;s3-crt;transfer" \
-        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
+        -DBUILD_ONLY="core;s3;s3-crt;transfer;identity-management;sts" \
+        -DCMAKE_CXX_FLAGS="-Wno-nonnull -Wno-deprecated-literal-operator ${warning_deprecated_literal_operator} -Wno-deprecated-declarations ${warning_dangling_reference}" -DCPP_STANDARD=17
 
     cd "${BUILD_DIR}"
 
@@ -1359,6 +1386,8 @@ build_aws_sdk() {
     strip_lib libaws-cpp-sdk-transfer.a
     strip_lib libaws-checksums.a
     strip_lib libaws-c-compression.a
+    strip_lib libaws-cpp-sdk-identity-management.a
+    strip_lib libaws-cpp-sdk-sts.a
 }
 
 # lzma
@@ -1454,7 +1483,7 @@ build_krb5() {
         with_crypto_impl='--with-crypto-impl=openssl'
     fi
 
-    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
+    CFLAGS="-fcommon -fPIC -I${TP_INSTALL_DIR}/include -std=gnu89" LDFLAGS="-L${TP_INSTALL_DIR}/lib" \
         ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
         --without-keyutils ${with_crypto_impl:+${with_crypto_impl}}
 
@@ -1514,6 +1543,9 @@ build_jemalloc_doris() {
         WITH_LG_PAGE=''
     fi
 
+    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
+    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
+    # Maybe can use alias instead of overwrite.
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
         --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
 
@@ -1540,7 +1572,7 @@ build_libunwind() {
         # LIBUNWIND_NO_HEAP: https://reviews.llvm.org/D11897
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
-        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti"
+        cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
         CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
 
         make -j "${PARALLEL}"
@@ -1631,7 +1663,7 @@ build_binutils() {
     cd "${BUILD_DIR}"
 
     ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
-        --enable-install-libiberty --without-msgpack
+        --enable-install-libiberty --without-msgpack -with-system-zlib
     make -j "${PARALLEL}"
     make install-bfd install-libiberty install-binutils
 }
@@ -1727,7 +1759,7 @@ build_jsoncpp() {
     rm -rf "${BUILD_DIR}"
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DJSONCPP_WITH_TESTS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }
@@ -1737,7 +1769,7 @@ build_libuuid() {
     check_if_source_exist "${LIBUUID_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LIBUUID_SOURCE}"
     CC=gcc ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
-    make -j "${PARALLEL}"
+    make -j "${PARALLEL}" CFLAGS="-fPIC"
     make install
 }
 
@@ -1782,21 +1814,25 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    check_if_source_exist "${AZURE_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
-    azure_dir=$(pwd)
+    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
+        echo "Skip build azure"
+    else
+        check_if_source_exist "${AZURE_SOURCE}"
+        cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+        azure_dir=$(pwd)
 
-    rm -rf "${BUILD_DIR}"
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
+        rm -rf "${BUILD_DIR}"
+        mkdir -p "${BUILD_DIR}"
+        cd "${BUILD_DIR}"
 
-    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
-    AZURE_PORTS="vcpkg-custom-ports"
-    AZURE_MANIFEST_DIR="."
+        # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+        AZURE_PORTS="vcpkg-custom-ports"
+        AZURE_MANIFEST_DIR="."
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
+        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+        "${BUILD_SYSTEM}" -j "${PARALLEL}"
+        "${BUILD_SYSTEM}" install
+    fi
 }
 
 # dragonbox
@@ -1814,8 +1850,56 @@ build_dragonbox() {
     "${BUILD_SYSTEM}" install
 }
 
+# icu
+build_icu() {
+    check_if_source_exist "${ICU_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${ICU_SOURCE}/icu4c/source"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    ../configure --prefix="${TP_INSTALL_DIR}" \
+        --enable-static \
+        --disable-shared \
+        --enable-release \
+        --disable-tests \
+        --disable-samples \
+        --disable-fuzzer
+
+    make -j "${PARALLEL}"
+    make install
+}
+
+# jindofs
+build_jindofs() {
+    check_if_source_exist "${JINDOFS_SOURCE}"
+
+    rm -rf "${TP_INSTALL_DIR}/jindofs_libs/"
+    mkdir -p "${TP_INSTALL_DIR}/jindofs_libs/"
+    cp -r ${TP_SOURCE_DIR}/${JINDOFS_SOURCE}/* "${TP_INSTALL_DIR}/jindofs_libs/"
+}
+
+# pugixml
+build_pugixml() {
+    check_if_source_exist "${PUGIXML_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+
+    cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugixml.hpp" "${TP_INSTALL_DIR}/include/"
+    cp "${TP_SOURCE_DIR}/${PUGIXML_SOURCE}/src/pugiconfig.hpp" "${TP_INSTALL_DIR}/include/"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
+        jindofs
         odbc
         openssl
         libevent
@@ -1881,7 +1965,9 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         ali_sdk
         base64
         azure
-        dragonbox
+        brotli
+        icu
+        pugixml
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

@@ -2,6 +2,71 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20250720
+
+- Modified: zlib 1.2.11 -> 1.3.1
+- Modified: abseil 20230125.3. -> 20250512.1
+
+## 20250715
+
+- Modified: azure-core 1.10.3 -> 1.16.0
+
+## 20250617
+
+- Modified: simdjson 3.0.1 -> 3.11.6
+
+## 20250416
+
+- Mofified: patch re2 to set `ignore_replace_escape` option
+
+## 20250408
+
+- Modified: jindofs 6.3.4 -> 6.8.2
+
+## 20250405
+
+- Modified: libdivide 5.0 -> 5.2
+
+## 20250325
+
+- Added: jindofs 6.3.4 with jindofs ubuntu jar
+
+## 20250324
+
+- Added: pugixml 1.15, a C++ XML processing library.
+
+## 20250319
+
+- Added: jindofs 6.3.4
+
+## 20250318
+
+- Modified: hadoop-libs 3.3.6.5 -> 3.3.6.6
+
+## 20250225
+
+- Modified: hadoop-libs 3.3.6.4 -> 3.3.6.5
+
+## 20250123
+
+- Added: icu 75-1, develop ICU tokenizer based on ICU library.
+
+## 20241031
+
+- Modified: hadoop-libs 3.3.6.3 -> 3.3.6.4
+
+## 20240815
+
+- Modified: arrow 15.0.2 -> 17.0.0
+
+## 20240814
+
+- Modified: hadoop-libs 3.3.6.2 -> 3.3.6.3
+
+## 20240813
+
+- Modified: hadoop-libs 3.3.6.1 -> 3.3.6.2
+
 ## 20240529
 
 - Added: azure-core 1.10.3

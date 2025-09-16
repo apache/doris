@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // testAggregateMVCalcAggFunctionQuery
 suite ("aggMVCalcAggFun") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS aggMVCalcAggFun; """
@@ -38,36 +40,23 @@ suite ("aggMVCalcAggFun") {
     sql """insert into aggMVCalcAggFun values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggMVCalcAggFun values("2020-01-03",3,"c",3,3,3);"""
 
-
-    createMV("create materialized view aggMVCalcAggFunMv as select deptno, empid, sum(salary) from aggMVCalcAggFun group by empid, deptno;")
+    createMV("create materialized view aggMVCalcAggFunMv as select deptno as a1, empid as a2, sum(salary) from aggMVCalcAggFun group by empid, deptno;")
 
     sleep(3000)
 
     sql """insert into aggMVCalcAggFun values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table aggMVCalcAggFun with sync;"
+    sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from aggMVCalcAggFun order by empid;")
-        contains "(aggMVCalcAggFun)"
-    }
+    mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")
     order_qt_select_star "select * from aggMVCalcAggFun order by empid;"
 
-
-    explain {
-        sql("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;")
-        notContains "(aggMVCalcAggFunMv)"
-    }
+    mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
     order_qt_select_mv "select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno order by deptno;"
 
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select * from aggMVCalcAggFun order by empid;")
-        contains "(aggMVCalcAggFun)"
-    }
-    explain {
-        sql("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;")
-        notContains "(aggMVCalcAggFunMv)"
-    }
+    mv_rewrite_fail("select * from aggMVCalcAggFun order by empid;", "aggMVCalcAggFunMv")\
+
+    mv_rewrite_fail("select deptno, sum(salary + 1) from aggMVCalcAggFun where deptno > 10 group by deptno;", "aggMVCalcAggFunMv")
 }

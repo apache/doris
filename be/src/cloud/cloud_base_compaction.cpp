@@ -22,33 +22,41 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/cloud.pb.h"
 #include "olap/compaction.h"
 #include "olap/task/engine_checksum_task.h"
 #include "service/backend_options.h"
 #include "util/thread.h"
 #include "util/uuid_generator.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> base_output_size("base_compaction", "output_size");
+bvar::Adder<uint64_t> base_input_cached_size("base_compaction", "input_cached_size");
+bvar::Adder<uint64_t> base_input_size("base_compaction", "input_size");
+bvar::LatencyRecorder g_base_compaction_hold_delete_bitmap_lock_time_ms(
+        "base_compaction_hold_delete_bitmap_lock_time_ms");
 
 CloudBaseCompaction::CloudBaseCompaction(CloudStorageEngine& engine, CloudTabletSPtr tablet)
         : CloudCompactionMixin(engine, tablet,
-                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {
-    auto uuid = UUIDGenerator::instance()->next_uuid();
-    std::stringstream ss;
-    ss << uuid;
-    _uuid = ss.str();
-}
+                               "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CloudBaseCompaction::~CloudBaseCompaction() = default;
 
 Status CloudBaseCompaction::prepare_compact() {
+    Status st;
+    Defer defer_set_st([&] {
+        if (!st.ok()) {
+            cloud_tablet()->set_last_base_compaction_status(st.to_string());
+            cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        }
+    });
     if (_tablet->tablet_state() != TABLET_RUNNING) {
-        return Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        st = Status::InternalError("invalid tablet state. tablet_id={}", _tablet->tablet_id());
+        return st;
     }
 
     bool need_sync_tablet = true;
@@ -63,11 +71,39 @@ Status CloudBaseCompaction::prepare_compact() {
         }
     }
     if (need_sync_tablet) {
-        RETURN_IF_ERROR(cloud_tablet()->sync_rowsets());
+        st = cloud_tablet()->sync_rowsets();
+        RETURN_IF_ERROR(st);
     }
 
-    RETURN_IF_ERROR(pick_rowsets_to_compact());
+    st = pick_rowsets_to_compact();
+    RETURN_IF_ERROR(st);
 
+    for (auto& rs : _input_rowsets) {
+        _input_row_num += rs->num_rows();
+        _input_segments += rs->num_segments();
+        _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
+        _input_rowsets_total_size += rs->total_disk_size();
+        _input_rowsets_cached_data_size += rs->approximate_cached_data_size();
+        _input_rowsets_cached_index_size += rs->approximate_cache_index_size();
+    }
+    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
+            .tag("job_id", _uuid)
+            .tag("input_rowsets", _input_rowsets.size())
+            .tag("input_rows", _input_row_num)
+            .tag("input_segments", _input_segments)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total_size", _input_rowsets_total_size)
+            .tag("input_rowsets_cached_data_size", _input_rowsets_cached_data_size)
+            .tag("input_rowsets_cached_index_size", _input_rowsets_cached_index_size);
+    base_input_cached_size << (_input_rowsets_cached_data_size + _input_rowsets_cached_index_size);
+    base_input_size << _input_rowsets_total_size;
+    return Status::OK();
+}
+
+Status CloudBaseCompaction::request_global_lock() {
     // prepare compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -82,37 +118,44 @@ Status CloudBaseCompaction::prepare_compact() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     compaction_job->set_base_compaction_cnt(_base_compaction_cnt);
     compaction_job->set_cumulative_compaction_cnt(_cumulative_compaction_cnt);
+    compaction_job->add_input_versions(_input_rowsets.front()->start_version());
+    compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     using namespace std::chrono;
     int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
     _expiration = now + config::compaction_timeout_seconds;
     compaction_job->set_expiration(_expiration);
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds * 4);
     cloud::StartTabletJobResponse resp;
-    //auto st = cloud::meta_mgr()->prepare_tablet_job(job, &resp);
     auto st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    cloud_tablet()->set_last_base_compaction_status(st.to_string());
+    if (resp.has_alter_version()) {
+        (static_cast<CloudTablet*>(_tablet.get()))->set_alter_version(resp.alter_version());
+    }
     if (!st.ok()) {
+        cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
             cloud_tablet()->last_sync_time_s = 0;
         } else if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             // tablet not found
             cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
+            auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. The input version end must "
+                  "less than or equal to alter_version."
+                  "current alter version in BE is not correct."
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " current alter_version=" << cloud_tablet->alter_version()
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
-        return st;
     }
-
-    for (auto& rs : _input_rowsets) {
-        _input_row_num += rs->num_rows();
-        _input_segments += rs->num_segments();
-        _input_rowsets_size += rs->data_disk_size();
-    }
-    LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
-             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
-            .tag("job_id", _uuid)
-            .tag("input_rowsets", _input_rowsets.size())
-            .tag("input_rows", _input_row_num)
-            .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size);
     return st;
 }
 
@@ -165,9 +208,13 @@ Status CloudBaseCompaction::pick_rowsets_to_compact() {
 
     int score = 0;
     int rowset_cnt = 0;
+    int64_t max_compaction_score = _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                   _tablet->enable_unique_key_merge_on_write()
+                                           ? config::mow_base_compaction_max_compaction_score
+                                           : config::base_compaction_max_compaction_score;
     while (rowset_cnt < _input_rowsets.size()) {
         score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
+        if (score > max_compaction_score) {
             break;
         }
     }
@@ -237,26 +284,51 @@ Status CloudBaseCompaction::execute_compact() {
 
     using namespace std::chrono;
     auto start = steady_clock::now();
-    RETURN_IF_ERROR(CloudCompactionMixin::execute_compact());
-    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms", _tablet->tablet_id(),
-             duration_cast<milliseconds>(steady_clock::now() - start).count())
+    Status st;
+    Defer defer_set_st([&] {
+        cloud_tablet()->set_last_base_compaction_status(st.to_string());
+        if (!st.ok()) {
+            cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
+        } else {
+            cloud_tablet()->set_last_base_compaction_success_time(UnixMillis());
+        }
+    });
+    st = CloudCompactionMixin::execute_compact();
+    if (!st.ok()) {
+        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << st
+                     << ", tablet=" << _tablet->tablet_id()
+                     << ", output_version=" << _output_version;
+        return st;
+    }
+    LOG_INFO("finish CloudBaseCompaction, tablet_id={}, cost={}ms range=[{}-{}]",
+             _tablet->tablet_id(), duration_cast<milliseconds>(steady_clock::now() - start).count(),
+             _input_rowsets.front()->start_version(), _input_rowsets.back()->end_version())
             .tag("job_id", _uuid)
             .tag("input_rowsets", _input_rowsets.size())
             .tag("input_rows", _input_row_num)
             .tag("input_segments", _input_segments)
-            .tag("input_data_size", _input_rowsets_size)
+            .tag("input_rowsets_data_size", _input_rowsets_data_size)
+            .tag("input_rowsets_index_size", _input_rowsets_index_size)
+            .tag("input_rowsets_total", _input_rowsets_total_size)
             .tag("output_rows", _output_rowset->num_rows())
             .tag("output_segments", _output_rowset->num_segments())
-            .tag("output_data_size", _output_rowset->data_disk_size());
+            .tag("output_rowset_data_size", _output_rowset->data_disk_size())
+            .tag("output_rowset_index_size", _output_rowset->index_disk_size())
+            .tag("output_rowset_total_size", _output_rowset->total_disk_size())
+            .tag("local_read_time_us", _stats.cloud_local_read_time)
+            .tag("remote_read_time_us", _stats.cloud_remote_read_time)
+            .tag("local_read_bytes", _local_read_bytes_total)
+            .tag("remote_read_bytes", _remote_read_bytes_total);
 
     //_compaction_succeed = true;
     _state = CompactionState::SUCCESS;
 
     DorisMetrics::instance()->base_compaction_deltas_total->increment(_input_rowsets.size());
-    DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
-    base_output_size << _output_rowset->data_disk_size();
+    DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_total_size);
+    base_output_size << _output_rowset->total_disk_size();
 
-    return Status::OK();
+    st = Status::OK();
+    return st;
 }
 
 Status CloudBaseCompaction::modify_rowsets() {
@@ -276,35 +348,70 @@ Status CloudBaseCompaction::modify_rowsets() {
     compaction_job->set_output_cumulative_point(cloud_tablet()->cumulative_layer_point());
     compaction_job->set_num_input_rows(_input_row_num);
     compaction_job->set_num_output_rows(_output_rowset->num_rows());
-    compaction_job->set_size_input_rowsets(_input_rowsets_size);
-    compaction_job->set_size_output_rowsets(_output_rowset->data_disk_size());
+    compaction_job->set_size_input_rowsets(_input_rowsets_total_size);
+    compaction_job->set_size_output_rowsets(_output_rowset->total_disk_size());
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
-    compaction_job->set_num_input_rowsets(_input_rowsets.size());
+    compaction_job->set_num_input_rowsets(num_input_rowsets());
     compaction_job->set_num_output_rowsets(1);
     compaction_job->add_input_versions(_input_rowsets.front()->start_version());
     compaction_job->add_input_versions(_input_rowsets.back()->end_version());
     compaction_job->add_output_versions(_output_rowset->end_version());
     compaction_job->add_txn_id(_output_rowset->txn_id());
     compaction_job->add_output_rowset_ids(_output_rowset->rowset_id().to_string());
+    compaction_job->set_index_size_input_rowsets(_input_rowsets_index_size);
+    compaction_job->set_segment_size_input_rowsets(_input_rowsets_data_size);
+    compaction_job->set_index_size_output_rowsets(_output_rowset->index_disk_size());
+    compaction_job->set_segment_size_output_rowsets(_output_rowset->data_disk_size());
 
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
+    int64_t get_delete_bitmap_lock_start_time = 0;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
+        int64_t initiator = this->initiator();
         RETURN_IF_ERROR(cloud_tablet()->calc_delete_bitmap_for_compaction(
-                _input_rowsets, _output_rowset, _rowid_conversion, compaction_type(),
-                _stats.merged_rows, initiator, output_rowset_delete_bitmap,
-                _allow_delete_in_cumu_compaction));
+                _input_rowsets, _output_rowset, *_rowid_conversion, compaction_type(),
+                _stats.merged_rows, _stats.filtered_rows, initiator, output_rowset_delete_bitmap,
+                _allow_delete_in_cumu_compaction, get_delete_bitmap_lock_start_time));
+        LOG_INFO("update delete bitmap in CloudBaseCompaction, tablet_id={}, range=[{}-{}]",
+                 _tablet->tablet_id(), _input_rowsets.front()->start_version(),
+                 _input_rowsets.back()->end_version())
+                .tag("job_id", _uuid)
+                .tag("initiator", initiator)
+                .tag("input_rowsets", _input_rowsets.size())
+                .tag("input_rows", _input_row_num)
+                .tag("input_segments", _input_segments)
+                .tag("num_output_delete_bitmap", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
     }
 
     cloud::FinishTabletJobResponse resp;
     auto st = _engine.meta_mgr().commit_tablet_job(job, &resp);
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        int64_t hold_delete_bitmap_lock_time_ms =
+                (MonotonicMicros() - get_delete_bitmap_lock_start_time) / 1000;
+        g_base_compaction_hold_delete_bitmap_lock_time_ms << hold_delete_bitmap_lock_time_ms;
+    }
     if (!st.ok()) {
         if (resp.status().code() == cloud::TABLET_NOT_FOUND) {
             cloud_tablet()->clear_cache();
+        } else if (resp.status().code() == cloud::JOB_CHECK_ALTER_VERSION) {
+            auto* cloud_tablet = (static_cast<CloudTablet*>(_tablet.get()));
+            std::stringstream ss;
+            ss << "failed to prepare cumu compaction. Check compaction input versions "
+                  "failed in schema change. The input version end must "
+                  "less than or equal to alter_version."
+                  "current alter version in BE is not correct."
+                  "input_version_start="
+               << compaction_job->input_versions(0)
+               << " input_version_end=" << compaction_job->input_versions(1)
+               << " current alter_version=" << cloud_tablet->alter_version()
+               << " schema_change_alter_version=" << resp.alter_version();
+            std::string msg = ss.str();
+            LOG(WARNING) << msg;
+            cloud_tablet->set_alter_version(resp.alter_version());
+            return Status::InternalError(msg);
         }
         return st;
     }
@@ -336,11 +443,12 @@ Status CloudBaseCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 
-void CloudBaseCompaction::garbage_collection() {
-    CloudCompactionMixin::garbage_collection();
+Status CloudBaseCompaction::garbage_collection() {
+    RETURN_IF_ERROR(CloudCompactionMixin::garbage_collection());
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
     idx->set_tablet_id(_tablet->tablet_id());
@@ -354,9 +462,7 @@ void CloudBaseCompaction::garbage_collection() {
     compaction_job->set_type(cloud::TabletCompactionJobPB::BASE);
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
-        int64_t initiator = HashUtil::hash64(_uuid.data(), _uuid.size(), 0) &
-                            std::numeric_limits<int64_t>::max();
-        compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -365,6 +471,7 @@ void CloudBaseCompaction::garbage_collection() {
                 .tag("tablet_id", _tablet->tablet_id())
                 .error(st);
     }
+    return st;
 }
 
 void CloudBaseCompaction::do_lease() {

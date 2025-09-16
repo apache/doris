@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.BrokerMgr;
@@ -59,7 +59,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * EXPORT statement, export data to dirs by broker.
@@ -70,7 +69,7 @@ import java.util.stream.Collectors;
  *          [PROPERTIES("key"="value")]
  *          WITH BROKER 'broker_name' [( $broker_attrs)]
  */
-public class ExportCommand extends Command implements ForwardWithSync {
+public class ExportCommand extends Command implements NeedAuditEncryption, ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";
@@ -84,7 +83,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(LABEL)
             .add(PARALLELISM)
             .add(DATA_CONSISTENCY)
-            .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
+            .add(LoadCommand.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -140,6 +139,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
                     tblName.getDb() + ": " + tblName.getTbl());
         }
 
+        if (!Config.enable_outfile_to_local && path.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
+            throw new AnalysisException("`enable_outfile_to_local` = false, exporting file to local fs is disabled.");
+        }
+
         // check phases
         checkAllParameters(ctx, tblName, fileProperties);
 
@@ -180,6 +183,10 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
         Table table = (Table) db.getTableOrAnalysisException(tblName.getTbl());
+        if (table.isTemporary()) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
+                + "temporary table, do not support EXPORT.");
+        }
 
         if (this.partitionsNames.size() > Config.maximum_number_of_export_partitions) {
             throw new AnalysisException("The partitions number of this export job is larger than the maximum number"
@@ -194,10 +201,13 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 case ODBC:
                 case JDBC:
                 case OLAP:
+                    if (table.isTemporary()) {
+                        throw new AnalysisException("Do not support exporting temporary partitions");
+                    }
                     break;
                 case VIEW: // We support export view, so we do not need to check partition here.
                     if (this.partitionsNames.size() > 0) {
-                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is VIEW type, "
+                        throw new AnalysisException("Table[" + tblName.getTbl() + "] is " + tblType + " type, "
                                 + "do not support export PARTITION.");
                     }
                     return;
@@ -241,11 +251,14 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private ExportJob generateExportJob(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        ExportJob exportJob = new ExportJob();
+        ExportJob exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
         // set export job and check catalog/db/table
         CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
+        if (table.isTemporary()) {
+            throw new AnalysisException("Table[" + tblName.getTbl() + "] is temporary table, do not support export.");
+        }
 
         exportJob.setDbId(db.getId());
         exportJob.setTableName(tblName);
@@ -255,6 +268,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setPartitionNames(this.partitionsNames);
         // set where expression
         exportJob.setWhereExpression(this.expr);
+        exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
         exportJob.setExportPath(this.path);
 
@@ -269,7 +283,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
         exportJob.setLineDelimiter(lineDelimiter);
 
         // set format
-        exportJob.setFormat(fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
+        exportJob.setFormat(fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
 
         // set withBom
@@ -298,7 +312,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
         // null means not specified
         // "" means user specified zero columns
         // if fileProperties contains KEY_IN_PARAM_COLUMNS, the columns have been checked in check phases
-        String columns = fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        String columns = fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_COLUMNS, null);
         exportJob.setColumns(columns);
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -353,38 +367,9 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private void checkFileProperties(ConnectContext ctx, Map<String, String> fileProperties, TableName tblName)
             throws UserException {
-        // check user specified columns
-        if (fileProperties.containsKey(LoadStmt.KEY_IN_PARAM_COLUMNS)) {
-            checkColumns(ctx, fileProperties.get(LoadStmt.KEY_IN_PARAM_COLUMNS), tblName);
-        }
-
         // check user specified label
         if (fileProperties.containsKey(LABEL)) {
             FeNameFormat.checkLabel(fileProperties.get(LABEL));
-        }
-    }
-
-    private void checkColumns(ConnectContext ctx, String columns, TableName tblName)
-            throws AnalysisException, UserException {
-        if (columns.isEmpty()) {
-            throw new AnalysisException("columns can not be empty");
-        }
-
-        CatalogIf catalog = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblName.getCtl());
-        DatabaseIf db = catalog.getDbOrAnalysisException(tblName.getDb());
-        TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
-
-        // As for external table
-        // their base schemas are equals to full schemas
-        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
-                .collect(Collectors.toList());
-        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-
-        List<String> columnsSpecified = split.splitToList(columns.toLowerCase());
-        for (String columnName : columnsSpecified) {
-            if (!tableColumns.contains(columnName)) {
-                throw new AnalysisException("unknown column [" + columnName + "] in table [" + tblName.getTbl() + "]");
-            }
         }
     }
 
@@ -396,8 +381,22 @@ public class ExportCommand extends Command implements ForwardWithSync {
         return this.nameParts;
     }
 
+    public Optional<Expression> getExpr() {
+        return expr;
+    }
+
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitExportCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.EXPORT;
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
     }
 }

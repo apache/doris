@@ -49,14 +49,18 @@ public class Sm3sum extends ScalarFunction
         super("sm3sum", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Sm3sum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Sm3sum withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Sm3sum(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Sm3sum(getFunctionParams(children));
     }
 
     @Override

@@ -36,11 +36,14 @@ public:
     // This method is idempotent for a same request.
     Status process_alter_tablet(const TAlterTabletReqV2& request);
 
+    void clean_up_on_failure();
+
 private:
-    Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
+    Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
+                                       cloud::TabletJobInfoPB& job);
 
     Status _process_delete_bitmap(int64_t alter_version, int64_t start_calc_delete_bitmap_version,
-                                  int64_t initiator);
+                                  int64_t initiator, const std::string& vault_id);
 
 private:
     CloudStorageEngine& _cloud_storage_engine;
@@ -53,6 +56,7 @@ private:
     int64_t _output_cumulative_point = 0;
     // absolute expiration time in second
     int64_t _expiration;
+    int64_t _initiator;
 };
 
 } // namespace doris

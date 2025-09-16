@@ -17,23 +17,29 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeResultSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
@@ -68,8 +74,16 @@ public interface SinkVisitor<R, C> {
         return visitLogicalSink(unboundTableSink, context);
     }
 
+    default R visitUnboundJdbcTableSink(UnboundJdbcTableSink<? extends Plan> unboundTableSink, C context) {
+        return visitLogicalSink(unboundTableSink, context);
+    }
+
     default R visitUnboundResultSink(UnboundResultSink<? extends Plan> unboundResultSink, C context) {
         return visitLogicalSink(unboundResultSink, context);
+    }
+
+    default R visitUnboundDictionarySink(UnboundDictionarySink<? extends Plan> unboundDictionarySink, C context) {
+        return visitLogicalSink(unboundDictionarySink, context);
     }
 
     // *******************************
@@ -96,8 +110,16 @@ public interface SinkVisitor<R, C> {
         return visitLogicalTableSink(icebergTableSink, context);
     }
 
+    default R visitLogicalJdbcTableSink(LogicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
+        return visitLogicalTableSink(jdbcTableSink, context);
+    }
+
     default R visitLogicalResultSink(LogicalResultSink<? extends Plan> logicalResultSink, C context) {
         return visitLogicalSink(logicalResultSink, context);
+    }
+
+    default R visitLogicalDictionarySink(LogicalDictionarySink<? extends Plan> logicalDictionarySink, C context) {
+        return visitLogicalTableSink(logicalDictionarySink, context);
     }
 
     default R visitLogicalDeferMaterializeResultSink(
@@ -127,6 +149,14 @@ public interface SinkVisitor<R, C> {
 
     default R visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink, C context) {
         return visitPhysicalTableSink(icebergTableSink, context);
+    }
+
+    default R visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, C context) {
+        return visitPhysicalTableSink(jdbcTableSink, context);
+    }
+
+    default R visitPhysicalDictionarySink(PhysicalDictionarySink<? extends Plan> dictionarySink, C context) {
+        return visitPhysicalTableSink(dictionarySink, context);
     }
 
     default R visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink, C context) {

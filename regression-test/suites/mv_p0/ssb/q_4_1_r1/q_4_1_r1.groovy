@@ -65,14 +65,6 @@ suite ("q_4_1_r1") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`)
         COMMENT "OLAP"
-        PARTITION BY RANGE(`LO_ORDERDATE`)
-        (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
-        PARTITION p1993 VALUES [("19930101"), ("19940101")),
-        PARTITION p1994 VALUES [("19940101"), ("19950101")),
-        PARTITION p1995 VALUES [("19950101"), ("19960101")),
-        PARTITION p1996 VALUES [("19960101"), ("19970101")),
-        PARTITION p1997 VALUES [("19970101"), ("19980101")),
-        PARTITION p1998 VALUES [("19980101"), ("19990101")))
         DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 48
         PROPERTIES (
         "replication_num" = "1",
@@ -84,7 +76,7 @@ suite ("q_4_1_r1") {
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE, C_NAME, C_ADDRESS, C_CITY, C_NATION, C_REGION, C_PHONE, C_MKTSEGMENT, S_NAME, S_ADDRESS, S_CITY, S_NATION, S_REGION, S_PHONE, P_NAME, P_MFGR, P_CATEGORY, P_BRAND, P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 1 , 1 , 1 , 1 , 1 , '1' , 1 , 1 , 1 , 1 , 100 , 1 , 1 , 1 , '2023-06-09' , 'shipmode' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' , 'phone' , 'mktsegment' , 'name' , 'address' , 'city' , 'nation' , 'AMERICA' ,'phone', 'name', 'MFGR#1', 'category', 'brand', 'color', 'type', 4 ,'container');"""
 
-    createMV ("""create materialized view lineorder_mv as select LO_ORDERDATE DIV 10000, C_NATION, C_REGION, S_REGION, P_MFGR, SUM(LO_REVENUE - LO_SUPPLYCOST) from lineorder_flat group by LO_ORDERDATE DIV 10000, C_NATION, C_REGION, S_REGION, P_MFGR;""")
+    createMV ("""create materialized view lineorder_mv as select LO_ORDERDATE DIV 10000 as a1, C_NATION as a2, C_REGION as a3, S_REGION as a4, P_MFGR as a5, SUM(LO_REVENUE - LO_SUPPLYCOST) as a6 from lineorder_flat group by LO_ORDERDATE DIV 10000, C_NATION, C_REGION, S_REGION, P_MFGR;""")
 
     sql """INSERT INTO lineorder_flat (LO_ORDERDATE, LO_ORDERKEY, LO_LINENUMBER, LO_CUSTKEY, LO_PARTKEY, LO_SUPPKEY, LO_ORDERPRIORITY, LO_SHIPPRIORITY, LO_QUANTITY, LO_EXTENDEDPRICE, LO_ORDTOTALPRICE, LO_DISCOUNT, LO_REVENUE, LO_SUPPLYCOST, LO_TAX, LO_COMMITDATE, LO_SHIPMODE,C_NAME,C_ADDRESS,C_CITY,C_NATION,C_REGION,C_PHONE,C_MKTSEGMENT,S_NAME,S_ADDRESS,S_CITY,S_NATION,S_REGION,S_PHONE,P_NAME,P_MFGR,P_CATEGORY,P_BRAND,P_COLOR,P_TYPE,P_SIZE,P_CONTAINER) VALUES (19930101 , 2 , 2 , 2 , 2 , 2 ,'2',2 ,2 ,2 ,2 ,2 ,2 ,2 ,2 ,'2023-06-09','shipmode','name','address','city','nation','region','phone','mktsegment','name','address','city','nation','region','phone','name','mfgr','category','brand','color','type',4,'container');"""
 
@@ -103,10 +95,10 @@ suite ("q_4_1_r1") {
     qt_select_star "select * from lineorder_flat order by 1,2,P_MFGR;"
 
     sql """analyze table lineorder_flat with sync;"""
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     sql """set enable_stats=false;"""
-    
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
@@ -115,9 +107,7 @@ suite ("q_4_1_r1") {
             AND S_REGION = 'AMERICA'
             AND P_MFGR IN ('MFGR#1', 'MFGR#2')
             GROUP BY YEAR, C_NATION
-            ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_mv)"
-    }
+            ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_mv")
 
     qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
@@ -130,8 +120,7 @@ suite ("q_4_1_r1") {
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
     sql """set enable_stats=true;"""
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
@@ -140,7 +129,5 @@ suite ("q_4_1_r1") {
             AND S_REGION = 'AMERICA'
             AND P_MFGR IN ('MFGR#1', 'MFGR#2')
             GROUP BY YEAR, C_NATION
-            ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_mv)"
-    }
+            ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_mv")
 }

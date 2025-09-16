@@ -18,10 +18,12 @@
 suite("topn_2pr_rule") {
     sql """set topn_opt_limit_threshold = 1024"""
     sql """set enable_two_phase_read_opt= true"""
+    // this case is used to test defer materialze, and hence turn topn_lazy_materialization off
+    sql """set topn_lazy_materialization_threshold=-1;"""
 
     def create_table = { table_name, key_type="DUPLICATE" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
-        value_type = "v string"
+        def value_type = "v string"
         if ("${key_type}" == "AGGREGATE") {
             value_type = "v string REPLACE_IF_NOT_NULL NULL" 
         }
@@ -52,7 +54,7 @@ suite("topn_2pr_rule") {
         } else if("${key_type}" == "UNIQUE") {
              explain {
                 sql("select * from ${table_name}  order by k limit 1;")
-                notContains "OPT TWO PHASE"
+                 contains "OPT TWO PHASE"
             } 
         } else if("${key_type}" == "AGGREGATE") {
              explain {

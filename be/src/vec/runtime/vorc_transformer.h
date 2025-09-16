@@ -33,6 +33,7 @@
 #include "vec/runtime/vparquet_transformer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -96,7 +97,7 @@ public:
 
 private:
     void set_compression_type(const TFileCompressType::type& compress_type);
-    std::unique_ptr<orc::Type> _build_orc_type(const TypeDescriptor& type_descriptor,
+    std::unique_ptr<orc::Type> _build_orc_type(const DataTypePtr& type,
                                                const iceberg::NestedField* nested_field);
 
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
@@ -131,3 +132,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

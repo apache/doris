@@ -25,10 +25,10 @@ from typing import ContextManager, Optional, Union
 import mysql.connector
 
 from dbt import exceptions
-from dbt.adapters.base import Credentials
+from dbt.adapters.contracts.connection import Credentials
 from dbt.adapters.sql import SQLConnectionManager
-from dbt.contracts.connection import AdapterResponse, Connection, ConnectionState
-from dbt.events import AdapterLogger
+from dbt.adapters.contracts.connection import AdapterResponse, Connection, ConnectionState
+from dbt.adapters.events.logging import AdapterLogger
 
 logger = AdapterLogger("doris")
 
@@ -102,7 +102,7 @@ class DorisConnectionManager(SQLConnectionManager):
                 connection.handle = None
                 connection.state = 'fail'
 
-                raise exceptions.FailedToConnectError(str(e))
+                raise exceptions.DbtRuntimeError(str(e))
         return connection
 
     @classmethod
@@ -132,7 +132,7 @@ class DorisConnectionManager(SQLConnectionManager):
             yield
         except mysql.connector.DatabaseError as e:
             logger.debug(f"Doris database error: {e}, sql: {sql}")
-            raise exceptions.DbtDatabaseError(str(e)) from e
+            raise exceptions.DbtRuntimeError(str(e)) from e
         except Exception as e:
             logger.debug(f"Error running SQL: {sql}")
             if isinstance(e, exceptions.DbtRuntimeError):

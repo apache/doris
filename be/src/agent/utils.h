@@ -23,18 +23,19 @@
 #include <string>
 
 #include "common/status.h"
+#include "runtime/client_cache.h"
 
 namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
 class TConfirmUnusedRemoteFilesResult;
 class TFinishTaskRequest;
-class TMasterInfo;
 class TMasterResult;
 class TReportRequest;
+class ClusterInfo;
 
 class MasterServerClient {
 public:
-    static MasterServerClient* create(const TMasterInfo& master_info);
+    static MasterServerClient* create(const ClusterInfo* cluster_info);
     static MasterServerClient* instance();
 
     ~MasterServerClient() = default;
@@ -61,12 +62,13 @@ public:
                                        TConfirmUnusedRemoteFilesResult* result);
 
 private:
-    MasterServerClient(const TMasterInfo& master_info);
+    MasterServerClient(const ClusterInfo* cluster_info);
 
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
 
-    // Not owner. Reference to the ExecEnv::_master_info
-    const TMasterInfo& _master_info;
+    // Not owner. Reference to the ExecEnv::_cluster_info
+    const ClusterInfo* _cluster_info;
+    std::unique_ptr<FrontendServiceClientCache> _client_cache;
 };
 
 class AgentUtils {

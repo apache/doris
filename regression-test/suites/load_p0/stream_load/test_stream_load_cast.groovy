@@ -62,7 +62,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql1 "select * from ${tableName}"
+    qt_sql1 "select * from ${tableName} order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"
@@ -83,9 +83,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
@@ -112,7 +112,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql2 "select * from ${tableName}"
+    qt_sql2 "select * from ${tableName} order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"
@@ -134,9 +134,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
@@ -162,7 +162,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql3 "select * from ${tableName}"
+    qt_sql3 "select * from ${tableName}  order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"
@@ -210,7 +210,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql4 "select * from ${tableName}"
+    qt_sql4 "select * from ${tableName}  order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"
@@ -231,9 +231,9 @@ suite("test_stream_load_cast", "p0") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
+            assertEquals("success", json.Status.toLowerCase())
             assertEquals(1, json.NumberTotalRows)
-            assertEquals(1, json.NumberFilteredRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
@@ -259,7 +259,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql5 "select * from ${tableName}"
+    qt_sql5 "select * from ${tableName}  order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"
@@ -311,7 +311,7 @@ suite("test_stream_load_cast", "p0") {
         }
     }
     sql "sync"
-    qt_sql6 "select * from ${tableName}"
+    qt_sql6 "select * from ${tableName}  order by k0"
     sql "sync"
     sql "truncate table ${tableName}"
     sql "sync"

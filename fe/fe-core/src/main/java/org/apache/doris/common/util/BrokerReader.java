@@ -103,7 +103,7 @@ public class BrokerReader {
         String clientId = NetUtils
                 .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
         TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
-                TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
+                TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getBackendConfigProperties());
         TBrokerOpenReaderResponse tOpenReaderResponse = null;
         try {
             tOpenReaderResponse = client.openReader(tOpenReaderRequest);
@@ -137,7 +137,7 @@ public class BrokerReader {
 
     public long getFileLength(String path) throws IOException {
         TBrokerListPathRequest request = new TBrokerListPathRequest(
-                TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getBackendConfigProperties());
         TBrokerListResponse tBrokerListResponse = null;
         try {
             tBrokerListResponse = client.listPath(request);

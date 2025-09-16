@@ -24,15 +24,27 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimple>);
-    factory.register_function_both(
-            "sum_decimal256", creator_with_type::creator<AggregateFunctionSumSimpleDecimal256>);
-}
-
-void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("sum0", creator_with_type::creator<AggregateFunctionSumSimple>);
+    AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
+                                           const bool result_is_nullable,
+                                           const AggregateFunctionAttr& attr) {
+        if (attr.enable_decimal256 && is_decimal(types[0]->get_primitive_type())) {
+            return creator_with_type_list<TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                                          TYPE_DECIMAL256>::
+                    creator<AggregateFunctionSumSimpleDecimal256>(name, types, result_is_nullable,
+                                                                  attr);
+        } else {
+            return creator_with_type_list<
+                    TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_LARGEINT, TYPE_FLOAT,
+                    TYPE_DOUBLE, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I,
+                    TYPE_DECIMALV2>::creator<AggregateFunctionSumSimple>(name, types,
+                                                                         result_is_nullable, attr);
+        }
+    };
+    factory.register_function_both("sum", creator);
+    factory.register_alias("sum", "sum0");
 }
 
 } // namespace doris::vectorized

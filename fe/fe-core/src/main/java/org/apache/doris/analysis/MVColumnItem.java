@@ -19,11 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.InlineView;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -47,54 +44,32 @@ public class MVColumnItem {
     private boolean isAggregationTypeImplicit;
     private Expr defineExpr;
     private Set<String> baseColumnNames;
-    private String baseTableName;
 
-    public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr, String baseColumnName) {
-        this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr);
-    }
-
-    public MVColumnItem(Type type, AggregateType aggregateType, Expr defineExpr, String baseColumnName) {
-        this(CreateMaterializedViewStmt.mvColumnBuilder(aggregateType, baseColumnName), type, aggregateType, false,
-                defineExpr);
-    }
-
-    public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr) {
+    public MVColumnItem(String name, Type type, AggregateType aggregateType, Expr defineExpr) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;
-        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+        this.isAggregationTypeImplicit = false;
         this.defineExpr = defineExpr;
-        baseColumnNames = new HashSet<>();
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
-    }
-
-    public MVColumnItem(String name, Type type) {
-        this.name = name;
-        this.type = type;
-        baseColumnNames = new HashSet<>();
-        baseColumnNames.add(name);
     }
 
     public MVColumnItem(Expr defineExpr) throws AnalysisException {
-        this.name = CreateMaterializedViewStmt.mvColumnBuilder(defineExpr.toSql());
+        this(defineExpr.toSqlWithoutTbl(), defineExpr);
+    }
 
-        if (this.name == null) {
-            throw new AnalysisException("defineExpr.toSql() is null");
-        }
-
-        this.name = MaterializedIndexMeta.normalizeName(this.name);
-
+    public MVColumnItem(String name, Expr defineExpr) {
+        this.name = name;
+        this.isAggregationTypeImplicit = false;
         this.defineExpr = defineExpr;
 
         this.type = defineExpr.getType();
@@ -104,13 +79,13 @@ public class MVColumnItem {
         }
 
         Map<Long, Set<String>> tableIdToColumnNames = defineExpr.getTableIdToColumnNames();
-        if (defineExpr instanceof SlotRef) {
-            baseColumnNames = new HashSet<>();
-            baseColumnNames.add(this.name);
-        } else if (tableIdToColumnNames.size() == 1) {
+
+        if (tableIdToColumnNames.size() == 1) {
             for (Map.Entry<Long, Set<String>> entry : tableIdToColumnNames.entrySet()) {
                 baseColumnNames = entry.getValue();
             }
+        } else {
+            baseColumnNames = new HashSet<>();
         }
     }
 
@@ -143,34 +118,12 @@ public class MVColumnItem {
         return aggregationType;
     }
 
-    public boolean isAggregationTypeImplicit() {
-        return isAggregationTypeImplicit;
-    }
-
     public Expr getDefineExpr() {
         return defineExpr;
     }
 
-    public void setDefineExpr(Expr defineExpr) {
-        this.defineExpr = defineExpr;
-    }
-
     public Set<String> getBaseColumnNames() {
         return baseColumnNames;
-    }
-
-    public String getBaseTableName() {
-        return baseTableName;
-    }
-
-    public Column toMVColumn(Table table) throws DdlException {
-        if (table instanceof OlapTable) {
-            return toMVColumn((OlapTable) table);
-        } else if (table instanceof InlineView) {
-            return toMVColumn((InlineView) table);
-        } else {
-            throw new DdlException("Failed to convert to a materialized view column, column=" + getName() + ".");
-        }
     }
 
     public Column toMVColumn(OlapTable olapTable) throws DdlException {
@@ -199,13 +152,5 @@ public class MVColumnItem {
         result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         result.setDefineExpr(defineExpr);
         return result;
-    }
-
-    public Column toMVColumn(InlineView view) throws DdlException {
-        Column baseColumn = view.getColumn(name);
-        if (baseColumn == null) {
-            throw new DdlException("Failed to get the column (" + name + ") in a view (" + view + ").");
-        }
-        return new Column(baseColumn);
     }
 }

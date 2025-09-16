@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("eager_aggregate_basic_one_side") {
+suite("basic_one_side") {
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
 
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    sql "set disable_join_reorder=true"
 
     sql """
         DROP TABLE IF EXISTS shunt_log_com_dd_library_one_side;

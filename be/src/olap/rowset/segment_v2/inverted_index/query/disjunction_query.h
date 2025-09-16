@@ -19,25 +19,25 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
-CL_NS_USE(index)
-CL_NS_USE(search)
-
 namespace doris::segment_v2 {
 
 class DisjunctionQuery : public Query {
 public:
-    DisjunctionQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                     const TQueryOptions& query_options);
+    DisjunctionQuery() = default;
+    DisjunctionQuery(SearcherPtr searcher, IndexQueryContextPtr context);
     ~DisjunctionQuery() override = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms) override;
+    void add(const InvertedIndexQueryInfo& query_info) override;
     void search(roaring::Roaring& roaring) override;
 
 private:
-    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
 
     std::wstring _field_name;
-    std::vector<std::string> _terms;
+    std::vector<std::vector<TermIterPtr>> _iterators;
+
+    std::vector<SimilarityPtr> _similarities;
 };
 
 } // namespace doris::segment_v2

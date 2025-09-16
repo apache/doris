@@ -142,6 +142,12 @@ public class MysqlSerializer {
         }
     }
 
+    // Write length-encoded raw bytes without any charset transcoding (for VARBINARY etc.)
+    public void writeLenEncodedBytes(byte[] buf) {
+        writeVInt(buf.length);
+        writeBytes(buf);
+    }
+
     public void writeEofString(String value) {
         try {
             byte[] buf = value.getBytes("UTF-8");
@@ -161,6 +167,35 @@ public class MysqlSerializer {
         }
     }
 
+    public void writeField(FieldInfo fieldInfo, Type type) {
+        // Catalog Name: length encoded string
+        writeLenEncodedString("def");
+        // Schema: length encoded string
+        writeLenEncodedString(fieldInfo.getSchema());
+        // Table: length encoded string
+        writeLenEncodedString(fieldInfo.getTable());
+        // Origin Table: length encoded string
+        writeLenEncodedString(fieldInfo.getOriginalTable());
+        // Name: length encoded string
+        writeLenEncodedString(fieldInfo.getName());
+        // Original Name: length encoded string
+        writeLenEncodedString(fieldInfo.getOriginalName());
+        // length of the following fields(always 0x0c)
+        writeVInt(0x0c);
+        // Character set: two byte integer
+        writeInt2(getMysqlResultSetFieldCharsetIndex(type));
+        // Column length: four byte integer
+        writeInt4(getMysqlTypeLength(type));
+        // Column type: one byte integer
+        writeInt1(type.getPrimitiveType().toMysqlType().getCode());
+        // Flags: two byte integer
+        writeInt2(getMysqlFlags(type));
+        // Decimals: one byte integer
+        writeInt1(getMysqlDecimals(type));
+        // filler: two byte integer
+        writeInt2(0);
+    }
+
     public void writeField(String db, String table, Column column, boolean sendDefault) {
         // Catalog Name: length encoded string
         writeLenEncodedString("def");
@@ -177,13 +212,13 @@ public class MysqlSerializer {
         // length of the following fields(always 0x0c)
         writeVInt(0x0c);
         // Character set: two byte integer
-        writeInt2(33);
+        writeInt2(getMysqlResultSetFieldCharsetIndex(column.getType()));
         // TODO(zhaochun): fix Column length: four byte integer
         writeInt4(getMysqlTypeLength(column.getType()));
         // Column type: one byte integer
         writeInt1(column.getDataType().toMysqlType().getCode());
         // Flags: two byte integer
-        writeInt2(0);
+        writeInt2(getMysqlFlags(column.getType()));
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(column.getType()));
         // filler: two byte integer
@@ -212,13 +247,13 @@ public class MysqlSerializer {
         // length of the following fields(always 0x0c)
         writeVInt(0x0c);
         // Character set: two byte integer
-        writeInt2(33);
+        writeInt2(getMysqlResultSetFieldCharsetIndex(type));
         // Column length: four byte integer
         writeInt4(getMysqlTypeLength(type));
         // Column type: one byte integer
         writeInt1(type.getPrimitiveType().toMysqlType().getCode());
         // Flags: two byte integer
-        writeInt2(0);
+        writeInt2(getMysqlFlags(type));
         // Decimals: one byte integer
         writeInt1(getMysqlDecimals(type));
         // filler: two byte integer
@@ -250,7 +285,6 @@ public class MysqlSerializer {
                 return 12;
             case DOUBLE:
                 return 22;
-            case TIME:
             case DATEV2:
             case DATE:
                 return 10;
@@ -282,6 +316,9 @@ public class MysqlSerializer {
                 }
                 return precision;
             }
+            case VARBINARY: {
+                return type.getLength();
+            }
             // todo:It needs to be obtained according to the field length set during the actual creation,
             // todo:which is not supported for the time being.default is 255
             // CHAR,VARCHAR:
@@ -306,6 +343,29 @@ public class MysqlSerializer {
                 return 31;
             default:
                 return 0;
+        }
+    }
+
+    // see https://github.com/mysql/mysql-server/blob/trunk/include/mysql_com.h#L161
+    private int getMysqlFlags(Type type) {
+        int flags = 0;
+        if (type.getPrimitiveType().isVarbinaryType()) {
+            flags |= 128; //BINARY_FLAG
+        }
+        return flags;
+    }
+
+    /**
+     * @return 33 (utf8_general_ci)
+     * 63 (binary) others
+     * https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_character_set.html
+     */
+    private int getMysqlResultSetFieldCharsetIndex(Type type) {
+        switch (type.getPrimitiveType()) {
+            case VARBINARY:
+                return 63; // binary
+            default:
+                return 33; // utf8_general_ci
         }
     }
 }

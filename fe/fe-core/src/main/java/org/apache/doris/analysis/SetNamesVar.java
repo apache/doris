@@ -44,7 +44,7 @@ public class SetNamesVar extends SetVar {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (Strings.isNullOrEmpty(charset)) {
             charset = DEFAULT_NAMES;
         } else {

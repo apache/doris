@@ -17,17 +17,19 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
@@ -35,8 +37,10 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.resource.Tag;
@@ -88,6 +92,9 @@ public class RestoreJobTest {
 
     private MockRepositoryMgr repoMgr;
 
+    public RestoreJobTest() throws UserException {
+    }
+
     // Thread is not mockable in Jmockit, use subclass instead
     private final class MockBackupHandler extends BackupHandler {
         public MockBackupHandler(Env env) {
@@ -119,7 +126,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            FileSystemFactory.get("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+            FileSystemFactory.get(BrokerProperties.of("broker", Maps.newHashMap())));
 
     private BackupMeta backupMeta;
 
@@ -242,7 +249,7 @@ public class RestoreJobTest {
 
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
-                            tablet.getId() + ".idx",  tablet.getId() + ".hdr");
+                            tablet.getId() + ".idx", tablet.getId() + ".hdr");
                     BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
                     idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }
@@ -253,7 +260,8 @@ public class RestoreJobTest {
         db.unregisterTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
-                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, env, repo.getId());
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false, false, false, false, false,
+                env, repo.getId());
 
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
@@ -305,5 +313,29 @@ public class RestoreJobTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testResetPartitionVisibleAndNextVersionForRestore() throws Exception {
+        long visibleVersion = 1234;
+        long remotePartId = 123;
+        String partName = "p20240723";
+        MaterializedIndex index = new MaterializedIndex();
+        Partition remotePart = new Partition(remotePartId, partName, index, new HashDistributionInfo());
+        remotePart.setVisibleVersionAndTime(visibleVersion, 0);
+        remotePart.setNextVersion(visibleVersion + 10);
+
+        OlapTable localTbl = new OlapTable();
+        localTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+        OlapTable remoteTbl = new OlapTable();
+        remoteTbl.addPartition(remotePart);
+        remoteTbl.setPartitionInfo(new PartitionInfo(PartitionType.RANGE));
+
+        ReplicaAllocation alloc = new ReplicaAllocation();
+        job.resetPartitionForRestore(localTbl, remoteTbl, partName, alloc);
+
+        Partition localPart = remoteTbl.getPartition(partName);
+        Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
+        Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
     }
 }

@@ -68,9 +68,11 @@ public class CustomRewriteJob implements RewriteJob {
         if (!root.deepEquals(rewrittenRoot)) {
             if (cascadesContext.showPlanProcess()) {
                 PlanProcess planProcess = new PlanProcess(
-                        ruleType.name(), root.treeString(), rewrittenRoot.treeString());
+                        ruleType.name(), root.treeString(true), rewrittenRoot.treeString(true));
                 cascadesContext.addPlanProcess(planProcess);
             }
+            // if rewrite success, record the rule type
+            context.getCascadesContext().getStatementContext().ruleSetApplied(ruleType);
         }
         cascadesContext.setRewritePlan(rewrittenRoot);
     }

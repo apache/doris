@@ -33,6 +33,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -116,10 +117,8 @@ private:
     RowsetState _rowset_state;
 };
 
-class Rowset : public std::enable_shared_from_this<Rowset> {
+class Rowset : public std::enable_shared_from_this<Rowset>, public MetadataAdder<Rowset> {
 public:
-    virtual ~Rowset();
-
     // Open all segment files in this rowset and load necessary metadata.
     // - `use_cache` : whether to use fd cache, only applicable to alpha rowset now
     //
@@ -143,13 +142,14 @@ public:
     // publish rowset to make it visible to read
     void make_visible(Version version);
     void set_version(Version version);
-    const TabletSchemaSPtr& tablet_schema() const { return _schema; }
+    const TabletSchemaSPtr& tablet_schema() const;
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
-    size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
-    size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
+    int64_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
+    int64_t data_disk_size() const { return rowset_meta()->data_disk_size(); }
+    int64_t total_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
     bool zero_num_rows() const { return rowset_meta()->num_rows() == 0; }
     size_t num_rows() const { return rowset_meta()->num_rows(); }
@@ -161,7 +161,7 @@ public:
     int64_t partition_id() const { return rowset_meta()->partition_id(); }
     // flag for push delete rowset
     bool delete_flag() const { return rowset_meta()->delete_flag(); }
-    int64_t num_segments() const { return rowset_meta()->num_segments(); }
+    MOCK_FUNCTION int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
     // The writing time of the newest data in rowset, to measure the freshness of a rowset.
@@ -169,6 +169,7 @@ public:
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }
     RowsetStatePB rowset_meta_state() const { return rowset_meta()->rowset_state(); }
+    bool produced_by_compaction() const { return rowset_meta()->produced_by_compaction(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
@@ -208,6 +209,8 @@ public:
     virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
                                  size_t new_rowset_start_seg_id = 0,
                                  std::set<int64_t>* without_index_uids = nullptr) = 0;
+
+    virtual Status get_inverted_index_size(int64_t* index_size) = 0;
 
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
@@ -268,7 +271,9 @@ public:
         _rowset_meta->get_segments_key_bounds(segments_key_bounds);
         return Status::OK();
     }
-    bool min_key(std::string* min_key) {
+
+    // min key of the first segment
+    bool first_key(std::string* min_key) {
         KeyBoundsPB key_bounds;
         bool ret = _rowset_meta->get_first_segment_key_bound(&key_bounds);
         if (!ret) {
@@ -277,7 +282,9 @@ public:
         *min_key = key_bounds.min_key();
         return true;
     }
-    bool max_key(std::string* max_key) {
+
+    // max key of the last segment
+    bool last_key(std::string* max_key) {
         KeyBoundsPB key_bounds;
         bool ret = _rowset_meta->get_last_segment_key_bound(&key_bounds);
         if (!ret) {
@@ -285,6 +292,10 @@ public:
         }
         *max_key = key_bounds.max_key();
         return true;
+    }
+
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta->is_segments_key_bounds_truncated();
     }
 
     bool check_rowset_segment();
@@ -303,7 +314,18 @@ public:
 
     void clear_cache();
 
-    Result<std::string> segment_path(int64_t seg_id);
+    MOCK_FUNCTION Result<std::string> segment_path(int64_t seg_id);
+
+    std::vector<std::string> get_index_file_names();
+
+    // check if the rowset is a hole rowset
+    bool is_hole_rowset() const { return _is_hole_rowset; }
+    // set the rowset as a hole rowset
+    void set_hole_rowset(bool is_hole_rowset) { _is_hole_rowset = is_hole_rowset; }
+
+    int64_t approximate_cached_data_size();
+
+    int64_t approximate_cache_index_size();
 
 protected:
     friend class RowsetFactory;
@@ -315,9 +337,6 @@ protected:
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;
-
-    // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual Status do_load(bool use_cache) = 0;
 
     // release resources in this api
     virtual void do_close() = 0;
@@ -348,6 +367,11 @@ protected:
 
     // <column_uniq_id>, skip index compaction
     std::set<int32_t> skip_index_compaction;
+
+    // only used for cloud mode, it indicates whether this rowset is a hole rowset.
+    // a hole rowset is a rowset that has no data, but is used to fill the version gap
+    // it is used to ensure that the version sequence is continuous.
+    bool _is_hole_rowset = false;
 };
 
 // `rs_metas` MUST already be sorted by `RowsetMeta::comparator`

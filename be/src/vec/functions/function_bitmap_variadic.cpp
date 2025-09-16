@@ -31,7 +31,6 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -120,7 +119,7 @@ namespace doris::vectorized {
         static constexpr auto name = #FUNCTION_NAME;                                              \
         using ResultDataType = DataTypeInt64;                                                     \
         using TData = std::vector<BitmapValue>;                                                   \
-        using ResTData = typename ColumnVector<Int64>::Container;                                 \
+        using ResTData = typename ColumnInt64::Container;                                         \
         static Status vector_vector(ColumnPtr argument_columns[], size_t col_size,                \
                                     size_t input_rows_count, ResTData& res, IColumn* res_nulls) { \
             TData vals;                                                                           \
@@ -158,7 +157,7 @@ BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
 
 Status execute_bitmap_op_count_null_to_zero(
-        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, uint32_t result,
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func);
@@ -202,10 +201,10 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         if (std::is_same_v<Impl, BitmapAndCount> || std::is_same_v<Impl, BitmapXorCount>) {
             auto impl_func = [&](FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) {
                 return execute_impl_internal(context, block, arguments, result, input_rows_count);
             };
@@ -217,7 +216,7 @@ public:
     }
 
     Status execute_impl_internal(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         size_t argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
@@ -227,11 +226,10 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
 
-        using ResultDataType = typename Impl::ResultDataType;  //DataTypeBitMap or DataTypeInt64
-        using ResultType = typename ResultDataType::FieldType; //BitmapValue or Int64
-        using ColVecResult =
-                std::conditional_t<is_complex_v<ResultType>, ColumnComplexType<ResultType>,
-                                   ColumnVector<ResultType>>;
+        using ResultDataType = typename Impl::ResultDataType; //DataTypeBitMap or DataTypeInt64
+        using ColVecResult = std::conditional_t<is_complex_v<ResultDataType::PType>,
+                                                ColumnComplexType<ResultDataType::PType>,
+                                                ColumnVector<ResultDataType::PType>>;
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         typename ColumnUInt8::MutablePtr col_res_nulls;
@@ -247,7 +245,7 @@ public:
         vec_res.resize(input_rows_count);
 
         RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,
-                                            input_rows_count, vec_res, col_res_nulls));
+                                            input_rows_count, vec_res, col_res_nulls.get()));
         if (!use_default_implementation_for_nulls() && result_info.type->is_nullable()) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(col_res_nulls)));

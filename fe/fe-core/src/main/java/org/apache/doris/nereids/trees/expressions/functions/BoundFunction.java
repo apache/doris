@@ -18,12 +18,15 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.Utils;
-
-import com.google.common.base.Suppliers;
 
 import java.util.List;
 import java.util.Objects;
@@ -33,20 +36,26 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Function implements ComputeSignature {
-
-    private final Supplier<FunctionSignature> signatureCache = Suppliers.memoize(() -> {
-        // first step: find the candidate signature in the signature list
-        FunctionSignature matchedSignature = searchSignature(getSignatures());
-        // second step: change the signature, e.g. fill precision for decimal v2
-        return computeSignature(matchedSignature);
-    });
+    private final Supplier<FunctionSignature> signatureCache;
 
     public BoundFunction(String name, Expression... arguments) {
         super(name, arguments);
+        this.signatureCache = buildSignatureCache(null);
     }
 
     public BoundFunction(String name, List<Expression> children) {
-        super(name, children);
+        this(name, children, false);
+    }
+
+    public BoundFunction(String name, List<Expression> children, boolean inferred) {
+        super(name, children, inferred);
+        this.signatureCache = buildSignatureCache(null);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    public BoundFunction(FunctionParams functionParams) {
+        super(functionParams.functionName, functionParams.arguments, functionParams.inferred);
+        this.signatureCache = buildSignatureCache(functionParams.getOriginSignature());
     }
 
     @Override
@@ -72,12 +81,12 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(getName(), children);
     }
 
     @Override
-    public String toSql() throws UnboundException {
+    public String computeToSql() throws UnboundException {
         StringBuilder sql = new StringBuilder(getName()).append("(");
         int arity = arity();
         for (int i = 0; i < arity; i++) {
@@ -97,5 +106,42 @@ public abstract class BoundFunction extends Function implements ComputeSignature
                 .map(Expression::toString)
                 .collect(Collectors.joining(", "));
         return getName() + "(" + args + ")";
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        throw new UnsupportedOperationException(
+                "Please implement withChildren by create new function with FunctionParams");
+    }
+
+    protected FunctionParams getFunctionParams(List<Expression> arguments) {
+        return new FunctionParams(this, getName(), arguments, isInferred());
+    }
+
+    /**
+     * checkOrderExprIsValid.
+     */
+    public void checkOrderExprIsValid() {
+        for (Expression child : children) {
+            if (child instanceof OrderExpression
+                    && !(this instanceof GroupConcat || this instanceof MultiDistinctGroupConcat)) {
+                throw new AnalysisException(
+                        String.format("%s doesn't support order by expression", getName()));
+            }
+        }
+    }
+
+    private Supplier<FunctionSignature> buildSignatureCache(Supplier<FunctionSignature> specifiedSignature) {
+        if (specifiedSignature != null) {
+            // use specifiedSignature to make ensure idempotency of computed signatures
+            return specifiedSignature;
+        } else {
+            return LazyCompute.of(() -> {
+                // first step: find the candidate signature in the signature list
+                FunctionSignature matchedSignature = searchSignature(getSignatures());
+                // second step: change the signature, e.g. fill precision for decimal v2
+                return computeSignature(matchedSignature);
+            });
+        }
     }
 }

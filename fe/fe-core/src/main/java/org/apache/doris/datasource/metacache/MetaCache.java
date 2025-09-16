@@ -18,22 +18,29 @@
 package org.apache.doris.datasource.metacache;
 
 import org.apache.doris.common.CacheFactory;
-import org.apache.doris.common.util.Util;
+import org.apache.doris.common.Pair;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Collectors;
 
 public class MetaCache<T> {
-    private LoadingCache<String, List<String>> namesCache;
+    private static final Logger LOG = LogManager.getLogger(MetaCache.class);
+    private LoadingCache<String, List<Pair<String, String>>> namesCache;
+    //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
     private LoadingCache<String, Optional<T>> metaObjCache;
 
@@ -41,10 +48,10 @@ public class MetaCache<T> {
 
     public MetaCache(String name,
             ExecutorService executor,
-            OptionalLong expireAfterWriteSec,
+            OptionalLong expireAfterAccessSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
-            CacheLoader<String, List<String>> namesCacheLoader,
+            CacheLoader<String, List<Pair<String, String>>> namesCacheLoader,
             CacheLoader<String, Optional<T>> metaObjCacheLoader,
             RemovalListener<String, Optional<T>> removalListener) {
         this.name = name;
@@ -56,13 +63,13 @@ public class MetaCache<T> {
         // from remote datasource, it is just a local generated object to represent the meta info.
         // So it only need to be expired after specified duration.
         CacheFactory namesCacheFactory = new CacheFactory(
-                expireAfterWriteSec,
+                expireAfterAccessSec,
                 refreshAfterWriteSec,
-                maxSize,
+                1, // names cache has one and only one entry
                 true,
                 null);
         CacheFactory objCacheFactory = new CacheFactory(
-                expireAfterWriteSec,
+                expireAfterAccessSec,
                 OptionalLong.empty(),
                 maxSize,
                 true,
@@ -72,52 +79,105 @@ public class MetaCache<T> {
     }
 
     public List<String> listNames() {
-        return namesCache.get("");
+        return Objects.requireNonNull(namesCache.get("")).stream().map(Pair::value).collect(Collectors.toList());
     }
 
-    public Optional<T> getMetaObj(String name) {
+    public String getRemoteName(String localName) {
+        return Objects.requireNonNull(namesCache.getIfPresent("")).stream()
+                .filter(pair -> pair.value().equals(localName))
+                .map(Pair::key)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public Optional<T> getMetaObj(String name, long id) {
         Optional<T> val = metaObjCache.getIfPresent(name);
-        if (val == null) {
+        if (val == null || !val.isPresent()) {
             synchronized (metaObjCache) {
+                val = metaObjCache.getIfPresent(name);
+                if (val != null && val.isPresent()) {
+                    return val;
+                }
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
+                            this.name, name, id, new Exception());
+                }
+                metaObjCache.invalidate(name);
                 val = metaObjCache.get(name);
-                idToName.put(Util.genTableIdByName(name), name);
+                idToName.put(id, name);
             }
+        }
+        return val;
+    }
+
+    public Optional<T> tryGetMetaObj(String name) {
+        Optional<T> val = metaObjCache.getIfPresent(name);
+        if (val == null || !val.isPresent()) {
+            return Optional.empty();
         }
         return val;
     }
 
     public Optional<T> getMetaObjById(long id) {
         String name = idToName.get(id);
-        return name == null ? Optional.empty() : getMetaObj(name);
+        return name == null ? Optional.empty() : getMetaObj(name, id);
     }
 
-    public void updateCache(String objName, T obj) {
-        metaObjCache.put(objName, Optional.of(obj));
+    public void updateCache(String remoteName, String localName, T obj, long id) {
+        metaObjCache.put(localName, Optional.of(obj));
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
-                return Lists.newArrayList(objName);
+                return Lists.newArrayList(Pair.of(remoteName, localName));
             } else {
-                v.add(objName);
+                v.add(Pair.of(remoteName, localName));
                 return v;
             }
         });
+        idToName.put(id, localName);
     }
 
-    public void invalidate(String objName) {
+    public void invalidate(String localName, long id) {
         namesCache.asMap().compute("", (k, v) -> {
             if (v == null) {
                 return Lists.newArrayList();
             } else {
-                v.remove(objName);
+                v.removeIf(pair -> pair.value().equals(localName));
                 return v;
             }
         });
-        metaObjCache.invalidate(objName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
+                    name, localName, id, new Exception());
+        }
+        metaObjCache.invalidate(localName);
+        idToName.remove(id);
     }
 
     public void invalidateAll() {
         namesCache.invalidateAll();
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("invalidate all in metacache {}", name, new Exception());
+        }
         metaObjCache.invalidateAll();
+        idToName.clear();
     }
 
+    @VisibleForTesting
+    public LoadingCache<String, Optional<T>> getMetaObjCache() {
+        return metaObjCache;
+    }
+
+    @VisibleForTesting
+    public void addObjForTest(long id, String name, T db) {
+        idToName.put(id, name);
+        metaObjCache.put(name, Optional.of(db));
+    }
+
+    /**
+     * Reset the names cache.
+     * Should only be used after creating new database/table
+     */
+    public void resetNames() {
+        namesCache.invalidateAll();
+    }
 }

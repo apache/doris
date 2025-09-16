@@ -36,6 +36,7 @@ test=""
 fdb_conf=""
 filter=""
 ENABLE_CLANG_COVERAGE="OFF"
+COVERAGE_FORMAT=${COVERAGE_FORMAT:-html}
 if [[ $# != 1 ]]; then
     while true; do
         case "$1" in
@@ -120,14 +121,14 @@ function report_coverage() {
     for object in ${binary_objects[@]}; do
         binary_objects_options[${#binary_objects_options[*]}]="-object ${object}"
     done
-    llvm-profdata merge -o ${profdata} ${profraw}
-    llvm-cov show -output-dir=report -format=html \
+    ${LLVM_PROFDATA:-llvm-profdata} merge -o ${profdata} ${profraw}
+    ${LLVM_COV:-llvm-cov} show -output-dir=report -format=${COVERAGE_FORMAT} \
         -ignore-filename-regex='(.*gensrc/.*)|(.*_test\.cpp$)' \
         -instr-profile=${profdata} \
         ${binary_objects_options[*]}
 }
 
-export LSAN_OPTIONS=suppressions=./lsan_suppression.conf
+export LSAN_OPTIONS=suppressions=./lsan_suppr.conf
 unittest_files=()
 for i in *_test; do
     [[ -e "${i}" ]] || break
@@ -143,11 +144,13 @@ for i in *_test; do
             patchelf --set-rpath "$(pwd)" "${i}"
         fi
 
+        set -euo pipefail
         if [[ "${filter}" == "" ]]; then
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml"
         else
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml" --gtest_filter="${filter}"
         fi
+        set +euo pipefail
         unittest_files[${#unittest_files[*]}]="${i}"
         echo "--------------------------"
     fi

@@ -18,7 +18,10 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testAggQueryOnAggMV1") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
+    sql "set disable_nereids_rules='CONSTANT_PROPAGATION'"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -33,95 +36,52 @@ suite ("testAggQueryOnAggMV1") {
         """
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
 
+sql """alter table emps modify column time_col set stats ('row_count'='9');"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), max(commission) from emps group by deptno;")
-    createMV("create materialized view emps_mv_count_key as select deptno, count(deptno) from emps group by deptno;")
-    createMV("create materialized view emps_mv_if as select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary) as a2, max(commission) as a3 from emps group by deptno;")
+    createMV("create materialized view emps_mv_count_key as select deptno as a4, count(deptno) as a5 from emps group by deptno;")
+    createMV("create materialized view emps_mv_if as select deptno as a6, sum(if(empid = 1, empid, salary)) as a7 from emps group by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table emps with sync;"
-    sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_all_fail("select * from emps order by empid;", ["emps_mv", "emps_mv_count_key", "emps_mv_if"])
     qt_select_star "select * from emps order by empid;"
 
 
-    explain {
-        sql("select sum(salary), deptno from emps group by deptno order by deptno;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select sum(salary), deptno from emps group by deptno order by deptno;", "emps_mv")
+    
     qt_select_mv "select sum(salary), deptno from emps group by deptno order by deptno;"
 
-    explain {
-        sql("select sum(salary) as salary from emps;")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select sum(salary) as salary from emps;", "emps_mv")
+    
     qt_select_mv "select sum(salary) as salary from emps;"
 
-    explain {
-        sql("select deptno, count(deptno) from emps group by deptno order by deptno;")
-        contains "(emps_mv_count_key)"
-    }
+    mv_rewrite_success("select deptno, count(deptno) from emps group by deptno order by deptno;", "emps_mv_count_key")
+    
     qt_select_mv "select deptno, count(deptno) from emps group by deptno order by deptno;"
 
-    explain {
-        sql("select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;")
-        contains "(emps_mv_if)"
-    }
+    mv_rewrite_success("select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;", "emps_mv_if")
+    
     qt_select_mv "select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno order by deptno;"
 
-    explain {
-        sql("select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;")
-        contains "(emps_mv_count_key)"
-    }
+    mv_rewrite_success("select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;", "emps_mv_count_key")
+    
     qt_select_mv "select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;"
 
-    explain {
-        sql("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;")
-        contains "(emps)"
-    }
+    mv_rewrite_all_fail("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;", ["emps_mv", "emps_mv_count_key", "emps_mv_if"])
+        
     qt_select_mv "select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;"
 
-    sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
-
-    explain {
-        sql("select sum(salary), deptno from emps group by deptno order by deptno;")
-        contains "(emps_mv)"
-    }
-
-    explain {
-        sql("select sum(salary) as salary from emps;")
-        contains "(emps_mv)"
-    }
-
-    explain {
-        sql("select deptno, count(deptno) from emps group by deptno order by deptno;")
-        contains "(emps_mv_count_key)"
-    }
-
-    explain {
-        sql("select deptno, sum(if(empid = 1, empid, salary)) from emps group by deptno;")
-        contains "(emps_mv_if)"
-    }
-
-    explain {
-        sql("select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;")
-        contains "(emps_mv_count_key)"
-    }
-
-    explain {
-        sql("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;")
-        contains "(emps)"
-    }
 }
+

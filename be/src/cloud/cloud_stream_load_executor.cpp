@@ -17,14 +17,21 @@
 
 #include "cloud/cloud_stream_load_executor.h"
 
+#include <bvar/bvar.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/stream_load/stream_load_context.h"
+#include "util/debug_points.h"
 
 namespace doris {
+
+bvar::Adder<uint64_t> stream_load_commit_retry_counter("stream_load_commit_retry_counter");
+bvar::Window<bvar::Adder<uint64_t>> stream_load_commit_retry_counter_minute(
+        "stream_load_commit_retry_counter", "1m", &stream_load_commit_retry_counter, 60);
 
 enum class TxnOpParamType : int {
     ILLEGAL,
@@ -60,7 +67,10 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     Status st = Status::InternalError<false>("impossible branch reached, " + op_info);
 
     if (ctx->txn_operation.compare("commit") == 0) {
-        if (topt == TxnOpParamType::WITH_TXN_ID) {
+        if (!config::enable_stream_load_commit_txn_on_be) {
+            VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
+            st = StreamLoadExecutor::operate_txn_2pc(ctx);
+        } else if (topt == TxnOpParamType::WITH_TXN_ID) {
             VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
             st = _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
         } else if (topt == TxnOpParamType::WITH_LABEL) {
@@ -93,12 +103,10 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
 }
 
 Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
-    if (ctx->load_type == TLoadType::ROUTINE_LOAD) {
-        return StreamLoadExecutor::commit_txn(ctx);
-    }
-
+    DBUG_EXECUTE_IF("StreamLoadExecutor.commit_txn.block", DBUG_BLOCK);
     // forward to fe to excute commit transaction for MoW table
-    if (ctx->is_mow_table()) {
+    if (ctx->is_mow_table() || !config::enable_stream_load_commit_txn_on_be ||
+        ctx->load_type == TLoadType::ROUTINE_LOAD) {
         Status st;
         int retry_times = 0;
         while (retry_times < config::mow_stream_load_commit_retry_times) {
@@ -112,6 +120,7 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
                     .tag("retry_times", retry_times)
                     .error(st);
             retry_times++;
+            stream_load_commit_retry_counter << 1;
         }
         return st;
     }
@@ -129,7 +138,7 @@ void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     std::stringstream ss;
     ss << "db_id=" << ctx->db_id << " txn_id=" << ctx->txn_id << " label=" << ctx->label;
     std::string op_info = ss.str();
-    LOG(INFO) << "rollback stream laod txn " << op_info;
+    LOG(INFO) << "rollback stream load txn " << op_info;
     TxnOpParamType topt = ctx->txn_id > 0       ? TxnOpParamType::WITH_TXN_ID
                           : !ctx->label.empty() ? TxnOpParamType::WITH_LABEL
                                                 : TxnOpParamType::ILLEGAL;

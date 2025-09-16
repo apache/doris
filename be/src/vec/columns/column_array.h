@@ -25,7 +25,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <ostream>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -48,7 +47,7 @@ class SipHash;
             ColumnDecimal128V2, ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
-#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
+#define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
 
 namespace doris::vectorized {
 
@@ -97,12 +96,12 @@ public:
       */
     using Base = COWHelper<IColumn, ColumnArray>;
 
-    static Ptr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
+    static MutablePtr create(const ColumnPtr& nested_column, const ColumnPtr& offsets_column) {
         return ColumnArray::create(nested_column->assume_mutable(),
                                    offsets_column->assume_mutable());
     }
 
-    static Ptr create(const ColumnPtr& nested_column) {
+    static MutablePtr create(const ColumnPtr& nested_column) {
         return ColumnArray::create(nested_column->assume_mutable());
     }
 
@@ -112,24 +111,29 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void sanity_check() const override {
+        data->sanity_check();
+        offsets->sanity_check();
+    }
+
+    void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
-    using ColumnOffsets = ColumnVector<Offset64>;
+    using ColumnOffsets = ColumnOffset64;
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Array"; }
-    bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
+
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && data->is_exclusive() && offsets->is_exclusive();
+    }
+
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
     bool is_default_at(size_t n) const;
-    void insert_data(const char* pos, size_t length) override;
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void update_hash_with_value(size_t n, SipHash& hash) const override;
@@ -154,15 +158,20 @@ public:
     void pop_back(size_t n) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
     void reserve(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
-    ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    ColumnPtr convert_to_full_column_if_const() const override;
-
+    bool has_enough_capacity(const IColumn& src) const override;
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    size_t get_max_row_byte_size() const override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
     /** More efficient methods of manipulation */
     IColumn& get_data() { return *data; }
     const IColumn& get_data() const { return *data; }
@@ -171,11 +180,11 @@ public:
     const IColumn& get_offsets_column() const { return *offsets; }
 
     Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     const Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const ColumnOffsets&>(*offsets).get_data();
+        return assert_cast<const ColumnOffsets&, TypeCheckOnRelease::DISABLE>(*offsets).get_data();
     }
 
     bool has_equal_offsets(const ColumnArray& other) const;
@@ -189,14 +198,6 @@ public:
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
-    }
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {
@@ -213,7 +214,8 @@ public:
                              const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void clear() override {
@@ -231,45 +233,22 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
+    void erase(size_t start, size_t length) override;
+
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+
+    void replace_float_special_values() override;
+
+    template <bool positive>
+    struct less;
+
 private:
     // [2,1,5,9,1]\n[1,2,4] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8
     // [[2,1,5],[9,1]]\n[[1,2]] --> data column [3 column array], offset[-1] = 0, offset[0] = 2, offset[1] = 3
     WrappedPtr data;
     WrappedPtr offsets;
-
-    /// Multiply values if the nested column is ColumnVector<T>.
-    template <typename T>
-    ColumnPtr replicate_number(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Multiply the values if the nested column is ColumnString. The code is too complicated.
-    ColumnPtr replicate_string(const IColumn::Offsets& replicate_offsets) const;
-
-    /** Non-constant arrays of constant values are quite rare.
-      * Most functions can not work with them, and does not create such columns as a result.
-      * An exception is the function `replicate` (see FunctionsMiscellaneous.h), which has service meaning for the implementation of lambda functions.
-      * Only for its sake is the implementation of the `replicate` method for ColumnArray(ColumnConst).
-      */
-    ColumnPtr replicate_const(const IColumn::Offsets& replicate_offsets) const;
-
-    /** The following is done by simply replicating of nested columns.
-      */
-    ColumnPtr replicate_nullable(const IColumn::Offsets& replicate_offsets) const;
-    ColumnPtr replicate_generic(const IColumn::Offsets& replicate_offsets) const;
-
-    /// Specializations for the filter function.
-    template <typename T>
-    ColumnPtr filter_number(const Filter& filt, ssize_t result_size_hint) const;
-
-    template <typename T>
-    size_t filter_number(const Filter& filter);
-
-    ColumnPtr filter_string(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_nullable(const Filter& filt, ssize_t result_size_hint) const;
-    ColumnPtr filter_generic(const Filter& filt, ssize_t result_size_hint) const;
-
-    size_t filter_string(const Filter& filter);
-    size_t filter_nullable(const Filter& filter);
-    size_t filter_generic(const Filter& filter);
 };
 
 } // namespace doris::vectorized

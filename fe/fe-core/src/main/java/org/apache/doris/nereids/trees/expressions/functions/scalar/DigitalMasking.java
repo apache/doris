@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
@@ -34,7 +35,7 @@ import java.util.List;
  * ScalarFunction 'digital_masking'.
  */
 public class DigitalMasking extends ScalarFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+        implements UnaryExpression, ExplicitlyCastableSignature, AlwaysNullable, PropagateNullLiteral {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
@@ -47,13 +48,18 @@ public class DigitalMasking extends ScalarFunction
         super("digital_masking", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DigitalMasking(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DigitalMasking withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DigitalMasking(children.get(0));
+        return new DigitalMasking(getFunctionParams(children));
     }
 
     @Override

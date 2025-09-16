@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
@@ -33,21 +32,23 @@ import java.util.Optional;
 /**
  * Subquery Expression.
  */
-public abstract class SubqueryExpr extends Expression implements LeafExpression {
+public abstract class SubqueryExpr extends Expression {
 
     protected final LogicalPlan queryPlan;
     protected final List<Slot> correlateSlots;
     protected final Optional<Expression> typeCoercionExpr;
 
-    protected SubqueryExpr(LogicalPlan subquery) {
+    protected SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots,
+            Optional<Expression> typeCoercionExpr) {
         super(ImmutableList.of());
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
-        this.correlateSlots = ImmutableList.of();
-        this.typeCoercionExpr = Optional.empty();
+        this.correlateSlots = ImmutableList.copyOf(correlateSlots);
+        this.typeCoercionExpr = typeCoercionExpr;
     }
 
-    protected SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots, Optional<Expression> typeCoercionExpr) {
-        super(ImmutableList.of());
+    protected SubqueryExpr(LogicalPlan subquery, List<Slot> correlateSlots,
+            Optional<Expression> typeCoercionExpr, Expression child) {
+        super(ImmutableList.of(Objects.requireNonNull(child, "child can not be null")));
         this.queryPlan = Objects.requireNonNull(subquery, "subquery can not be null");
         this.correlateSlots = ImmutableList.copyOf(correlateSlots);
         this.typeCoercionExpr = typeCoercionExpr;
@@ -65,10 +66,6 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
         return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
     }
 
-    public Expression getSubqueryOutput(LogicalPlan queryPlan) {
-        return typeCoercionExpr.orElseGet(() -> queryPlan.getOutput().get(0));
-    }
-
     @Override
     public DataType getDataType() throws UnboundException {
         throw new UnboundException("getDataType");
@@ -80,7 +77,7 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return "(" + queryPlan + ")";
     }
 
@@ -115,10 +112,7 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         SubqueryExpr other = (SubqueryExpr) o;
@@ -128,8 +122,8 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(queryPlan, correlateSlots, typeCoercionExpr);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), queryPlan, correlateSlots, typeCoercionExpr);
     }
 
     public List<Slot> getOutput() {

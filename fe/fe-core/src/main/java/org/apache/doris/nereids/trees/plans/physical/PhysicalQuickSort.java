@@ -24,16 +24,19 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.Sort;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Physical quick sort plan.
@@ -43,7 +46,8 @@ import java.util.Optional;
  *      GATHER_SORT: SORT the gather data
  *  MERGE_SORT AND GATHER_SORT need require gather for their child
  */
-public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
+public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE>
+        implements Sort, PropagateFuncDeps {
     public PhysicalQuickSort(List<OrderKey> orderKeys,
             SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(orderKeys, phase, Optional.empty(), logicalProperties, child);
@@ -101,14 +105,24 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
 
     @Override
     public String shapeInfo() {
-        return this.getClass().getSimpleName() + "[" + phase + "]";
+        StringBuilder builder = new StringBuilder();
+        builder.append(getClass().getSimpleName()).append('[').append(phase);
+        ConnectContext context = ConnectContext.get();
+        if (context != null
+                && context.getSessionVariable().getDetailShapePlanNodesSet().contains(getClass().getSimpleName())) {
+            builder.append(", orderKeys=");
+            builder.append(orderKeys.stream().map(OrderKey::toSql)
+                    .collect(Collectors.joining(", ", "(", ")")));
+        }
+        builder.append(']');
+        return builder.toString();
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalQuickSort[" + id.asInt() + "]" + getGroupIdWithPrefix(),
-                "orderKeys", orderKeys,
-                "phase", phase.toString(), "stats", statistics
+                "stats", statistics, "orderKeys", orderKeys,
+                "phase", phase.toString()
         );
     }
 

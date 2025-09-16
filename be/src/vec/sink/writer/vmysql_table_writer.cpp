@@ -36,7 +36,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
@@ -45,12 +44,14 @@
 #include "vec/core/materialize_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 std::string MysqlConnInfo::debug_string() const {
     std::stringstream ss;
@@ -61,8 +62,10 @@ std::string MysqlConnInfo::debug_string() const {
 }
 
 VMysqlTableWriter::VMysqlTableWriter(const TDataSink& t_sink,
-                                     const VExprContextSPtrs& output_expr_ctxs)
-        : AsyncResultWriter(output_expr_ctxs) {
+                                     const VExprContextSPtrs& output_expr_ctxs,
+                                     std::shared_ptr<pipeline::Dependency> dep,
+                                     std::shared_ptr<pipeline::Dependency> fin_dep)
+        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep) {
     const auto& t_mysql_sink = t_sink.mysql_table_sink;
     _conn_info.host = t_mysql_sink.host;
     _conn_info.port = t_mysql_sink.port;
@@ -122,9 +125,9 @@ Status VMysqlTableWriter::write(RuntimeState* state, vectorized::Block& block) {
 Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
     _insert_stmt_buffer.clear();
     fmt::format_to(_insert_stmt_buffer, "INSERT INTO {} VALUES (", _conn_info.table_name);
-    int num_columns = _vec_output_expr_ctxs.size();
+    size_t num_columns = _vec_output_expr_ctxs.size();
 
-    for (int i = 0; i < num_columns; ++i) {
+    for (size_t i = 0; i < num_columns; ++i) {
         auto& column_ptr = block.get_by_position(i).column;
         auto& type_ptr = block.get_by_position(i).type;
 
@@ -195,10 +198,8 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DECIMALV2: {
             DecimalV2Value value =
-                    (DecimalV2Value)
-                            assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128V2>&>(
-                                    *column)
-                                    .get_data()[row];
+                    (DecimalV2Value)assert_cast<const vectorized::ColumnDecimal128V2&>(*column)
+                            .get_data()[row];
             fmt::format_to(_insert_stmt_buffer, "{}", value.to_string());
             break;
         }
@@ -210,9 +211,19 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
             fmt::format_to(_insert_stmt_buffer, "{}", val);
             break;
         }
-        case TYPE_DATE:
+        case TYPE_DATE: {
+            int64_t int_val = assert_cast<const vectorized::ColumnDate&>(*column).get_data()[row];
+            VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
+
+            char buf[64];
+            char* pos = value.to_string(buf);
+            std::string str(buf, pos - buf - 1);
+            fmt::format_to(_insert_stmt_buffer, "'{}'", str);
+            break;
+        }
         case TYPE_DATETIME: {
-            int64_t int_val = assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
+            int64_t int_val =
+                    assert_cast<const vectorized::ColumnDateTime&>(*column).get_data()[row];
             VecDateTimeValue value = binary_cast<int64_t, doris::VecDateTimeValue>(int_val);
 
             char buf[64];
@@ -223,7 +234,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         }
         case TYPE_DATEV2: {
             uint32_t int_val =
-                    assert_cast<const vectorized::ColumnUInt32&>(*column).get_data()[row];
+                    assert_cast<const vectorized::ColumnDateV2&>(*column).get_data()[row];
             DateV2Value<DateV2ValueType> value =
                     binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(int_val);
 
@@ -234,13 +245,17 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
             break;
         }
         case TYPE_DATETIMEV2: {
-            uint32_t int_val =
-                    assert_cast<const vectorized::ColumnUInt64&>(*column).get_data()[row];
+            auto int_val =
+                    assert_cast<const vectorized::ColumnDateTimeV2&>(*column).get_data()[row];
             DateV2Value<DateTimeV2ValueType> value =
                     binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(int_val);
 
             char buf[64];
-            char* pos = value.to_string(buf, _vec_output_expr_ctxs[i]->root()->type().scale);
+            char* pos = value.to_string(
+                    buf,
+                    assert_cast<const DataTypeDateTimeV2*>(
+                            remove_nullable(_vec_output_expr_ctxs[i]->root()->data_type()).get())
+                            ->get_scale());
             std::string str(buf, pos - buf - 1);
             fmt::format_to(_insert_stmt_buffer, "'{}'", str);
             break;
@@ -248,7 +263,7 @@ Status VMysqlTableWriter::_insert_row(vectorized::Block& block, size_t row) {
         default: {
             fmt::memory_buffer err_out;
             fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
-                           _vec_output_expr_ctxs[i]->root()->type().type);
+                           _vec_output_expr_ctxs[i]->root()->data_type()->get_name());
             return Status::InternalError(fmt::to_string(err_out));
         }
         }

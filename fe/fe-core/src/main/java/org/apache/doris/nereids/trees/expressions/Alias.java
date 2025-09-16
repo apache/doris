@@ -48,7 +48,11 @@ public class Alias extends NamedExpression implements UnaryExpression {
      * @param name alias name
      */
     public Alias(Expression child, String name) {
-        this(StatementScopeIdGenerator.newExprId(), child, name, false);
+        this(child, name, false);
+    }
+
+    public Alias(Expression child, String name, boolean nameFromChild) {
+        this(StatementScopeIdGenerator.newExprId(), child, name, nameFromChild);
     }
 
     public Alias(Expression child) {
@@ -56,8 +60,16 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 Suppliers.memoize(child::toSql), ImmutableList.of(), true);
     }
 
+    public Alias(ExprId exprId, Expression child) {
+        this(exprId, ImmutableList.of(child), Suppliers.memoize(child::toSql), ImmutableList.of(), true);
+    }
+
     public Alias(ExprId exprId, Expression child, String name) {
         this(exprId, ImmutableList.of(child), name, ImmutableList.of(), false);
+    }
+
+    public Alias(Expression child, String name, List<String> qualifier) {
+        this(StatementScopeIdGenerator.newExprId(), ImmutableList.of(child), name, qualifier, false);
     }
 
     public Alias(ExprId exprId, Expression child, String name, boolean nameFromChild) {
@@ -82,20 +94,12 @@ public class Alias extends NamedExpression implements UnaryExpression {
         SlotReference slotReference = child() instanceof SlotReference
                 ? (SlotReference) child() : null;
 
-        Supplier<Optional<String>> internalName = nameFromChild
-                        ? Suppliers.memoize(() -> Optional.of(child().toString()))
-                        : () -> Optional.of(name.get());
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
-                slotReference != null
-                        ? ((SlotReference) child()).getTable().orElse(null)
-                        : null,
-                slotReference != null
-                        ? slotReference.getColumn().orElse(null)
-                        : null,
-                internalName,
-                slotReference != null
-                        ? slotReference.getSubPath()
-                        : ImmutableList.of()
+                slotReference != null ? ((SlotReference) child()).getOriginalTable().orElse(null) : null,
+                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
+                slotReference != null ? ((SlotReference) child()).getOneLevelTable().orElse(null) : null,
+                slotReference != null ? slotReference.getOriginalColumn().orElse(null) : null,
+                slotReference != null ? slotReference.getSubPath() : ImmutableList.of(), Optional.empty()
         );
     }
 
@@ -120,7 +124,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         return child().toSql() + " AS `" + name.get() + "`";
     }
 
@@ -140,7 +144,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(exprId, qualifier);
     }
 
@@ -152,12 +156,7 @@ public class Alias extends NamedExpression implements UnaryExpression {
     @Override
     public Alias withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        if (nameFromChild) {
-            return new Alias(exprId, children,
-                    Suppliers.memoize(() -> children.get(0).toSql()), qualifier, nameFromChild);
-        } else {
-            return new Alias(exprId, children, name, qualifier, nameFromChild);
-        }
+        return new Alias(exprId, children, name, qualifier, nameFromChild);
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

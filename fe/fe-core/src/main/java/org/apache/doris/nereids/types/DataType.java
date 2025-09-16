@@ -33,14 +33,18 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -52,6 +56,38 @@ public abstract class DataType {
     public static final int DEFAULT_PRECISION = 9;
 
     protected static final NereidsParser PARSER = new NereidsParser();
+
+    private static class TypeMapLoader {
+        static final Map<org.apache.doris.catalog.PrimitiveType, DataType> LEGACY_MAP = initMap();
+
+        private static Map<org.apache.doris.catalog.PrimitiveType, DataType> initMap() {
+            return ImmutableMap.<org.apache.doris.catalog.PrimitiveType, DataType>builder()
+                    .put(Type.BOOLEAN.getPrimitiveType(), BooleanType.INSTANCE)
+                    .put(Type.TINYINT.getPrimitiveType(), TinyIntType.INSTANCE)
+                    .put(Type.SMALLINT.getPrimitiveType(), SmallIntType.INSTANCE)
+                    .put(Type.INT.getPrimitiveType(), IntegerType.INSTANCE)
+                    .put(Type.BIGINT.getPrimitiveType(), BigIntType.INSTANCE)
+                    .put(Type.LARGEINT.getPrimitiveType(), LargeIntType.INSTANCE)
+                    .put(Type.FLOAT.getPrimitiveType(), FloatType.INSTANCE)
+                    .put(Type.DOUBLE.getPrimitiveType(), DoubleType.INSTANCE)
+                    .put(Type.CHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.VARCHAR.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.STRING.getPrimitiveType(), StringType.INSTANCE)
+                    .put(Type.DATE.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATEV2.getPrimitiveType(), DateType.INSTANCE)
+                    .put(Type.DATETIME.getPrimitiveType(), DateTimeType.INSTANCE)
+                    .put(Type.DATETIMEV2.getPrimitiveType(), DateTimeV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMALV2.getPrimitiveType(), DecimalV2Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL32.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL64.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL128.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
+                    .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
+                    .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
+                    .build();
+        }
+    }
 
     // use class and supplier here to avoid class load deadlock.
     private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
@@ -81,7 +117,12 @@ public abstract class DataType {
             .add(DateType.class, () -> ImmutableList.of(
                     DateTimeType.INSTANCE, DateV2Type.INSTANCE, StringType.INSTANCE))
             .add(DateV2Type.class, () -> ImmutableList.of(DateTimeV2Type.SYSTEM_DEFAULT, StringType.INSTANCE))
+            .add(TimeV2Type.class, () -> ImmutableList.of(DateTimeV2Type.MAX, StringType.INSTANCE))
             .build();
+
+    public static Map<org.apache.doris.catalog.PrimitiveType, DataType> legacyTypeToNereidsType() {
+        return TypeMapLoader.LEGACY_MAP;
+    }
 
     /**
      * create a specific Literal for a given dataType
@@ -182,7 +223,7 @@ public abstract class DataType {
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
-                        dataType = DecimalV3Type.CATALOG_DEFAULT;
+                        dataType = DecimalV3Type.createDecimalV3Type(38, 9);
                         break;
                     case 2:
                         dataType = DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)));
@@ -246,7 +287,17 @@ public abstract class DataType {
                 dataType = DateV2Type.INSTANCE;
                 break;
             case "time":
-                dataType = TimeType.INSTANCE;
+            case "timev2":
+                switch (types.size()) {
+                    case 1:
+                        dataType = TimeV2Type.INSTANCE;
+                        break;
+                    case 2:
+                        dataType = TimeV2Type.of(Integer.parseInt(types.get(1)));
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             case "datetime":
                 switch (types.size()) {
@@ -305,6 +356,11 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                // dataType = VarBinaryType.INSTANCE;
+                // break;
+                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -343,18 +399,17 @@ public abstract class DataType {
             case DATETIME: return DateTimeType.INSTANCE;
             case DATEV2: return DateV2Type.INSTANCE;
             case DATE: return DateType.INSTANCE;
-            case TIMEV2: return TimeV2Type.INSTANCE;
-            case TIME: return TimeType.INSTANCE;
+            case TIMEV2: return TimeV2Type.of(((ScalarType) type).getScalarScale());
             case HLL: return HllType.INSTANCE;
             case BITMAP: return BitmapType.INSTANCE;
             case QUANTILE_STATE: return QuantileStateType.INSTANCE;
             case CHAR: return CharType.createCharType(type.getLength());
             case VARCHAR: return VarcharType.createVarcharType(type.getLength());
             case STRING: return StringType.INSTANCE;
-            case VARIANT: return VariantType.INSTANCE;
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.INSTANCE;
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -392,6 +447,21 @@ public abstract class DataType {
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
             return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+        } else if (type.isVariantType()) {
+            // In the past, variant metadata used the ScalarType type.
+            // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+            if (type instanceof org.apache.doris.catalog.VariantType) {
+                List<VariantField> variantFields = ((org.apache.doris.catalog.VariantType) type)
+                        .getPredefinedFields().stream()
+                        .map(cf -> new VariantField(cf.getPattern(), fromCatalogType(cf.getType()),
+                                cf.getComment() == null ? "" : cf.getComment(), cf.getPatternType().toString()))
+                        .collect(ImmutableList.toImmutableList());
+                return new VariantType(variantFields,
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
+            }
+            return VariantType.INSTANCE;
         } else {
             return UnsupportedType.INSTANCE;
         }
@@ -521,15 +591,7 @@ public abstract class DataType {
     }
 
     public boolean isTimeType() {
-        return this instanceof TimeType;
-    }
-
-    public boolean isTimeV2Type() {
         return this instanceof TimeV2Type;
-    }
-
-    public boolean isTimeLikeType() {
-        return isTimeType() || isTimeV2Type();
     }
 
     public boolean isNullType() {
@@ -554,6 +616,10 @@ public abstract class DataType {
 
     public boolean isStringType() {
         return this instanceof StringType;
+    }
+
+    public boolean isVarBinaryType() {
+        return this instanceof VarBinaryType;
     }
 
     public boolean isJsonType() {
@@ -628,6 +694,10 @@ public abstract class DataType {
         return isObjectType() || isComplexType() || isJsonType() || isVariantType();
     }
 
+    public boolean isObjectOrVariantType() {
+        return isObjectType() || isVariantType();
+    }
+
     public boolean isObjectType() {
         return isHllType() || isBitmapType() || isQuantileStateType();
     }
@@ -641,6 +711,49 @@ public abstract class DataType {
             return PROMOTION_MAP.get(this.getClass()).get();
         } else {
             return this;
+        }
+    }
+
+    /**
+     * whether the element type in array can be calculated in array function
+     * @return true if the element type can be calculated
+     */
+    public boolean canBeCalculatedInArray() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
+    }
+
+    /**
+     * whether the param dataType is same-like type for nested in complex type
+     *  same-like type means: string-like, date-like, number type
+     */
+    public boolean isSameTypeForComplexTypeParam(DataType paramType) {
+        if (this.isArrayType() && paramType.isArrayType()) {
+            return ((ArrayType) this).getItemType()
+                    .isSameTypeForComplexTypeParam(((ArrayType) paramType).getItemType());
+        } else if (this.isMapType() && paramType.isMapType()) {
+            MapType thisMapType = (MapType) this;
+            MapType otherMapType = (MapType) paramType;
+            return thisMapType.getKeyType().isSameTypeForComplexTypeParam(otherMapType.getKeyType())
+                    && thisMapType.getValueType().isSameTypeForComplexTypeParam(otherMapType.getValueType());
+        } else if (this.isStructType() && paramType.isStructType()) {
+            StructType thisStructType = (StructType) this;
+            StructType otherStructType = (StructType) paramType;
+            if (thisStructType.getFields().size() != otherStructType.getFields().size()) {
+                return false;
+            }
+            for (int i = 0; i < thisStructType.getFields().size(); i++) {
+                if (!thisStructType.getFields().get(i).getDataType().isSameTypeForComplexTypeParam(
+                        otherStructType.getFields().get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        } else if (this.isStringLikeType() && paramType.isStringLikeType()) {
+            return true;
+        } else if (this.isDateLikeType() && paramType.isDateLikeType()) {
+            return true;
+        } else {
+            return this.isNumericType() && paramType.isNumericType();
         }
     }
 
@@ -727,5 +840,258 @@ public abstract class DataType {
             return true;
         }
         return false;
+    }
+
+    public void validateDataType() {
+        validateCatalogDataType(toCatalogDataType());
+    }
+
+    private static void validateCatalogDataType(Type catalogType) {
+        if (catalogType.exceedsMaxNestingDepth()) {
+            throw new AnalysisException(
+                    String.format("Type exceeds the maximum nesting depth of %s:\n%s",
+                            Type.MAX_NESTING_DEPTH, catalogType.toSql()));
+        }
+        if (!catalogType.isSupported()) {
+            throw new AnalysisException("Unsupported data type: " + catalogType.toSql());
+        }
+
+        if (catalogType.isScalarType()) {
+            validateScalarType((ScalarType) catalogType);
+        } else if (catalogType.isComplexType()) {
+            // now we not support array / map / struct nesting complex type
+            if (catalogType.isArrayType()) {
+                Type itemType = ((org.apache.doris.catalog.ArrayType) catalogType).getItemType();
+                if (itemType instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) itemType);
+                }
+            }
+            if (catalogType.isMapType()) {
+                org.apache.doris.catalog.MapType mt =
+                        (org.apache.doris.catalog.MapType) catalogType;
+                if (mt.getKeyType() instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) mt.getKeyType());
+                }
+                if (mt.getValueType() instanceof ScalarType) {
+                    validateNestedType(catalogType, (ScalarType) mt.getValueType());
+                }
+            }
+            if (catalogType.isStructType()) {
+                ArrayList<org.apache.doris.catalog.StructField> fields =
+                        ((org.apache.doris.catalog.StructType) catalogType).getFields();
+                Set<String> fieldNames = new HashSet<>();
+                for (org.apache.doris.catalog.StructField field : fields) {
+                    Type fieldType = field.getType();
+                    if (fieldType instanceof ScalarType) {
+                        validateNestedType(catalogType, (ScalarType) fieldType);
+                        if (!fieldNames.add(field.getName())) {
+                            throw new AnalysisException("Duplicate field name " + field.getName()
+                                    + " in struct " + catalogType.toSql());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static void validateNestedType(Type parent, Type child) throws AnalysisException {
+        if (child.isNull()) {
+            throw new AnalysisException("Unsupported data type: " + child.toSql());
+        }
+        // check whether the sub-type is supported
+        if (!parent.supportSubType(child)) {
+            throw new AnalysisException(
+                    parent.getPrimitiveType() + " unsupported sub-type: " + child.toSql());
+        }
+        validateCatalogDataType(child);
+    }
+
+    private static void validateScalarType(ScalarType scalarType) {
+        org.apache.doris.catalog.PrimitiveType type = scalarType.getPrimitiveType();
+        // When string type length is not assigned, it needs to be assigned to 1.
+        if (scalarType.getPrimitiveType().isStringType() && !scalarType.isLengthSet()) {
+            if (scalarType.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
+                // always set varchar length MAX_VARCHAR_LENGTH
+                scalarType.setLength(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (scalarType.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.STRING) {
+                // always set text length MAX_STRING_LENGTH
+                scalarType.setLength(ScalarType.MAX_STRING_LENGTH);
+            } else {
+                scalarType.setLength(1);
+            }
+        }
+        switch (type) {
+            case CHAR:
+            case VARCHAR: {
+                String name;
+                int maxLen;
+                if (type == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
+                    name = "VARCHAR";
+                    maxLen = ScalarType.MAX_VARCHAR_LENGTH;
+                } else {
+                    name = "CHAR";
+                    maxLen = ScalarType.MAX_CHAR_LENGTH;
+                }
+                int len = scalarType.getLength();
+                // len is decided by child, when it is -1.
+
+                if (len <= 0) {
+                    throw new AnalysisException(name + " size must be > 0: " + len);
+                }
+                if (scalarType.getLength() > maxLen) {
+                    throw new AnalysisException(name + " size must be <= " + maxLen + ": " + len);
+                }
+                break;
+            }
+            case DECIMALV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                // precision: [1, 27]
+                if (precision < 1 || precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    throw new AnalysisException("Precision of decimal must between 1 and 27."
+                            + " Precision was set to: " + precision + ".");
+                }
+                // scale: [0, 9]
+                if (scale < 0 || scale > ScalarType.MAX_DECIMALV2_SCALE) {
+                    throw new AnalysisException("Scale of decimal must between 0 and 9."
+                            + " Scale was set to: " + scale + ".");
+                }
+                if (precision - scale > ScalarType.MAX_DECIMALV2_PRECISION
+                        - ScalarType.MAX_DECIMALV2_SCALE) {
+                    throw new AnalysisException("Invalid decimal type with precision = " + precision
+                            + ", scale = " + scale);
+                }
+                // scale < precision
+                if (scale > precision) {
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + scale + " and precision is " + precision);
+                }
+                break;
+            }
+            case DECIMAL32: {
+                int decimal32Precision = scalarType.decimalPrecision();
+                int decimal32Scale = scalarType.decimalScale();
+                if (decimal32Precision < 1
+                        || decimal32Precision > ScalarType.MAX_DECIMAL32_PRECISION) {
+                    throw new AnalysisException("Precision of decimal must between 1 and 9."
+                            + " Precision was set to: " + decimal32Precision + ".");
+                }
+                // scale >= 0
+                if (decimal32Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal32Scale + ".");
+                }
+                // scale < precision
+                if (decimal32Scale > decimal32Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal32Scale + " and precision is " + decimal32Precision);
+                }
+                break;
+            }
+            case DECIMAL64: {
+                int decimal64Precision = scalarType.decimalPrecision();
+                int decimal64Scale = scalarType.decimalScale();
+                if (decimal64Precision < 1
+                        || decimal64Precision > ScalarType.MAX_DECIMAL64_PRECISION) {
+                    throw new AnalysisException("Precision of decimal64 must between 1 and 18."
+                            + " Precision was set to: " + decimal64Precision + ".");
+                }
+                // scale >= 0
+                if (decimal64Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal64Scale + ".");
+                }
+                // scale < precision
+                if (decimal64Scale > decimal64Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal64Scale + " and precision is " + decimal64Precision);
+                }
+                break;
+            }
+            case DECIMAL128: {
+                int decimal128Precision = scalarType.decimalPrecision();
+                int decimal128Scale = scalarType.decimalScale();
+                if (decimal128Precision < 1
+                        || decimal128Precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                    throw new AnalysisException("Precision of decimal128 must between 1 and 38."
+                            + " Precision was set to: " + decimal128Precision + ".");
+                }
+                // scale >= 0
+                if (decimal128Scale < 0) {
+                    throw new AnalysisException("Scale of decimal must not be less than 0."
+                            + " Scale was set to: " + decimal128Scale + ".");
+                }
+                // scale < precision
+                if (decimal128Scale > decimal128Precision) {
+                    throw new AnalysisException(
+                            "Scale of decimal must be smaller than precision." + " Scale is "
+                                    + decimal128Scale + " and precision is " + decimal128Precision);
+                }
+                break;
+            }
+            case DECIMAL256: {
+                if (SessionVariable.getEnableDecimal256()) {
+                    int precision = scalarType.decimalPrecision();
+                    int scale = scalarType.decimalScale();
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL256_PRECISION) {
+                        throw new AnalysisException("Precision of decimal256 must between 1 and 76."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0."
+                                + " Scale was set to: " + scale + ".");
+                    }
+                    // scale < precision
+                    if (scale > precision) {
+                        throw new AnalysisException(
+                                "Scale of decimal must be smaller than precision." + " Scale is "
+                                        + scale + " and precision is " + precision);
+                    }
+                    break;
+                } else {
+                    int precision = scalarType.decimalPrecision();
+                    throw new AnalysisException("Column of type Decimal256 with precision "
+                            + precision + " in not supported.");
+                }
+            }
+            case TIMEV2:
+            case DATETIMEV2: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                // precision: [1, 27]
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException(
+                            "Precision of Datetime/Time must be " + ScalarType.DATETIME_PRECISION
+                                    + "." + " Precision was set to: " + precision + ".");
+                }
+                // scale: [0, 9]
+                if (scale < 0 || scale > 6) {
+                    throw new AnalysisException("Scale of Datetime/Time must between 0 and 6."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case VARIANT: {
+                ArrayList<org.apache.doris.catalog.VariantField> predefinedFields =
+                        ((org.apache.doris.catalog.VariantType) scalarType).getPredefinedFields();
+                Set<String> fieldPatterns = new HashSet<>();
+                for (org.apache.doris.catalog.VariantField field : predefinedFields) {
+                    Type fieldType = field.getType();
+                    validateNestedType(scalarType, fieldType);
+                    if (!fieldPatterns.add(field.getPattern())) {
+                        throw new AnalysisException("Duplicate field name " + field.getPattern()
+                                + " in variant " + scalarType.toSql());
+                    }
+                }
+                break;
+            }
+            case INVALID_TYPE:
+                throw new AnalysisException("Invalid type.");
+            default:
+                break;
+        }
     }
 }

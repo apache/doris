@@ -56,7 +56,10 @@ public class ColumnType {
         DECIMAL32(4),
         DECIMAL64(8),
         DECIMAL128(16),
+        IPV4(4),
+        IPV6(16),
         STRING(-1),
+        VARBINARY(-1),
         ARRAY(-1),
         MAP(-1),
         STRUCT(-1);
@@ -144,7 +147,8 @@ public class ColumnType {
     }
 
     public boolean isStringType() {
-        return type == Type.STRING || type == Type.BINARY || type == Type.CHAR || type == Type.VARCHAR;
+        return type == Type.STRING || type == Type.BINARY || type == Type.VARBINARY || type == Type.CHAR
+                || type == Type.VARCHAR;
     }
 
     public boolean isComplexType() {
@@ -153,6 +157,18 @@ public class ColumnType {
 
     public boolean isArray() {
         return type == Type.ARRAY;
+    }
+
+    public boolean isIpv4() {
+        return type == Type.IPV4;
+    }
+
+    public boolean isIpv6() {
+        return type == Type.IPV6;
+    }
+
+    public boolean isIp() {
+        return isIpv4() || isIpv6();
     }
 
     public boolean isMap() {
@@ -207,16 +223,16 @@ public class ColumnType {
     public int metaSize() {
         switch (type) {
             case UNSUPPORTED:
-                // set nullMap address as 0.
-                return 1;
+                // const flag / set nullMap address as 0.
+                return 2;
             case ARRAY:
             case MAP:
             case STRUCT:
-                // array & map : [nullMap | offsets | ... ]
-                // struct : [nullMap | ... ]
-                int size = 2;
+                // array & map : [const | nullMap | offsets | ... ]
+                // struct : [const | nullMap | ... ]
+                int size = 3;
                 if (type == Type.STRUCT) {
-                    size = 1;
+                    size = 2;
                 }
                 for (ColumnType c : childTypes) {
                     size += c.metaSize();
@@ -226,11 +242,12 @@ public class ColumnType {
             case BINARY:
             case CHAR:
             case VARCHAR:
-                // [nullMap | offsets | data ]
-                return 3;
+            case VARBINARY:
+                // [const | nullMap | offsets | data ]
+                return 4;
             default:
-                // [nullMap | data]
-                return 2;
+                // [const | nullMap | data]
+                return 3;
         }
     }
 
@@ -287,6 +304,12 @@ public class ColumnType {
             case "double":
                 type = Type.DOUBLE;
                 break;
+            case "ipv4":
+                type = Type.IPV4;
+                break;
+            case "ipv6":
+                type = Type.IPV6;
+                break;
             case "datev1":
                 type = Type.DATE;
                 break;
@@ -303,6 +326,9 @@ public class ColumnType {
                 break;
             case "string":
                 type = Type.STRING;
+                break;
+            case "varbinary":
+                type = Type.VARBINARY;
                 break;
             default:
                 if (lowerCaseType.startsWith("timestamp")
@@ -324,6 +350,12 @@ public class ColumnType {
                     Matcher match = digitPattern.matcher(lowerCaseType);
                     if (match.find()) {
                         type = Type.VARCHAR;
+                        length = Integer.parseInt(match.group(1).trim());
+                    }
+                } else if (lowerCaseType.startsWith("varbinary")) {
+                    Matcher match = digitPattern.matcher(lowerCaseType);
+                    if (match.find()) {
+                        type = Type.VARBINARY;
                         length = Integer.parseInt(match.group(1).trim());
                     }
                 } else if (lowerCaseType.startsWith("decimal")) {

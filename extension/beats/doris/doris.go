@@ -20,101 +20,147 @@
 package doris
 
 import (
-    "fmt"
-
-    "github.com/elastic/beats/v7/libbeat/beat"
-    "github.com/elastic/beats/v7/libbeat/common"
-    "github.com/elastic/beats/v7/libbeat/logp"
-    "github.com/elastic/beats/v7/libbeat/outputs"
-    "github.com/elastic/beats/v7/libbeat/outputs/codec"
+	"github.com/elastic/beats/v7/libbeat/beat"
+	"github.com/elastic/beats/v7/libbeat/common"
+	"github.com/elastic/beats/v7/libbeat/logp"
+	"github.com/elastic/beats/v7/libbeat/outputs"
+	"github.com/elastic/beats/v7/libbeat/outputs/codec"
+	"github.com/elastic/beats/v7/libbeat/outputs/outil"
 )
 
 const logSelector = "doris"
 
 func init() {
-    outputs.RegisterType("doris", makeDoris)
+	outputs.RegisterType("doris", makeDoris)
 }
 
 func makeDoris(
-    _ outputs.IndexManager,
-    beat beat.Info,
-    observer outputs.Observer,
-    cfg *common.Config,
+	_ outputs.IndexManager,
+	beat beat.Info,
+	observer outputs.Observer,
+	cfg *common.Config,
 ) (outputs.Group, error) {
-    logger := logp.NewLogger(logSelector)
+	logger := logp.NewLogger(logSelector)
 
-    config := defaultConfig()
-    if err := cfg.Unpack(&config); err != nil {
-        return outputs.Fail(err)
-    }
-    if err := config.Validate(); err != nil {
-        return outputs.Fail(err)
-    }
+	config := defaultConfig()
+	if err := cfg.Unpack(&config); err != nil {
+		return outputs.Fail(err)
+	}
+	if err := config.Validate(); err != nil {
+		return outputs.Fail(err)
+	}
 
-    codecConfig := loadCodecConfig(config)
-    codec, err := codec.CreateEncoder(beat, codecConfig)
-    if err != nil {
-        return outputs.Fail(err)
-    }
+	codecConfig := loadCodecConfig(config)
+	codec, err := codec.CreateEncoder(beat, codecConfig)
+	if err != nil {
+		return outputs.Fail(err)
+	}
 
-    clients := make([]outputs.NetworkClient, len(config.Hosts))
-    for i, host := range config.Hosts {
-        logger.Info("Making client for host: " + host)
-        url, err := parseURL(host)
-        if err != nil {
-            return outputs.Fail(err)
-        }
+	reporter := NewProgressReporter(config.LogProgressInterval, logger)
 
-        streamLoadPath := fmt.Sprintf("/api/%s/%s/_stream_load", config.Database, config.Table)
-        hostURL, err := common.MakeURL(url.Scheme, streamLoadPath, host, 80)
-        if err != nil {
-            logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
-            return outputs.Fail(err)
-        }
-        logger.Infof("Final http connection endpoint: %s", hostURL)
+	// duplicate entries config.Worker times
+	hosts := make([]string, 0, len(config.Hosts)*config.Worker)
+	for _, entry := range config.Hosts {
+		for i := 0; i < config.Worker; i++ {
+			hosts = append(hosts, entry)
+		}
+	}
+	clients := make([]outputs.NetworkClient, len(hosts))
+	for i, host := range hosts {
+		logger.Info("Making client for host: " + host)
+		url, err := parseURL(host)
+		if err != nil {
+			return outputs.Fail(err)
+		}
 
-        var client outputs.NetworkClient
-        client, err = NewDorisClient(clientSettings{
-            URL:           hostURL,
-            Timeout:       config.Timeout,
-            Observer:      observer,
-            Headers:       config.createHeaders(),
-            Codec:         codec,
-            LineDelimiter: config.LineDelimiter,
+		urlPrefix, err := common.MakeURL(url.Scheme, "/api", host, 8030)
+		if err != nil {
+			logger.Errorf("Invalid host param set: %s, Error: %+v", host, err)
+			return outputs.Fail(err)
+		}
+		logger.Infof("http connection endpoint: %s/%s/{table}/_stream_load", urlPrefix, config.Database)
+		if len(config.Tables) > 0 {
+			logger.Infof("tables: %+v", config.Tables)
+		}
+		if len(config.Table) > 0 {
+			logger.Infof("table: %s", config.Table)
+		}
 
-            LabelPrefix: config.LabelPrefix,
-            Database:    config.Database,
-            Table:       config.Table,
+		tableSelector, err := buildTableSelector(cfg)
+		if err != nil {
+			return outputs.Fail(err)
+		}
 
-            Logger: logger,
-        })
-        if err != nil {
-            return outputs.Fail(err)
-        }
+		var client outputs.NetworkClient
+		client, err = NewDorisClient(clientSettings{
+			URLPrefix:     urlPrefix,
+			Timeout:       config.Timeout,
+			Observer:      observer,
+			Headers:       config.createHeaders(),
+			Codec:         codec,
+			LineDelimiter: config.LineDelimiter,
+			LogRequest:    config.LogRequest,
 
-        client = outputs.WithBackoff(client, config.Backoff.Init, config.Backoff.Max)
-        clients[i] = client
-    }
-    retry := 0
-    if config.MaxRetries < 0 {
-        retry = -1
-    } else {
-        retry = config.MaxRetries
-    }
-    return outputs.SuccessNet(true, config.BulkMaxSize, retry, clients)
+			LabelPrefix:   config.LabelPrefix,
+			Database:      config.Database,
+			TableSelector: tableSelector,
+			DefaultTable:  config.DefaultTable,
+
+			Reporter: reporter,
+			Logger:   logger,
+		})
+		if err != nil {
+			return outputs.Fail(err)
+		}
+
+		client = outputs.WithBackoff(client, config.Backoff.Init, config.Backoff.Max)
+		clients[i] = client
+	}
+	retry := 0
+	if config.MaxRetries < 0 {
+		retry = -1
+	} else {
+		retry = config.MaxRetries
+	}
+
+	go reporter.Report()
+
+	return outputs.SuccessNet(true, config.BulkMaxSize, retry, clients)
 }
 
 func loadCodecConfig(config config) codec.Config {
-    if len(config.CodecFormatString) == 0 {
-        return config.Codec
-    }
+	if len(config.CodecFormatString) == 0 {
+		return config.Codec
+	}
 
-    beatConfig := common.MustNewConfigFrom(map[string]interface{}{
-        "format.string": config.CodecFormatString,
-    })
-    codecConfig := codec.Config{}
-    if err := beatConfig.Unpack(&codecConfig); err != nil {
-        panic(err)
-    }
-    return codecConfig
+	beatConfig := common.MustNewConfigFrom(map[string]interface{}{
+		"format.string": config.CodecFormatString,
+	})
+	codecConfig := codec.Config{}
+	if err := beatConfig.Unpack(&codecConfig); err != nil {
+		panic(err)
+	}
+	return codecConfig
+}
+
+type fmtSelector struct {
+	Sel outil.Selector
+}
+
+func buildTableSelector(cfg *common.Config) (*fmtSelector, error) {
+	selector, err := outil.BuildSelectorFromConfig(cfg, outil.Settings{
+		Key:              "table",
+		MultiKey:         "tables",
+		EnableSingleOnly: true,
+		FailEmpty:        true,
+		Case:             outil.SelectorKeepCase,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &fmtSelector{
+		Sel: selector,
+	}, nil
 }

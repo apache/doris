@@ -17,8 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
+
 /**
  * not forward to master.
  */
-public interface NoForward {
+public interface NoForward extends Redirect {
+    @Override
+    default RedirectStatus toRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
+    }
 }

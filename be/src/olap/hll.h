@@ -23,21 +23,17 @@
 #include <string>
 #include <utility>
 
-#ifdef __x86_64__
-#include <immintrin.h>
-#endif
-
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 struct Slice;
 
 inline const int HLL_COLUMN_PRECISION = 14;
 inline const int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 inline const int HLL_EXPLICIT_INT64_NUM = 160;
 inline const int HLL_SPARSE_THRESHOLD = 4096;
-inline const int HLL_REGISTERS_COUNT = 16 * 1024;
+inline const uint16_t HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
 inline const int HLL_COLUMN_DEFAULT_LEN = HLL_REGISTERS_COUNT + 1;
 
@@ -239,7 +235,7 @@ public:
     static bool is_valid(const Slice& slice);
 
     // only for debug
-    std::string to_string() {
+    std::string to_string() const {
         switch (_type) {
         case HLL_DATA_EMPTY:
             return {};
@@ -270,29 +266,19 @@ private:
         hash_value >>= HLL_COLUMN_PRECISION;
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
-        uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
+        auto first_one_bit = uint8_t(__builtin_ctzl(hash_value) + 1);
         _registers[idx] = (_registers[idx] < first_one_bit ? first_one_bit : _registers[idx]);
     }
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other_registers) {
-#ifdef __AVX2__
-        int loop = HLL_REGISTERS_COUNT / 32; // 32 = 256/8
-        uint8_t* dst = _registers;
-        const uint8_t* src = other_registers;
-        for (int i = 0; i < loop; i++) {
-            __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
-            __m256i xb = _mm256_loadu_si256((const __m256i*)src);
-            _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
-            src += 32;
-            dst += 32;
-        }
-#else
+        _do_simd_merge(_registers, other_registers);
+    }
+
+    void _do_simd_merge(uint8_t* __restrict registers, const uint8_t* __restrict other_registers) {
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] =
-                    (_registers[i] < other_registers[i] ? other_registers[i] : _registers[i]);
+            registers[i] = (registers[i] < other_registers[i] ? other_registers[i] : registers[i]);
         }
-#endif
     }
 
     HllDataType _type = HLL_DATA_EMPTY;
@@ -302,58 +288,5 @@ private:
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 };
-
-// todo(kks): remove this when dpp_sink class was removed
-class HllSetResolver {
-public:
-    HllSetResolver() = default;
-
-    ~HllSetResolver() = default;
-
-    using SetTypeValueType = uint8_t;
-    using ExplicitLengthValueType = uint8_t;
-    using SparseLengthValueType = int32_t;
-    using SparseIndexType = uint16_t;
-    using SparseValueType = uint8_t;
-
-    // only save pointer
-    void init(char* buf, int len) {
-        this->_buf_ref = buf;
-        this->_buf_len = len;
-    }
-
-    // hll set type
-    HllDataType get_hll_data_type() { return _set_type; }
-
-    // explicit value num
-    int get_explicit_count() const { return (int)_explicit_num; }
-
-    // get explicit index value 64bit
-    uint64_t get_explicit_value(int index) {
-        if (index >= _explicit_num) {
-            return -1;
-        }
-        return _explicit_value[index];
-    }
-
-    // get full register value
-    char* get_full_value() { return _full_value_position; }
-
-    // get (index, value) map
-    std::map<SparseIndexType, SparseValueType>& get_sparse_map() { return _sparse_map; }
-
-    // parse set , call after copy() or init()
-    void parse();
-
-private:
-    char* _buf_ref = nullptr; // set
-    int _buf_len {};          // set len
-    HllDataType _set_type {}; //set type
-    char* _full_value_position = nullptr;
-    uint64_t* _explicit_value = nullptr;
-    ExplicitLengthValueType _explicit_num {};
-    std::map<SparseIndexType, SparseValueType> _sparse_map;
-    SparseLengthValueType* _sparse_count;
-};
-
+#include "common/compile_check_end.h"
 } // namespace doris

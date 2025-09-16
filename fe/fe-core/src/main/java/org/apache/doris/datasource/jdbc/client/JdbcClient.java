@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.jdbc.JdbcIdentifierMapping;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import com.google.common.collect.ImmutableSet;
@@ -49,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 @Getter
@@ -57,17 +57,16 @@ public abstract class JdbcClient {
     private static final int HTTP_TIMEOUT_MS = 10000;
     protected static final int JDBC_DATETIME_SCALE = 6;
 
+    private static final Map<URL, ClassLoader> classLoaderMap = new ConcurrentHashMap<>();
+
     private String catalogName;
     protected String dbType;
     protected String jdbcUser;
     protected ClassLoader classLoader = null;
     protected HikariDataSource dataSource = null;
     protected boolean isOnlySpecifiedDatabase;
-    protected boolean isLowerCaseMetaNames;
-    protected String metaNamesMapping;
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
-    protected JdbcIdentifierMapping jdbcLowerCaseMetaMatching;
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -92,17 +91,18 @@ public abstract class JdbcClient {
                 return new JdbcTrinoClient(jdbcClientConfig);
             case JdbcResource.DB2:
                 return new JdbcDB2Client(jdbcClientConfig);
+            case JdbcResource.GBASE:
+                return new JdbcGbaseClient(jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }
     }
 
     protected JdbcClient(JdbcClientConfig jdbcClientConfig) {
+        setJdbcDriverSystemProperties();
         this.catalogName = jdbcClientConfig.getCatalog();
         this.jdbcUser = jdbcClientConfig.getUser();
         this.isOnlySpecifiedDatabase = Boolean.parseBoolean(jdbcClientConfig.getOnlySpecifiedDatabase());
-        this.isLowerCaseMetaNames = Boolean.parseBoolean(jdbcClientConfig.getIsLowerCaseMetaNames());
-        this.metaNamesMapping = jdbcClientConfig.getMetaNamesMapping();
         this.includeDatabaseMap =
                 Optional.ofNullable(jdbcClientConfig.getIncludeDatabaseMap()).orElse(Collections.emptyMap());
         this.excludeDatabaseMap =
@@ -111,7 +111,10 @@ public abstract class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         initializeClassLoader(jdbcClientConfig);
         initializeDataSource(jdbcClientConfig);
-        this.jdbcLowerCaseMetaMatching = new JdbcIdentifierMapping(isLowerCaseMetaNames, metaNamesMapping, this);
+    }
+
+    protected void setJdbcDriverSystemProperties() {
+        System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");
     }
 
     // Initialize DataSource
@@ -134,25 +137,47 @@ public abstract class JdbcClient {
             dataSource.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
             dataSource.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
             dataSource.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setConnectionTestQuery(getTestQuery());
             LOG.info("JdbcClient set"
                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
                     + ", ConnectionPoolMaxWaitTime = " + config.getConnectionPoolMaxWaitTime()
                     + ", ConnectionPoolMaxLifeTime = " + config.getConnectionPoolMaxLifeTime());
         } catch (Exception e) {
-            throw new JdbcClientException(e.getMessage());
+            // If driver class loading failed (Hikari wraps it), clean cache and prompt retry
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("Failed to load driver class")) {
+                try {
+                    URL url = new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()));
+                    classLoaderMap.remove(url);
+                    // Prompt user to verify driver validity and retry
+                    throw new JdbcClientException(
+                        String.format("Failed to load driver class `%s`. "
+                                        + "Please check that the driver JAR is valid and retry.",
+                                      config.getDriverClass()), e);
+                } catch (MalformedURLException ignore) {
+                    // ignore invalid URL when cleaning cache
+                }
+            }
+            throw new JdbcClientException(e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
         }
     }
 
-    private void initializeClassLoader(JdbcClientConfig config) {
+    private synchronized void initializeClassLoader(JdbcClientConfig config) {
         try {
             URL[] urls = {new URL(JdbcResource.getFullDriverUrl(config.getDriverUrl()))};
-            ClassLoader parent = getClass().getClassLoader();
-            this.classLoader = URLClassLoader.newInstance(urls, parent);
+            if (classLoaderMap.containsKey(urls[0]) && classLoaderMap.get(urls[0]) != null) {
+                this.classLoader = classLoaderMap.get(urls[0]);
+            } else {
+                ClassLoader parent = getClass().getClassLoader();
+                this.classLoader = URLClassLoader.newInstance(urls, parent);
+                classLoaderMap.put(urls[0], this.classLoader);
+            }
         } catch (MalformedURLException e) {
-            throw new RuntimeException("Error loading JDBC driver.", e);
+            throw new RuntimeException("Failed to load JDBC driver from path: "
+                    + config.getDriverUrl(), e);
         }
     }
 
@@ -166,6 +191,7 @@ public abstract class JdbcClient {
 
     public void closeClient() {
         dataSource.close();
+        dataSource = null;
     }
 
     public Connection getConnection() throws JdbcClientException {
@@ -175,8 +201,9 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
-                    e.getMessage(), this.getCatalogName());
+            String errorMessage = String.format(
+                    "Catalog `%s` can not connect to jdbc due to error: %s",
+                    this.getCatalogName(), JdbcClientException.getAllExceptionMessages(e));
             throw new JdbcClientException(errorMessage, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);
@@ -184,13 +211,19 @@ public abstract class JdbcClient {
         return conn;
     }
 
-    public void close(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    public void close(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    closeable.close();
-                } catch (Exception e) {
-                    throw new JdbcClientException("Can not close : ", e);
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
+                    }
+                } catch (SQLException e) {
+                    LOG.warn("Failed to close resource: {}", e.getMessage(), e);
                 }
             }
         }
@@ -202,9 +235,10 @@ public abstract class JdbcClient {
      * @param origStmt, the raw stmt string
      */
     public void executeStmt(String origStmt) {
-        Connection conn = getConnection();
+        Connection conn = null;
         Statement stmt = null;
         try {
+            conn = getConnection();
             stmt = conn.createStatement();
             int effectedRows = stmt.executeUpdate(origStmt);
             if (LOG.isDebugEnabled()) {
@@ -224,10 +258,12 @@ public abstract class JdbcClient {
      * @return List<Column>
      */
     public List<Column> getColumnsFromQuery(String query) {
-        Connection conn = getConnection();
+        Connection conn = null;
+        PreparedStatement pstmt = null;
         List<Column> columns = Lists.newArrayList();
         try {
-            PreparedStatement pstmt = conn.prepareStatement(query);
+            conn = getConnection();
+            pstmt = conn.prepareStatement(query);
             ResultSetMetaData metaData = pstmt.getMetaData();
             if (metaData == null) {
                 throw new JdbcClientException("Query not supported: Failed to get ResultSetMetaData from query: %s",
@@ -242,11 +278,10 @@ public abstract class JdbcClient {
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to get columns from query: %s", e, query);
         } finally {
-            close(conn);
+            close(pstmt, conn);
         }
         return columns;
     }
-
 
     /**
      * Get schema from ResultSetMetaData
@@ -270,10 +305,11 @@ public abstract class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
+            conn = getConnection();
             if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
                 String currentDatabase = conn.getSchema();
                 remoteDatabaseNames.add(currentDatabase);
@@ -294,10 +330,9 @@ public abstract class JdbcClient {
     /**
      * get all tables of one database
      */
-    public List<String> getTablesNameList(String localDbName) {
+    public List<String> getTablesNameList(String remoteDbName) {
         List<String> remoteTablesNames = Lists.newArrayList();
         String[] tableTypes = getTableTypes();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
         processTable(remoteDbName, null, tableTypes, (rs) -> {
             try {
                 while (rs.next()) {
@@ -307,14 +342,19 @@ public abstract class JdbcClient {
                 throw new JdbcClientException("failed to get all tables for remote database: `%s`", e, remoteDbName);
             }
         });
-        return filterTableNames(remoteDbName, remoteTablesNames);
+        return remoteTablesNames;
     }
 
-    public boolean isTableExist(String localDbName, String localTableName) {
+    /**
+     * get table comment
+     */
+    public String getTableComment(String remoteDbName, String remoteTableName) {
+        return "";
+    }
+
+    public boolean isTableExist(String remoteDbName, String remoteTableName) {
         final boolean[] isExist = {false};
         String[] tableTypes = getTableTypes();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         processTable(remoteDbName, remoteTableName, tableTypes, (rs) -> {
             try {
                 if (rs.next()) {
@@ -331,13 +371,12 @@ public abstract class JdbcClient {
     /**
      * get all columns of one table
      */
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
-        Connection conn = getConnection();
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String remoteDbName, String remoteTableName) {
+        Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
@@ -353,8 +392,8 @@ public abstract class JdbcClient {
         return tableSchema;
     }
 
-    public List<Column> getColumnsFromJdbc(String localDbName, String localTableName) {
-        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(localDbName, localTableName);
+    public List<Column> getColumnsFromJdbc(String remoteDbName, String remoteTableName) {
+        List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(remoteDbName, remoteTableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
@@ -362,24 +401,10 @@ public abstract class JdbcClient {
                     field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
-        String remoteDbName = getRemoteDatabaseName(localDbName);
-        String remoteTableName = getRemoteTableName(localDbName, localTableName);
-        return filterColumnName(remoteDbName, remoteTableName, dorisTableSchema);
+        return dorisTableSchema;
     }
 
-    public String getRemoteDatabaseName(String localDbname) {
-        return jdbcLowerCaseMetaMatching.getRemoteDatabaseName(localDbname);
-    }
-
-    public String getRemoteTableName(String localDbName, String localTableName) {
-        return jdbcLowerCaseMetaMatching.getRemoteTableName(localDbName, localTableName);
-    }
-
-    public Map<String, String> getRemoteColumnNames(String localDbName, String localTableName) {
-        return jdbcLowerCaseMetaMatching.getRemoteColumnNames(localDbName, localTableName);
-    }
-
-    // protected methods,for subclass to override
+    // protected methods, for subclass to override
     protected String getCatalogName(Connection conn) throws SQLException {
         return conn.getCatalog();
     }
@@ -390,17 +415,31 @@ public abstract class JdbcClient {
 
     protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
             Consumer<ResultSet> resultSetConsumer) {
-        Connection conn = getConnection();
-        ResultSet rs = null;
+        Connection conn = null;
+        ResultSet standardRs = null;
+        Statement stmt = null;
+        ResultSet customRs = null;
+
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
-            resultSetConsumer.accept(rs);
+
+            // 1. Process standard tables from getTables() method
+            standardRs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
+            resultSetConsumer.accept(standardRs);
+
+            // 2. Process additional tables from custom SQL query (if any)
+            String additionalQuery = getAdditionalTablesQuery(remoteDbName, remoteTableName, tableTypes);
+            if (additionalQuery != null && !additionalQuery.trim().isEmpty()) {
+                stmt = conn.createStatement();
+                customRs = stmt.executeQuery(additionalQuery);
+                resultSetConsumer.accept(customRs);
+            }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to process table", e);
         } finally {
-            close(rs, conn);
+            close(customRs, stmt, standardRs, conn);
         }
     }
 
@@ -434,7 +473,7 @@ public abstract class JdbcClient {
             }
             filteredDatabaseNames.add(databaseName);
         }
-        return jdbcLowerCaseMetaMatching.setDatabaseNameMapping(filteredDatabaseNames);
+        return filteredDatabaseNames;
     }
 
     protected Set<String> getFilterInternalDatabases() {
@@ -445,15 +484,24 @@ public abstract class JdbcClient {
                 .build();
     }
 
-    protected List<String> filterTableNames(String remoteDbName, List<String> remoteTableNames) {
-        return jdbcLowerCaseMetaMatching.setTableNameMapping(remoteDbName, remoteTableNames);
-    }
-
-    protected List<Column> filterColumnName(String remoteDbName, String remoteTableName, List<Column> remoteColumns) {
-        return jdbcLowerCaseMetaMatching.setColumnNameMapping(remoteDbName, remoteTableName, remoteColumns);
-    }
-
     protected abstract Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema);
+
+    /**
+     * Get additional SQL query for tables that cannot be retrieved from standard getTables() method.
+     * For example, Oracle SYNONYM tables need custom SQL query.
+     * <p>
+     * Default implementation returns null, meaning no additional query is needed.
+     * Subclasses can override this method to provide custom SQL queries.
+     *
+     * @param remoteDbName database name
+     * @param remoteTableName table name (can be null for all tables)
+     * @param tableTypes table types array
+     * @return SQL query string, or null if no additional query needed
+     */
+    protected String getAdditionalTablesQuery(String remoteDbName, String remoteTableName, String[] tableTypes) {
+        // Default implementation: most databases don't need additional queries
+        return null;
+    }
 
     protected Type createDecimalOrStringType(int precision, int scale) {
         if (precision <= ScalarType.MAX_DECIMAL128_PRECISION && precision > 0) {
@@ -464,19 +512,37 @@ public abstract class JdbcClient {
 
     public void testConnection() {
         String testQuery = getTestQuery();
-        try (Connection conn = getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(testQuery)) {
+        Connection conn = null;
+        Statement stmt = null;
+        ResultSet rs = null;
+        try {
+            conn = getConnection();
+            stmt = conn.createStatement();
+            rs = stmt.executeQuery(testQuery);
             if (!rs.next()) {
                 throw new JdbcClientException(
                         "Failed to test connection in FE: query executed but returned no results.");
             }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        } finally {
+            close(rs, stmt, conn);
         }
     }
 
     public String getTestQuery() {
         return "select 1";
+    }
+
+    public String getJdbcDriverVersion() {
+        Connection conn = null;
+        try {
+            conn = getConnection();
+            return conn.getMetaData().getDriverVersion();
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to get jdbc driver version", e);
+        } finally {
+            close(conn);
+        }
     }
 }

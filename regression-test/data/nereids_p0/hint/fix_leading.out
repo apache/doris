@@ -4,7 +4,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t3.c3) and (t1.c1 = t4.c4)) otherCondition=()
 ----NestedLoopJoin[CROSS_JOIN]
 ------PhysicalOlapScan[t1]
-------filter((t2.c2 = t2.c2))
+------filter(( not c2 IS NULL))
 --------PhysicalOlapScan[t2]
 ----hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------PhysicalOlapScan[t3]
@@ -12,7 +12,7 @@ PhysicalResultSink
 
 Hint log:
 Used: leading({ t1 t2 } { t3 t4 } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
 -- !select2_1_1 --
@@ -231,17 +231,16 @@ SyntaxError:
 -- !select4_3 --
 PhysicalResultSink
 --hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
---------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
-----------PhysicalOlapScan[t1]
-----------filter((t2.c2 > 500))
-------------PhysicalOlapScan[t2]
---------PhysicalOlapScan[t3]
+----NestedLoopJoin[RIGHT_OUTER_JOIN](c3 > 500)
+------NestedLoopJoin[LEFT_OUTER_JOIN](c1 < 200)(c1 > 500)
+--------PhysicalOlapScan[t1]
+--------filter((t2.c2 > 500))
+----------PhysicalOlapScan[t2]
+------PhysicalOlapScan[t3]
 
 Hint log:
 Used: leading(t1 t2 t3 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 
 -- !select6_1 --
@@ -262,6 +261,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(t1 { { t2 t3 } { t4 t5 } } t6 )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

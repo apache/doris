@@ -34,7 +34,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_impl.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
@@ -47,14 +46,9 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
 
+class Arena;
 /** A column of map values.
   */
 class ColumnMap final : public COWHelper<IColumn, ColumnMap> {
@@ -65,7 +59,8 @@ public:
     using Base = COWHelper<IColumn, ColumnMap>;
     using COffsets = ColumnArray::ColumnOffsets;
 
-    static Ptr create(const ColumnPtr& keys, const ColumnPtr& values, const ColumnPtr& offsets) {
+    static MutablePtr create(const ColumnPtr& keys, const ColumnPtr& values,
+                             const ColumnPtr& offsets) {
         return ColumnMap::create(keys->assume_mutable(), values->assume_mutable(),
                                  offsets->assume_mutable());
     }
@@ -77,12 +72,17 @@ public:
     }
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Map"; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(keys_column);
         callback(values_column);
         callback(offsets_column);
+    }
+
+    void sanity_check() const override {
+        keys_column->sanity_check();
+        values_column->sanity_check();
+        offsets_column->sanity_check();
     }
 
     void clear() override {
@@ -96,11 +96,13 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     bool is_variable_length() const override { return true; }
 
+    bool is_exclusive() const override {
+        return IColumn::is_exclusive() && keys_column->is_exclusive() &&
+               values_column->is_exclusive() && offsets_column->is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
-    StringRef get_data_at(size_t n) const override;
-
-    void insert_data(const char* pos, size_t length) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
     void insert_range_from_ignore_overflow(const IColumn& src, size_t start,
                                            size_t length) override;
@@ -109,41 +111,33 @@ public:
     void insert_default() override;
 
     void pop_back(size_t n) override;
-    bool is_column_map() const override { return true; }
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    ColumnPtr replicate(const Offsets& offsets) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnMap>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
-    }
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
-        return assert_cast<COffsets&>(*offsets_column).get_data();
+        return assert_cast<COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column).get_data();
     }
     const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return assert_cast<const COffsets&>(*offsets_column).get_data();
+        return assert_cast<const COffsets&, TypeCheckOnRelease::DISABLE>(*offsets_column)
+                .get_data();
     }
     IColumn& get_offsets_column() { return *offsets_column; }
     const IColumn& get_offsets_column() const { return *offsets_column; }
@@ -158,6 +152,7 @@ public:
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
@@ -198,11 +193,43 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
+    // Remove duplicate key-value pairs from each internal map in the ColumnMap.
+    //
+    // For each map stored in the ColumnMap, if multiple entries have the same key
+    // and identical value, only the **last** such key-value pair is retained; earlier
+    // duplicates are removed. This ensures that all keys within each map are unique.
+    //
+    // Note: This function modifies the internal state of the ColumnMap in-place.
+    // It is intended to be used after data loading or merging steps where
+    // redundant key-value pairs may have been introduced.
+    //
+    // Example:
+    //   Input map: {{"a", 1}, {"b", 2}, {"a", 3}, {"c", 4, null: 5, null: 6}}
+    //   Result:    {{"b", 2}, {"a", 3}, {"c", 3, null: 6}}
+    Status deduplicate_keys(bool recursive = false);
+
     ColumnPtr convert_column_if_overflow() override {
         keys_column = keys_column->convert_column_if_overflow();
         values_column = values_column->convert_column_if_overflow();
         return IColumn::convert_column_if_overflow();
     }
+
+    void erase(size_t start, size_t length) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_size_at(size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+
+    void replace_float_special_values() override;
+
+    template <bool positive>
+    struct less;
 
 private:
     friend class COWHelper<IColumn, ColumnMap>;

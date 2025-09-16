@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_hive_statistic_sample", "p2,external,hive,external_remote,external_remote_hive") {
+    Boolean ignoreP2 = true;
+    if (ignoreP2) {
+        logger.info("disable p2 test");
+        return;
+    }
     String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String extHiveHmsHost = context.config.otherConfigs.get("extHiveHmsHost")

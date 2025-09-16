@@ -45,11 +45,17 @@ public interface FlightSessionsManager {
      */
     ConnectContext createConnectContext(String peerIdentity);
 
+    /**
+     * Close ConnectContext object and delete it in the local cache.
+     *
+     * @param peerIdentity identity after authorization
+     */
+    void closeConnectContext(String peerIdentity);
+
     static ConnectContext buildConnectContext(String peerIdentity, UserIdentity userIdentity, String remoteIP) {
         ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
-        connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
         connectContext.setCurrentUserIdentity(userIdentity);
         connectContext.setRemoteIP(remoteIP);
         connectContext.setUserQueryTimeout(

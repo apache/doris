@@ -22,7 +22,8 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
-CONF_Int32(brpc_num_threads, "-1");
+CONF_Int32(brpc_num_threads, "64");
+// connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
@@ -34,9 +35,19 @@ CONF_Bool(use_mem_kv, "false");
 CONF_Int32(meta_server_register_interval_ms, "20000");
 CONF_Int32(meta_server_lease_ms, "60000");
 
+// for chaos testing
+CONF_mBool(enable_idempotent_request_injection, "false");
+// idempotent_request_replay_delay_ms = idempotent_request_replay_delay_base_ms + random(-idempotent_request_replay_delay_range_ms, idempotent_request_replay_delay_range_ms)
+CONF_mInt64(idempotent_request_replay_delay_base_ms, "10000");
+CONF_mInt64(idempotent_request_replay_delay_range_ms, "5000");
+// exclude some request that are meaningless to replay, comma separated list. e.g. GetTabletStatsRequest,GetVersionRequest
+CONF_mString(idempotent_request_replay_exclusion, "GetTabletStatsRequest,GetVersionRequest");
+
 CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+
+CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // logging
 CONF_String(log_dir, "./log/");
@@ -47,30 +58,77 @@ CONF_Int32(warn_log_filenum_quota, "1");
 CONF_Bool(log_immediate_flush, "false");
 CONF_Strings(log_verbose_modules, ""); // Comma seprated list: a.*,b.*
 CONF_Int32(log_verbose_level, "5");
+// Whether to use file to record log. When starting Cloud with --console,
+// all logs will be written to both standard output and file.
+// Disable this option will no longer use file to record log.
+// Only works when starting Cloud with --console.
+CONF_Bool(enable_file_logger, "true");
+
+// Custom conf path is default empty.
+// All mutable configs' modification needed to be persisted will be appended to conf path
+// specified when started.
+//
+// If it is set to equivalent value of conf path specified when started,
+// mutable configs' modification behavior will be the same as the description above.
+//
+// Otherwise, a new custom conf file will be created when mutable configs are modified
+// and persisted, with all modification written to it.
+CONF_String(custom_conf_path, "");
 
 // recycler config
 CONF_mInt64(recycle_interval_seconds, "3600");
-CONF_mInt64(retention_seconds, "259200"); // 72h
+CONF_mInt64(retention_seconds, "259200"); // 72h, global retention time
 CONF_Int32(recycle_concurrency, "16");
-CONF_Int32(recycle_job_lease_expired_ms, "60000");
-CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
+CONF_mInt32(recycle_job_lease_expired_ms, "60000");
+CONF_mInt64(compacted_rowset_retention_seconds, "1800");   // 0.5h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "1");
+// IO worker thread pool concurrency: object list, delete
+CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// The worker pool size for http api `statistics_recycle` worker pool
+CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
+// The parallelism for parallel recycle operation
+// s3_producer_pool recycle_tablet_pool, delete single object in this pool
+CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
+// Currently only used for recycler test
+CONF_Bool(enable_delete_bitmap_inverted_check, "false");
+CONF_Bool(enable_delete_bitmap_storage_optimize_v2_check, "false");
+CONF_mInt64(delete_bitmap_storage_optimize_v2_check_skip_seconds, "300"); // 5min
 // interval for scanning instances to do checks and inspections
 CONF_mInt32(scan_instances_interval_seconds, "60"); // 1min
 // interval for check object
 CONF_mInt32(check_object_interval_seconds, "43200"); // 12hours
+// enable recycler metrics statistics
+CONF_Bool(enable_recycler_stats_metrics, "false");
 
 CONF_mInt64(check_recycle_task_interval_seconds, "600"); // 10min
-CONF_mInt64(recycle_task_threshold_seconds, "10800");    // 3h
+CONF_mInt64(recycler_sleep_before_scheduling_seconds, "60");
+// log a warning if a recycle task takes longer than this duration
+CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
+
+// force recycler to recycle all useless object.
+// **just for TEST**
+CONF_Bool(force_immediate_recycle, "false");
+
+CONF_mBool(enable_mow_job_key_check, "false");
+
+CONF_mBool(enable_restore_job_check, "false");
+
+CONF_mBool(enable_tablet_stats_key_check, "false");
+CONF_mBool(enable_txn_key_check, "false");
+
+CONF_mBool(enable_meta_key_check, "false");
+CONF_mBool(enable_version_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
+
+CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
@@ -85,7 +143,7 @@ CONF_String(test_hdfs_fs_name, "");
 // CONF_Bool(b, "true");
 
 // txn config
-CONF_Int32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
@@ -108,7 +166,7 @@ CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
 
-CONF_Int32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
+CONF_mInt32(copy_job_max_retention_second, "259200"); //3 * 24 * 3600 seconds
 CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
@@ -126,8 +184,10 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
-// Limit kv size of Schema SchemaDictKeyList, default 10MB
-CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+// Limit kv size of Schema SchemaDictKeyList, default 5MB
+CONF_mInt32(schema_dict_kv_size_limit, "5242880");
+// Limit the count of columns in schema dict value, default 4K
+CONF_mInt32(schema_dict_key_count_limit, "4096");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -163,11 +223,16 @@ CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
+
 CONF_mInt64(s3_get_token_per_second, "1000000000000000000");
+CONF_Validator(s3_get_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_get_token_limit, "0");
 
 CONF_mInt64(s3_put_bucket_tokens, "1000000000000000000");
+CONF_Validator(s3_put_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_per_second, "1000000000000000000");
+CONF_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 CONF_mInt64(s3_put_token_limit, "0");
 
 // The secondary package name of the MetaService.
@@ -179,6 +244,11 @@ CONF_String(kerberos_ccache_path, "");
 CONF_String(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 CONF_mBool(enable_distinguish_hdfs_path, "true");
+
+// If enabled, the txn status will be checked when preapre/commit rowset
+CONF_mBool(enable_load_txn_status_check, "true");
+
+CONF_mBool(enable_tablet_job_check, "true");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -195,5 +265,100 @@ CONF_String(s3_client_http_scheme, "http");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
+
+CONF_Bool(force_azure_blob_global_endpoint, "false");
+
+// Max retry times for object storage request
+CONF_mInt64(max_s3_client_retry, "10");
+
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+// retry configs of remove_delete_bitmap_update_lock txn_conflict
+CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
+
+// Max byte txn commit when updating delete bitmap, default is 7MB.
+// Because the size of one fdb transaction can't exceed 10MB, and
+// fdb does not have an accurate way to estimate the size of txn.
+// In my test, when txn->approximate_bytes() bigger than 8MB,
+// it may meet Transaction exceeds byte limit error. We'd better
+// reserve 1MB of buffer, so setting the default value to 7MB is
+// more reasonable.
+CONF_mInt64(max_txn_commit_byte, "7340032");
+
+CONF_Bool(enable_cloud_txn_lazy_commit, "true");
+CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
+CONF_Int32(txn_lazy_commit_num_threads, "8");
+CONF_mInt64(txn_lazy_max_rowsets_per_batch, "1000");
+// max TabletIndexPB num for batch get
+CONF_Int32(max_tablet_index_num_per_batch, "1000");
+CONF_Int32(max_restore_job_rowsets_per_batch, "1000");
+
+// the possibility to use a lazy commit for a doris txn, ranges from 0 to 100,
+// usually for testing
+// 0 for never, 100 for always
+CONF_mInt32(cloud_txn_lazy_commit_fuzzy_possibility, "0");
+
+// Max aborted txn num for the same label name
+CONF_mInt64(max_num_aborted_txn, "100");
+
+CONF_Bool(enable_check_instance_id, "true");
+
+// Check if ip eq 127.0.0.1, ms/recycler exit
+CONF_Bool(enable_loopback_address_for_ms, "false");
+
+// delete_bitmap_lock version config
+// here is some examples:
+// 1. If instance1,instance2 use v2, config should be
+// delete_bitmap_lock_v2_white_list = instance1;instance2
+// 2. If all instance use v2, config should be
+// delete_bitmap_lock_v2_white_list = *
+CONF_mString(delete_bitmap_lock_v2_white_list, "");
+// FOR DEBUGGING
+CONF_mBool(use_delete_bitmap_lock_random_version, "false");
+
+// Which vaults should be recycled. If empty, recycle all vaults.
+// Comma seprated list: recycler_storage_vault_white_list="aaa,bbb,ccc"
+CONF_Strings(recycler_storage_vault_white_list, "");
+
+// for test only
+CONF_mBool(enable_update_delete_bitmap_kv_check, "false");
+
+// for get_delete_bitmap_update_lock
+CONF_mBool(enable_batch_get_mow_tablet_stats_and_meta, "true");
+
+// aws sdk log level
+//    Off = 0,
+//    Fatal = 1,
+//    Error = 2,
+//    Warn = 3,
+//    Info = 4,
+//    Debug = 5,
+//    Trace = 6
+CONF_Int32(aws_log_level, "2");
+CONF_Validator(aws_log_level, [](const int config) -> bool { return config >= 0 && config <= 6; });
+
+// azure sdk log level
+//    Verbose = 1,
+//    Informational = 2,
+//    Warning = 3,
+//    Error = 4
+CONF_Int32(azure_log_level, "4");
+CONF_Validator(azure_log_level,
+               [](const int config) -> bool { return config >= 1 && config <= 4; });
+
+// ca_cert_file is in this path by default, Normally no modification is required
+// ca cert default path is different from different OS
+CONF_mString(ca_cert_file_paths,
+             "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
+             "/etc/ssl/ca-bundle.pem");
+
+CONF_Bool(enable_split_rowset_meta_pb, "false");
+CONF_Int32(split_rowset_meta_pb_size, "10000"); // split rowset meta pb size, default is 10K
+CONF_Bool(enable_split_tablet_schema_pb, "false");
+CONF_Int32(split_tablet_schema_pb_size, "10000"); // split tablet schema pb size, default is 10K
+CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
+
+CONF_Bool(enable_logging_for_single_version_reading, "false");
+CONF_mBool(enable_logging_conflict_keys, "false");
 
 } // namespace doris::cloud::config

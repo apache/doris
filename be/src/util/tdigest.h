@@ -42,6 +42,8 @@
 
 #pragma once
 
+#include <pdqsort.h>
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -53,11 +55,9 @@
 
 #include "common/factory_creator.h"
 #include "common/logging.h"
-#include "udf/udf.h"
-#include "util/debug_util.h"
-#include "util/radix_sort.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using Value = float;
 using Weight = float;
@@ -105,7 +105,7 @@ struct CentroidList {
 
 class CentroidListComparator {
 public:
-    CentroidListComparator() {}
+    CentroidListComparator() = default;
 
     bool operator()(const CentroidList& left, const CentroidList& right) const {
         return left.iter->mean() > right.iter->mean();
@@ -121,23 +121,10 @@ struct CentroidComparator {
 
 class TDigest {
     ENABLE_FACTORY_CREATOR(TDigest);
-    struct TDigestRadixSortTraits {
-        using Element = Centroid;
-        using Key = Value;
-        using CountType = uint32_t;
-        using KeyBits = uint32_t;
-
-        static constexpr size_t PART_SIZE_BITS = 8;
-
-        using Transform = RadixSortFloatTransform<KeyBits>;
-        using Allocator = RadixSortMallocAllocator;
-
-        static Key& extractKey(Element& elem) { return elem.mean(); }
-    };
 
     class TDigestComparator {
     public:
-        TDigestComparator() {}
+        TDigestComparator() = default;
 
         bool operator()(const TDigest* left, const TDigest* right) const {
             return left->totalSize() > right->totalSize();
@@ -242,7 +229,7 @@ public:
 
             size_t totalSize = 0;
             while (!pq.empty()) {
-                auto td = pq.top();
+                const auto* td = pq.top();
                 batch.push_back(td);
                 pq.pop();
                 totalSize += td->totalSize();
@@ -270,7 +257,9 @@ public:
 
     // return the cdf on the t-digest
     Value cdf(Value x) {
-        if (haveUnprocessed() || isDirty()) process();
+        if (haveUnprocessed() || isDirty()) {
+            process();
+        }
         return cdfProcessed(x);
     }
 
@@ -324,7 +313,8 @@ public:
 
                 // note that this is different than mean(0) > _min ... this guarantees interpolation works
                 if (mean(0) - _min > 0) {
-                    return (x - _min) / (mean(0) - _min) * weight(0) / _processed_weight / 2.0;
+                    return static_cast<Value>((x - _min) / (mean(0) - _min) * weight(0) /
+                                              _processed_weight / 2.0);
                 } else {
                     return 0;
                 }
@@ -336,8 +326,9 @@ public:
                               << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
                 if (_max - mean(n - 1) > 0) {
-                    return 1.0 - (_max - x) / (_max - mean(n - 1)) * weight(n - 1) /
-                                         _processed_weight / 2.0;
+                    return static_cast<Value>(1.0 - (_max - x) / (_max - mean(n - 1)) *
+                                                            weight(n - 1) / _processed_weight /
+                                                            2.0);
                 } else {
                     return 1;
                 }
@@ -361,7 +352,9 @@ public:
 
     // this returns a quantile on the t-digest
     Value quantile(Value q) {
-        if (haveUnprocessed() || isDirty()) process();
+        if (haveUnprocessed() || isDirty()) {
+            process();
+        }
         return quantileProcessed(q);
     }
 
@@ -391,12 +384,13 @@ public:
         // at the boundaries, we return _min or _max
         if (index <= weight(0) / 2.0) {
             DCHECK_GT(weight(0), 0);
-            return _min + 2.0 * index / weight(0) * (mean(0) - _min);
+            return static_cast<Value>(_min + 2.0 * index / weight(0) * (mean(0) - _min));
         }
 
         auto iter = std::lower_bound(_cumulative.cbegin(), _cumulative.cend(), index);
 
-        if (iter + 1 != _cumulative.cend()) {
+        if (iter != _cumulative.cend() && iter != _cumulative.cbegin() &&
+            iter + 1 != _cumulative.cend()) {
             auto i = std::distance(_cumulative.cbegin(), iter);
             auto z1 = index - *(iter - 1);
             auto z2 = *(iter)-index;
@@ -407,8 +401,8 @@ public:
         DCHECK_LE(index, _processed_weight);
         DCHECK_GE(index, _processed_weight - weight(n - 1) / 2.0);
 
-        auto z1 = index - _processed_weight - weight(n - 1) / 2.0;
-        auto z2 = weight(n - 1) / 2 - z1;
+        auto z1 = static_cast<Value>(index - _processed_weight - weight(n - 1) / 2.0);
+        auto z2 = static_cast<Value>(weight(n - 1) / 2 - z1);
         return weightedAverage(mean(n - 1), z1, _max, z2);
     }
 
@@ -424,7 +418,7 @@ public:
         if (std::isnan(x)) {
             return false;
         }
-        _unprocessed.push_back(Centroid(x, w));
+        _unprocessed.emplace_back(x, w);
         _unprocessed_weight += w;
         processIfNecessary();
         return true;
@@ -436,7 +430,9 @@ public:
             const size_t diff = std::distance(iter, end);
             const size_t room = _max_unprocessed - _unprocessed.size();
             auto mid = iter + std::min(diff, room);
-            while (iter != mid) _unprocessed.push_back(*(iter++));
+            while (iter != mid) {
+                _unprocessed.push_back(*(iter++));
+            }
             if (_unprocessed.size() >= _max_unprocessed) {
                 process();
             }
@@ -444,9 +440,10 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
-               _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
-               _cumulative.size() * sizeof(Weight);
+        return static_cast<uint32_t>(sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 +
+                                     sizeof(uint32_t) * 3 + _processed.size() * sizeof(Centroid) +
+                                     _unprocessed.size() * sizeof(Centroid) +
+                                     _cumulative.size() * sizeof(Weight));
     }
 
     size_t serialize(uint8_t* writer) {
@@ -469,7 +466,7 @@ public:
         memcpy(writer, &_unprocessed_weight, sizeof(Value));
         writer += sizeof(Value);
 
-        uint32_t size = _processed.size();
+        auto size = static_cast<uint32_t>(_processed.size());
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         for (int i = 0; i < size; i++) {
@@ -477,7 +474,7 @@ public:
             writer += sizeof(Centroid);
         }
 
-        size = _unprocessed.size();
+        size = static_cast<uint32_t>(_unprocessed.size());
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         //TODO(weixiang): may be once memcpy is enough!
@@ -486,7 +483,7 @@ public:
             writer += sizeof(Centroid);
         }
 
-        size = _cumulative.size();
+        size = static_cast<uint32_t>(_cumulative.size());
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
         for (int i = 0; i < size; i++) {
@@ -562,22 +559,24 @@ private:
     std::vector<Weight> _cumulative;
 
     // return mean of i-th centroid
-    Value mean(int i) const noexcept { return _processed[i].mean(); }
+    Value mean(int64_t i) const noexcept { return _processed[i].mean(); }
 
     // return weight of i-th centroid
-    Weight weight(int i) const noexcept { return _processed[i].weight(); }
+    Weight weight(int64_t i) const noexcept { return _processed[i].weight(); }
 
     // append all unprocessed centroids into current unprocessed vector
     void mergeUnprocessed(const std::vector<const TDigest*>& tdigests) {
-        if (tdigests.size() == 0) return;
+        if (tdigests.size() == 0) {
+            return;
+        }
 
         size_t total = _unprocessed.size();
-        for (auto& td : tdigests) {
+        for (const auto& td : tdigests) {
             total += td->_unprocessed.size();
         }
 
         _unprocessed.reserve(total);
-        for (auto& td : tdigests) {
+        for (const auto& td : tdigests) {
             _unprocessed.insert(_unprocessed.end(), td->_unprocessed.cbegin(),
                                 td->_unprocessed.cend());
             _unprocessed_weight += td->_unprocessed_weight;
@@ -586,12 +585,14 @@ private:
 
     // merge all processed centroids together into a single sorted vector
     void mergeProcessed(const std::vector<const TDigest*>& tdigests) {
-        if (tdigests.size() == 0) return;
+        if (tdigests.size() == 0) {
+            return;
+        }
 
         size_t total = 0;
         CentroidListQueue pq(CentroidListComparator {});
-        for (auto& td : tdigests) {
-            auto& sorted = td->_processed;
+        for (const auto& td : tdigests) {
+            const auto& sorted = td->_processed;
             auto size = sorted.size();
             if (size > 0) {
                 pq.push(CentroidList(sorted));
@@ -599,7 +600,9 @@ private:
                 _processed_weight += td->_processed_weight;
             }
         }
-        if (total == 0) return;
+        if (total == 0) {
+            return;
+        }
 
         if (_processed.size() > 0) {
             pq.push(CentroidList(_processed));
@@ -614,7 +617,9 @@ private:
             auto best = pq.top();
             pq.pop();
             sorted.push_back(*(best.iter));
-            if (best.advance()) pq.push(best);
+            if (best.advance()) {
+                pq.push(best);
+            }
         }
         _processed = std::move(sorted);
         if (_processed.size() > 0) {
@@ -633,10 +638,10 @@ private:
         const auto n = _processed.size();
         _cumulative.clear();
         _cumulative.reserve(n + 1);
-        auto previous = 0.0;
+        Weight previous = 0.0;
         for (Index i = 0; i < n; i++) {
-            auto current = weight(i);
-            auto halfCurrent = current / 2.0;
+            Weight current = weight(i);
+            auto halfCurrent = static_cast<Weight>(current / 2.0);
             _cumulative.push_back(previous + halfCurrent);
             previous = previous + current;
         }
@@ -647,7 +652,10 @@ private:
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
     void process() {
         CentroidComparator cc;
-        RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
+        // select percentile_approx(lo_orderkey,0.5) from lineorder;
+        // have test pdqsort and RadixSort, find here pdqsort performance is better when data is struct Centroid
+        // But when sort plain type like int/float of std::vector<T>, find RadixSort is better
+        pdqsort(_unprocessed.begin(), _unprocessed.end(), cc);
         auto count = _unprocessed.size();
         _unprocessed.insert(_unprocessed.end(), _processed.cbegin(), _processed.cend());
         std::inplace_merge(_unprocessed.begin(), _unprocessed.begin() + count, _unprocessed.end(),
@@ -663,14 +671,14 @@ private:
 
         auto end = _unprocessed.end();
         for (auto iter = _unprocessed.cbegin() + 1; iter < end; iter++) {
-            auto& centroid = *iter;
+            const auto& centroid = *iter;
             Weight projectedW = wSoFar + centroid.weight();
             if (projectedW <= wLimit) {
                 wSoFar = projectedW;
                 (_processed.end() - 1)->add(centroid);
             } else {
                 auto k1 = integratedLocation(wSoFar / _processed_weight);
-                wLimit = _processed_weight * integratedQ(k1 + 1.0);
+                wLimit = _processed_weight * integratedQ(static_cast<Value>(k1 + 1.0));
                 wSoFar += centroid.weight();
                 _processed.emplace_back(centroid);
             }
@@ -683,8 +691,6 @@ private:
         updateCumulative();
     }
 
-    int checkWeights() { return checkWeights(_processed, _processed_weight); }
-
     size_t checkWeights(const std::vector<Centroid>& sorted, Value total) {
         size_t badWeight = 0;
         auto k1 = 0.0;
@@ -692,7 +698,7 @@ private:
         for (auto iter = sorted.cbegin(); iter != sorted.cend(); iter++) {
             auto w = iter->weight();
             auto dq = w / total;
-            auto k2 = integratedLocation(q + dq);
+            auto k2 = integratedLocation(static_cast<Value>(q + dq));
             if (k2 - k1 > 1 && w != 1) {
                 VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter)
                               << " k1 " << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w
@@ -730,11 +736,12 @@ private:
     * @return The centroid scale value corresponding to q.
     */
     Value integratedLocation(Value q) const {
-        return _compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI;
+        return static_cast<Value>(_compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI);
     }
 
     Value integratedQ(Value k) const {
-        return (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2;
+        return static_cast<Value>(
+                (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2);
     }
 
     /**
@@ -782,5 +789,5 @@ private:
         return previousMean * previousWeight + nextMean * nextWeight;
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

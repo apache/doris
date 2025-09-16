@@ -17,10 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -473,5 +478,29 @@ public class RangePartitionInfoTest {
         // 3. delete files
         in.close();
         Files.delete(path);
+    }
+
+    @Test
+    public void testAutotoSql() throws AnalysisException, DdlException {
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.DATEV2), true, null, "", "");
+        partitionColumns.add(k1);
+
+        ArrayList<Expr> params = new ArrayList<>();
+        SlotRef s1 = new SlotRef(new TableName("tbl"), "k1");
+        params.add(s1);
+        params.add(new StringLiteral("day"));
+
+        FunctionCallExpr f1 = new FunctionCallExpr("date_trunc", params);
+
+        ArrayList<Expr> partitionExprs = new ArrayList<>();
+        partitionExprs.add(f1);
+
+        partitionInfo = new RangePartitionInfo(true, partitionExprs, partitionColumns);
+        OlapTable table = new OlapTable();
+
+        String sql = partitionInfo.toSql(table, null);
+
+        String expected = "AUTO PARTITION BY RANGE (date_trunc(`tbl`.`k1`, 'day'))";
+        Assert.assertTrue("got: " + sql + ", should have: " + expected, sql.contains(expected));
     }
 }

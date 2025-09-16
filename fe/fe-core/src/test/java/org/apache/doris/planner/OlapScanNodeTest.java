@@ -31,6 +31,7 @@ import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -62,10 +63,11 @@ public class OlapScanNodeTest {
 
         PartitionColumnFilter  columnFilter = new PartitionColumnFilter();
         columnFilter.setInPredicate(inPredicate);
-        Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
-        filterMap.put("columnA", columnFilter);
+        Map<String, PartitionColumnFilter> filterMap = new CaseInsensitiveMap();
+        filterMap.put("COLUMNA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,
@@ -110,6 +112,7 @@ public class OlapScanNodeTest {
         filterMap.put("columnA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,

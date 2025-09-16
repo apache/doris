@@ -76,7 +76,7 @@ suite("test_index_inlist_fault_injection", "nonConcurrent") {
       sql "sync"
 
       try {
-        GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._rowid_result_for_index")
+        sql """ set enable_common_expr_pushdown = true; """
 
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0'); """
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where status in (1, 304, 200); """
@@ -86,7 +86,41 @@ suite("test_index_inlist_fault_injection", "nonConcurrent") {
         qt_sql """ select /*+ SET_VAR(inverted_index_skip_threshold = 0) */ count() from ${indexTbName} where (request match 'hm' and status in (1, 304, 200)); """
 
       } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._rowid_result_for_index")
+      }
+
+      try {
+        sql """ set enable_common_expr_pushdown = true; """
+
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0')); """
+        qt_sql """ select count() from ${indexTbName} where (clientip not in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0')); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' and clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') and clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' or clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') or clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' and clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') or clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' or clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') and clientip match '120.1.0.0'); """
+
+        qt_sql """ select count() from ${indexTbName} where (clientip = '2.1.0.0' and clientip = NULL or clientip = '40.135.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip = '2.1.0.0' or clientip = NULL and clientip = '40.135.0.0'); """
+
+        sql """ set enable_common_expr_pushdown = false; """
+
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0')); """
+        qt_sql """ select count() from ${indexTbName} where (clientip not in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0')); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' and clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') and clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' or clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') or clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' and clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') or clientip match '120.1.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip match '2.1.0.0' or clientip in ('40.135.0.0', '232.0.0.0', NULL, '26.1.0.0', '247.37.0.0') and clientip match '120.1.0.0'); """
+
+        qt_sql """ select count() from ${indexTbName} where (clientip = '2.1.0.0' and clientip = NULL or clientip = '40.135.0.0'); """
+        qt_sql """ select count() from ${indexTbName} where (clientip = '2.1.0.0' or clientip = NULL and clientip = '40.135.0.0'); """
+
+        sql """ set enable_common_expr_pushdown = true; """
+
+        sql """ set in_list_value_count_threshold = 0; """
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0', '247.37.0.0') or status = 200); """
+        sql """ set in_list_value_count_threshold = 10; """
+        qt_sql """ select count() from ${indexTbName} where (clientip in ('40.135.0.0', '232.0.0.0', '26.1.0.0', '247.37.0.0') or status = 200); """
+
+      } finally {
       }
     } finally {
     }

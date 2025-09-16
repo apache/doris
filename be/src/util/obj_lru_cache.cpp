@@ -20,11 +20,10 @@
 namespace doris {
 
 ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards)
-        : LRUCachePolicyTrackingManual(
-                  CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE, capacity, LRUCacheType::NUMBER,
-                  config::common_obj_lru_cache_stale_sweep_time_sec, num_shards) {
-    _enabled = (capacity > 0);
-}
+        : LRUCachePolicy(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE, capacity,
+                         LRUCacheType::NUMBER, config::common_obj_lru_cache_stale_sweep_time_sec,
+                         num_shards),
+          _enabled(capacity > 0) {}
 
 bool ObjLRUCache::lookup(const ObjKey& key, CacheHandle* handle) {
     if (!_enabled) {

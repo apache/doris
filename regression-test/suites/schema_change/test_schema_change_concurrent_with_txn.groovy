@@ -18,10 +18,11 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite('test_schema_change_concurrent_with_txn') {
+suite('test_schema_change_concurrent_with_txn', 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')
+    options.feConfigs.add('enable_abort_txn_by_checking_conflict_txn=false')
     docker(options) {
         sql 'SET GLOBAL insert_visible_timeout_ms = 2000'
 
@@ -70,7 +71,7 @@ suite('test_schema_change_concurrent_with_txn') {
         assertEquals(8, runningTxn)
 
         sql "ALTER TABLE tbl_1 ADD COLUMN k3 INT DEFAULT '-1'"
-        sql 'CREATE MATERIALIZED VIEW tbl_2_mv AS SELECT k1, k1 + k2 FROM tbl_2'
+        sql 'CREATE MATERIALIZED VIEW tbl_2_mv AS SELECT k1 as col1, k1 + k2 as col2 FROM tbl_2'
         sql 'ALTER TABLE tbl_3 ADD ROLLUP tbl_3_r1(k1, v)'
         sql 'ALTER TABLE tbl_4 ORDER BY (k2, k1)'
 

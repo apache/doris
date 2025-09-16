@@ -21,7 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -38,12 +39,9 @@ import java.util.Set;
 /**
  * ScalarFunction 'named_struct'.
  */
-public class CreateNamedStruct extends ScalarFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+public class CreateNamedStruct extends ScalarFunction implements CustomSignature, ComputePrecision, AlwaysNotNullable {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args()
-    );
+    public static final FunctionSignature SIGNATURE = FunctionSignature.ret(StructType.SYSTEM_DEFAULT).args();
 
     /**
      * constructor with 0 or more arguments.
@@ -52,8 +50,16 @@ public class CreateNamedStruct extends ScalarFunction
         super("named_struct", varArgs);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private CreateNamedStruct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (arity() < 2) {
+            throw new AnalysisException("named_struct requires at least two arguments, like: named_struct('a', 1)");
+        }
         if (arity() % 2 != 0) {
             throw new AnalysisException("named_struct can't be odd parameters, need even parameters " + this.toSql());
         }
@@ -63,13 +69,17 @@ public class CreateNamedStruct extends ScalarFunction
                 throw new AnalysisException("named_struct only allows"
                         + " constant string parameter in odd position: " + this);
             } else {
-                String name = ((StringLikeLiteral) child(i)).getStringValue();
+                String name = ((StringLikeLiteral) child(i)).getStringValue().toLowerCase();
                 if (names.contains(name)) {
                     throw new AnalysisException("The name of the struct field cannot be repeated."
                             + " same name fields are " + name);
                 } else {
                     names.add(name);
                 }
+            }
+            // i+1 is value, check if it is not jsonb/variant type
+            if (child(i + 1).getDataType().isJsonType() || child(i + 1).getDataType().isVariantType()) {
+                throw new AnalysisException("named_struct does not support jsonb/variant type");
             }
         }
     }
@@ -79,18 +89,18 @@ public class CreateNamedStruct extends ScalarFunction
      */
     @Override
     public CreateNamedStruct withChildren(List<Expression> children) {
-        return new CreateNamedStruct(children.toArray(new Expression[0]));
+        return new CreateNamedStruct(getFunctionParams(children));
     }
 
     @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitCreateNamedStruct(this, context);
+    public FunctionSignature computePrecision(FunctionSignature signature) {
+        return signature;
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
+    public FunctionSignature customSignature() {
         if (arity() == 0) {
-            return SIGNATURES;
+            return SIGNATURE;
         } else {
             ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
             for (int i = 0; i < arity(); i = i + 2) {
@@ -98,8 +108,14 @@ public class CreateNamedStruct extends ScalarFunction
                 structFields.add(new StructField(nameLiteral.getStringValue(),
                         children.get(i + 1).getDataType(), true, ""));
             }
-            return ImmutableList.of(FunctionSignature.ret(new StructType(structFields.build()))
-                    .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new)));
+            return FunctionSignature.ret(new StructType(structFields.build()))
+                    .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));
         }
     }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitCreateNamedStruct(this, context);
+    }
+
 }

@@ -21,6 +21,7 @@
 #include "vec/sink/writer/vhive_table_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class HiveTableSinkOperatorX;
 
@@ -39,11 +40,7 @@ public:
         return Base::open(state);
     }
 
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class HiveTableSinkOperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class HiveTableSinkOperatorX final : public DataSinkOperatorX<HiveTableSinkLocalState> {
@@ -51,7 +48,7 @@ public:
     using Base = DataSinkOperatorX<HiveTableSinkLocalState>;
     HiveTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
                            const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0),
+            : Base(operator_id, 0, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
               _pool(pool) {};
@@ -65,11 +62,7 @@ public:
 
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
-    Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 
@@ -91,4 +84,5 @@ private:
     ObjectPool* _pool = nullptr;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

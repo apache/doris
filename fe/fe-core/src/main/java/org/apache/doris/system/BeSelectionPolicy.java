@@ -17,6 +17,8 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -58,6 +60,8 @@ public class BeSelectionPolicy {
     public int nextRoundRobinIndex = -1;
 
     public List<String> preferredLocations = new ArrayList<>();
+
+    public boolean requireAliveBe = false;
 
     private BeSelectionPolicy() {
 
@@ -130,6 +134,11 @@ public class BeSelectionPolicy {
             return this;
         }
 
+        public Builder setRequireAliveBe() {
+            policy.requireAliveBe = true;
+            return this;
+        }
+
         public BeSelectionPolicy build() {
             return policy;
         }
@@ -144,10 +153,12 @@ public class BeSelectionPolicy {
             return false;
         }
 
-        if (needScheduleAvailable && !backend.isScheduleAvailable() || needQueryAvailable && !backend.isQueryAvailable()
-                || needLoadAvailable && !backend.isLoadAvailable() || !resourceTags.isEmpty() && !resourceTags.contains(
-                backend.getLocationTag()) || storageMedium != null && !backend.hasSpecifiedStorageMedium(
-                storageMedium)) {
+        if (needScheduleAvailable && !backend.isScheduleAvailable()
+                || needQueryAvailable && !backend.isQueryAvailable()
+                || needLoadAvailable && !backend.isLoadAvailable()
+                || (!resourceTags.isEmpty() && !resourceTags.contains(backend.getLocationTag()))
+                || storageMedium != null && !backend.hasSpecifiedStorageMedium(storageMedium)
+                || (requireAliveBe && !backend.isAlive())) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Backend [{}] is not match by Other rules, policy: [{}]", backend.getHost(), this);
             }
@@ -174,7 +185,8 @@ public class BeSelectionPolicy {
     }
 
     public List<Backend> getCandidateBackends(Collection<Backend> backends) {
-        List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
+        List<Backend> filterBackends = backends.stream().filter(this::isMatch)
+                .collect(Collectors.toList());
         List<Backend> preLocationFilterBackends = filterBackends.stream()
                 .filter(iterm -> preferredLocations.contains(iterm.getHost())).collect(Collectors.toList());
         // If preLocations were chosen, use the preLocation backends. Otherwise we just ignore this filter.
@@ -208,6 +220,10 @@ public class BeSelectionPolicy {
             }
         } else {
             candidates.addAll(filterBackends);
+        }
+        // filter out backends in black list
+        if (!Config.disable_backend_black_list) {
+            candidates = candidates.stream().filter(b -> SimpleScheduler.isAvailable(b)).collect(Collectors.toList());
         }
         Collections.shuffle(candidates);
         return candidates;

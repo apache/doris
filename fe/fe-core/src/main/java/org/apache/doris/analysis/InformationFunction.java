@@ -17,10 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TInfoFunc;
@@ -67,27 +66,6 @@ public class InformationFunction extends Expr {
     }
 
     @Override
-    protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (funcType.equalsIgnoreCase("DATABASE") || funcType.equalsIgnoreCase("SCHEMA")) {
-            type = Type.VARCHAR;
-            strValue = ClusterNamespace.getNameFromFullName(analyzer.getDefaultDb());
-        } else if (funcType.equalsIgnoreCase("USER")) {
-            type = Type.VARCHAR;
-            strValue = ConnectContext.get().getUserIdentity().toString();
-        } else if (funcType.equalsIgnoreCase("CURRENT_USER")) {
-            type = Type.VARCHAR;
-            strValue = ConnectContext.get().getCurrentUserIdentity().toString();
-        } else if (funcType.equalsIgnoreCase("CONNECTION_ID")) {
-            type = Type.BIGINT;
-            intValue = analyzer.getConnectId();
-            strValue = "";
-        } else if (funcType.equalsIgnoreCase("CURRENT_CATALOG")) {
-            type = Type.VARCHAR;
-            strValue = ConnectContext.get().getDefaultCatalog();
-        }
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.INFO_FUNC;
         msg.info_func = new TInfoFunc(intValue, strValue);
@@ -95,6 +73,12 @@ public class InformationFunction extends Expr {
 
     @Override
     public String toSqlImpl() {
+        return funcType + "()";
+    }
+
+    @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
         return funcType + "()";
     }
 

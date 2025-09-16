@@ -17,18 +17,22 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
@@ -59,8 +63,9 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
     }
 
     protected final void assertRewrite(String expression, String expected) {
-        Expression needRewriteExpression = PARSER.parseExpression(expression);
-        Expression expectedExpression = PARSER.parseExpression(expected);
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
+        Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -90,10 +95,11 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
         needRewriteExpression = typeCoercion(replaceUnboundSlot(needRewriteExpression, mem));
         Expression expectedExpression = PARSER.parseExpression(expected);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
+        expectedExpression = typeCoercion(replaceUnboundSlot(expectedExpression, mem));
         Assertions.assertEquals(expectedExpression.toSql(), rewrittenExpression.toSql());
     }
 
-    protected Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
+    public static Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {
         List<Expression> children = Lists.newArrayList();
         boolean hasNewChildren = false;
         for (Expression child : expression.children()) {
@@ -104,18 +110,23 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
             children.add(newChild);
         }
         if (expression instanceof UnboundSlot) {
-            String name = ((UnboundSlot) expression).getName();
-            mem.putIfAbsent(name, SlotReference.of(name, getType(name.charAt(0))));
+            ExprId exprId = StatementScopeIdGenerator.newExprId();
+            UnboundSlot slot = (UnboundSlot) expression;
+            String name = slot.getNameParts().get(slot.getNameParts().size() - 1);
+            List<String> qualifier = slot.getQualifier();
+            DataType dataType = getType(name.charAt(0));
+            Column column = new Column(name, dataType.toCatalogDataType());
+            mem.putIfAbsent(name, new SlotReference(exprId, name, dataType, true, qualifier, null, column, null, null));
             return mem.get(name);
         }
         return hasNewChildren ? expression.withChildren(children) : expression;
     }
 
-    protected Expression typeCoercion(Expression expression) {
+    public static Expression typeCoercion(Expression expression) {
         return ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(expression, null);
     }
 
-    protected DataType getType(char t) {
+    private static DataType getType(char t) {
         switch (t) {
             case 'T':
                 return TinyIntType.INSTANCE;
@@ -131,6 +142,8 @@ public abstract class ExpressionRewriteTestHelper extends ExpressionRewrite {
                 return BooleanType.INSTANCE;
             case 'C':
                 return DateV2Type.INSTANCE;
+            case 'A':
+                return DateTimeV2Type.SYSTEM_DEFAULT;
             case 'M':
                 return DecimalV3Type.SYSTEM_DEFAULT;
             default:

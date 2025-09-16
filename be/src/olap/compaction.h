@@ -18,7 +18,16 @@
 #pragma once
 
 #include <cstdint>
+// clang20 + -O1 causes warnings about pass-failed
+// error: loop not unrolled: the optimizer was unable to perform the requested transformation; the transformation might be disabled or specified as part of an unsupported transformation ordering [-Werror,-Wpass-failed=transform-warning]
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wpass-failed"
+#endif
 #include <memory>
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include <string>
 #include <vector>
 
@@ -41,6 +50,8 @@ struct RowsetWriterContext;
 class StorageEngine;
 class CloudStorageEngine;
 
+static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
+static constexpr int64_t INVALID_COMPACTION_INITIATOR_ID = -100;
 // This class is a base class for compaction.
 // The entrance of this class is compact()
 // Any compaction should go through four procedures.
@@ -64,12 +75,26 @@ public:
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
 
+    // the difference between index change compmaction and other compaction.
+    // 1. delete predicate should be kept when input is cumu rowset.
+    // 2. inverted compaction should be skipped.
+    // 3. compute level should not be changed.
+    virtual bool is_index_change_compaction() { return false; }
+
+private:
+    void set_delete_predicate_for_output_rowset();
+
 protected:
     Status merge_input_rowsets();
 
+    // merge inverted index files
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    // mark all columns in columns_to_do_index_compaction to skip index compaction next time.
+    void mark_skip_index_compaction(const RowsetWriterContext& context,
+                                    const std::function<void(int64_t, int64_t)>& error_handler);
+
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
@@ -83,16 +108,25 @@ protected:
 
     int64_t merge_way_num();
 
+    virtual Status update_delete_bitmap() = 0;
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    int64_t _input_rowsets_size {0};
+    int64_t _input_rowsets_data_size {0};
+    int64_t _input_rowsets_index_size {0};
+    int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
-    int64_t _input_index_size {0};
+
+    int64_t _local_read_bytes_total {};
+    int64_t _remote_read_bytes_total {};
+
+    int64_t _input_rowsets_cached_data_size {0};
+    int64_t _input_rowsets_cached_index_size {0};
 
     Merger::Statistics _stats;
 
@@ -104,14 +138,17 @@ protected:
 
     bool _is_vertical;
     bool _allow_delete_in_cumu_compaction;
+    bool _enable_vertical_compact_variant_subcolumns;
 
     Version _output_version;
 
     int64_t _newest_write_timestamp {-1};
-    RowIdConversion _rowid_conversion;
+    std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
+
+    bool _enable_inverted_index_compaction {false};
 
     RuntimeProfile::Counter* _input_rowsets_data_size_counter = nullptr;
     RuntimeProfile::Counter* _input_rowsets_counter = nullptr;
@@ -136,6 +173,12 @@ public:
 
     int64_t get_compaction_permits();
 
+    int64_t initiator() const { return INVALID_COMPACTION_INITIATOR_ID; }
+
+    int64_t calc_input_rowsets_total_size() const;
+
+    int64_t calc_input_rowsets_row_num() const;
+
 protected:
     // Convert `_tablet` from `BaseTablet` to `Tablet`
     Tablet* tablet();
@@ -144,12 +187,14 @@ protected:
 
     virtual Status modify_rowsets();
 
+    Status update_delete_bitmap() override;
+
     StorageEngine& _engine;
 
 private:
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info(bool is_ordered_compaction = false);
 
     // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
@@ -157,6 +202,8 @@ private:
     Status do_compact_ordered_rowsets();
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
+
+    void update_compaction_level();
 
     PendingRowsetGuard _pending_rs_guard;
 };
@@ -170,25 +217,41 @@ public:
 
     Status execute_compact() override;
 
+    int64_t initiator() const;
+
+    int64_t num_input_rowsets() const;
+
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
-    virtual void garbage_collection();
+    Status update_delete_bitmap() override;
+
+    virtual Status garbage_collection();
 
     CloudStorageEngine& _engine;
 
+    std::string _uuid;
+
     int64_t _expiration = 0;
+
+    virtual Status rebuild_tablet_schema() { return Status::OK(); }
 
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
+    Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
+
     Status execute_compact_impl(int64_t permits);
 
-    void build_basic_info();
+    Status build_basic_info();
 
     virtual Status modify_rowsets();
 
     int64_t get_compaction_permits();
+
+    void update_compaction_level();
+
+    bool should_cache_compaction_output();
 };
 
 } // namespace doris

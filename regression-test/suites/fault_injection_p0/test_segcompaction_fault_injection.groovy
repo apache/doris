@@ -19,6 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("test_segcompaction_correctness", "nonConcurrent,p2") {
+    if (isCloudMode()) {
+        logger.info("skip test in cloud mode")
+        return
+    }
+
     def tableName = "segcompaction_correctness_test"
     def create_table_sql = """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -43,26 +48,8 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
         String endpoint = getS3Endpoint()
         String region = getS3Region()
         String bucket = getS3BucketName()
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        String backend_id;
         try {
-            getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-            backend_id = backendId_to_backendIP.keySet()[0]
-            def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
 
-            logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def configList = parseJson(out.trim())
-            assert configList instanceof List
-
-            boolean disableAutoCompaction = true
-            for (Object ele in (List) configList) {
-                assert ele instanceof List<String>
-                if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                    disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-                }
-            }
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql "${create_table_sql}"
 
@@ -82,9 +69,6 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
                 "AWS_ENDPOINT" = "$endpoint",
                 "AWS_REGION" = "$region",
                 "provider" = "${getS3Provider()}"
-            )
-            properties(
-                "use_new_load_scan_node" = "true"
             )
             """
 
@@ -110,7 +94,7 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
-            tablets = sql """ show tablets from ${tableName}; """
+            def tablets = sql """ show tablets from ${tableName}; """
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")
         }

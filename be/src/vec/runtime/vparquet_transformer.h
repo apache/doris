@@ -25,11 +25,14 @@
 #include <parquet/file_writer.h>
 #include <parquet/properties.h>
 #include <parquet/types.h>
-#include <stdint.h>
 
+#include <cstdint>
+
+#include "vec/exec/format/table/iceberg/schema.h"
 #include "vfile_format_transformer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -80,10 +83,13 @@ public:
 
     static void build_version(parquet::WriterProperties::Builder& builder,
                               const TParquetVersion::type& parquet_version);
-    static void build_schema_data_logical_type(
-            std::shared_ptr<const parquet::LogicalType>& parquet_data_logical_type_ptr,
-            const TParquetDataLogicalType::type& column_data_logical_type, int* primitive_length,
-            const TypeDescriptor& type_desc);
+};
+
+struct ParquetFileOptions {
+    TParquetCompressionType::type compression_type;
+    TParquetVersion::type parquet_version;
+    bool parquet_disable_dictionary = false;
+    bool enable_int96_timestamps = false;
 };
 
 // a wrapper of parquet output stream
@@ -91,17 +97,16 @@ class VParquetTransformer final : public VFileFormatTransformer {
 public:
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<std::string> column_names,
-                        TParquetCompressionType::type compression_type,
-                        bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
+                        std::vector<std::string> column_names, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        const std::string* iceberg_schema_json = nullptr,
+                        const iceberg::Schema* iceberg_schema = nullptr);
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
-                        const std::vector<TParquetSchema>& parquet_schemas,
-                        TParquetCompressionType::type compression_type,
-                        bool parquet_disable_dictionary, TParquetVersion::type parquet_version,
-                        bool output_object_data, const std::string* iceberg_schema_json = nullptr);
+                        const std::vector<TParquetSchema>& parquet_schemas, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        const std::string* iceberg_schema_json = nullptr);
 
     ~VParquetTransformer() override = default;
 
@@ -126,11 +131,12 @@ private:
 
     std::vector<std::string> _column_names;
     const std::vector<TParquetSchema>* _parquet_schemas = nullptr;
-    const TParquetCompressionType::type _compression_type;
-    const bool _parquet_disable_dictionary;
-    const TParquetVersion::type _parquet_version;
+    const ParquetFileOptions _parquet_options;
     const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
+    const iceberg::Schema* _iceberg_schema;
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -49,6 +49,8 @@ DB_ADMIN_USER=${USER:-"root"}
 DB_ADMIN_PASSWD=$PASSWD
 # myself as IP or FQDN
 MYSELF=
+# doris mtat storage path
+DORIS_META_DIR=
 
 function log_stderr()
 {
@@ -110,6 +112,13 @@ collect_env_info()
     if [[ "x$query_port" != "x" ]] ; then
         QUERY_PORT=$query_port
     fi
+
+    # parse meta_dir
+    local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
+    if [[ "x$doris_meta_path" == "x" ]] ; then
+        doris_meta_path="/opt/apache-doris/fe/doris-meta"
+    fi
+    DORIS_META_DIR=$doris_meta_path
 }
 
 # get all registered fe in cluster.
@@ -320,6 +329,51 @@ update_conf_from_configmap()
     add_fqdn_config
 }
 
+mount_kerberos_config()
+{
+    if [[ ! -n "$KRB5_MOUNT_PATH" ]]; then
+        return
+    fi
+
+    KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # If the krb5 directory does not exist, need to create it.
+    if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
+        log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
+        mkdir -p "$KRB5_CONFIG_DIR"
+    fi
+
+    log_stderr "[info] Creating krb5 symlinks for each file from $KRB5_MOUNT_PATH to $KRB5_CONFIG_DIR"
+    # The files under KRB5_MONT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KRB5_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating krb5 symlink for $filename"
+            ln -sf "$file" "$KRB5_CONFIG_DIR/$filename"
+        fi
+    done
+
+    if [[ "$KEYTAB_MOUNT_PATH" == "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] KEYTAB_MOUNT_PATH is same as KEYTAB_FINAL_USED_PATH, skip creating symlinks"
+        return
+    fi
+
+    # If the keytab directory does not exist, need to create it.
+    if [[ ! -d "$KEYTAB_FINAL_USED_PATH" ]]; then
+        log_stderr "[info] Creating keytab directory: $KEYTAB_FINAL_USED_PATH"
+        mkdir -p "$KEYTAB_FINAL_USED_PATH"
+    fi
+
+    log_stderr "[info] Creating keytab symlinks for each file from $KEYTAB_MOUNT_PATH to $KEYTAB_FINAL_USED_PATH"
+    # The files under KEYTAB_MOUNT_PATH are soft links from other directories. Therefore, a for loop is needed to directly soft link the files.
+    for file in "$KEYTAB_MOUNT_PATH"/*; do
+        if [ -e "$file" ]; then
+            filename=$(basename "$file")
+            log_stderr "[info] Creating keytab symlink for $filename"
+            ln -sf "$file" "$KEYTAB_FINAL_USED_PATH/$filename"
+        fi
+    done
+}
+
 # resolve password for root
 resolve_password_from_secret()
 {
@@ -350,8 +404,8 @@ start_fe_with_meta()
 # print the least 10 records of 'VLSN'. When fe failed to restart, user can select the fe of VLSN is the bigest to force restart.
 print_vlsn()
 {
-    local doirs_meta_path=`parse_confval_from_fe_conf "meta_dir"`
-    if [[ "x$doirs_meta_path" == "x" ]] ; then
+    local doris_meta_path=`parse_confval_from_fe_conf "meta_dir"`
+    if [[ "x$doris_meta_path" == "x" ]] ; then
         doris_meta_path="/opt/apache-doris/fe/doris-meta"
     fi
 
@@ -377,8 +431,8 @@ create_account()
         return 0
     fi
 
-    if echo $users | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
-       log_stderr "the $DB_ADMIN_USER have exit in doris."
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
        return 0
     fi
 
@@ -392,17 +446,21 @@ if [[ "x$fe_addrs" == "x" ]]; then
     exit
 fi
 
+#first upate config
 update_conf_from_configmap
+collect_env_info
+mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
-if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
+# if [[ -f "/opt/apache-doris/fe/doris-meta/image/ROLE" ]]; then
+doris_meta_dir=$(eval "echo \"$DORIS_META_DIR\"")
+if [[ -f "$doris_meta_dir/image/ROLE" ]]; then
     log_stderr "start fe with exist meta."
     ./doris-debug --component fe
     print_vlsn
     start_fe_with_meta
 else
     log_stderr "first start fe with meta not exist."
-    collect_env_info
     probe_master $fe_addrs
     #create account about node management
     create_account

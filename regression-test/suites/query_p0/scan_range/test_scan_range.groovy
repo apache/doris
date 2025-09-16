@@ -21,6 +21,7 @@ suite("test_scan_range", "query,p0") {
 
     def tableName = "test_scan_range_tbl"
 
+    sql "drop TABLE if exists `${tableName}`;"
     sql """
         CREATE TABLE `${tableName}` (
           `k1` INT NULL,
@@ -34,6 +35,8 @@ suite("test_scan_range", "query,p0") {
     """
 
     sql "insert into ${tableName} values(1,1)"
+    sql "insert into ${tableName} values(-2147483648, -2147483648)"
+    sql "insert into ${tableName} values(null, null)"
 
     qt_sql_1 "select k1 from ${tableName} where k1 > -2147483648"
 
@@ -42,4 +45,7 @@ suite("test_scan_range", "query,p0") {
     qt_sql_3 "select k1 from ${tableName} where k1 < -2147483648"
 
     qt_sql_4 "select k1 from ${tableName} where k1 > 2147483647"
+
+    qt_sql_5 "select k1 from ${tableName} where k1 is null"
+    
 }

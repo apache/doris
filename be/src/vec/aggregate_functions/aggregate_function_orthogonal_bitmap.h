@@ -36,9 +36,9 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -47,20 +47,28 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitmapBaseData {
 public:
-    using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+    using ColVecData =
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
+
+    void reset() {
+        bitmap = {};
+        first_init = true;
+    }
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& data_col =
+                assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
 
-        if constexpr (IsNumber<T>) {
+        if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
             bitmap.update(data_col.get_element(row_num), bitmap_value);
-        }
-        if constexpr (std::is_same_v<T, std::string_view>) {
+        } else {
             // TODO: rethink here we really need to do a virtual function call
             auto sr = data_col.get_data_at(row_num);
             bitmap.update(std::string_view {sr.data, sr.size}, bitmap_value);
@@ -71,11 +79,11 @@ public:
         if (first_init) {
             DCHECK(argument_size > 1);
             for (int idx = 2; idx < argument_size; ++idx) {
-                const auto& col = assert_cast<const ColVecData&>(*columns[idx]);
-                if constexpr (IsNumber<T>) {
+                const auto& col =
+                        assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[idx]);
+                if constexpr (is_int_or_bool(T) || is_float_or_double(T)) {
                     bitmap.add_key(col.get_element(row_num));
-                }
-                if constexpr (std::is_same_v<T, std::string_view>) {
+                } else {
                     auto sr = col.get_data_at(row_num);
                     bitmap.add_key(std::string_view {sr.data, sr.size});
                 }
@@ -85,16 +93,24 @@ public:
     }
 
 protected:
-    doris::BitmapIntersect<T> bitmap;
+    doris::BitmapIntersect<
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::CppType, std::string_view>>
+            bitmap;
     bool first_init = true;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapIntersect : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_intersect";
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeBitMap>(); }
+
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result.reset();
+    }
 
     void merge(const AggOrthBitMapIntersect& rhs) {
         if (rhs.first_init) {
@@ -105,26 +121,27 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
+                                                      : result);
     }
 
 private:
     BitmapValue result;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggIntersectCount : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "intersect_count";
@@ -140,32 +157,37 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
         data.resize(AggOrthBitmapBaseData<T>::bitmap.size());
         AggOrthBitmapBaseData<T>::bitmap.serialize(data.data());
-        write_binary(data, buf);
+        buf.write_binary(data);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
         std::string data;
-        read_binary(data, buf);
+        buf.read_binary(data);
         AggOrthBitmapBaseData<T>::bitmap.deserialize(data.data());
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapIntersectCount : public AggOrthBitmapBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_intersect_count";
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
+
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result = 0;
+    }
 
     void merge(const AggOrthBitMapIntersectCount& rhs) {
         if (rhs.first_init) {
@@ -176,18 +198,18 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapBaseData<T>::first_init);
         result = AggOrthBitmapBaseData<T>::bitmap.intersect_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
@@ -196,14 +218,18 @@ private:
     Int64 result = 0;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitmapExprCalBaseData {
 public:
-    using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
+    using ColVecData =
+            std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
+                               typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& bitmap_col = assert_cast<const ColumnBitmap&>(*columns[0]);
-        const auto& data_col = assert_cast<const ColVecData&>(*columns[1]);
+        const auto& bitmap_col =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& data_col =
+                assert_cast<const ColVecData&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         const auto& bitmap_value = bitmap_col.get_element(row_num);
         std::string update_key = data_col.get_data_at(row_num).to_string();
         bitmap_expr_cal.update(update_key, bitmap_value);
@@ -212,11 +238,17 @@ public:
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {
         if (first_init) {
             DCHECK(argument_size > 1);
-            const auto& col = assert_cast<const ColVecData&>(*columns[2]);
+            const auto& col =
+                    assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(*columns[2]);
             std::string expr = col.get_data_at(row_num).to_string();
             bitmap_expr_cal.bitmap_calculation_init(expr);
             first_init = false;
         }
+    }
+
+    void reset() {
+        bitmap_expr_cal = {};
+        first_init = true;
     }
 
 protected:
@@ -224,7 +256,7 @@ protected:
     bool first_init = true;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapExprCal : public AggOrthBitmapExprCalBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_expr_calculate";
@@ -239,13 +271,13 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate();
         DataTypeBitMap::serialize_as_stream(result, buf);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         DataTypeBitMap::deserialize_as_stream(result, buf);
     }
 
@@ -257,11 +289,16 @@ public:
                                                          ->bitmap_expr_cal.bitmap_calculate());
     }
 
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result.reset();
+    }
+
 private:
     BitmapValue result;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct AggOrthBitMapExprCalCount : public AggOrthBitmapExprCalBaseData<T> {
 public:
     static constexpr auto name = "orthogonal_bitmap_expr_calculate_count";
@@ -276,28 +313,33 @@ public:
     }
 
     void write(BufferWritable& buf) {
-        write_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
+        buf.write_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
         result = AggOrthBitmapExprCalBaseData<T>::bitmap_expr_cal.bitmap_calculate_count();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(AggOrthBitmapExprCalBaseData<T>::first_init, buf);
-        read_binary(result, buf);
+        buf.read_binary(AggOrthBitmapExprCalBaseData<T>::first_init);
+        buf.read_binary(result);
     }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result
                                               : const_cast<AggOrthBitMapExprCalCount*>(this)
                                                         ->bitmap_expr_cal.bitmap_calculate_count());
+    }
+
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result = 0;
     }
 
 private:
     int64_t result = 0;
 };
 
-template <typename T>
+template <PrimitiveType T>
 struct OrthBitmapUnionCountData {
     static constexpr auto name = "orthogonal_bitmap_union_count";
 
@@ -306,21 +348,27 @@ struct OrthBitmapUnionCountData {
     void init_add_key(const IColumn** columns, size_t row_num, int argument_size) {}
 
     void add(const IColumn** columns, size_t row_num) {
-        const auto& column = assert_cast<const ColumnBitmap&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         value |= column.get_data()[row_num];
     }
     void merge(const OrthBitmapUnionCountData& rhs) { result += rhs.result; }
 
     void write(BufferWritable& buf) {
         result = value.cardinality();
-        write_binary(result, buf);
+        buf.write_binary(result);
     }
 
-    void read(BufferReadable& buf) { read_binary(result, buf); }
+    void read(BufferReadable& buf) { buf.read_binary(result); }
 
     void get(IColumn& to) const {
-        auto& column = assert_cast<ColumnVector<Int64>&>(to);
+        auto& column = assert_cast<ColumnInt64&>(to);
         column.get_data().emplace_back(result ? result : value.cardinality());
+    }
+
+    void reset() {
+        value.reset();
+        result = 0;
     }
 
 private:
@@ -330,24 +378,29 @@ private:
 
 template <typename Impl>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_),
-              _argument_size(argument_types_.size()) {}
+              // The number of arguments will not exceed the size of an int
+              _argument_size(int(argument_types_.size())) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
 
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -356,7 +409,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -368,3 +421,5 @@ private:
     int _argument_size;
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

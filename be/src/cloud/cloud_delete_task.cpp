@@ -48,12 +48,17 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     tablet->last_load_time_ms =
             duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     // check if version number exceed limit
-    if (tablet->fetch_add_approximate_num_rowsets(0) > config::max_tablet_version_num) {
+
+    int32_t max_version_config = tablet->max_version_config();
+    if (tablet->fetch_add_approximate_num_rowsets(0) > max_version_config) {
         LOG_WARNING("tablet exceeds max version num limit")
-                .tag("limit", config::max_tablet_version_num)
+                .tag("limit", max_version_config)
                 .tag("tablet_id", tablet->tablet_id());
-        return Status::Error<TOO_MANY_VERSION>("too many versions, versions={} tablet={}",
-                                               config::max_tablet_version_num, tablet->tablet_id());
+        return Status::Error<TOO_MANY_VERSION>(
+                "too many versions, versions={} tablet={}. Please reduce the frequency of loading "
+                "data or adjust the max_tablet_version_num or time_series_max_tablet_version_num "
+                "in be.conf to a larger value.",
+                max_version_config, tablet->tablet_id());
     }
 
     // check delete condition if push for delete
@@ -61,6 +66,8 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     auto tablet_schema = std::make_shared<TabletSchema>();
     // FIXME(plat1ko): Rewrite columns updating logic
     tablet_schema->update_tablet_columns(*tablet->tablet_schema(), request.columns_desc);
+    tablet_schema->update_indexes_from_thrift(request.index_list);
+
     tablet_schema->set_schema_version(request.schema_version);
     RETURN_IF_ERROR(DeleteHandler::generate_delete_predicate(*tablet_schema,
                                                              request.delete_conditions, &del_pred));
@@ -89,7 +96,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     RETURN_IF_ERROR(rowset_writer->build(rowset));
     rowset->rowset_meta()->set_delete_predicate(std::move(del_pred));
 
-    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta());
+    auto st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);
@@ -105,7 +112,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.timeout, nullptr);
     }
 
-    return Status::OK();
+    return st;
 }
 
 } // namespace doris

@@ -17,18 +17,17 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DbName;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Maps;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -65,24 +64,23 @@ public class CreateIcebergTableTest {
         param.put("warehouse", warehouse);
 
         // create catalog
-        CreateCatalogStmt createCatalogStmt = new CreateCatalogStmt(true, "iceberg", "", param, "comment");
-        icebergCatalog = (IcebergHadoopExternalCatalog) CatalogFactory.createFromStmt(1, createCatalogStmt);
+        CreateCatalogCommand createCatalogCommand = new CreateCatalogCommand("iceberg", true, "", "comment", param);
+        icebergCatalog = (IcebergHadoopExternalCatalog) CatalogFactory.createFromCommand(1, createCatalogCommand);
         if (icebergCatalog.getUseMetaCache().get()) {
             icebergCatalog.makeSureInitialized();
         } else {
-            icebergCatalog.setInitialized(true);
+            icebergCatalog.setInitializedForTest(true);
         }
 
         // create db
         ops = new IcebergMetadataOps(icebergCatalog, icebergCatalog.getCatalog());
-        CreateDbStmt createDbStmt = new CreateDbStmt(true, new DbName("iceberg", dbName), null);
-        ops.createDb(createDbStmt);
+        ops.createDb(dbName, true, Maps.newHashMap());
         if (icebergCatalog.getUseMetaCache().get()) {
             icebergCatalog.makeSureInitialized();
         } else {
-            icebergCatalog.setInitialized(true);
+            icebergCatalog.setInitializedForTest(true);
         }
-        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName);
+        IcebergExternalDatabase db = new IcebergExternalDatabase(icebergCatalog, 1L, dbName, dbName);
         icebergCatalog.addDatabaseForTest(db);
 
         // context
@@ -193,12 +191,32 @@ public class CreateIcebergTableTest {
         Assertions.assertTrue(plan instanceof CreateTableCommand);
         CreateTableInfo createTableInfo = ((CreateTableCommand) plan).getCreateTableInfo();
         createTableInfo.setIsExternal(true);
-        CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
-        ops.createTable(createTableStmt);
+        createTableInfo.analyzeEngine();
+        ops.createTable(createTableInfo);
     }
 
     public String getTableName() {
         String s = "test_tb_" + UUID.randomUUID();
         return s.replaceAll("-", "");
+    }
+
+    @Test
+    public void testDropDB() {
+        try {
+            // create db success
+            ops.createDb("iceberg", false, Maps.newHashMap());
+            // drop db success
+            ops.dropDb("iceberg", false, false);
+        } catch (Throwable t) {
+            Assert.fail();
+        }
+
+        try {
+            ops.dropDb("iceberg", false, false);
+            Assert.fail();
+        } catch (Throwable t) {
+            Assert.assertTrue(t instanceof DdlException);
+            Assert.assertTrue(t.getMessage().contains("database doesn't exist"));
+        }
     }
 }

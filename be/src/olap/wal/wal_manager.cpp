@@ -17,6 +17,7 @@
 
 #include "olap/wal/wal_manager.h"
 
+#include <absl/strings/str_split.h>
 #include <bvar/bvar.h>
 #include <glog/logging.h>
 
@@ -29,7 +30,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "gutil/strings/split.h"
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_dirs_info.h"
 #include "runtime/exec_env.h"
@@ -46,7 +46,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
           _stop(false),
           _stop_background_threads_latch(1),
           _first_replay(true) {
-    _wal_dirs = strings::Split(wal_dir_list, ";", strings::SkipWhitespace());
+    _wal_dirs = absl::StrSplit(wal_dir_list, ";", absl::SkipWhitespace());
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_relay_wal_threads)
@@ -157,10 +157,14 @@ Status WalManager::_init_wal_dirs_info() {
         wal_limit_test_bytes = wal_disk_limit;
 #endif
     }
+#ifndef BE_TEST
     return Thread::create(
             "WalMgr", "update_wal_dir_info",
             [this]() { static_cast<void>(this->_update_wal_dir_info_thread()); },
             &_update_wal_dirs_info_thread);
+#else
+    return Status::OK();
+#endif
 }
 
 void WalManager::add_wal_queue(int64_t table_id, int64_t wal_id) {
@@ -213,7 +217,7 @@ Status WalManager::create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_
     base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
-       << std::to_string(wal_version) << "_" << _exec_env->master_info()->backend_id << "_"
+       << std::to_string(wal_version) << "_" << _exec_env->cluster_info()->backend_id << "_"
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_path_lock);
@@ -377,8 +381,8 @@ Status WalManager::_replay_background() {
             break;
         }
         // port == 0 means not received heartbeat yet
-        if (_exec_env->master_info() != nullptr &&
-            _exec_env->master_info()->network_address.port == 0) {
+        if (_exec_env->cluster_info() != nullptr &&
+            _exec_env->cluster_info()->master_fe_addr.port == 0) {
             continue;
         }
         // replay residual wal,only replay once
@@ -475,6 +479,11 @@ Status WalManager::update_wal_dir_estimated_wal_bytes(const std::string& wal_dir
 
 Status WalManager::_update_wal_dir_info_thread() {
     while (!_stop.load()) {
+        if (!ExecEnv::ready()) {
+            LOG(INFO) << "Sleep 1s to wait for storage engine init.";
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            continue;
+        }
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_limit());
         static_cast<void>(_wal_dirs_info->update_all_wal_dir_used());
         LOG_EVERY_N(INFO, 100) << "Scheduled(every 10s) WAL info: " << get_wal_dirs_info_string();

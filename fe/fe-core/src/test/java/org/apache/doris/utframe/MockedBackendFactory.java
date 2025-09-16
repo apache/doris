@@ -41,6 +41,8 @@ import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TCloneReq;
+import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TDropTabletReq;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -79,8 +81,6 @@ import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
@@ -94,8 +94,11 @@ import io.grpc.stub.StreamObserver;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
+import java.util.Random;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 /*
  * This class is used to create mock backends.
@@ -110,7 +113,7 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
-    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8070;
+    public static final int BE_DEFAULT_ARROW_FLIGHT_SQL_PORT = 8050;
 
     // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
@@ -203,6 +206,9 @@ public class MockedBackendFactory {
                             TTaskType taskType = request.getTaskType();
                             switch (taskType) {
                                 case CREATE:
+                                    ++reportVersion;
+                                    handleCreateTablet(request, finishTaskRequest);
+                                    break;
                                 case ALTER:
                                     ++reportVersion;
                                     break;
@@ -210,6 +216,7 @@ public class MockedBackendFactory {
                                     handleDropTablet(request, finishTaskRequest);
                                     break;
                                 case CLONE:
+                                    ++reportVersion;
                                     handleCloneTablet(request, finishTaskRequest);
                                     break;
                                 case STORAGE_MEDIUM_MIGRATE:
@@ -233,6 +240,30 @@ public class MockedBackendFactory {
                             }
                         }
                     }
+                }
+
+                private void handleCreateTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TCreateTabletReq req = request.getCreateTabletReq();
+                    List<DiskInfo> candDisks = backendInFe.getDisks().values().stream()
+                            .filter(disk -> req.storage_medium == disk.getStorageMedium() && disk.isAlive())
+                            .collect(Collectors.toList());
+                    if (candDisks.isEmpty()) {
+                        candDisks = backendInFe.getDisks().values().stream()
+                                .filter(DiskInfo::isAlive)
+                                .collect(Collectors.toList());
+                    }
+                    DiskInfo choseDisk = candDisks.isEmpty() ? null
+                            : candDisks.get(new Random().nextInt(candDisks.size()));
+
+                    List<TTabletInfo> tabletInfos = Lists.newArrayList();
+                    TTabletInfo tabletInfo = new TTabletInfo();
+                    tabletInfo.setTabletId(req.tablet_id);
+                    tabletInfo.setVersion(req.version);
+                    tabletInfo.setPathHash(choseDisk == null ? -1L : choseDisk.getPathHash());
+                    tabletInfo.setReplicaId(req.replica_id);
+                    tabletInfo.setUsed(true);
+                    tabletInfos.add(tabletInfo);
+                    finishTaskRequest.setFinishTabletInfos(tabletInfos);
                 }
 
                 private void handleDropTablet(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
@@ -274,6 +305,10 @@ public class MockedBackendFactory {
                     tabletInfo.setPathHash(pathHash);
                     tabletInfo.setUsed(true);
                     tabletInfos.add(tabletInfo);
+                    if (DebugPointUtil.isEnable("MockedBackendFactory.handleCloneTablet.failed")) {
+                        finishTaskRequest.setTaskStatus(new TStatus(TStatusCode.CANCELLED));
+                        finishTaskRequest.getTaskStatus().setErrorMsgs(Collections.singletonList("debug point set"));
+                    }
                     finishTaskRequest.setFinishTabletInfos(tabletInfos);
                 }
 
@@ -327,11 +362,6 @@ public class MockedBackendFactory {
 
         @Override
         public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) throws TException {
-            return null;
-        }
-
-        @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
             return null;
         }
 
@@ -467,17 +497,15 @@ public class MockedBackendFactory {
                 throws TException {
             return null;
         }
+
+        @Override
+        public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
+            return null;
+        }
     }
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-        @Override
-        public void transmitData(InternalService.PTransmitDataParams request,
-                                 StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-            responseObserver.onCompleted();
-        }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,

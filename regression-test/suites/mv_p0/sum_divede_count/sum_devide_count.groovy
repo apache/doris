@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("sum_devide_count") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -34,60 +36,48 @@ suite ("sum_devide_count") {
         """
 
     sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 1,1,1,'a';"
+    sql "insert into d_table select 2,2,2,'b';"
+    sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table select 3,-3,null,'c';"
+    sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
+    createMV ("create materialized view kavg as select k1 as a1,k4 as a2,sum(k2) as a3,count(k2) as a4 from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select -4,-4,-4,'d';"
+    sql "insert into d_table select 3,2,null,'c';"
+    sql "insert into d_table select 3,2,null,'c';"
     sql "insert into d_table select 3,2,null,'c';"
     qt_select_star "select * from d_table order by k1,k2,k3,k4;"
 
     sql """analyze table d_table with sync;"""
+    sql """alter table d_table modify column k3 set stats ('row_count'='15');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
     qt_select_mv "select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;"
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
     qt_select_mv "select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;"
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
     qt_select_mv "select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;"
 
-    explain {
-        sql("select sum(k2)/count(k2) from d_table;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
     qt_select_mv "select sum(k2)/count(k2) from d_table;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from d_table group by k1,k4 order by k1,k4;", "kavg")
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from d_table group by k1 order by k1;", "kavg")
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from d_table group by k4 order by k4;", "kavg")
 
-    explain {
-        sql("select sum(k2)/count(k2) from d_table;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from d_table;", "kavg")
 }

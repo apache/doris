@@ -73,26 +73,18 @@ public:
     virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {
     }
 
-    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const {
-        LOG(FATAL) << "should not reach here";
-        return true;
-    }
-
     virtual bool support_zonemap() const { return true; }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        LOG(FATAL) << "should not reach here";
-        return true;
+        throw Exception(Status::FatalError("should not reach here"));
     }
 
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
-        LOG(FATAL) << "should not reach here";
-        return true;
+        throw Exception(Status::FatalError("should not reach here"));
     }
 
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const {
-        LOG(FATAL) << "should not reach here";
-        return true;
+        throw Exception(Status::FatalError("should not reach here"));
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
@@ -134,10 +126,6 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override {
         return _predicate->can_do_bloom_filter(ngram);
-    }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return _predicate->can_do_apply_safely(input_type, is_null);
     }
 
 private:
@@ -218,15 +206,6 @@ public:
     bool can_do_bloom_filter(bool ngram) const override {
         for (auto& pred : _block_column_predicate_vec) {
             if (!pred->can_do_bloom_filter(ngram)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        for (auto& pred : _block_column_predicate_vec) {
-            if (!pred->can_do_apply_safely(input_type, is_null)) {
                 return false;
             }
         }

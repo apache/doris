@@ -39,7 +39,7 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
-// Table Connector for scan data from ODBC/JDBC
+// Table Connector for scan data from JDBC
 class TableConnector {
 public:
     TableConnector(const TupleDescriptor* tuple_desc, bool use_transaction,
@@ -50,7 +50,7 @@ public:
     // exec query for table
     virtual Status query() = 0;
 
-    // use in ODBC/JDBC transaction
+    // use in JDBC transaction
     virtual Status begin_trans() = 0;  // should be call after connect and before query
     virtual Status abort_trans() = 0;  // should be call after transaction abort
     virtual Status finish_trans() = 0; // should be call after transaction commit
@@ -60,9 +60,6 @@ public:
     virtual Status exec_stmt_write(vectorized::Block* block,
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
                                    uint32_t* num_rows_sent) = 0;
-
-    virtual Status exec_write_sql(const std::u16string& insert_stmt,
-                                  const fmt::memory_buffer& _insert_stmt_buffer) = 0;
 
     //write data into table vectorized
     virtual Status append(vectorized::Block* block,
@@ -75,8 +72,9 @@ public:
     std::u16string utf8_to_u16string(const char* first, const char* last);
 
     Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
-                               const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
-                               int row, TOdbcTableType::type table_type);
+                               const vectorized::DataTypePtr& type_ptr,
+                               const vectorized::DataTypePtr& type, size_t row,
+                               TOdbcTableType::type table_type);
 
     // Default max buffer size use in insert to: 50MB, normally a batch is smaller than the size
     static constexpr uint32_t INSERT_BUFFER_SIZE = 1024l * 1024 * 50;

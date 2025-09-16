@@ -24,6 +24,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 #include <re2/re2.h>
+#include <simdjson/error.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
 #include <stdlib.h>
 
@@ -44,10 +45,9 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
-rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
-                                             rapidjson::Value* document,
-                                             rapidjson::Document::AllocatorType& mem_allocator,
-                                             bool is_insert_null) {
+rapidjson::Value* NO_SANITIZE_UNDEFINED
+JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
+                           rapidjson::Document::AllocatorType& mem_allocator, bool is_insert_null) {
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = nullptr;
     for (int i = 1; i < parsed_paths.size(); i++) {
@@ -153,7 +153,7 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
     return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
-rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
+rapidjson::Value* NO_SANITIZE_UNDEFINED JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     *wrap_explicitly = false;
@@ -259,13 +259,17 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
                                           const std::vector<JsonPath>& jsonpath,
                                           simdjson::ondemand::value* value) noexcept {
 // Return DataQualityError when it's a malformed json.
-// Otherwise the path was not found, due to array out of bound or not exist
+// Otherwise the path was not found, due to
+// 1. array out of bound
+// 2. not exist such field in object
+// 3. the input type is not object but could be null or other types and lead to simdjson::INCORRECT_TYPE
 #define HANDLE_SIMDJSON_ERROR(err, msg)                                                     \
     do {                                                                                    \
         const simdjson::error_code& _err = err;                                             \
         const std::string& _msg = msg;                                                      \
         if (UNLIKELY(_err)) {                                                               \
-            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS) { \
+            if (_err == simdjson::NO_SUCH_FIELD || _err == simdjson::INDEX_OUT_OF_BOUNDS || \
+                _err == simdjson::INCORRECT_TYPE) {                                         \
                 return Status::NotFound<false>(                                             \
                         fmt::format("Not found target filed, err: {}, msg: {}",             \
                                     simdjson::error_message(_err), _msg));                  \
@@ -351,6 +355,11 @@ void JsonFunctions::merge_objects(rapidjson::Value& dst_object, rapidjson::Value
             dst_object.AddMember(src_it->name, src_it->value, allocator);
         }
     }
+}
+
+// root path "$."
+bool JsonFunctions::is_root_path(const std::vector<JsonPath>& json_path) {
+    return json_path.size() == 2 && json_path[0].key == "$" && json_path[1].key.empty();
 }
 
 } // namespace doris

@@ -19,8 +19,6 @@
 
 #ifdef __AVX2__
 #include <immintrin.h>
-
-#include "gutil/macros.h"
 #endif
 #include <unistd.h>
 
@@ -34,7 +32,7 @@
 
 namespace doris {
 
-static constexpr std::array<uint8, 256> UTF8_BYTE_LENGTH = {
+static constexpr std::array<uint8_t, 256> UTF8_BYTE_LENGTH = {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -187,7 +185,25 @@ public:
         return p;
     }
 
+    // Iterate a UTF-8 string without exceeding a given length n.
+    // The function returns two values:
+    // the first represents the byte length traversed, and the second represents the char length traversed.
+    static inline std::pair<size_t, size_t> iterate_utf8_with_limit_length(const char* begin,
+                                                                           const char* end,
+                                                                           size_t n) {
+        const char* p = begin;
+        int char_size = 0;
+
+        size_t i = 0;
+        for (; i < n && p < end; ++i, p += char_size) {
+            char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+        }
+
+        return {p - begin, i};
+    }
+
     // Gcc will do auto simd in this function
+    // if input empty, return true
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__
         return validate_ascii_fast_avx(str.data, str.size);
@@ -229,7 +245,7 @@ public:
         auto src_str_end = src_str + length;
 
 #if defined(__SSE2__) || defined(__aarch64__)
-        constexpr auto step = sizeof(uint64);
+        constexpr auto step = sizeof(uint64_t);
         if (src_str + step < src_str_end) {
             const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));
             const auto mask_map = _mm_set1_epi8(0x0F);
@@ -292,8 +308,11 @@ public:
     // is to say, counting bytes which do not match 10xx_xxxx pattern.
     // All 0xxx_xxxx, 110x_xxxx, 1110_xxxx and 1111_0xxx are greater than 1011_1111 when use int8_t arithmetic,
     // so just count bytes greater than 1011_1111 in a byte string as the result of utf8_length.
-    static inline size_t get_char_len(const char* src, size_t len) {
-        size_t char_len = 0;
+    // get_char_len is used to return the UTF-8 length of a string.
+    // The return value will never exceed len.
+    template <typename T>
+    static inline T get_char_len(const char* src, T len) {
+        T char_len = 0;
         const char* p = src;
         const char* end = p + len;
 #if defined(__SSE2__) || defined(__aarch64__)

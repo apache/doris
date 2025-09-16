@@ -23,8 +23,6 @@
 #include <rapidjson/rapidjson.h>
 #include <simdjson/common_defs.h>
 #include <simdjson/simdjson.h> // IWYU pragma: keep
-#include <stddef.h>
-#include <stdint.h>
 
 #include <memory>
 #include <string>
@@ -39,23 +37,17 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_map.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
-#include "vec/json/json_parser.h"
-#include "vec/json/simd_json_parser.h"
 
-namespace simdjson {
-namespace fallback {
-namespace ondemand {
+namespace simdjson::fallback::ondemand {
 class object;
-} // namespace ondemand
-} // namespace fallback
-} // namespace simdjson
+} // namespace simdjson::fallback::ondemand
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class SlotDescriptor;
 class RuntimeState;
 class TFileRangeDesc;
@@ -65,7 +57,6 @@ namespace io {
 class FileSystem;
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -88,12 +79,14 @@ public:
     ~NewJsonReader() override = default;
 
     Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                               col_default_value_ctx);
+                               col_default_value_ctx,
+                       bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
+    Status init_schema_reader() override;
     Status get_parsed_schema(std::vector<std::string>* col_names,
-                             std::vector<TypeDescriptor>* col_types) override;
+                             std::vector<DataTypePtr>* col_types) override;
 
 protected:
     void _collect_profile_before_close() override;
@@ -110,38 +103,11 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                              bool* eof);
 
-    Status _vhandle_simple_json(RuntimeState* /*state*/, Block& block,
-                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
-                                bool* eof);
+    Status _read_one_message(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
-    Status _vhandle_flat_array_complex_json(RuntimeState* /*state*/, Block& block,
-                                            const std::vector<SlotDescriptor*>& slot_descs,
-                                            bool* is_empty_row, bool* eof);
-
-    Status _vhandle_nested_complex_json(RuntimeState* /*state*/, Block& block,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
-
-    Status _parse_json(bool* is_empty_row, bool* eof);
-    Status _parse_json_doc(size_t* size, bool* eof);
-
-    Status _set_column_value(rapidjson::Value& objectValue, Block& block,
-                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                 bool* valid);
-
-    Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                      const std::vector<SlotDescriptor*>& slot_descs, Block& block,
-                                      bool* valid);
-
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
-                             std::string col_name, bool* valid);
-
-    static std::string _print_json_value(const rapidjson::Value& value);
-
-    Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
+    // StreamLoadPipe::read_one_message only reads a portion of the data when stream loading with a chunked transfer HTTP request.
+    // Need to read all the data before performing JSON parsing.
+    Status _read_one_message_from_pipe(DorisUniqueBufferPtr<uint8_t>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
@@ -178,8 +144,10 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          SlotDescriptor* slot_desc,
-                                          vectorized::IColumn* column_ptr, bool* valid);
+                                          const DataTypePtr& type_desc,
+                                          vectorized::IColumn* column_ptr,
+                                          const std::string& column_name, DataTypeSerDeSPtr serde,
+                                          bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,
@@ -197,9 +165,17 @@ private:
             const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
                     col_default_value_ctx);
 
-    Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                bool* valid);
+    Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
+                                vectorized::IColumn* column_ptr, bool* valid);
 
+    // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
+    // and the current load is a flexible partial update
+    // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
+    // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
+    bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
+    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
+    void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -219,10 +195,10 @@ private:
     bool _skip_first_line;
 
     std::string _line_delimiter;
-    int _line_delimiter_length;
+    size_t _line_delimiter_length;
 
-    int _next_row;
-    int _total_rows;
+    uint32_t _next_row;
+    size_t _total_rows;
 
     std::string _jsonpaths;
     std::string _json_root;
@@ -233,6 +209,7 @@ private:
 
     std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
     std::vector<JsonPath> _parsed_json_root;
+    bool _parsed_from_json_root = false; // to avoid parsing json root multiple times
 
     char _value_buffer[4 * 1024 * 1024]; // 4MB
     char _parse_buffer[512 * 1024];      // 512KB
@@ -251,21 +228,19 @@ private:
 
     io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
     RuntimeProfile::Counter* _read_timer = nullptr;
-    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
-    using NameMap = HashMap<StringRef, size_t, StringRefHash>;
+    using NameMap = phmap::flat_hash_map<StringRef, size_t, StringRefHash>;
     NameMap _slot_desc_index;
     /// Cached search results for previous row (keyed as index in JSON object) - used as a hint.
-    std::vector<NameMap::LookupResult> _prev_positions;
+    std::vector<NameMap::iterator> _prev_positions;
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
-    std::unique_ptr<uint8_t[]> _json_str_ptr;
+    DorisUniqueBufferPtr<uint8_t> _json_str_ptr;
     const uint8_t* _json_str = nullptr;
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
@@ -282,7 +257,30 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
+
+    int32_t skip_bitmap_col_idx {-1};
+
+    //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
+    //If an illegal value is encountered during the load process, `_append_error_msg` should be called
+    //instead of directly returning `Status::DataQualityError`
+    bool _is_load = true;
+
+    // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+    // Hive will not allow you to create columns with the same name but different case, including field names inside
+    // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
+    // to table, the column names in the data may be uppercase,and there may be multiple columns with
+    // the same name but different capitalization.We refer to the behavior of hive, convert all column names
+    // in the data to lowercase,and use the last one as the insertion value
+    bool _is_hive_table = false;
+
+    // hive : org.openx.data.jsonserde.JsonSerDe, `ignore.malformed.json` prop.
+    // If the variable is true, `null` will be inserted for llegal json format instead of return error.
+    bool _openx_json_ignore_malformed = false;
+
+    DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _serde_options;
 };
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

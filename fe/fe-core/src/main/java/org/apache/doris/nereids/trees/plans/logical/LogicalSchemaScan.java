@@ -20,13 +20,18 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -34,18 +39,64 @@ import java.util.Optional;
  */
 public class LogicalSchemaScan extends LogicalCatalogRelation {
 
+    private final boolean filterPushed;
+    private final Optional<String> schemaCatalog;
+    private final Optional<String> schemaDatabase;
+    private final Optional<String> schemaTable;
+    private final List<Expression> frontendConjuncts;
+
     public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier);
+        this(id, table, qualifier, false,
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty());
     }
 
-    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
+    /**
+     * Constructs a LogicalSchemaScan with the specified parameters.
+     *
+     * @param id Unique identifier for this relation
+     * @param table The table interface representing the underlying data source
+     * @param qualifier The qualifier list representing the path to this table
+     * @param filterPushed Whether filter has been pushed down to this scan operation
+     * @param schemaCatalog Optional catalog name in the schema
+     * @param schemaDatabase Optional database name in the schema
+     * @param schemaTable Optional table name in the schema
+     * @param virtualColumns List of virtual columns to be included in the scan
+     * @param frontendConjuncts conjuncts needed by FrontendService
+     * @param groupExpression Optional group expression for memo representation
+     * @param logicalProperties Optional logical properties for this plan node
+     */
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier, boolean filterPushed,
+            Optional<String> schemaCatalog, Optional<String> schemaDatabase, Optional<String> schemaTable,
+            List<NamedExpression> virtualColumns, List<Expression> frontendConjuncts,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
-        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
+        super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, ImmutableList.of(), virtualColumns,
+                groupExpression, logicalProperties);
+        this.filterPushed = filterPushed;
+        this.schemaCatalog = schemaCatalog;
+        this.schemaDatabase = schemaDatabase;
+        this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
-    @Override
-    public TableIf getTable() {
-        return table;
+    public boolean isFilterPushed() {
+        return filterPushed;
+    }
+
+    public Optional<String> getSchemaCatalog() {
+        return schemaCatalog;
+    }
+
+    public Optional<String> getSchemaDatabase() {
+        return schemaDatabase;
+    }
+
+    public Optional<String> getSchemaTable() {
+        return schemaTable;
+    }
+
+    public List<Expression> getFrontendConjuncts() {
+        return frontendConjuncts;
     }
 
     @Override
@@ -55,23 +106,59 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSchemaScan(relationId, table, qualifier,
-                groupExpression, Optional.of(getLogicalProperties()));
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
+                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalSchemaScan(relationId, table, qualifier, groupExpression, logicalProperties);
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, groupExpression,
+                logicalProperties);
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
-        return new LogicalSchemaScan(relationId, table, qualifier, Optional.empty(), Optional.empty());
+        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+                schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
+                Optional.empty());
+    }
+
+    public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
+            Optional<String> schemaTable, List<Expression> frontendConjuncts) {
+        return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
+                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()));
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalSchemaScan");
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        LogicalSchemaScan that = (LogicalSchemaScan) o;
+        return Objects.equals(schemaCatalog, that.schemaCatalog)
+                && Objects.equals(schemaDatabase, that.schemaDatabase)
+                && Objects.equals(schemaTable, that.schemaTable)
+                && Objects.equals(frontendConjuncts, that.frontendConjuncts)
+                && filterPushed == that.filterPushed;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), schemaCatalog, schemaDatabase, schemaTable, filterPushed,
+                frontendConjuncts);
     }
 }

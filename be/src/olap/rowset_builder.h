@@ -38,7 +38,6 @@ namespace doris {
 class CalcDeleteBitmapToken;
 class FlushToken;
 class MemTable;
-class MemTracker;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
@@ -85,9 +84,9 @@ public:
     Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
 
 protected:
-    void _build_current_tablet_schema(int64_t index_id,
-                                      const OlapTableSchemaParam* table_schema_param,
-                                      const TabletSchema& ori_tablet_schema);
+    Status _build_current_tablet_schema(int64_t index_id,
+                                        const OlapTableSchemaParam* table_schema_param,
+                                        const TabletSchema& ori_tablet_schema);
 
     virtual void _init_profile(RuntimeProfile* profile);
 
@@ -105,7 +104,8 @@ protected:
     DeleteBitmapPtr _delete_bitmap;
     std::unique_ptr<CalcDeleteBitmapToken> _calc_delete_bitmap_token;
     // current rowset_ids, used to do diff in publish_version
-    RowsetIdUnorderedSet _rowset_ids;
+    std::shared_ptr<RowsetIdUnorderedSet> _rowset_ids {std::make_shared<RowsetIdUnorderedSet>()};
+    int64_t _max_version_in_flush_phase {-1};
 
     std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 

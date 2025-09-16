@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AlterViewStmt;
-import org.apache.doris.analysis.ColWithComment;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -31,32 +29,28 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundResultSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-
 import java.util.List;
-import java.util.Set;
 
 /** AlterViewInfo */
 public class AlterViewInfo extends BaseViewInfo {
+
+    private final String comment;
+    private String inlineViewDef;
+
     /** constructor*/
-    public AlterViewInfo(TableNameInfo viewName, LogicalPlan logicalQuery,
+    public AlterViewInfo(TableNameInfo viewName, String comment,
             String querySql, List<SimpleColumnDefinition> simpleColumnDefinitions) {
-        super(viewName, logicalQuery, querySql, simpleColumnDefinitions);
-        if (logicalQuery instanceof LogicalFileSink) {
-            throw new AnalysisException("Not support OUTFILE clause in ALTER VIEW statement");
-        }
+        super(viewName, querySql, simpleColumnDefinitions);
+        this.comment = comment;
+    }
+
+    public AlterViewInfo(TableNameInfo viewName, String comment) {
+        super(viewName, null, null);
+        this.comment = comment;
     }
 
     /** init */
@@ -67,7 +61,7 @@ public class AlterViewInfo extends BaseViewInfo {
         viewName.analyze(ctx);
         FeNameFormat.checkTableName(viewName.getTbl());
         // disallow external catalog
-        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewStmt");
+        Util.prohibitExternalCatalog(viewName.getCtl(), "AlterViewCommand");
 
         DatabaseIf db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(viewName.getDb());
         TableIf table = db.getTableOrAnalysisException(viewName.getTbl());
@@ -82,41 +76,45 @@ public class AlterViewInfo extends BaseViewInfo {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
                     PrivPredicate.ALTER.getPrivs().toString(), viewName.getTbl());
         }
+        if (querySql == null) {
+            // Modify comment only.
+            return;
+        }
         analyzeAndFillRewriteSqlMap(querySql, ctx);
         PlanUtils.OutermostPlanFinderContext outermostPlanFinderContext = new PlanUtils.OutermostPlanFinderContext();
         analyzedPlan.accept(PlanUtils.OutermostPlanFinder.INSTANCE, outermostPlanFinderContext);
         List<Slot> outputs = outermostPlanFinderContext.outermostPlan.getOutput();
         createFinalCols(outputs);
-    }
 
-    /**validate*/
-    public void validate(ConnectContext ctx) throws UserException {
-        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        planner.plan(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
-        Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (Column col : finalCols) {
-            if (!colSets.add(col.getName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
-            }
-        }
-    }
-
-    /**translateToLegacyStmt*/
-    public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
-        List<ColWithComment> cols = Lists.newArrayList();
-        for (SimpleColumnDefinition def : simpleColumnDefinitions) {
-            cols.add(def.translateToColWithComment());
-        }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
-                null);
         // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString());
-
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
         // rewrite project alias
         rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        checkViewSql(rewrittenSql);
+        this.inlineViewDef = rewrittenSql;
+    }
 
-        alterViewStmt.setInlineViewDef(rewrittenSql);
-        alterViewStmt.setFinalColumns(finalCols);
-        return alterViewStmt;
+    public String getComment() {
+        return comment;
+    }
+
+    public TableNameInfo getViewName() {
+        return this.viewName;
+    }
+
+    public List<Column> getColumns() {
+        return this.finalCols;
+    }
+
+    public String getInlineViewDef() {
+        return inlineViewDef;
+    }
+
+    public void setInlineViewDef(String inlineViewDef) {
+        this.inlineViewDef = inlineViewDef;
+    }
+
+    public void setFinalColumns(List<Column> columns) {
+        finalCols.addAll(columns);
     }
 }

@@ -51,13 +51,18 @@ public class MapKeys extends ScalarFunction
         super("map_keys", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MapKeys(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MapKeys withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MapKeys(children.get(0));
+        return new MapKeys(getFunctionParams(children));
     }
 
     @Override

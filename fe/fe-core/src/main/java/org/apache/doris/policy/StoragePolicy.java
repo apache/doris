@@ -163,8 +163,9 @@ public class StoragePolicy extends Policy {
         }
         if (hasCooldownDatetime) {
             try {
-                this.cooldownTimestampMs = LocalDateTime.parse(props.get(COOLDOWN_DATETIME), TimeUtils.DATETIME_FORMAT)
-                        .atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                this.cooldownTimestampMs = LocalDateTime
+                        .parse(props.get(COOLDOWN_DATETIME), TimeUtils.getDatetimeFormatWithTimeZone())
+                        .atZone(TimeUtils.getDorisZoneId()).toInstant().toEpochMilli();
             } catch (DateTimeParseException e) {
                 throw new AnalysisException(String.format("cooldown_datetime format error: %s",
                         props.get(COOLDOWN_DATETIME)), e);
@@ -337,17 +338,18 @@ public class StoragePolicy extends Policy {
             } else {
                 try {
                     cooldownTimestampMs = LocalDateTime.parse(properties.get(COOLDOWN_DATETIME),
-                            TimeUtils.DATETIME_FORMAT).atZone(TimeUtils.TIME_ZONE).toInstant().toEpochMilli();
+                            TimeUtils.getDatetimeFormatWithTimeZone()).atZone(TimeUtils.getDorisZoneId()).toInstant()
+                            .toEpochMilli();
                 } catch (DateTimeParseException e) {
                     throw new RuntimeException(e);
                 }
             }
         }
 
-        if (cooldownTtlMs > 0 && cooldownTimestampMs > 0) {
+        if (cooldownTtlMs >= 0 && cooldownTimestampMs >= 0) {
             throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
         }
-        if (cooldownTtlMs <= 0 && cooldownTimestampMs <= 0) {
+        if (cooldownTtlMs < 0 && cooldownTimestampMs < 0) {
             throw new AnalysisException(COOLDOWN_DATETIME + " or " + COOLDOWN_TTL + " must be set");
         }
 

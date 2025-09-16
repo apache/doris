@@ -84,8 +84,16 @@ suite('test_manager_interface_3',"p0") {
 
         sql """CREATE USER '${user1}' IDENTIFIED BY '${pwd}' default role '${role1}' """
         sql """CREATE USER '${user2}' IDENTIFIED BY '${pwd}'  """
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user1}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user2}""";
+        }
 
-        connect(user=user1, password="${pwd}", url=url) {
+        connect(user1, "${pwd}", url) {
             test {
                 sql """ select 1"""
                 result(
@@ -123,7 +131,7 @@ suite('test_manager_interface_3',"p0") {
         sql """grant  DROP_PRIV on ${dbName} TO ROLE '${role1}' """
         sql """grant  CREATE_PRIV on ${dbName} TO  '${user1}' """
         
-        connect(user=user1, password="${pwd}", url=url) {
+        connect(user1, "${pwd}", url) {
     
             sql """ create table test_manager_tb_2 (
                     k1 TINYINT,
@@ -137,7 +145,7 @@ suite('test_manager_interface_3',"p0") {
 
         sql """grant  LOAD_PRIV on ${dbName} TO  '${user2}' """
         sql """ grant "${role1}" to '${user2}' """  
-        connect(user=user2, password="${pwd}", url=url) {
+        connect(user2, "${pwd}", url) {
     
             test {  
                 sql """ create table test_manager_tb_2 (
@@ -179,7 +187,7 @@ suite('test_manager_interface_3',"p0") {
             // Roles: test_manager_role_grant_role1 
             if ( result[i][3] == "${role1}") {
                 //UserIdentity: 
-                println result[i][0]
+                logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
                     assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Create_priv,Drop_priv")
@@ -206,7 +214,7 @@ suite('test_manager_interface_3',"p0") {
         assertTrue(x == 4)
         
         sql """ revoke CREATE_PRIV on ${dbName}  from '${user1}' """ 
-        connect(user=user1, password="${pwd}", url=url) {
+        connect(user1, "${pwd}", url) {
             test {  
                 sql """ create table test_manager_tb_2 (
                     k1 TINYINT,
@@ -220,7 +228,7 @@ suite('test_manager_interface_3',"p0") {
         }
 
         sql """ revoke LOAD_PRIV on ${dbName}  from '${user2}' """ 
-        connect(user=user2, password="${pwd}", url=url) {
+        connect(user2, "${pwd}", url) {
             test{
                 sql """ insert into test_manager_tb values(1,"2"); """
                 exception """LOAD command denied to user"""
@@ -234,7 +242,7 @@ suite('test_manager_interface_3',"p0") {
             // Roles: test_manager_role_grant_role1 
             if ( result[i][3] == "${role1}") {
                 //UserIdentity: 
-                println result[i][0]
+                logger.info("result[${i}][0] = ${result[i][0]}" )
                 if (result[i][0].contains("test_manager_role_grant_user1")){
                     //DatabasePrivs 
                     assertTrue(result[i][6] == "internal.information_schema: Select_priv; internal.mysql: Select_priv; internal.test_manager_role_grant_db: Select_priv,Drop_priv")
@@ -259,8 +267,8 @@ suite('test_manager_interface_3',"p0") {
             }
         }
         assertTrue(x == 4)
-        
-
+        checkNereidsExecute("show grants for ${user2}");
+        checkNereidsExecute("show grants");
         result = sql  """show  grants """        
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {
@@ -309,14 +317,14 @@ suite('test_manager_interface_3',"p0") {
                 PROPERTIES ('replication_num' = '1');"""
         
 
-        connect(user=user1, password="${pwd}", url=url) {
+        connect(user1, "${pwd}", url) {
             test {
                 sql """ Drop table ${dbName}.test_manager_tb_2"""
                 exception "Access denied; you need (at least one of) the (DROP) privilege(s) for this operation"
             }
         }
 
-        connect(user=user2, password="${pwd}", url=url) {
+        connect(user2, "${pwd}", url) {
             test{
                 sql """ Drop table ${dbName}.test_manager_tb_2"""
                 exception "Access denied; you need (at least one of) the (DROP) privilege(s) for this operation"
@@ -325,13 +333,13 @@ suite('test_manager_interface_3',"p0") {
 
         sql """set password for '${user2}' = password('${new_pwd}')"""
         try {
-            connect(user =user2, password = '${pwd}', url = url) {}
+            connect(user2, '${pwd}', url) {}
             assertTrue(false. "should not be able to login")
         } catch (Exception e) {
             assertTrue(e.getMessage().contains("Access denied for user"), e.getMessage())
         } 
 
-        connect(user=user2, password="${new_pwd}", url=url) {            
+        connect(user2, "${new_pwd}", url) {            
             result =  sql """ select k1 from ${dbName}.${tbName} order by k1 desc limit 1"""
             assertTrue(result[0][0] == 3) 
         
@@ -351,7 +359,7 @@ suite('test_manager_interface_3',"p0") {
         sql """ revoke "${role1}" from "${user2}" """ 
 
         try {
-            connect(user =user2, password = '${pwd}', url = url) {}
+            connect(user2, '${pwd}', url) {}
             assertTrue(false. "should not be able to login")
         } catch (Exception e) {
             assertTrue(e.getMessage().contains("Access denied for user"), e.getMessage())
@@ -399,6 +407,13 @@ suite('test_manager_interface_3',"p0") {
         sql """grant  USAGE_PRIV on RESOURCE  ${resource_name} TO ROLE '${role}' """
 
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}' default role '${role}' """
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        }
         
         List<List<Object>> result = sql  """ show resources """
 
@@ -411,7 +426,7 @@ suite('test_manager_interface_3',"p0") {
         }
         assertTrue(x == 20)
 
-        connect(user=user, password="${pwd}", url=url) { 
+        connect(user, "${pwd}", url) { 
             result = sql """ show resources """
             x = 0
             for(int i = 0;i<result.size();i++) {
@@ -423,7 +438,7 @@ suite('test_manager_interface_3',"p0") {
             assertTrue(x == 20)
         }
 
-
+        checkNereidsExecute("show all grants");
         result = sql """ show all grants"""
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {
@@ -441,7 +456,7 @@ suite('test_manager_interface_3',"p0") {
 
 
         sql """ revoke USAGE_PRIV on RESOURCE  ${resource_name} FROM ROLE '${role}' """
-        connect(user=user, password="${pwd}", url=url) { 
+        connect(user, "${pwd}", url) { 
             result = sql """ show resources """
             x = 0
             for(int i = 0;i<result.size();i++) {
@@ -454,7 +469,7 @@ suite('test_manager_interface_3',"p0") {
         }
 
         sql """grant  USAGE_PRIV on RESOURCE  ${resource_name} TO '${user}' """
-        connect(user=user, password="${pwd}", url=url) { 
+        connect(user, "${pwd}", url) { 
             result = sql """ show resources """
             x = 0
             for(int i = 0;i<result.size();i++) {
@@ -589,8 +604,15 @@ suite('test_manager_interface_3',"p0") {
         sql """drop user if exists ${user}"""
 
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+        //cloud-mode
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
+        }
         
-        connect(user=user, password="${pwd}", url=url) { 
+        connect(user, "${pwd}", url) { 
             List<List<Object>> result = sql """ show property like  "max_query_instances" """
             assertTrue(result[0][0]=="max_query_instances")
             assertTrue(result[0][1]=="-1")

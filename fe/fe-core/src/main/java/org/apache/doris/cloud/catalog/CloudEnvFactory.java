@@ -17,16 +17,13 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.CloudTabletStatMgr;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -37,12 +34,10 @@ import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
-import org.apache.doris.cloud.planner.CloudGroupCommitPlanner;
 import org.apache.doris.cloud.qe.CloudCoordinator;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
@@ -50,19 +45,19 @@ import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
-import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
-
-import org.apache.thrift.TException;
 
 import java.lang.reflect.Type;
 import java.util.List;
@@ -155,23 +150,24 @@ public class CloudEnvFactory extends EnvFactory {
     }
 
     @Override
-    public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+    public Coordinator createCoordinator(ConnectContext context, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
-        return new CloudCoordinator(context, analyzer, planner, statsErrorEstimator);
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
+        }
+        return new CloudCoordinator(context, planner, statsErrorEstimator);
     }
 
     @Override
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
                                          String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        if (SessionVariable.canUseNereidsDistributePlanner()) {
+            return super.createCoordinator(
+                    jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+        }
         return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
                                 enableProfile);
-    }
-
-    @Override
-    public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,
-            TUniqueId queryId, String groupCommit) throws UserException, TException {
-        return  new CloudGroupCommitPlanner(db, table, targetColumnNames, queryId, groupCommit);
     }
 
     @Override

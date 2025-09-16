@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testIncorrectRewriteCountDistinct") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (
@@ -29,35 +31,28 @@ suite ("testIncorrectRewriteCountDistinct") {
         """
 
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags values("2020-01-02",2,"b",2);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
+    createMV("create materialized view user_tags_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
 
+    sql """insert into user_tags values("2020-01-01",1,"a",2);"""
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""
 
     sql "analyze table user_tags with sync;"
+    sql """alter table user_tags modify column time_col set stats ('row_count'='6');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 
-    explain {
-        sql("select user_name, count(distinct tag_id) from user_tags group by user_name;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select user_name, count(distinct tag_id) from user_tags group by user_name;", "user_tags_mv")
     qt_select_mv "select user_name, count(distinct tag_id) from user_tags group by user_name order by user_name;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from user_tags order by time_col;")
-        contains "(user_tags)"
-    }
 
-    explain {
-        sql("select user_name, count(distinct tag_id) from user_tags group by user_name;")
-        contains "(user_tags)"
-    }
+    mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
+
+    mv_rewrite_fail("select user_name, count(distinct tag_id) from user_tags group by user_name;", "user_tags_mv")
 }

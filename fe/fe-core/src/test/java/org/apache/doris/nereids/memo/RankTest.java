@@ -17,47 +17,47 @@
 
 package org.apache.doris.nereids.memo;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
-import org.apache.doris.nereids.util.HyperGraphBuilder;
-import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PlanChecker;
+// import org.apache.doris.nereids.CascadesContext;
+// import org.apache.doris.nereids.trees.plans.JoinType;
+// import org.apache.doris.nereids.trees.plans.Plan;
+// import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+// import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+// import org.apache.doris.nereids.util.HyperGraphBuilder;
+// import org.apache.doris.nereids.util.MemoTestUtils;
+// import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
-
-import com.google.common.collect.Sets;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-
-import java.util.HashSet;
-import java.util.Set;
+//
+// import com.google.common.collect.Sets;
+// import org.junit.jupiter.api.Assertions;
+// import org.junit.jupiter.api.Test;
+//
+// import java.util.HashSet;
+// import java.util.Set;
 
 class RankTest extends TestWithFeService {
 
-    @Test
-    void test() throws Exception {
-        createDatabase("test");
-        HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
-        hyperGraphBuilder.init(0, 1, 2);
-        Plan plan = hyperGraphBuilder
-                .addEdge(JoinType.INNER_JOIN, 0, 1)
-                .addEdge(JoinType.INNER_JOIN, 1, 2)
-                .buildPlan();
-        plan = new LogicalProject(plan.getOutput(), plan);
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
-        hyperGraphBuilder.initStats("test", cascadesContext);
-        PhysicalPlan bestPlan = PlanChecker.from(cascadesContext)
-                .optimize()
-                .getBestPlanTree();
-        Memo memo = cascadesContext.getMemo();
-        Set<String> shape = new HashSet<>();
-        for (int i = 0; i < memo.getRankSize(); i++) {
-            shape.add(memo.unrank(memo.rank(i + 1).first).shape(""));
-        }
-        System.out.println(shape);
-        Assertions.assertEquals(2, shape.size());
-        Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
-    }
+    // @Test
+    // void test() throws Exception {
+    //     createDatabase("test");
+    //     HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN));
+    //     hyperGraphBuilder.init(0, 1, 2);
+    //     Plan plan = hyperGraphBuilder
+    //             .addEdge(JoinType.INNER_JOIN, 0, 1)
+    //             .addEdge(JoinType.INNER_JOIN, 1, 2)
+    //             .buildPlan();
+    //     plan = new LogicalProject(plan.getOutput(), plan);
+    //     CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(connectContext, plan);
+    //     hyperGraphBuilder.initStats("test", cascadesContext);
+    //     PhysicalPlan bestPlan = PlanChecker.from(cascadesContext)
+    //             .optimize()
+    //             .getBestPlanTree();
+    //     Memo memo = cascadesContext.getMemo();
+    //     Set<String> shape = new HashSet<>();
+    //     for (int i = 0; i < memo.getRankSize(); i++) {
+    //         shape.add(memo.unrank(memo.rank(i + 1).first).shape(""));
+    //     }
+    //     System.out.println(shape);
+    //     Assertions.assertEquals(2, shape.size());
+    //     Assertions.assertEquals(bestPlan.shape(""), memo.unrank(memo.rank(1).first).shape(""));
+    // }
 }

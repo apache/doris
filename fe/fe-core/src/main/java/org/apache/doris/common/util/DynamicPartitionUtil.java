@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -43,6 +46,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -128,13 +132,14 @@ public class DynamicPartitionUtil {
         return DynamicPartitionProperty.MIN_START_OFFSET;
     }
 
-    private static int checkEnd(String end) throws DdlException {
+    private static int checkEnd(String end, boolean enableAutoPartition) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
         }
         try {
             int endInt = Integer.parseInt(end);
-            if (endInt <= 0) {
+            // with auto partition sometime we dont like to create future partition by dynamic partition.
+            if (endInt < 0 || endInt == 0 && !enableAutoPartition) {
                 ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_ZERO, end);
             }
             return endInt;
@@ -235,8 +240,8 @@ public class DynamicPartitionUtil {
                 null, false, true);
     }
 
-    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum,
-            Database db) throws DdlException {
+    private static void checkReplicaAllocation(ReplicaAllocation replicaAlloc, int hotPartitionNum)
+            throws DdlException {
         if (replicaAlloc.getTotalReplicaNum() <= 0) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_REPLICATION_NUM_ZERO);
         }
@@ -254,7 +259,8 @@ public class DynamicPartitionUtil {
         } catch (DdlException e) {
             throw new DdlException("Failed to find enough backend for ssd storage medium. When setting "
                     + DynamicPartitionProperty.HOT_PARTITION_NUM + " > 0, the hot partitions will store "
-                    + "in ssd. Please check the replication num,replication tag and storage medium.");
+                    + "in ssd. Please check the replication num,replication tag and storage medium."
+                    + Env.getCurrentSystemInfo().getDetailsForCreateReplica(replicaAlloc));
         }
     }
 
@@ -401,9 +407,9 @@ public class DynamicPartitionUtil {
 
     private static DateTimeFormatter getDateTimeFormatter(String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return TimeUtils.DATETIME_FORMAT;
+            return TimeUtils.getDatetimeFormatWithTimeZone();
         } else {
-            return TimeUtils.DATE_FORMAT;
+            return TimeUtils.getDateFormatWithTimeZone();
         }
     }
 
@@ -521,14 +527,40 @@ public class DynamicPartitionUtil {
         }
     }
 
+    public static void partitionIntervalCompatible(String dynamicUnit, ArrayList<Expr> autoExprs)
+            throws AnalysisException {
+        if (autoExprs == null) {
+            return;
+        }
+        for (Expr autoExpr : autoExprs) {
+            Expr func = (FunctionCallExpr) autoExpr;
+            for (Expr child : func.getChildren()) {
+                if (child instanceof LiteralExpr) {
+                    String autoUnit = ((LiteralExpr) child).getStringValue();
+                    if (!dynamicUnit.equalsIgnoreCase(autoUnit)) {
+                        throw new AnalysisException("If support auto partition and dynamic partition at same time, "
+                                + "they must have the same interval unit.");
+                    }
+                }
+            }
+        }
+    }
+
     // Analyze all properties to check their validation
+    // ATTN, should not throw any exception when isReplay is true.
     public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties,
-            OlapTable olapTable, Database db) throws UserException {
+            OlapTable olapTable, Database db, boolean isReplay) throws UserException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
             String timeUnitValue = properties.get(DynamicPartitionProperty.TIME_UNIT);
             checkTimeUnit(timeUnitValue, olapTable.getPartitionInfo());
+
+            // if both enabled, must use same interval.
+            if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                partitionIntervalCompatible(timeUnitValue, olapTable.getPartitionInfo().getPartitionExprs());
+            }
+
             properties.remove(DynamicPartitionProperty.TIME_UNIT);
             analyzedProperties.put(DynamicPartitionProperty.TIME_UNIT, timeUnitValue);
         }
@@ -553,11 +585,7 @@ public class DynamicPartitionUtil {
             analyzedProperties.put(DynamicPartitionProperty.ENABLE, enableValue);
         }
 
-        if (Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))
-                && olapTable.getPartitionInfo().enableAutomaticPartition()) {
-            throw new AnalysisException(
-                    "Can't use Dynamic Partition and Auto Partition at the same time");
-        }
+        boolean enableAutoPartition = olapTable.getPartitionInfo().enableAutomaticPartition();
 
         // If dynamic property "start" is not specified, use Integer.MIN_VALUE as default
         int start = DynamicPartitionProperty.MIN_START_OFFSET;
@@ -572,7 +600,7 @@ public class DynamicPartitionUtil {
         boolean hasEnd = false;
         if (properties.containsKey(DynamicPartitionProperty.END)) {
             String endValue = properties.get(DynamicPartitionProperty.END);
-            end = checkEnd(endValue);
+            end = checkEnd(endValue, enableAutoPartition);
             properties.remove(DynamicPartitionProperty.END);
             analyzedProperties.put(DynamicPartitionProperty.END, endValue);
             hasEnd = true;
@@ -597,7 +625,6 @@ public class DynamicPartitionUtil {
         // If create_history_partition is false, history partition is not considered.
         // If create_history_partition is true, will pre-create history partition according the valid value from
         // start and history_partition_num.
-        //
         long expectCreatePartitionNum = 0;
         if (!createHistoryPartition) {
             start = 0;
@@ -613,7 +640,7 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
             throw new DdlException("Too many dynamic partitions: "
                     + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
@@ -666,11 +693,14 @@ public class DynamicPartitionUtil {
         } else {
             replicaAlloc = olapTable.getDefaultReplicaAllocation();
         }
-        if (olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
+        if (!isReplay && olapTable.getMinLoadReplicaNum() > replicaAlloc.getTotalReplicaNum()) {
             throw new DdlException("Failed to check min load replica num [" + olapTable.getMinLoadReplicaNum()
                     + "]  <= dynamic partition replica num [" + replicaAlloc.getTotalReplicaNum() + "]");
         }
-        checkReplicaAllocation(replicaAlloc, hotPartitionNum, db);
+
+        if (!isReplay) {
+            checkReplicaAllocation(replicaAlloc, hotPartitionNum);
+        }
 
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
             String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
@@ -740,7 +770,7 @@ public class DynamicPartitionUtil {
             Database db) throws UserException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable)) {
             Map<String, String> dynamicPartitionProperties =
-                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db);
+                    DynamicPartitionUtil.analyzeDynamicPartition(properties, olapTable, db, false);
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty != null) {
                 tableProperty.modifyTableProperties(dynamicPartitionProperties);
@@ -834,9 +864,9 @@ public class DynamicPartitionUtil {
 
     private static LocalDateTime getDateTimeByTimeUnit(String time, String timeUnit) {
         if (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
-            return LocalDateTime.parse(time, TimeUtils.DATETIME_FORMAT);
+            return LocalDateTime.parse(time, TimeUtils.getDatetimeFormatWithTimeZone());
         } else {
-            return LocalDate.from(TimeUtils.DATE_FORMAT.parse(time)).atStartOfDay();
+            return LocalDate.from(TimeUtils.getDateFormatWithTimeZone().parse(time)).atStartOfDay();
         }
     }
 
@@ -974,6 +1004,23 @@ public class DynamicPartitionUtil {
         public String toString() {
             // TODO Auto-generated method stub
             return super.toString();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            StartOfDate that = (StartOfDate) o;
+            return month == that.month && day == that.day && dayOfWeek == that.dayOfWeek;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(month, day, dayOfWeek);
         }
     }
 }

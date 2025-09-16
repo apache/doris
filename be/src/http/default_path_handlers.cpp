@@ -38,13 +38,9 @@
 #include <vector>
 
 #include "common/config.h"
-#include "gutil/strings/numbers.h"
-#include "gutil/strings/substitute.h"
 #include "http/action/tablets_info_action.h"
 #include "http/web_page_handler.h"
-#include "runtime/memory/global_memory_arbitrator.h"
-#include "runtime/memory/mem_tracker.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/process_profile.h"
 #include "util/easy_json.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
@@ -97,16 +93,51 @@ void config_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* 
     (*output) << "</pre>";
 }
 
-// Registered to handle "/memz", and prints out memory allocation statistics.
-void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
-    (*output) << "<pre>"
-              << "Mem Limit: " << PrettyPrinter::print(MemInfo::mem_limit(), TUnit::BYTES)
-              << std::endl
-              << "Physical Mem From Perf: "
-              << PrettyPrinter::print(PerfCounters::get_vm_rss(), TUnit::BYTES) << std::endl
-              << "</pre>";
-
+void memory_info_handler(std::stringstream* output) {
+    (*output) << "<h2>Memory Info</h2>\n";
     (*output) << "<pre>";
+    (*output) << "<h4 id=\"memoryDocumentsTitle\">Memory Documents</h4>\n"
+              << "<a "
+                 "href=https://doris.apache.org/zh-CN/docs/dev/admin-manual/memory-management/"
+                 "overview>Memory Management Overview</a>\n"
+              << "<a "
+                 "href=https://doris.apache.org/zh-CN/docs/dev/admin-manual/memory-management/"
+                 "memory-issue-faq>Memory Issue FAQ</a>\n"
+              << "\n---\n\n";
+
+    (*output) << "<h4 id=\"memoryPropertiesTitle\">Memory Properties</h4>\n"
+              << "System Physical Mem: "
+              << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES) << std::endl
+              << "System Page Size: " << MemInfo::get_page_size() << std::endl
+              << "Mem Limit: " << MemInfo::mem_limit_str() << std::endl
+              << "Soft Mem Limit: " << MemInfo::soft_mem_limit_str() << std::endl
+              << "System Mem Available Low Water Mark: "
+              << PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES)
+              << std::endl
+              << "System Mem Available Warning Water Mark: "
+              << PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES)
+              << std::endl
+              << "Cgroup Mem Limit: "
+              << PrettyPrinter::print(MemInfo::cgroup_mem_limit(), TUnit::BYTES) << std::endl
+              << "Cgroup Mem Usage: "
+              << PrettyPrinter::print(MemInfo::cgroup_mem_usage(), TUnit::BYTES) << std::endl
+              << "Cgroup Mem Refresh State: " << MemInfo::cgroup_mem_refresh_state() << std::endl
+              << "\n---\n\n";
+
+    (*output) << "<h4 id=\"memoryOptionSettingsTitle\">Memory Option Settings</h4>\n";
+    {
+        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
+        for (const auto& it : *(config::full_conf_map)) {
+            if (it.first.find("memory") != std::string::npos ||
+                it.first.find("cache") != std::string::npos ||
+                it.first.find("mem") != std::string::npos) {
+                (*output) << it.first << "=" << it.second << std::endl;
+            }
+        }
+    }
+    (*output) << "\n---\n\n";
+
+    (*output) << "<h4 id=\"jemallocProfilesTitle\">Jemalloc Profiles</h4>\n";
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
@@ -117,15 +148,59 @@ void mem_usage_handler(const WebPageHandler::ArgumentMap& args, std::stringstrea
     };
     jemalloc_stats_print(write_cb, &tmp, "a");
     boost::replace_all(tmp, "\n", "<br>");
-    (*output) << tmp << "</pre>";
+    (*output) << tmp;
 #else
     char buf[2048];
     MallocExtension::instance()->GetStats(buf, 2048);
     // Replace new lines with <br> for html
     std::string tmp(buf);
     boost::replace_all(tmp, "\n", "<br>");
-    (*output) << tmp << "</pre>";
+    (*output) << tmp;
 #endif
+    (*output) << "</pre>";
+}
+
+// Registered to handle "/profile".
+void process_profile_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
+    (*output) << "<h4>Copy Process Profile To Clipboard (拷贝 Process Profile 到剪切板) </h4>";
+    (*output) << "<button id=\"copyToClipboard\">Copy Page Text</button>" << std::endl;
+    (*output) << "<script>" << std::endl;
+    (*output) << "$('#copyToClipboard').click(function () {" << std::endl;
+    // create a hidden textarea element
+    (*output) << "     var textarea = document.createElement('textarea');" << std::endl;
+    (*output) << "     textarea.style.position = 'absolute';" << std::endl;
+    (*output) << "     textarea.style.left = '-9999px';" << std::endl;
+    // get the content to copy
+    (*output) << "     var contentToCopy = document.getElementById('allPageText').innerHTML;"
+              << std::endl;
+    (*output) << "     textarea.value = contentToCopy;"
+              << std::endl; // set the content to the textarea
+    (*output) << "     document.body.appendChild(textarea);" << std::endl;
+    (*output) << "     textarea.select();" << std::endl;
+    (*output) << "     textarea.setSelectionRange(0, 99999);"
+              << std::endl; // compatible with mobile devices
+    (*output) << "try {" << std::endl;
+    (*output) << "          document.execCommand('copy');"
+              << std::endl; //copy the selected text to the clipboard
+    (*output) << "          alert('Process profile copied to clipboard!');" << std::endl;
+    (*output) << "      } catch (err) {" << std::endl;
+    (*output) << "          alert('Failed to copy process profile! ' + err);" << std::endl;
+    (*output) << "      }" << std::endl;
+    (*output) << "});" << std::endl;
+    (*output) << "</script>" << std::endl;
+
+    doris::ProcessProfile::instance()->refresh_profile();
+
+    (*output) << "<div id=\"allPageText\">" << std::endl;
+    (*output) << "<h2 id=\"processProfileTitle\">Process Profile</h2>" << std::endl;
+    (*output) << "<pre id=\"processProfile\">"
+              << doris::ProcessProfile::instance()->print_process_profile_no_root() << "</pre>"
+              << "\n\n---\n\n";
+    memory_info_handler(output);
+
+    // TODO, expect more information about process status, CPU, IO, etc.
+
+    (*output) << "</div>" << std::endl;
 }
 
 void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson* ej) {
@@ -141,77 +216,8 @@ void display_tablets_callback(const WebPageHandler::ArgumentMap& args, EasyJson*
 
 // Registered to handle "/mem_tracker", and prints out memory tracker information.
 void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
-    (*output) << "<h1>Memory usage by subsystem</h1>\n";
-    std::vector<MemTracker::Snapshot> snapshots;
-    auto iter = args.find("type");
-    if (iter != args.end()) {
-        if (iter->second == "global") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-        } else if (iter->second == "query") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::QUERY);
-        } else if (iter->second == "load") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::LOAD);
-        } else if (iter->second == "compaction") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::COMPACTION);
-        } else if (iter->second == "schema_change") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots,
-                                                   MemTrackerLimiter::Type::SCHEMA_CHANGE);
-        } else if (iter->second == "other") {
-            MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::OTHER);
-        } else if (iter->second == "reserved_memory") {
-            GlobalMemoryArbitrator::make_reserved_memory_snapshots(&snapshots);
-        } else if (iter->second == "all") {
-            MemTrackerLimiter::make_all_memory_state_snapshots(&snapshots);
-        }
-    } else {
-        (*output) << "<h4>*Notice:</h4>\n";
-        (*output) << "<h4>    1. MemTracker only counts the memory on part of the main execution "
-                     "path, "
-                     "which is usually less than the real process memory.</h4>\n";
-        (*output) << "<h4>    2. each `type` is the sum of a set of tracker values, "
-                     "`sum of all trackers` is the sum of all trackers of all types, .</h4>\n";
-        (*output) << "<h4>    3. `process resident memory` is the physical memory of the process, "
-                     "from /proc VmRSS VmHWM.</h4>\n";
-        (*output) << "<h4>    4. `process virtual memory` is the virtual memory of the process, "
-                     "from /proc VmSize VmPeak.</h4>\n";
-        (*output) << "<h4>    5.`/mem_tracker?type=<type name>` to view the memory details of each "
-                     "type, for example, `/mem_tracker?type=query` will list the memory of all "
-                     "queries; "
-                     "`/mem_tracker?type=global` will list the memory of all Cache, metadata and "
-                     "other "
-                     "global life cycles.</h4>\n";
-        (*output) << "<h4>see documentation for details.";
-        MemTrackerLimiter::make_process_snapshots(&snapshots);
-    }
-
-    (*output) << "<table data-toggle='table' "
-                 "       data-pagination='true' "
-                 "       data-search='true' "
-                 "       class='table table-striped'>\n";
-    (*output) << "<thead><tr>"
-                 "<th data-sortable='true'>Type</th>"
-                 "<th data-sortable='true'>Label</th>"
-                 "<th data-sortable='true'>Parent Label</th>"
-                 "<th>Limit</th>"
-                 "<th data-sortable='true' "
-                 ">Current Consumption(Bytes)</th>"
-                 "<th>Current Consumption(Normalize)</th>"
-                 "<th data-sortable='true' "
-                 ">Peak Consumption(Bytes)</th>"
-                 "<th>Peak Consumption(Normalize)</th>"
-                 "</tr></thead>";
-    (*output) << "<tbody>\n";
-    for (const auto& item : snapshots) {
-        string limit_str = item.limit == -1 ? "none" : AccurateItoaKMGT(item.limit);
-        string current_consumption_normalize = AccurateItoaKMGT(item.cur_consumption);
-        string peak_consumption_normalize = AccurateItoaKMGT(item.peak_consumption);
-        (*output) << strings::Substitute(
-                "<tr><td>$0</td><td>$1</td><td>$2</td><td>$3</td><td>$4</td><td>$5</td><td>$6</"
-                "td><td>$7</td></tr>\n",
-                item.type, item.label, item.parent_label, limit_str, item.cur_consumption,
-                current_consumption_normalize, item.peak_consumption, peak_consumption_normalize);
-    }
-    (*output) << "</tbody></table>\n";
+    (*output) << "<h2>mem_tracker webpage has been offline, please click <a "
+                 "href=../profile>Process Profile</a>, see MemoryProfile and Memory Info</h2>\n";
 }
 
 void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
@@ -283,8 +289,7 @@ void heap_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
 void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* output) {
     (*output) << "<h2>CPU Profile</h2>" << std::endl;
 
-#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
-        defined(USE_JEMALLOC)
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "<pre>" << std::endl;
     (*output) << "CPU profiling is not available with address sanitizer builds." << std::endl;
     (*output) << "</pre>" << std::endl;
@@ -315,7 +320,8 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
               << std::endl;
     (*output) << "And you need to download the FlameGraph and place it under 'be/tools/FlameGraph'."
               << std::endl;
-    (*output) << "Finally, check if the following files exist" << std::endl;
+    (*output) << "Finally, check if the following files exist. And should be executable."
+              << std::endl;
     (*output) << std::endl;
     (*output) << "    be/tools/FlameGraph/stackcollapse-perf.pl" << std::endl;
     (*output) << "    be/tools/FlameGraph/flamegraph.pl" << std::endl;
@@ -335,9 +341,6 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
             << std::endl;
     (*output) << "    <br/>" << std::endl;
     (*output) << "    <div id=\"cpuResult\"><pre id=\"cpuContent\"></pre></div>" << std::endl;
-    (*output) << "    <br/>" << std::endl;
-    (*output) << "    <div id=\"cpuResultGraph\"><pre id=\"cpuContentGraph\"></pre></div>"
-              << std::endl;
     (*output) << "</div>" << std::endl;
 
     // for text profile
@@ -350,14 +353,14 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=text\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
     (*output) << "            document.getElementById(\"cpuContent\").innerText = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;
@@ -365,21 +368,21 @@ void cpu_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* out
 
     // for graph profile
     (*output) << "$('#getCpuGraph').click(function () {" << std::endl;
-    (*output) << "    document.getElementById(\"cpuContentGraph\").innerText = \"Sampling... (30 "
+    (*output) << "    document.getElementById(\"cpuContent\").innerText = \"Sampling... (30 "
                  "seconds)\";"
               << std::endl;
     (*output) << "    $.ajax({" << std::endl;
     (*output) << "        type: \"GET\"," << std::endl;
     (*output) << "        dataType: \"text\"," << std::endl;
     (*output) << "        url: \"pprof/profile?type=flamegraph\"," << std::endl;
-    (*output) << "        timeout: 60000," << std::endl;
+    (*output) << "        timeout: 120000," << std::endl;
     (*output) << "        success: function (result) {" << std::endl;
-    (*output) << "            document.getElementById(\"cpuResultGraph\").innerHTML = result;"
+    (*output) << "            document.getElementById(\"cpuContent\").innerHTML = result;"
               << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "        error: function (result) {" << std::endl;
-    (*output) << "            alert(result);" << std::endl;
+    (*output) << "            alert(JSON.stringify(result));" << std::endl;
     (*output) << "        }" << std::endl;
     (*output) << "        ," << std::endl;
     (*output) << "    });" << std::endl;
@@ -398,14 +401,10 @@ void add_default_path_handlers(WebPageHandler* web_page_handler) {
         web_page_handler->register_page("/varz", "Configs", config_handler,
                                         true /* is_on_nav_bar */);
     }
-    web_page_handler->register_page("/memz", "Memory", mem_usage_handler, true /* is_on_nav_bar */);
-    web_page_handler->register_page(
-            "/mem_tracker", "MemTracker",
-            [](auto&& PH1, auto&& PH2) {
-                return mem_tracker_handler(std::forward<decltype(PH1)>(PH1),
-                                           std::forward<decltype(PH2)>(PH2));
-            },
-            true /* is_on_nav_bar */);
+    web_page_handler->register_page("/profile", "Process Profile", process_profile_handler,
+                                    true /* is_on_nav_bar */);
+    web_page_handler->register_page("/mem_tracker", "MemTracker", mem_tracker_handler,
+                                    true /* is_on_nav_bar */);
     web_page_handler->register_page("/heap", "Heap Profile", heap_handler,
                                     true /* is_on_nav_bar */);
     web_page_handler->register_page("/cpu", "CPU Profile", cpu_handler, true /* is_on_nav_bar */);

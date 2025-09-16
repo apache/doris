@@ -107,6 +107,22 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                             "uri" = "${uri}",
                             "hadoop.username" = "${hdfsUserName}",
                             "format" = "${format}") order by s_suppkey limit 20; """
+            
+            // test parquet brotli
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet.brotli.parquet"
+            format = "parquet"
+            qt_parquet_brotli """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by s_suppkey limit 20; """
+
+            // test parquet decimal256
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_parquet_decimal256.parquet"
+            format = "parquet"
+            qt_parquet_decimal256 """ select * from HDFS(
+                            "uri" = "${uri}",
+                            "hadoop.username" = "${hdfsUserName}",
+                            "format" = "${format}") order by id; """
 
             // test orc
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/hdfs_tvf/test_orc.snappy.orc"
@@ -124,6 +140,16 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "${format}",
+                        "strip_outer_array" = "false",
+                        "read_json_by_line" = "true") order by id; """
+
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/json_format_test/simple_object_json.json.gz"
+            format = "json"
+            qt_json_compressed """ select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "${format}",
+                        "compress_type" = "GZ",
                         "strip_outer_array" = "false",
                         "read_json_by_line" = "true") order by id; """
 
@@ -312,6 +338,32 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
                         "column_separator" = ",",
                         "format" = "${format}"); """
 
+
+            // test create view from tvf and alter view from tvf
+            uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/all_types.csv"
+            format = "csv"
+            sql """ DROP VIEW IF EXISTS test_hdfs_tvf_create_view;"""
+            sql """
+                create view test_hdfs_tvf_create_view as
+                select * from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by c1;
+                """
+
+            order_qt_create_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
+
+            sql """
+                alter view test_hdfs_tvf_create_view as
+                select c1 from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "column_separator" = ",",
+                        "format" = "${format}") order by c1;
+                """
+
+            order_qt_alter_view """ select * from test_hdfs_tvf_create_view order by c1 limit 20; """
         } finally {
         }
     }
@@ -326,7 +378,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Properties 'uri' is required"""
+        exception """props must contain uri"""
     }
 
     // test exception
@@ -339,7 +391,7 @@ suite("test_hdfs_tvf","external,hive,tvf,external_docker") {
             """
 
         // check exception
-        exception """Invalid export path, there is no schema of URI found. please check your path"""
+        exception """Invalid uri: xx"""
     }
 
     // test exception

@@ -21,8 +21,9 @@
 #include <memory>
 
 #include "common/status.h"
-#include "gutil/macros.h"
-#include "io/fs/file_reader.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
@@ -30,6 +31,7 @@
 namespace doris::io {
 class FileSystem;
 struct FileCacheAllocatorBuilder;
+struct EncryptionInfo;
 
 // Only affects remote file writers
 struct FileWriterOptions {
@@ -43,8 +45,9 @@ struct FileWriterOptions {
     bool used_by_s3_committer = false;
     bool write_file_cache = false;
     bool is_cold_data = false;
-    bool sync_file_data = true;         // Whether flush data into storage system
-    uint64_t file_cache_expiration = 0; // Absolute time
+    bool sync_file_data = true;              // Whether flush data into storage system
+    uint64_t file_cache_expiration = 0;      // Absolute time
+    uint64_t approximate_bytes_to_write = 0; // Approximate bytes to write, used for file cache
 };
 
 struct AsyncCloseStatusPack {
@@ -79,7 +82,40 @@ public:
 
     virtual State state() const = 0;
 
-    virtual FileCacheAllocatorBuilder* cache_builder() const = 0;
+    FileCacheAllocatorBuilder* cache_builder() const {
+        return _cache_builder == nullptr ? nullptr : _cache_builder.get();
+    }
+
+protected:
+    void init_cache_builder(const FileWriterOptions* opts, const Path& path) {
+        if (!config::enable_file_cache || opts == nullptr) {
+            return;
+        }
+
+        io::UInt128Wrapper path_hash = BlockFileCache::hash(path.filename().native());
+        BlockFileCache* file_cache_ptr = FileCacheFactory::instance()->get_by_path(path_hash);
+
+        bool has_enough_file_cache_space = config::enable_file_cache_adaptive_write &&
+                                           (opts->approximate_bytes_to_write > 0) &&
+                                           (file_cache_ptr->approximate_available_cache_size() >
+                                            opts->approximate_bytes_to_write);
+
+        VLOG_DEBUG << "path:" << path.filename().native()
+                   << ", write_file_cache:" << opts->write_file_cache
+                   << ", has_enough_file_cache_space:" << has_enough_file_cache_space
+                   << ", approximate_bytes_to_write:" << opts->approximate_bytes_to_write
+                   << ", file_cache_available_size:"
+                   << file_cache_ptr->approximate_available_cache_size();
+        if (opts->write_file_cache || has_enough_file_cache_space) {
+            _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
+                    opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
+                    path_hash, file_cache_ptr});
+        }
+        return;
+    }
+
+    std::unique_ptr<FileCacheAllocatorBuilder> _cache_builder =
+            nullptr; // nullptr if disable write file cache
 };
 
 } // namespace doris::io

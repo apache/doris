@@ -20,14 +20,17 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.ranger.plugin.policyengine.RangerAccessResourceImpl;
 
 public class RangerDorisResource extends RangerAccessResourceImpl {
+    public static final String KEY_GLOBAL = "global";
     public static final String KEY_CATALOG = "catalog";
     public static final String KEY_DATABASE = "database";
     public static final String KEY_TABLE = "table";
     public static final String KEY_COLUMN = "column";
     public static final String KEY_RESOURCE = "resource";
     public static final String KEY_WORKLOAD_GROUP = "workload_group";
+    public static final String KEY_COMPUTE_GROUP = "compute_group";
+    public static final String KEY_STORAGE_VAULT = "storage_vault";
 
-    // FirstLevelResource => Catalog / Resource / WorkloadGroup
+    // FirstLevelResource => Catalog / Resource / WorkloadGroup / GLOBAL
     // SecondLevelResource => Database
     // ThirdLevelResource => Table
     // FourthLevelResource => Column
@@ -48,6 +51,9 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
                               String thirdLevelResource, String fourthLevelResource) {
         // set essential info according to objectType
         switch (objectType) {
+            case GLOBAL:
+                setValue(KEY_GLOBAL, firstLevelResource);
+                break;
             case CATALOG:
                 setValue(KEY_CATALOG, firstLevelResource);
                 break;
@@ -71,6 +77,12 @@ public class RangerDorisResource extends RangerAccessResourceImpl {
                 break;
             case WORKLOAD_GROUP:
                 setValue(KEY_WORKLOAD_GROUP, firstLevelResource);
+                break;
+            case STORAGE_VAULT:
+                setValue(KEY_STORAGE_VAULT, firstLevelResource);
+                break;
+            case COMPUTE_GROUP:
+                setValue(KEY_COMPUTE_GROUP, firstLevelResource);
                 break;
             case NONE:
             default:

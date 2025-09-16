@@ -25,7 +25,7 @@
 #include <mutex>
 
 #include "common/metric.h"
-#include "txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 
@@ -48,7 +48,6 @@ public:
 private:
     std::shared_ptr<TxnKv> txn_kv_;
     std::unique_ptr<MetaServerRegister> server_register_;
-    std::unique_ptr<FdbMetricExporter> fdb_metric_exporter_;
 };
 
 class ServiceRegistryPB;

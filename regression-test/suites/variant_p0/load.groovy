@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant", "nonConcurrent"){
+suite("regression_test_variant", "p0"){
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -26,6 +26,7 @@ suite("regression_test_variant", "nonConcurrent"){
             set 'read_json_by_line', 'true' 
             set 'format', 'json' 
             set 'max_filter_ratio', '0.1'
+            set 'memtable_on_sink_node', 'true'
             file file_name // import json file
             time 10000 // limit inflight 10s
 
@@ -77,7 +78,6 @@ suite("regression_test_variant", "nonConcurrent"){
     sql "set enable_fallback_to_original_planner=false"
 
     try {
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {
             def table_name = "simple_variant_${key_types[i]}"
@@ -96,11 +96,11 @@ suite("regression_test_variant", "nonConcurrent"){
             sql """insert into ${table_name} values (11,  '[123.1]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
             qt_sql1 "select k, cast(v['a'] as array<int>) from  ${table_name} where  size(cast(v['a'] as array<int>)) > 0 order by k, cast(v['a'] as string) asc"
-            qt_sql2 "select k, cast(v as int), cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
+            qt_sql2 "select k, cast(v['b'] as string) from  ${table_name} where  length(cast(v['b'] as string)) > 4 order  by k, cast(v as string), cast(v['b'] as string) "
             qt_sql3 "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
-            qt_sql4 "select v['b'], v['b']['c'], cast(v as int) from  ${table_name} where cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
+            qt_sql4 "select v['b'], v['b']['c'] from  ${table_name} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,cast(v as string) desc limit 10000;"
             qt_sql5 "select v['b'] from ${table_name} where cast(v['b'] as int) > 0;"
-            qt_sql6 "select cast(v['b'] as string) from ${table_name} where cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
+            qt_sql6 "select cast(v['b'] as string) from ${table_name} where  cast(v['b'] as string) != 'null' and cast(v['b'] as string) is not null and   cast(v['b'] as string) != '{}' order by k,  cast(v['b'] as string) "
             // verify table_name 
         }
         sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
@@ -203,7 +203,7 @@ suite("regression_test_variant", "nonConcurrent"){
         // 7. gh data
         table_name = "ghdata"
         create_table table_name
-        load_json_data.call(table_name, """${getS3Url() + '/load/ghdata_sample.json'}""")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/ghdata_sample.json'}""")
         qt_sql_26 "select count() from ${table_name}"
 
         // 8. json empty string
@@ -218,7 +218,7 @@ suite("regression_test_variant", "nonConcurrent"){
         // // // 9. btc data
         // // table_name = "btcdata"
         // // create_table table_name
-        // // load_json_data.call(table_name, """${getS3Url() + '/load/btc_transactions.json'}""")
+        // // load_json_data.call(table_name, """${getS3Url() + '/regression/load/btc_transactions.json'}""")
         // // qt_sql_28 "select count() from ${table_name}"
 
         // 10. alter add variant
@@ -238,7 +238,7 @@ suite("regression_test_variant", "nonConcurrent"){
 
         // 12. jsonb values
         table_name = "jsonb_values"
-        create_table table_name
+        create_table.call(table_name, "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"a" : ["123", 123, [123]]}')"""
         // FIXME array -> jsonb will parse error
         // sql """insert into ${table_name} values (2, '{"a" : ["123"]}')"""
@@ -251,6 +251,8 @@ suite("regression_test_variant", "nonConcurrent"){
         // sql """insert into ${table_name} values (8, '{"a" : [123, 111........]}')"""
         sql """insert into ${table_name} values (9, '{"a" : [123, {"a" : 1}]}')"""
         sql """insert into ${table_name} values (10, '{"a" : [{"a" : 1}, 123]}')"""
+        sql "select v['a'] from ${table_name} order by k"
+        trigger_and_wait_compaction(table_name, "full")
         qt_sql_29 "select cast(v['a'] as string) from ${table_name} order by k"
         // b? 7.111  [123,{"xx":1}]  {"b":{"c":456,"e":7.111}}       456
         qt_sql_30 "select v['b']['e'], v['a'], v['b'], v['b']['c'] from jsonb_values where cast(v['b']['e'] as double) > 1;"
@@ -260,42 +262,13 @@ suite("regression_test_variant", "nonConcurrent"){
         create_table table_name
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_30 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_30 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_31 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
+        qt_sql_31 """ select v from sparse_columns where json_extract_string(v, "\$") != "{}" order by cast(v as string) limit 10"""
         sql "truncate table sparse_columns"
 
-        // 12. streamload remote file
-        table_name = "logdata"
-        create_table.call(table_name, "DUPLICATE", "4")
-        // sql "set enable_two_phase_read_opt = false;"
-        // no sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_32_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-        sql "truncate table ${table_name}"
-
-        // 0.95 default ratio    
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_33_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-        sql "truncate table ${table_name}"
-
-        // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
-        qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-        sql "truncate table ${table_name}"
-        qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""
-        qt_sql_35_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-
-        // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
-        // unique table
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events"
         sql """DROP TABLE IF EXISTS ${table_name}"""
         sql """
@@ -319,7 +292,7 @@ suite("regression_test_variant", "nonConcurrent"){
         sql """insert into ${table_name} values (5, '{"i" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
-        sql "select * from ${table_name}"
+        sql "select /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=false,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=4,profile_level=1,enable_pipeline_engine=true,enable_parallel_scan=true,parallel_scan_max_scanners_count=16,parallel_scan_min_rows_per_scanner=128,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=2,enable_parallel_result_sink=false,sort_phase_num=0,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=true,enable_local_exchange=true,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=true,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=false,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */ * from ${table_name}"
         qt_sql_36_1 "select cast(v['a'] as int), cast(v['b'] as int), cast(v['c'] as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
@@ -344,13 +317,11 @@ suite("regression_test_variant", "nonConcurrent"){
         // sql "select * from ${table_name}"
 
         // test all sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "all_sparse_columns"
         create_table.call(table_name,  "DUPLICATE", "1")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "2"}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 
         // test mow with delete
         table_name = "variant_mow" 
@@ -371,12 +342,10 @@ suite("regression_test_variant", "nonConcurrent"){
         qt_sql_38 "select * from ${table_name} order by k limit 10"
 
         // read text from sparse col
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_31 """select cast(v['xxxx'] as string) from sparse_columns where cast(v['xxxx'] as string) != 'null' order by k limit 1;"""
         sql "truncate table sparse_columns"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 
         // test cast
         table_name = "variant_cast"         
@@ -405,7 +374,7 @@ suite("regression_test_variant", "nonConcurrent"){
                 "is_being_synced" = "false",
                 "storage_medium" = "hdd",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V1",
+                "inverted_index_storage_format" = "V2",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "store_row_column" = "true",
@@ -459,6 +428,7 @@ suite("regression_test_variant", "nonConcurrent"){
             """ 
             exception("errCode = 2, detailMessage = Variant type should not be used in key")
         }
+        sql "DROP TABLE IF EXISTS var_as_key"
         sql """
             CREATE TABLE `var_as_key` (
                 `k` int NULL,
@@ -473,9 +443,40 @@ suite("regression_test_variant", "nonConcurrent"){
         sql """insert into var_as_key values(2, '{"b" : 11}')"""
         qt_sql "select * from var_as_key order by k"
 
+        if (!isCloudMode()) {
+            test {
+                sql """
+                create table var(
+                    `key` int,
+                    `content` variant
+                )
+                DUPLICATE KEY(`key`)
+                distributed by hash(`key`) buckets 8
+                properties(
+                  "replication_allocation" = "tag.location.default: 1",
+                  "light_schema_change" = "false"
+                );
+                """
+                exception("errCode = 2, detailMessage = Variant type rely on light schema change")
+            }
+        }
+
+        table_name = "variant_type_test"
+        sql """ DROP TABLE IF EXISTS ${table_name} """
+        sql """
+            CREATE TABLE ${table_name} (
+                k int,
+                v variant NULL
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(`k`) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sql """ insert into ${table_name} values (1, '{"a": 1122323232313223, "b": 1.2, "c" : "ddddd", "d" : {"e": 1.2, "f": "ggggg"}}'), (2, NULL) """
+        qt_sql """ select variant_type(v) from ${table_name} """
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        set_be_config.call("variant_max_merged_tablet_schema_size", "2048")
     }
 }

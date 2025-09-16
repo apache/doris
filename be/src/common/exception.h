@@ -19,17 +19,15 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Status_types.h>
-#include <stdint.h>
 
 #include <exception>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include "common/status.h"
-#include "util/defer_op.h"
+#include "util/defer_op.h" // IWYU pragma: keep
 
 namespace doris {
 
@@ -37,11 +35,8 @@ inline thread_local int enable_thread_catch_bad_alloc = 0;
 class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
-    Exception(int code, const std::string_view& msg);
-    Exception(const Status& status) : Exception(status.code(), status.msg()) {}
-    // add nested exception as first param, or the template may could not find
-    // the correct method for ...args
-    Exception(const Exception& nested, int code, const std::string_view& msg);
+    Exception(int code, const std::string_view& msg) : Exception(code, std::string(msg), false) {}
+    Exception(const Status& status) : Exception(status.code(), status.msg(), true) {}
 
     // Format message with fmt::format, like the logging functions.
     template <typename... Args>
@@ -49,6 +44,7 @@ public:
             : Exception(code, fmt::format(fmt, std::forward<Args>(args)...)) {}
 
     int code() const { return _code; }
+    std::string message() const { return _err_msg ? _err_msg->_msg : ""; }
 
     const std::string& to_string() const;
 
@@ -57,13 +53,14 @@ public:
     Status to_status() const { return {code(), _err_msg->_msg, _err_msg->_stack}; }
 
 private:
+    Exception(int code, const std::string_view& msg, bool from_status);
+
     int _code;
     struct ErrMsg {
         std::string _msg;
         std::string _stack;
     };
     std::unique_ptr<ErrMsg> _err_msg;
-    std::unique_ptr<Exception> _nested_excption;
     mutable std::string _cache_string;
 };
 
@@ -71,16 +68,12 @@ inline const std::string& Exception::to_string() const {
     if (!_cache_string.empty()) {
         return _cache_string;
     }
-    std::stringstream ostr;
-    ostr << "[E" << _code << "] ";
-    ostr << (_err_msg ? _err_msg->_msg : "");
+    fmt::memory_buffer buf;
+    fmt::format_to(buf, "[E{}] {}", _code, _err_msg ? _err_msg->_msg : "");
     if (_err_msg && !_err_msg->_stack.empty()) {
-        ostr << '\n' << _err_msg->_stack;
+        fmt::format_to(buf, "\n{}", _err_msg->_stack);
     }
-    if (_nested_excption != nullptr) {
-        ostr << '\n' << "Caused by:" << _nested_excption->to_string();
-    }
-    _cache_string = ostr.str();
+    _cache_string = fmt::to_string(buf);
     return _cache_string;
 }
 
@@ -137,5 +130,28 @@ inline const std::string& Exception::to_string() const {
             } else {                                                                             \
                 status_ = e.to_status();                                                         \
             }                                                                                    \
+        }                                                                                        \
+    } while (0);
+
+#define HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(stmt, exception_handler)                             \
+    do {                                                                                         \
+        try {                                                                                    \
+            doris::enable_thread_catch_bad_alloc++;                                              \
+            Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};                     \
+            {                                                                                    \
+                Status _status_ = (stmt);                                                        \
+                if (UNLIKELY(!_status_.ok())) {                                                  \
+                    exception_handler(doris::Exception());                                       \
+                    return _status_;                                                             \
+                }                                                                                \
+            }                                                                                    \
+        } catch (const doris::Exception& e) {                                                    \
+            exception_handler(e);                                                                \
+            if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {                                \
+                return Status::MemoryLimitExceeded(fmt::format(                                  \
+                        "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, __FUNCTION__:{}", \
+                        e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));      \
+            }                                                                                    \
+            return Status::Error<false>(e.code(), e.to_string());                                \
         }                                                                                        \
     } while (0);

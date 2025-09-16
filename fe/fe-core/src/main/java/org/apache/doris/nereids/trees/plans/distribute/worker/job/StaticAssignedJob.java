@@ -31,7 +31,7 @@ import java.util.Objects;
 public class StaticAssignedJob implements AssignedJob {
     private final int indexInUnassignedJob;
     private final UnassignedJob unassignedJob;
-    private final TUniqueId instanceId;
+    private TUniqueId instanceId; // when retry query, we'll need to reset instanceId
     private final DistributedPlanWorker worker;
     private final ScanSource scanSource;
 
@@ -56,6 +56,14 @@ public class StaticAssignedJob implements AssignedJob {
     }
 
     @Override
+    public void resetInstanceId(TUniqueId instanceId) {
+        if (instanceId == null) {
+            throw new IllegalArgumentException("instanceId can not be null");
+        }
+        this.instanceId = instanceId;
+    }
+
+    @Override
     public UnassignedJob unassignedJob() {
         return unassignedJob;
     }
@@ -77,12 +85,6 @@ public class StaticAssignedJob implements AssignedJob {
 
     @Override
     public String toString(boolean showUnassignedJob) {
-        StringBuilder scanSourceString = new StringBuilder();
-        if (!scanSource.isEmpty()) {
-            scanSource.toString(scanSourceString, "  ");
-        } else {
-            scanSourceString = new StringBuilder("[]");
-        }
         StringBuilder str = new StringBuilder(getClass().getSimpleName()).append("(");
         if (showUnassignedJob) {
             str.append("\n  unassignedJob: ").append(unassignedJob).append(",");
@@ -95,12 +97,32 @@ public class StaticAssignedJob implements AssignedJob {
         }
 
         return str
-                .append(",\n  scanSource: " + scanSourceString)
+                .append(formatOtherString())
+                .append(",\n  scanSource: " + formatScanSourceString())
                 .append("\n)")
                 .toString();
     }
 
     protected Map<String, String> extraInfo() {
         return ImmutableMap.of();
+    }
+
+    protected String formatScanSourceString() {
+        StringBuilder scanSourceString = new StringBuilder();
+        if (!scanSource.isEmpty()) {
+            scanSource.toString(scanSourceString, "  ");
+        } else {
+            scanSourceString = new StringBuilder("[]");
+        }
+        return scanSourceString.toString();
+    }
+
+    protected String formatOtherString() {
+        return "";
+    }
+
+    @Override
+    public int hashCode() {
+        return indexInUnassignedJob;
     }
 }

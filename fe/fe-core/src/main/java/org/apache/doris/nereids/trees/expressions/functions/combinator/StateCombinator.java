@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AggCombinerFunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
@@ -55,11 +58,34 @@ public class StateCombinator extends ScalarFunction
      */
     public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
         super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
+        for (Expression arg : arguments) {
+            if (arg instanceof OrderExpression) {
+                throw new AnalysisException(String
+                        .format("%s_state doesn't support order by expression", nested.getName()));
+            }
+        }
 
         this.nested = Objects.requireNonNull(nested, "nested can not be null");
         this.returnType = new AggStateType(nested.getName(), arguments.stream().map(arg -> {
             return arg.getDataType();
         }).collect(ImmutableList.toImmutableList()), arguments.stream().map(arg -> {
+            return arg.nullable();
+        }).collect(ImmutableList.toImmutableList()));
+    }
+
+    private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested) {
+        super(functionParams);
+        for (Expression arg : functionParams.arguments) {
+            if (arg instanceof OrderExpression) {
+                throw new AnalysisException(String
+                        .format("%s_state doesn't support order by expression", nested.getName()));
+            }
+        }
+
+        this.nested = Objects.requireNonNull(nested, "nested can not be null");
+        this.returnType = new AggStateType(nested.getName(), functionParams.arguments.stream().map(arg -> {
+            return arg.getDataType();
+        }).collect(ImmutableList.toImmutableList()), functionParams.arguments.stream().map(arg -> {
             return arg.nullable();
         }).collect(ImmutableList.toImmutableList()));
     }
@@ -70,7 +96,7 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(children, nested);
+        return new StateCombinator(getFunctionParams(children), nested);
     }
 
     @Override
@@ -110,5 +136,10 @@ public class StateCombinator extends ScalarFunction
     @Override
     public boolean canRollUp() {
         return true;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        nested.checkLegalityBeforeTypeCoercion();
     }
 }

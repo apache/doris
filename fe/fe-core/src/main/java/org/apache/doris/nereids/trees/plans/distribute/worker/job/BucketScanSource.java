@@ -36,7 +36,7 @@ public class BucketScanSource extends ScanSource {
     public final Map<Integer, Map<ScanNode, ScanRanges>> bucketIndexToScanNodeToTablets;
 
     public BucketScanSource(Map<Integer, Map<ScanNode, ScanRanges>> bucketIndexToScanNodeToTablets) {
-        this.bucketIndexToScanNodeToTablets = bucketIndexToScanNodeToTablets;
+        this.bucketIndexToScanNodeToTablets = Maps.newLinkedHashMap(bucketIndexToScanNodeToTablets);
     }
 
     @Override
@@ -139,6 +139,11 @@ public class BucketScanSource extends ScanSource {
             }
         }
         str.append("\n").append(prefix).append("]");
+    }
+
+    @Override
+    public ScanSource newEmpty() {
+        return new BucketScanSource(Maps.newLinkedHashMap());
     }
 
     @Override

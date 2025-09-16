@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("dup_gb_mv_abs") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_gb_mv_abs; """
 
     sql """
@@ -36,7 +38,7 @@ suite ("dup_gb_mv_abs") {
     sql "insert into dup_gb_mv_abs select 2,2,2,'b';"
     sql "insert into dup_gb_mv_abs select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
+    createMV ("create materialized view k12sa as select k1 as a1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
     sleep(3000)
 
     sql "insert into dup_gb_mv_abs select -4,-4,-4,'d';"
@@ -45,31 +47,21 @@ suite ("dup_gb_mv_abs") {
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_gb_mv_abs with sync;"
+    sql """alter table dup_gb_mv_abs modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 
     order_qt_select_star "select * from dup_gb_mv_abs order by k1;"
 
-    explain {
-        sql("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
-        contains "(k12sa)"
-    }
+    mv_rewrite_success("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")
     order_qt_select_mv "select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1 order by k1;"
 
-    explain {
-        sql("select sum(abs(k2)) from dup_gb_mv_abs group by k1;")
-        contains "(k12sa)"
-    }
+    mv_rewrite_success("select sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")
     order_qt_select_mv_sub "select sum(abs(k2)) from dup_gb_mv_abs group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
-        contains "(k12sa)"
-    }
+    mv_rewrite_success("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")
 
-    explain {
-        sql("select sum(abs(k2)) from dup_gb_mv_abs group by k1;")
-        contains "(k12sa)"
-    }
+    mv_rewrite_success("select sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")
 }

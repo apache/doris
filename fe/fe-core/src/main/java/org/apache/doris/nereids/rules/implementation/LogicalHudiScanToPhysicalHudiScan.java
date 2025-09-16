@@ -38,12 +38,12 @@ public class LogicalHudiScanToPhysicalHudiScan extends OneImplementationRuleFact
                         DistributionSpecAny.INSTANCE,
                         Optional.empty(),
                         fileScan.getLogicalProperties(),
-                        fileScan.getConjuncts(),
                         fileScan.getSelectedPartitions(),
                         fileScan.getTableSample(),
                         fileScan.getTableSnapshot(),
                         fileScan.getScanParams(),
-                        fileScan.getIncrementalRelation())
+                        fileScan.getIncrementalRelation(),
+                        fileScan.getOperativeSlots())
         ).toRule(RuleType.LOGICAL_HUDI_SCAN_TO_PHYSICAL_HUDI_SCAN_RULE);
     }
 }

@@ -17,32 +17,46 @@
 
 package org.apache.doris.datasource.iceberg.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 @Data
 public class IcebergSplit extends FileSplit {
 
+    // Doris will convert the schema in FileSystem to achieve the function of natively reading files.
+    // For example, s3a:// will be converted to s3://.
+    // The position delete file of iceberg will record the full path of the datafile, which includes the schema.
+    // When comparing datafile with position delete, the converted path cannot be used,
+    // but the original datafile path must be used.
     private final String originalPath;
+    private Integer formatVersion;
+    private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
+    private Map<StorageProperties.Type, StorageProperties> config;
+    // tableLevelRowCount will be set only table-level count push down opt is available.
+    private long tableLevelRowCount = -1;
+    // Partition values are used to do runtime filter partition pruning.
+    private Map<String, String> icebergPartitionValues = null;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
-    public IcebergSplit(Path file, long start, long length, long fileLength, String[] hosts,
-                        Integer formatVersion, Map<String, String> config,
+    public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
+                        Integer formatVersion, Map<StorageProperties.Type, StorageProperties> config,
                         List<String> partitionList, String originalPath) {
-        super(file, start, length, fileLength, hosts, partitionList);
+        super(file, start, length, fileLength, 0, hosts, partitionList);
         this.formatVersion = formatVersion;
         this.config = config;
         this.originalPath = originalPath;
+        this.selfSplitWeight = length;
     }
 
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
-    private Map<String, String> config;
+    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFileFilters = deleteFileFilters;
+        this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
+    }
 }
-
-

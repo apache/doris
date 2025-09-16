@@ -50,19 +50,21 @@ public class Field extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(TinyIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(IntegerType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(BigIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(LargeIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(FloatType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DoubleType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV3Type.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateV2Type.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateTimeV2Type.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(StringType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(TinyIntType.INSTANCE, TinyIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(SmallIntType.INSTANCE, SmallIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(BigIntType.INSTANCE, BigIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(LargeIntType.INSTANCE, LargeIntType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(FloatType.INSTANCE, FloatType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DoubleType.INSTANCE, DoubleType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DecimalV3Type.WILDCARD, DecimalV3Type.WILDCARD),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE)
+                    .varArgs(DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(IntegerType.INSTANCE).varArgs(StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
@@ -71,6 +73,11 @@ public class Field extends ScalarFunction
     public Field(Expression arg, Expression... varArgs) {
         super("field", ExpressionUtils.mergeArguments(arg, varArgs));
         Preconditions.checkArgument(varArgs.length >= 1, "field function parameter size is less than 2");
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Field(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -88,9 +95,8 @@ public class Field extends ScalarFunction
      */
     @Override
     public Field withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Field(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Field(getFunctionParams(children));
     }
 
     @Override

@@ -27,7 +27,7 @@ suite("hll", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
+    createMV "CREATE materialized VIEW amt_count AS SELECT store_id as a1, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
     sql "insert into test_materialized_view_hll1 values(1, 1, 1, '2020-05-30',100);"
     sql "insert into test_materialized_view_hll1 values(2, 1, 1, '2020-05-30',100);"
@@ -36,16 +36,18 @@ suite("hll", "rollup") {
     qt_sql "desc test_materialized_view_hll1 all";
 
     sql "analyze table test_materialized_view_hll1 with sync;"
+    sql """alter table test_materialized_view_hll1 modify column record_id set stats ('row_count'='2');"""
+
     sql """set enable_stats=false;"""
 
     explain {
         sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;")
         contains "(amt_count)"
     }
+    mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;",
+            "amt_count")
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;")
-        contains "(amt_count)"
-    }
+    mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;",
+            "amt_count")
 }

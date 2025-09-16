@@ -17,15 +17,17 @@
 
 #include "wal_reader.h"
 
+#include <absl/strings/str_split.h>
+
 #include "agent/be_exec_version_manager.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
-#include "gutil/strings/split.h"
+#include "cpp/sync_point.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
-#include "vec/data_types/data_type_string.h"
+#include "vec/core/block.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
 }
@@ -42,16 +44,6 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;
     auto st = _wal_reader->read_block(pblock);
-    // Due to historical reasons, be_exec_version=3 will use the new way to serialize block
-    // in doris 2.1.0, now it has been corrected to use the old way to do serialize and deserialize
-    // in the latest version. So if a wal is created by 2.1.0 (wal version=0 && be_exec_version=3),
-    // it should upgrade the be_exec_version to 4 to use the new way to deserialize pblock to solve
-    // compatibility issues.see https://github.com/apache/doris/pull/32299
-    if (_version == 0 && pblock.has_be_exec_version() &&
-        pblock.be_exec_version() == OLD_WAL_SERDE) {
-        VLOG_DEBUG << "need to set be_exec_version to 4 to solve compatibility issues";
-        pblock.set_be_exec_version(USE_NEW_SERDE);
-    }
     if (st.is<ErrorCode::END_OF_FILE>()) {
         LOG(INFO) << "read eof on wal:" << _wal_path;
         *read_rows = 0;
@@ -67,10 +59,10 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return Status::DataQualityError("check be exec version fail when reading wal file {}",
                                         _wal_path);
     }
-    vectorized::Block src_block;
+    Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
     //convert to dst block
-    vectorized::Block dst_block;
+    Block dst_block;
     int index = 0;
     auto output_block_columns = block->get_columns_with_type_and_name();
     size_t output_block_column_size = output_block_columns.size();
@@ -85,14 +77,14 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 std::to_string(output_block_column_size),
                 std::to_string(_tuple_descriptor->slots().size()));
     }
-    for (auto slot_desc : _tuple_descriptor->slots()) {
+    for (auto* slot_desc : _tuple_descriptor->slots()) {
         auto pos = _column_pos_map[slot_desc->col_unique_id()];
         if (pos >= src_block.columns()) {
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
                                          pos, src_block.columns());
         }
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-        if (column_ptr != nullptr && slot_desc->is_nullable()) {
+        if (!column_ptr && slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(
@@ -106,17 +98,17 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
+Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                               std::unordered_set<std::string>* missing_cols) {
     std::string col_ids;
     RETURN_IF_ERROR(_wal_reader->read_header(_version, col_ids));
     std::vector<std::string> column_id_vector =
-            strings::Split(col_ids, ",", strings::SkipWhitespace());
+            absl::StrSplit(col_ids, ",", absl::SkipWhitespace());
     _column_id_count = column_id_vector.size();
     try {
         int64_t pos = 0;
         for (auto col_id_str : column_id_vector) {
-            auto col_id = std::strtoll(col_id_str.c_str(), NULL, 10);
+            auto col_id = std::strtoll(col_id_str.c_str(), nullptr, 10);
             _column_pos_map.emplace(col_id, pos);
             pos++;
         }
@@ -126,4 +118,5 @@ Status WalReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

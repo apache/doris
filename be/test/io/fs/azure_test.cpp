@@ -18,10 +18,12 @@
 #include <fmt/core.h>
 #include <gtest/gtest.h>
 
+#ifdef USE_AZURE
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
+#endif
 #include <cstdio>
 #include <iostream>
 #include <stdexcept>
@@ -46,6 +48,7 @@ std::string GetConnectionString() {
 
 TEST(AzureTest, Write) {
     GTEST_SKIP() << "Skipping Azure test, because this test it to test the compile and linkage";
+#ifdef USE_AZURE
     using namespace Azure::Storage::Blobs;
 
     std::string accountName = config::test_s3_ak;
@@ -91,6 +94,7 @@ TEST(AzureTest, Write) {
     blobClient.DownloadTo(buffer.data(), buffer.size());
 
     std::cout << std::string(buffer.begin(), buffer.end()) << std::endl;
+#endif
 }
 
 } // namespace doris

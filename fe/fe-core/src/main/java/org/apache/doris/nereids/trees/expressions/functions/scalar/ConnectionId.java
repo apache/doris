@@ -18,13 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -33,7 +34,7 @@ import java.util.List;
  * ScalarFunction 'ConnectionId'.
  */
 public class ConnectionId extends ScalarFunction
-        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable, Nondeterministic {
+        implements LeafExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args()
@@ -41,6 +42,17 @@ public class ConnectionId extends ScalarFunction
 
     public ConnectionId() {
         super("connection_id", ImmutableList.of());
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private ConnectionId(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public Expression withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.isEmpty());
+        return new ConnectionId(getFunctionParams(children));
     }
 
     @Override
@@ -51,5 +63,10 @@ public class ConnectionId extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitConnectionId(this, context);
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        return false;
     }
 }

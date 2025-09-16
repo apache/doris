@@ -51,7 +51,7 @@ public:
         return MutableBlock::build_mutable_block(block);
     }
     static MutableBlock build_mutable_mem_reuse_block(Block* block,
-                                                      std::vector<SlotDescriptor*>& slots) {
+                                                      const std::vector<SlotDescriptor*>& slots) {
         if (!block->mem_reuse()) {
             size_t column_size = slots.size();
             MutableColumns columns(column_size);
@@ -72,7 +72,7 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->need_materialize()) {
+                if (!slot_desc->is_materialized()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
@@ -86,7 +86,7 @@ public:
         NameAndTypePairs name_with_types;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (!slot_desc->need_materialize()) {
+                if (!slot_desc->is_materialized()) {
                     continue;
                 }
                 name_with_types.emplace_back(slot_desc->col_name(), slot_desc->get_data_type_ptr());
@@ -100,7 +100,7 @@ public:
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
-                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                if (ignore_trivial_slot && !slot_desc->is_materialized()) {
                     continue;
                 }
                 columns_with_type_and_name.emplace_back(
@@ -116,9 +116,11 @@ public:
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
-        if (is_single && r[0]) {
-            for (size_t i = 0; i < size; ++i) {
-                l[i] = 1;
+        if (is_single) {
+            if (r[0]) {
+                for (size_t i = 0; i < size; ++i) {
+                    l[i] = 1;
+                }
             }
         } else {
             for (size_t i = 0; i < size; ++i) {
@@ -155,6 +157,61 @@ public:
         }
         return true;
     }
+
+    // SIMD helper: find the first not null in the null map
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+#ifdef __AVX2__
+        // search by simd
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i null_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map[pos]));
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i cmp_result = _mm256_cmpeq_epi8(null_vec, zero_vec);
+
+            int mask = _mm256_movemask_epi8(cmp_result);
+            if (mask != 0) {
+                // find the first not null
+                return pos + __builtin_ctz(mask);
+            }
+        }
+
+        // handle the rest elements
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#endif
+        return end_pos;
+    }
+
+    // SIMD helper: batch set non-null value with [start, end) to 1
+    static void range_set_nullmap_to_true_simd(NullMap& null_map, size_t start_pos,
+                                               size_t end_pos) {
+#ifdef __AVX2__
+        // batch set null map to 1 using SIMD (32 bytes at a time)
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i ones_vec = _mm256_set1_epi8(1);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&null_map[pos]), ones_vec);
+        }
+
+        // handle the rest elements (less than 32 bytes)
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#endif
+    }
 };
 
 inline bool match_suffix(const std::string& name, const std::string& suffix) {
@@ -171,12 +228,12 @@ inline std::string remove_suffix(const std::string& name, const std::string& suf
 };
 
 inline ColumnPtr create_always_true_column(size_t size, bool is_nullable) {
-    auto res_data_column = ColumnUInt8::create(size, 1);
+    ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     if (is_nullable) {
-        auto null_map = ColumnVector<UInt8>::create(size, 0);
-        return ColumnNullable::create(std::move(res_data_column), std::move(null_map));
+        auto null_map = ColumnUInt8::create(1, 0);
+        res_data_column = ColumnNullable::create(res_data_column, std::move(null_map));
     }
-    return res_data_column;
+    return ColumnConst::create(std::move(res_data_column), size);
 }
 
 // change null element to true element
@@ -190,12 +247,12 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        const NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, rows);
-    } else if (argument != nullptr && argument->has_null()) {
+        nullable->fill_false_to_nullmap(rows);
+    } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
         auto* __restrict data =
@@ -226,6 +283,17 @@ inline size_t calculate_false_number(ColumnPtr column) {
         const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
         return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
     }
+}
+
+template <typename T>
+T read_from_json(const std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
+            static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
 }
 
 } // namespace doris::vectorized

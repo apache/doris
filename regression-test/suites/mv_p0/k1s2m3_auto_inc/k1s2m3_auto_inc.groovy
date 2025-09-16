@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("k1s2m3_auto_inc") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -34,7 +37,7 @@ suite ("k1s2m3_auto_inc") {
         """
 
     test {
-        sql """create materialized view k1ap2spa as select k1,sum(abs(k2+1)) from d_table group by k1;"""
+        sql """create materialized view k1ap2spa as select k1 as a1,sum(abs(k2+1)) from d_table group by k1;"""
         exception "The materialized view can not involved auto increment column"
     }
 
@@ -43,7 +46,7 @@ suite ("k1s2m3_auto_inc") {
         exception "The materialized view can not involved auto increment column"
     }
 
-    createMV("create materialized view k3ap2spa as select k3,sum(abs(k2+1)) from d_table group by k3;")
+    createMV("create materialized view k3ap2spa as select k3 as a1,sum(abs(k2+1)) from d_table group by k3;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table(k4,k2) values('d',4);"
@@ -51,17 +54,12 @@ suite ("k1s2m3_auto_inc") {
     qt_select_star "select * from d_table order by k1;"
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;")
-        contains "(k3ap2spa)"
-    }
+    mv_rewrite_success("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;", "k3ap2spa")
     qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;")
-        contains "(k3ap2spa)"
-    }
+    mv_rewrite_success("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;", "k3ap2spa")
 }

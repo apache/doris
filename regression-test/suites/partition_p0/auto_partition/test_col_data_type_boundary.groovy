@@ -52,23 +52,27 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_tinyint values(1, -128);"""
-    sql """insert into table_tinyint values(1, -129);"""
+    sql """insert into table_tinyint values(1, -127);"""
     partitions_res1 = sql """show partitions from table_tinyint order by PartitionId;"""
     sql """insert into table_tinyint values(1, 127);"""
     sql """insert into table_tinyint values(2, 127);"""
-    sql """insert into table_tinyint values(3, 128);"""
+    sql """insert into table_tinyint values(3, 126);"""
     partitions_res2 = sql """show partitions from table_tinyint order by PartitionId;"""
     select_rows = sql """select count() from table_tinyint;"""
-    assertEquals(select_rows[0][0], 4)
+    assertEquals(select_rows[0][0], 5)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
         sql """alter table table_tinyint modify column c_tinyint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_smallint"""
@@ -82,22 +86,26 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_smallint values(1, -32768)"""
-    sql """insert into table_smallint values(2, -32769)"""
+    sql """insert into table_smallint values(2, -32767)"""
     partitions_res1 = sql """show partitions from table_smallint order by PartitionId;"""
     sql """insert into table_smallint values(3, 32767)"""
-    sql """insert into table_smallint values(4, 32768)"""
+    sql """insert into table_smallint values(4, 32766)"""
     partitions_res2 = sql """show partitions from table_smallint order by PartitionId;"""
     select_rows = sql """select count() from table_smallint;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
         sql """alter table table_smallint modify column c_smallint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_int"""
@@ -111,22 +119,26 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_int values(1, -2147483648)"""
-    sql """insert into table_int values(2, -2147483649)"""
+    sql """insert into table_int values(2, -2147483647)"""
     partitions_res1 = sql """show partitions from table_int order by PartitionId;"""
     sql """insert into table_int values(3, 2147483647)"""
-    sql """insert into table_int values(4, 2147483648)"""
+    sql """insert into table_int values(4, 2147483646)"""
     partitions_res2 = sql """show partitions from table_int order by PartitionId;"""
     select_rows = sql """select count() from table_int;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
         sql """alter table table_int modify column c_int largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_bigint"""
@@ -140,22 +152,26 @@ suite("test_col_data_type_boundary") {
         DISTRIBUTED BY HASH(`k1`) BUCKETS 10
         PROPERTIES("replication_num" = "1");"""
     sql """insert into table_bigint values(1, -9223372036854775808)"""
-    sql """insert into table_bigint values(2, -9223372036854775809)"""
+    sql """insert into table_bigint values(2, -9223372036854775807)"""
     partitions_res1 = sql """show partitions from table_bigint order by PartitionId;"""
     sql """insert into table_bigint values(3, 9223372036854775807)"""
-    sql """insert into table_bigint values(4, 9223372036854775808)"""
+    sql """insert into table_bigint values(4, 9223372036854775806)"""
     partitions_res2 = sql """show partitions from table_bigint order by PartitionId;"""
     select_rows = sql """select count() from table_bigint;"""
     assertEquals(select_rows[0][0], 4)
     assertEquals(partitions_res1.size(), 2)
-    assertEquals(partitions_res2.size(), 2)
+    assertEquals(partitions_res2.size(), 4)
     assertEquals(partitions_res1[0][0], partitions_res2[0][0])
     assertEquals(partitions_res1[1][0], partitions_res2[1][0])
     try {
         sql """alter table table_bigint modify column c_bigint largeint key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_largeint"""
@@ -225,7 +241,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_date_range modify column c_date datetime key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
 
@@ -249,7 +269,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_date_list modify column c_date datetime key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_datetime_range"""
@@ -274,7 +298,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_datetime_range modify column c_datetime date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
     sql """drop table if exists table_datetime_list"""
@@ -299,7 +327,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_datetime_list modify column c_datetime date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
 
@@ -323,7 +355,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_char modify column c_char varchar key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
 
@@ -347,7 +383,11 @@ suite("test_col_data_type_boundary") {
         sql """alter table table_varchar modify column c_varchar date key;"""
     } catch (Exception e) {
         log.info(e.getMessage())
-        assertTrue(e.getMessage().contains("Can not modify partition column"))
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            assertTrue(e.getMessage().contains("Can not modify partition or distribution column"))
+        }
     }
 
 
@@ -371,10 +411,19 @@ suite("test_col_data_type_boundary") {
     assertEquals(select_rows[0][0], 3)
     assertEquals(partitions_res1.size(), 2)
 
-    sql """alter table table_datetime_range modify column c_int largeint;"""
-    partitions_res1 = sql """show partitions from table_datetime_range order by PartitionId;"""
-    select_rows = sql """select count() from table_datetime_range;"""
-    assertEquals(select_rows[0][0], 3)
-    assertEquals(partitions_res1.size(), 2)
+    try {
+        sql """alter table table_datetime_range modify column c_int largeint;"""
+        partitions_res1 = sql """show partitions from table_datetime_range order by PartitionId;"""
+        select_rows = sql """select count() from table_datetime_range;"""
+        assertEquals(select_rows[0][0], 3)
+        assertEquals(partitions_res1.size(), 2)
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        if (isClusterKeyEnabled()) {
+            assertTrue(e.getMessage().contains("Can not modify "))
+        } else {
+            throw e
+        }
+    }
 
 }

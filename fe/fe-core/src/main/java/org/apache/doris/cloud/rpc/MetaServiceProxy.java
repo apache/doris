@@ -22,13 +22,18 @@ import org.apache.doris.common.Config;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
+import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.LinkedList;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
@@ -38,15 +43,19 @@ public class MetaServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
     private final Map<String, MetaServiceClient> serviceMap;
+    private Queue<Long> lastConnTimeMs = new LinkedList<>();
 
     static {
         if (Config.isCloudMode() && (Config.meta_service_endpoint == null || Config.meta_service_endpoint.isEmpty())) {
-            throw new RuntimeException("in cloud mode, please configure cloud_unique_id and meta_service_endpoint");
+            throw new RuntimeException("in cloud mode, please configure meta_service_endpoint in fe.conf");
         }
     }
 
     public MetaServiceProxy() {
         this.serviceMap = Maps.newConcurrentMap();
+        for (int i = 0; i < 3; ++i) {
+            lastConnTimeMs.add(0L);
+        }
     }
 
     private static class SingletonHolder {
@@ -72,6 +81,16 @@ public class MetaServiceProxy {
 
     public static MetaServiceProxy getInstance() {
         return MetaServiceProxy.SingletonHolder.get();
+    }
+
+    public boolean needReconn() {
+        lock.lock();
+        try {
+            long now = System.currentTimeMillis();
+            return (now - lastConnTimeMs.element() > Config.meta_service_rpc_reconnect_interval_ms);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)
@@ -106,8 +125,9 @@ public class MetaServiceProxy {
         }
 
         String address = Config.meta_service_endpoint;
+        address = address.replaceAll("^[\"']|[\"']$", "");
         MetaServiceClient service = serviceMap.get(address);
-        if (service != null && service.isNormalState()) {
+        if (service != null && service.isNormalState() && !service.isConnectionAgeExpired()) {
             return service;
         }
 
@@ -126,7 +146,7 @@ public class MetaServiceProxy {
                 removedClient = service;
                 service = null;
             }
-            if (service != null && !service.isConnectionAgeExpired()) {
+            if (service != null && service.isConnectionAgeExpired()) {
                 serviceMap.remove(address);
                 removedClient = service;
                 service = null;
@@ -134,6 +154,8 @@ public class MetaServiceProxy {
             if (service == null) {
                 service = new MetaServiceClient(address);
                 serviceMap.put(address, service);
+                lastConnTimeMs.add(System.currentTimeMillis());
+                lastConnTimeMs.remove();
             }
             return service;
         } finally {
@@ -144,358 +166,270 @@ public class MetaServiceProxy {
         }
     }
 
+    public static class MetaServiceClientWrapper {
+        private final MetaServiceProxy proxy;
+        private Random random = new Random();
+
+        public MetaServiceClientWrapper(MetaServiceProxy proxy) {
+            this.proxy = proxy;
+        }
+
+        public <Response> Response executeRequest(Function<MetaServiceClient, Response> function) throws RpcException {
+            long maxRetries = Config.meta_service_rpc_retry_cnt;
+            for (long tried = 1; tried <= maxRetries; tried++) {
+                MetaServiceClient client = null;
+                try {
+                    client = proxy.getProxy();
+                    return function.apply(client);
+                } catch (StatusRuntimeException sre) {
+                    LOG.warn("failed to request meta service code {}, msg {}, trycnt {}", sre.getStatus().getCode(),
+                            sre.getMessage(), tried);
+                    boolean shouldRetry = false;
+                    switch (sre.getStatus().getCode()) {
+                        case UNAVAILABLE:
+                        case UNKNOWN:
+                            shouldRetry = true;
+                            break;
+                        case DEADLINE_EXCEEDED:
+                            shouldRetry = tried <= Config.meta_service_rpc_timeout_retry_times;
+                            break;
+                        default:
+                            shouldRetry = false;
+                    }
+                    if (!shouldRetry || tried >= maxRetries) {
+                        throw new RpcException("", sre.getMessage(), sre);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("failed to request meta servive trycnt {}", tried, e);
+                    if (tried >= maxRetries) {
+                        throw new RpcException("", e.getMessage(), e);
+                    }
+                } finally {
+                    if (proxy.needReconn() && client != null) {
+                        client.shutdown(true);
+                    }
+                }
+
+                int delay = 20 + random.nextInt(200 - 20 + 1);
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    throw new RpcException("", interruptedException.getMessage(), interruptedException);
+                }
+            }
+            // impossible and unreachable, just make the compiler happy
+            throw new RpcException("", "All retries exhausted", null);
+        }
+    }
+
+    private final MetaServiceClientWrapper w = new MetaServiceClientWrapper(this);
+
     public Future<Cloud.GetVersionResponse> getVisibleVersionAsync(Cloud.GetVersionRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getVisibleVersionAsync(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getVisibleVersionAsync(request));
     }
 
     public Cloud.GetVersionResponse getVersion(Cloud.GetVersionRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getVersion(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getVersion(request));
     }
 
     public Cloud.CreateTabletsResponse createTablets(Cloud.CreateTabletsRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.createTablets(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.createTablets(request));
     }
 
     public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.updateTablet(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.updateTablet(request));
     }
 
     public Cloud.BeginTxnResponse beginTxn(Cloud.BeginTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.beginTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.beginTxn(request));
     }
 
     public Cloud.PrecommitTxnResponse precommitTxn(Cloud.PrecommitTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.precommitTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.precommitTxn(request));
     }
 
     public Cloud.CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.commitTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.commitTxn(request));
     }
 
     public Cloud.AbortTxnResponse abortTxn(Cloud.AbortTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.abortTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.abortTxn(request));
     }
 
     public Cloud.GetTxnResponse getTxn(Cloud.GetTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getTxn(request));
     }
 
     public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getTxnId(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getTxnId(request));
     }
 
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getCurrentMaxTxnId(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getCurrentMaxTxnId(request));
     }
 
     public Cloud.BeginSubTxnResponse beginSubTxn(Cloud.BeginSubTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.beginSubTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.beginSubTxn(request));
     }
 
     public Cloud.AbortSubTxnResponse abortSubTxn(Cloud.AbortSubTxnRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.abortSubTxn(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.abortSubTxn(request));
     }
 
     public Cloud.CheckTxnConflictResponse checkTxnConflict(Cloud.CheckTxnConflictRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.checkTxnConflict(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.checkTxnConflict(request));
     }
 
     public Cloud.CleanTxnLabelResponse cleanTxnLabel(Cloud.CleanTxnLabelRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.cleanTxnLabel(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.cleanTxnLabel(request));
     }
 
     public Cloud.GetClusterResponse getCluster(Cloud.GetClusterRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getCluster(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getCluster(request));
     }
 
     public Cloud.IndexResponse prepareIndex(Cloud.IndexRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.prepareIndex(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.prepareIndex(request));
     }
 
     public Cloud.IndexResponse commitIndex(Cloud.IndexRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.commitIndex(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.commitIndex(request));
+    }
+
+    public Cloud.CheckKVResponse checkKv(Cloud.CheckKVRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.checkKv(request));
     }
 
     public Cloud.IndexResponse dropIndex(Cloud.IndexRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.dropIndex(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.dropIndex(request));
     }
 
     public Cloud.PartitionResponse preparePartition(Cloud.PartitionRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.preparePartition(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.preparePartition(request));
     }
 
     public Cloud.PartitionResponse commitPartition(Cloud.PartitionRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.commitPartition(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.commitPartition(request));
     }
 
     public Cloud.PartitionResponse dropPartition(Cloud.PartitionRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.dropPartition(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.dropPartition(request));
     }
 
     public Cloud.GetTabletStatsResponse getTabletStats(Cloud.GetTabletStatsRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getTabletStats(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getTabletStats(request));
     }
 
     public Cloud.CreateStageResponse createStage(Cloud.CreateStageRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.createStage(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.createStage(request));
     }
 
     public Cloud.GetStageResponse getStage(Cloud.GetStageRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getStage(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getStage(request));
     }
 
     public Cloud.DropStageResponse dropStage(Cloud.DropStageRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.dropStage(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.dropStage(request));
     }
 
     public Cloud.GetIamResponse getIam(Cloud.GetIamRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getIam(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getIam(request));
     }
 
     public Cloud.BeginCopyResponse beginCopy(Cloud.BeginCopyRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.beginCopy(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.beginCopy(request));
     }
 
     public Cloud.FinishCopyResponse finishCopy(Cloud.FinishCopyRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.finishCopy(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.finishCopy(request));
     }
 
     public Cloud.GetCopyJobResponse getCopyJob(Cloud.GetCopyJobRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getCopyJob(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getCopyJob(request));
     }
 
     public Cloud.GetCopyFilesResponse getCopyFiles(Cloud.GetCopyFilesRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getCopyFiles(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getCopyFiles(request));
     }
 
     public Cloud.FilterCopyFilesResponse filterCopyFiles(Cloud.FilterCopyFilesRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.filterCopyFiles(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.filterCopyFiles(request));
     }
 
     public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.alterCluster(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.alterCluster(request));
     }
 
     public Cloud.GetDeleteBitmapUpdateLockResponse getDeleteBitmapUpdateLock(
             Cloud.GetDeleteBitmapUpdateLockRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getDeleteBitmapUpdateLock(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getDeleteBitmapUpdateLock(request));
     }
 
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.removeDeleteBitmapUpdateLock(request));
+    }
+
+    /**
+     * This method is deprecated, there is no code to call it.
+     */
+    @Deprecated
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.alterObjStoreInfo(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.alterObjStoreInfo(request));
+    }
+
+    public Cloud.AlterObjStoreInfoResponse alterStorageVault(Cloud.AlterObjStoreInfoRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.alterStorageVault(request));
+    }
+
+    public Cloud.FinishTabletJobResponse finishTabletJob(Cloud.FinishTabletJobRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.finishTabletJob(request));
     }
 
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request)
             throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getRLTaskCommitAttach(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getRLTaskCommitAttach(request));
+    }
+
+    public Cloud.ResetRLProgressResponse resetRLProgress(Cloud.ResetRLProgressRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.resetRLProgress(request));
     }
 
     public Cloud.GetObjStoreInfoResponse
             getObjStoreInfo(Cloud.GetObjStoreInfoRequest request) throws RpcException {
-        try {
-            final MetaServiceClient client = getProxy();
-            return client.getObjStoreInfo(request);
-        } catch (Exception e) {
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return w.executeRequest((client) -> client.getObjStoreInfo(request));
+    }
+
+    public Cloud.AbortTxnWithCoordinatorResponse
+            abortTxnWithCoordinator(Cloud.AbortTxnWithCoordinatorRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.abortTxnWithCoordinator(request));
+    }
+
+    public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
+        return w.executeRequest((client) -> client.createInstance(request));
     }
 }

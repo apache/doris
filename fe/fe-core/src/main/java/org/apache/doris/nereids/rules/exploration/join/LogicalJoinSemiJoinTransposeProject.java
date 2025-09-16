@@ -68,9 +68,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getOtherJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                            bottomJoin.getMarkJoinConjuncts()
+                                    .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, c, null);
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                            Plan right = CBOUtils.newProject(topUsedExprIds, b);
+                            Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, b);
 
                             Plan newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                             return topProject.withChildren(newTopJoin);
@@ -100,9 +102,11 @@ public class LogicalJoinSemiJoinTransposeProject implements ExplorationRuleFacto
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             bottomJoin.getOtherJoinConjuncts()
                                     .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
+                            bottomJoin.getMarkJoinConjuncts()
+                                    .forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                             Plan newBottomJoin = topJoin.withChildrenNoContext(a, b, null);
                             Plan left = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
-                            Plan right = CBOUtils.newProject(topUsedExprIds, c);
+                            Plan right = CBOUtils.newProjectIfNeeded(topUsedExprIds, c);
 
                             Plan newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                             return topProject.withChildren(newTopJoin);

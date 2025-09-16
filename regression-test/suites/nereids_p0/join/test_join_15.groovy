@@ -18,7 +18,7 @@
 suite("test_join_15", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
-    sql 'set parallel_fragment_exec_instance_num = 2;'
+    sql 'set parallel_pipeline_task_num = 2;'
     sql "use nereids_test_query_db"
 
     def tbName1 = "test"
@@ -83,10 +83,11 @@ suite("test_join_15", "nereids_p0") {
     check2_doris(res83, res84)
 
     // join multi table
-    sql"drop view if exists nullable"
-    sql"""create view nullable(n1, n2) as select a.k1, b.k2 from baseall 
+    String null_name = "nullable_15"
+    sql"drop view if exists ${null_name}"
+    sql"""create view ${null_name}(n1, n2) as select a.k1, b.k2 from baseall 
             a left join bigtable b on a.k1 = b.k1 + 10 where b.k2 is null"""
-    String null_name = "nullable"
+
 
     for (t in join_types){
         qt_join_multi_table1"""select * from ${tbName2} a ${t} join ${null_name} b on a.k1 = b.n1 order by 

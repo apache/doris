@@ -33,7 +33,6 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/sip_hash.h"
@@ -43,13 +42,8 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class Arena;
 
 /** Column, that is just group of few another columns.
   */
@@ -71,9 +65,9 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnStruct>;
-    static Ptr create(const Columns& columns);
-    static Ptr create(const TupleColumns& columns);
-    static Ptr create(Columns&& arg) { return create(arg); }
+    static MutablePtr create(const Columns& columns);
+    static MutablePtr create(const TupleColumns& columns);
+    static MutablePtr create(Columns&& arg) { return create(arg); }
 
     template <typename Arg,
               typename = typename std::enable_if<std::is_rvalue_reference<Arg&&>::value>::type>
@@ -82,25 +76,35 @@ public:
     }
 
     std::string get_name() const override;
-    bool is_column_struct() const override { return true; }
-    const char* get_family_name() const override { return "Struct"; }
-    MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    void sanity_check() const override {
+        for (size_t i = 0; i < columns.size(); ++i) {
+            columns[i]->sanity_check();
+            if (i != 0 && columns[i]->size() != columns[0]->size()) {
+                throw doris::Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Size of sub column({}) is not equal to size of first column({})",
+                        columns[i]->size(), columns[0]->size());
+            }
+        }
+    }
+
     bool is_variable_length() const override { return true; }
+
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
 
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 
-    [[noreturn]] StringRef get_data_at(size_t n) const override {
-        LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
-        __builtin_unreachable();
-    }
-    [[noreturn]] void insert_data(const char* pos, size_t length) override {
-        LOG(FATAL) << "Method insert_data is not supported for " + get_name();
-        __builtin_unreachable();
-    }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
     void insert_default() override;
@@ -124,15 +128,11 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
-                                 size_t end) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
-    }
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        LOG(FATAL) << "Method replace_column_data is not supported for " << get_name();
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -140,18 +140,17 @@ public:
                                            size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    ColumnPtr replicate(const Offsets& offsets) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
 
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
+    bool has_enough_capacity(const IColumn& src) const override;
     void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 
@@ -178,6 +177,26 @@ public:
         }
         return IColumn::convert_column_if_overflow();
     }
+
+    void erase(size_t start, size_t length) override {
+        for (auto& col : columns) {
+            col->erase(start, length);
+        }
+    }
+
+    size_t serialize_size_at(size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+    void replace_float_special_values() override;
+    template <bool positive>
+    struct less;
 };
 
 } // namespace doris::vectorized

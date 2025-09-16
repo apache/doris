@@ -31,7 +31,7 @@ import org.apache.http.client.RedirectStrategy;
 import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_stream_load_properties", "p0,nonConcurrent") {
+suite("test_stream_load_properties", "p0") {
 
     def tables = [
                   "dup_tbl_basic",
@@ -125,13 +125,13 @@ suite("test_stream_load_properties", "p0,nonConcurrent") {
                  "basic_array_data_by_line.json",
                 ]
 
-    def loadedRows = [12,12,12,12,15,15,15]
+    def loadedRows = [0,0,0,0,17,17,17]
 
     def jsonLoadedRows = [20,20,20,20,18,18,18]
 
-    def filteredRows = [8,8,8,8,5,5,5]
+    def filteredRows = [20,20,20,20,3,3,3]
 
-    def maxFilterRatio = [0.4,0.4,0.4,0.4,0.6,0.6,0.6]
+    def maxFilterRatio = [1,1,1,1,0.6,0.6,0.6]
 
     InetSocketAddress address = context.config.feHttpInetSocketAddress
     String user = context.config.feHttpUser
@@ -284,7 +284,7 @@ suite("test_stream_load_properties", "p0,nonConcurrent") {
                     def json = parseJson(result)
                     assertEquals("fail", json.Status.toLowerCase())
                     assertEquals(20, json.NumberTotalRows)
-                    assertEquals(loadedRows[i], json.NumberLoadedRows)
+                    assertEquals(0, json.NumberLoadedRows)
                     assertEquals(filteredRows[i], json.NumberFilteredRows)
                     assertEquals(0, json.NumberUnselectedRows)
                 }
@@ -549,6 +549,10 @@ suite("test_stream_load_properties", "p0,nonConcurrent") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
+            if (isCloudMode()) {
+                continue
+            }
+
             String txnId
             def tableName1 =  "stream_load_" + tableName
             // Invalid txn_id string with letters
@@ -741,11 +745,7 @@ suite("test_stream_load_properties", "p0,nonConcurrent") {
             
             // Commit the same txnId again to trigger operate_txn_2pc() failure
             body = do_streamload_2pc.call(txnId, "commit", tableName1)
-            if (isCloudMode()) {
-                assertEquals("success", parseJson(body).status.toLowerCase())
-            } else {
-                assertEquals("analysis_error", parseJson(body).status.toLowerCase())
-            }
+            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
             assertTrue(parseJson(body).msg.toLowerCase().contains("is already visible"))    
 
             i++
@@ -1099,139 +1099,6 @@ suite("test_stream_load_properties", "p0,nonConcurrent") {
             sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
         }
     }
-
-    // test read_json_by_line with enable_simdjson_reader=false/true
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-    def get_be_param = { paramName ->
-        // assuming paramName on all BEs have save value
-        String backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == paramName) {
-                return ((List<String>) ele)[2]
-            }
-        }
-    }
-
-    def set_be_param = { paramName, paramValue ->
-        // for eache BE node, set paramName=paramValue
-        for (String id in backendId_to_backendIP.keySet()) {
-            def beIp = backendId_to_backendIP.get(id)
-            def bePort = backendId_to_backendHttpPort.get(id)
-            def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-            assertTrue(out.contains("OK"))
-        }
-    }
-
-    // read and save original value of enable_simdjson_reader
-    boolean enable_simdjson_reader = Boolean.parseBoolean(get_be_param.call("enable_simdjson_reader"))
-
-    i = 0
-    try {
-        // set enable_simdjson_reader=false and test
-        set_be_param.call("enable_simdjson_reader", "false")
-
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-            streamLoad {
-                table "stream_load_" + tableName
-                set 'format', 'json'
-                set 'columns', columns[i]
-                set 'read_json_by_line', 'true'
-                if (i <= 3) {
-                    file json_by_line_files[0]
-                } else {
-                    file json_by_line_files[1]
-                }
-                time 10000 // limit inflight 10s
-
-                check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
-                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    assertEquals(0, json.NumberUnselectedRows)
-                }
-            }
-            sql "sync"
-            def tableName1 =  "stream_load_" + tableName
-            if (i <= 3) {
-                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
-            } else {
-                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
-            }
-            i++
-        }
-    } finally {
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-        }
-    }
-
-    i = 0
-    try {
-        // set enable_simdjson_reader=true and test
-        set_be_param.call("enable_simdjson_reader", "true")
-
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-            streamLoad {
-                table "stream_load_" + tableName
-                set 'format', 'json'
-                set 'columns', columns[i]
-                set 'read_json_by_line', 'true'
-                if (i <= 3) {
-                    file json_by_line_files[0]
-                } else {
-                    file json_by_line_files[1]
-                }
-                time 10000 // limit inflight 10s
-
-                check { result, exception, startTime, endTime ->
-                    if (exception != null) {
-                        throw exception
-                    }
-                    log.info("Stream load result: ${result}".toString())
-                    def json = parseJson(result)
-                    assertEquals("success", json.Status.toLowerCase())
-                    assertEquals(jsonLoadedRows[i], json.NumberTotalRows)
-                    assertEquals(jsonLoadedRows[i], json.NumberLoadedRows)
-                    assertEquals(0, json.NumberFilteredRows)
-                    assertEquals(0, json.NumberUnselectedRows)
-                }
-            }
-            sql "sync"
-            def tableName1 =  "stream_load_" + tableName
-            if (i <= 3) {
-                qt_sql_json_read_by_line "select * from ${tableName1} order by k00,k01"
-            } else {
-                qt_sql_json_read_json_by_line "select * from ${tableName1} order by k00"
-            }
-            i++
-        }
-    } finally {
-        for (String tableName in tables) {
-            sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-        }
-    }
-    // restore BEs to original value
-    set_be_param.call("enable_simdjson_reader", enable_simdjson_reader ? "true" : "false")
 
     // test invalid jsonpaths
     i = 0

@@ -48,7 +48,7 @@ SchemaCharsetsScanner::SchemaCharsetsScanner()
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
 
-Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaCharsetsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }

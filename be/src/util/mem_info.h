@@ -20,11 +20,9 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include <atomic>
-#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
@@ -33,25 +31,18 @@
 #include <mach/vm_page_size.h>
 #endif
 
-#include "common/logging.h"
-#ifdef USE_JEMALLOC
-#include "jemalloc/jemalloc.h"
-#endif
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-#include <gperftools/malloc_extension.h>
-#endif
 #include "common/config.h"
+#include "common/logging.h"
 #include "util/perf_counters.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
 
-class RuntimeProfile;
-
-// Provides the amount of physical memory available.
-// Populated from /proc/meminfo.
-// TODO: Combine mem-info, cpu-info and disk-info into hardware-info/perf_counters ?
+// Provides the amount of physical memory available and memory limit.
+// Populated from /proc/meminfo and other system attributes.
+// Note: The memory values ​​in MemInfo are original values,
+// usually you should use the memory values ​​in GlobalMemoryArbitrator,
+// which are corrected values ​​that better meet your needs.
 class MemInfo {
 public:
     // Initialize MemInfo.
@@ -63,7 +54,7 @@ public:
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
         return getpagesize();
 #else
-        return vm_page_size;
+        return int(vm_page_size);
 #endif
     }
 
@@ -88,76 +79,6 @@ public:
         return _s_process_full_gc_size.load(std::memory_order_relaxed);
     }
 
-    static inline int64_t get_tc_metrics(const std::string& name) {
-#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
-        !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
-        size_t value = 0;
-        MallocExtension::instance()->GetNumericProperty(name.c_str(), &value);
-        return value;
-#endif
-        return 0;
-    }
-    static inline int64_t get_je_metrics(const std::string& name) {
-#ifdef USE_JEMALLOC
-        size_t value = 0;
-        size_t sz = sizeof(value);
-        if (jemallctl(name.c_str(), &value, &sz, nullptr, 0) == 0) {
-            return value;
-        }
-#endif
-        return 0;
-    }
-
-    static inline int64_t get_je_all_arena_metrics(const std::string& name) {
-#ifdef USE_JEMALLOC
-        return get_je_metrics(fmt::format("stats.arenas.{}.{}", MALLCTL_ARENAS_ALL, name));
-#endif
-        return 0;
-    }
-
-    static inline void je_purge_all_arena_dirty_pages() {
-#ifdef USE_JEMALLOC
-        // https://github.com/jemalloc/jemalloc/issues/2470
-        // If there is a core dump here, it may cover up the real stack, if stack trace indicates heap corruption
-        // (which led to invalid jemalloc metadata), like double free or use-after-free in the application.
-        // Try sanitizers such as ASAN, or build jemalloc with --enable-debug to investigate further.
-        if (config::enable_je_purge_dirty_pages) {
-            try {
-                // Purge all unused dirty pages for arena <i>, or for all arenas if <i> equals MALLCTL_ARENAS_ALL.
-                jemallctl(fmt::format("arena.{}.purge", MALLCTL_ARENAS_ALL).c_str(), nullptr,
-                          nullptr, nullptr, 0);
-            } catch (...) {
-                LOG(WARNING) << "Purge all unused dirty pages for all arenas failed";
-            }
-        }
-#endif
-    }
-
-    static std::mutex je_purge_dirty_pages_lock;
-    static std::condition_variable je_purge_dirty_pages_cv;
-    static std::atomic<bool> je_purge_dirty_pages_notify;
-    static void notify_je_purge_dirty_pages() {
-        je_purge_dirty_pages_notify.store(true, std::memory_order_relaxed);
-        je_purge_dirty_pages_cv.notify_all();
-    }
-
-    static inline size_t allocator_virtual_mem() {
-        return _s_virtual_memory_used.load(std::memory_order_relaxed);
-    }
-    static inline size_t allocator_cache_mem() {
-        return _s_allocator_cache_mem.load(std::memory_order_relaxed);
-    }
-    static inline int64_t je_dirty_pages_mem() {
-        return _s_je_dirty_pages_mem.load(std::memory_order_relaxed);
-    }
-    static inline int64_t je_dirty_pages_mem_limit() {
-        return _s_je_dirty_pages_mem_limit.load(std::memory_order_relaxed);
-    }
-
-    // Tcmalloc property `generic.total_physical_bytes` records the total length of the virtual memory
-    // obtained by the process malloc, not the physical memory actually used by the process in the OS.
-    static void refresh_allocator_mem();
-
     static inline int64_t mem_limit() {
         DCHECK(_s_initialized);
         return _s_mem_limit.load(std::memory_order_relaxed);
@@ -175,6 +96,18 @@ public:
         return PrettyPrinter::print(_s_soft_mem_limit.load(std::memory_order_relaxed),
                                     TUnit::BYTES);
     }
+    static inline int64_t cgroup_mem_limit() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_limit.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_usage() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_usage.load(std::memory_order_relaxed);
+    }
+    static inline int64_t cgroup_mem_refresh_state() {
+        DCHECK(_s_initialized);
+        return _s_cgroup_mem_refresh_state.load(std::memory_order_relaxed);
+    }
 
     static std::string debug_string();
 
@@ -186,16 +119,13 @@ private:
     static std::atomic<int64_t> _s_mem_limit;
     static std::atomic<int64_t> _s_soft_mem_limit;
 
-    static std::atomic<int64_t> _s_allocator_cache_mem;
-    static std::atomic<int64_t> _s_je_dirty_pages_mem;
-    static std::atomic<int64_t> _s_je_dirty_pages_mem_limit;
-    static std::atomic<int64_t> _s_virtual_memory_used;
-
-    static int64_t _s_cgroup_mem_limit;
-    static int64_t _s_cgroup_mem_usage;
-    static bool _s_cgroup_mem_refresh_state;
+    static std::atomic<int64_t> _s_cgroup_mem_limit;
+    static std::atomic<int64_t> _s_cgroup_mem_usage;
+    static std::atomic<bool> _s_cgroup_mem_refresh_state;
     static int64_t _s_cgroup_mem_refresh_wait_times;
 
+    // If you need use system available memory size, use GlobalMemoryArbitrator::sys_mem_available(),
+    // this value in MemInfo is the original value.
     static std::atomic<int64_t> _s_sys_mem_available;
     static int64_t _s_sys_mem_available_low_water_mark;
     static int64_t _s_sys_mem_available_warning_water_mark;

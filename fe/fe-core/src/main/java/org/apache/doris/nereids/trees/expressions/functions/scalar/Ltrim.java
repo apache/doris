@@ -45,10 +45,6 @@ public class Ltrim extends ScalarFunction
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE)
     );
 
-    private Ltrim(List<Expression> args) {
-        super("ltrim", args);
-    }
-
     /**
      * constructor with 1 argument.
      */
@@ -63,13 +59,18 @@ public class Ltrim extends ScalarFunction
         super("ltrim", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ltrim(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Ltrim withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
-        return new Ltrim(children);
+        return new Ltrim(getFunctionParams(children));
     }
 
     @Override

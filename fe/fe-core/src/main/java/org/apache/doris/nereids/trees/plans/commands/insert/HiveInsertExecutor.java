@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -42,19 +43,13 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
      * constructor
      */
     public HiveInsertExecutor(ConnectContext ctx, HMSExternalTable table,
-                              String labelName, NereidsPlanner planner,
-                              Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
+            String labelName, NereidsPlanner planner,
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
     }
 
     @Override
-    public void setCollectCommitInfoFunc() {
-        HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
-        coordinator.setHivePartitionUpdateFunc(transaction::updateHivePartitionUpdates);
-    }
-
-    @Override
-    protected void beforeExec() {
+    protected void beforeExec() throws UserException {
         // check params
         HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
         Preconditions.checkArgument(insertCtx.isPresent(), "insert context must be present");
@@ -69,9 +64,7 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
     protected void doBeforeCommit() throws UserException {
         HMSTransaction transaction = (HMSTransaction) transactionManager.getTransaction(txnId);
         loadedRows = transaction.getUpdateCnt();
-        String dbName = ((HMSExternalTable) table).getDbName();
-        String tbName = table.getName();
-        transaction.finishInsertTable(dbName, tbName);
+        transaction.finishInsertTable(((ExternalTable) table).getOrBuildNameMapping());
     }
 
     @Override

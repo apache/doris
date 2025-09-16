@@ -47,6 +47,7 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
         SCOPED_TIMER(_get_split_timer);
         Status coord_status;
+        // No need to set timeout because on FE side, there is a max fetch time
         FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
                                         _state->get_query_ctx()->coord_addr, &coord_status);
         RETURN_IF_ERROR(coord_status);
@@ -56,17 +57,15 @@ Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* rang
         TFetchSplitBatchResult result;
         try {
             coord->fetchSplitBatch(result, request);
-        } catch (std::exception& e1) {
-            LOG(WARNING) << "Failed to get batch of split source: {}, try to reopen" << e1.what();
-            RETURN_IF_ERROR(coord.reopen());
-            try {
-                coord->fetchSplitBatch(result, request);
-            } catch (std::exception& e2) {
-                return Status::IOError("Failed to get batch of split source: {}", e2.what());
+            if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
+                return Status::IOError<false>("Failed to get batch of split source: {}",
+                                              result.status.error_msgs[0]);
             }
+        } catch (std::exception& e) {
+            return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
         }
         _last_batch = result.splits.empty();
-        _scan_ranges = result.splits;
+        _merge_ranges<TScanRangeLocations>(_scan_ranges, result.splits);
         _scan_index = 0;
         _range_index = 0;
     }

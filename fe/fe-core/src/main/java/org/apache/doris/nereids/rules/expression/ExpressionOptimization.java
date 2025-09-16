@@ -17,18 +17,20 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.rules.expression.rules.AddMinMax;
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
+import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
 import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
-import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
+import org.apache.doris.nereids.rules.expression.rules.SimplifyConflictCompound;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyRange;
+import org.apache.doris.nereids.rules.expression.rules.SimplifySelfComparison;
 import org.apache.doris.nereids.rules.expression.rules.TopnToMax;
 
 import com.google.common.collect.ImmutableList;
@@ -39,23 +41,43 @@ import java.util.List;
  * optimize expression of plan rule set.
  */
 public class ExpressionOptimization extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                ExtractCommonFactorRule.INSTANCE,
-                DistinctPredicatesRule.INSTANCE,
-                SimplifyComparisonPredicate.INSTANCE,
-                SimplifyInPredicate.INSTANCE,
-                SimplifyDecimalV3Comparison.INSTANCE,
-                OrToIn.INSTANCE,
-                SimplifyRange.INSTANCE,
-                DateFunctionRewrite.INSTANCE,
-                ArrayContainToArrayOverlap.INSTANCE,
-                CaseWhenToIf.INSTANCE,
-                TopnToMax.INSTANCE,
-                NullSafeEqualToEqual.INSTANCE,
-                LikeToEqualRewrite.INSTANCE
+                    SimplifyInPredicate.INSTANCE,
+
+                    // comparison predicates
+                    SimplifyComparisonPredicate.INSTANCE,
+                    SimplifySelfComparison.INSTANCE,
+
+                    // compound predicates
+                    SimplifyRange.INSTANCE,
+                    SimplifyConflictCompound.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    ExtractCommonFactorRule.INSTANCE,
+
+                    DateFunctionRewrite.INSTANCE,
+                    ArrayContainToArrayOverlap.INSTANCE,
+                    CaseWhenToIf.INSTANCE,
+                    TopnToMax.INSTANCE,
+                    NullSafeEqualToEqual.INSTANCE,
+                    LikeToEqualRewrite.INSTANCE,
+                    BetweenToEqual.INSTANCE
             )
     );
+
+    /**
+     * don't use it with PushDownFilterThroughJoin, it may cause dead loop:
+     *   LogicalFilter(origin expr)
+     *      => LogicalFilter((origin expr) and (add min max range))
+     *      => LogicalFilter((origin expr)) // use PushDownFilterThroughJoin
+     *      => ...
+     */
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> ADD_RANGE = ImmutableList.of(
+            bottomUp(
+                    AddMinMax.INSTANCE
+            )
+    );
+
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);
 
     public ExpressionOptimization() {

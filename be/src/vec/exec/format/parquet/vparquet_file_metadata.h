@@ -24,22 +24,22 @@
 #include "schema_desc.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class FileMetaData {
 public:
-    FileMetaData(tparquet::FileMetaData& metadata);
-    ~FileMetaData() = default;
+    FileMetaData(tparquet::FileMetaData& metadata, size_t mem_size);
+    ~FileMetaData();
     Status init_schema();
     const FieldDescriptor& schema() const { return _schema; }
-    const tparquet::FileMetaData& to_thrift();
-    void iceberg_sanitize(const std::vector<std::string>& read_columns) {
-        _schema.iceberg_sanitize(read_columns);
-    }
+    const tparquet::FileMetaData& to_thrift() const;
     std::string debug_string() const;
+    size_t get_mem_size() const { return _mem_size; }
 
 private:
     tparquet::FileMetaData _metadata;
     FieldDescriptor _schema;
+    size_t _mem_size;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris::vectorized

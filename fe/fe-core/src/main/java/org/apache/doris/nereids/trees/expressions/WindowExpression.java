@@ -46,32 +46,41 @@ public class WindowExpression extends Expression {
 
     private final Optional<WindowFrame> windowFrame;
 
+    // this isSkew flag is used in LogicalWindowToPhysicalWindow,
+    // In LogicalWindowToPhysicalWindow, this information is passed to DistributedSpecHash
+    // After this, the isSkew in WindowExpression becomes useless
+    private final boolean isSkew;
+
     /** constructor of Window*/
     public WindowExpression(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
-        super(new ImmutableList.Builder<Expression>()
-                .add(function)
-                .addAll(partitionKeys)
-                .addAll(orderKeys)
-                .build());
-        this.function = function;
-        this.partitionKeys = ImmutableList.copyOf(partitionKeys);
-        this.orderKeys = ImmutableList.copyOf(orderKeys);
-        this.windowFrame = Optional.empty();
+        this(function, partitionKeys, orderKeys, null);
     }
 
     /** constructor of Window*/
     public WindowExpression(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
-                            WindowFrame windowFrame) {
+            WindowFrame windowFrame) {
+        this(function, partitionKeys, orderKeys, windowFrame, false);
+    }
+
+    /** constructor of Window*/
+    public WindowExpression(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
+            boolean isSkew) {
+        this(function, partitionKeys, orderKeys, null, isSkew);
+    }
+
+    /** constructor of Window*/
+    public WindowExpression(Expression function, List<Expression> partitionKeys, List<OrderExpression> orderKeys,
+                            WindowFrame windowFrame, boolean isSkew) {
         super(new ImmutableList.Builder<Expression>()
                 .add(function)
                 .addAll(partitionKeys)
                 .addAll(orderKeys)
-                .add(windowFrame)
                 .build());
         this.function = function;
         this.partitionKeys = ImmutableList.copyOf(partitionKeys);
         this.orderKeys = ImmutableList.copyOf(orderKeys);
-        this.windowFrame = Optional.of(Objects.requireNonNull(windowFrame));
+        this.windowFrame = Optional.ofNullable(windowFrame);
+        this.isSkew = isSkew;
     }
 
     public Expression getFunction() {
@@ -105,23 +114,29 @@ public class WindowExpression extends Expression {
     }
 
     public WindowExpression withWindowFrame(WindowFrame windowFrame) {
-        return new WindowExpression(function, partitionKeys, orderKeys, windowFrame);
+        return new WindowExpression(function, partitionKeys, orderKeys, windowFrame, isSkew);
     }
 
     public WindowExpression withOrderKeys(List<OrderExpression> orderKeys) {
-        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame))
-                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame, isSkew))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
     }
 
     public WindowExpression withPartitionKeysOrderKeys(
             List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
-        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame))
-                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame, isSkew))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
     }
 
     public WindowExpression withFunction(Expression function) {
-        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame))
-                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys));
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame, isSkew))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
+    }
+
+    public WindowExpression withFunctionPartitionKeysOrderKeys(Expression function,
+            List<Expression> partitionKeys, List<OrderExpression> orderKeys) {
+        return windowFrame.map(frame -> new WindowExpression(function, partitionKeys, orderKeys, frame, isSkew))
+                .orElseGet(() -> new WindowExpression(function, partitionKeys, orderKeys, isSkew));
     }
 
     @Override
@@ -145,9 +160,12 @@ public class WindowExpression extends Expression {
         index += this.orderKeys.size();
 
         if (index < children.size()) {
-            return new WindowExpression(func, partitionKeys, orderKeys, (WindowFrame) children.get(index));
+            return new WindowExpression(func, partitionKeys, orderKeys, (WindowFrame) children.get(index), isSkew);
         }
-        return new WindowExpression(func, partitionKeys, orderKeys);
+        if (windowFrame.isPresent()) {
+            return new WindowExpression(func, partitionKeys, orderKeys, windowFrame.get(), isSkew);
+        }
+        return new WindowExpression(func, partitionKeys, orderKeys, isSkew);
     }
 
     @Override
@@ -162,16 +180,17 @@ public class WindowExpression extends Expression {
         return Objects.equals(function, window.function)
             && Objects.equals(partitionKeys, window.partitionKeys)
             && Objects.equals(orderKeys, window.orderKeys)
-            && Objects.equals(windowFrame, window.windowFrame);
+            && Objects.equals(windowFrame, window.windowFrame)
+            && isSkew == window.isSkew;
     }
 
     @Override
-    public int hashCode() {
+    public int computeHashCode() {
         return Objects.hash(function, partitionKeys, orderKeys, windowFrame);
     }
 
     @Override
-    public String toSql() {
+    public String computeToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(function.toSql()).append(" OVER(");
         if (!partitionKeys.isEmpty()) {
@@ -191,7 +210,7 @@ public class WindowExpression extends Expression {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(function).append(" WindowSpec(");
+        sb.append("WindowExpression(").append(function).append(" spec(");
         if (!partitionKeys.isEmpty()) {
             sb.append("PARTITION BY ").append(partitionKeys.stream()
                     .map(Expression::toString)
@@ -203,7 +222,9 @@ public class WindowExpression extends Expression {
                     .collect(Collectors.joining(", ", "", " ")));
         }
         windowFrame.ifPresent(wf -> sb.append(wf.toSql()));
-        return sb.toString().trim() + ")";
+        sb.append("))");
+        sb.append(isSkew ? " skew" : "");
+        return sb.toString().trim();
     }
 
     @Override
@@ -214,5 +235,9 @@ public class WindowExpression extends Expression {
     @Override
     public DataType getDataType() throws UnboundException {
         return function.getDataType();
+    }
+
+    public boolean isSkew() {
+        return isSkew;
     }
 }

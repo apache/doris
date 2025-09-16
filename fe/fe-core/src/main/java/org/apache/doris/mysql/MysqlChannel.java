@@ -81,6 +81,9 @@ public class MysqlChannel implements BytesChannel {
     // mysql flag CLIENT_DEPRECATE_EOF
     private boolean clientDeprecatedEOF;
 
+    // mysql flag CLIENT_MULTI_STATEMENTS
+    private boolean clientMultiStatements;
+
     private ConnectContext context;
 
     protected MysqlChannel() {
@@ -93,6 +96,14 @@ public class MysqlChannel implements BytesChannel {
 
     public boolean clientDeprecatedEOF() {
         return clientDeprecatedEOF;
+    }
+
+    public void setClientMultiStatements() {
+        clientMultiStatements = true;
+    }
+
+    public boolean clientMultiStatements() {
+        return clientMultiStatements;
     }
 
     public MysqlChannel(StreamConnection connection, ConnectContext context) {
@@ -242,6 +253,19 @@ public class MysqlChannel implements BytesChannel {
         return readLen;
     }
 
+    @Override
+    public int testReadWithTimeout(ByteBuffer dstBuf, long timeoutMs) {
+        Preconditions.checkArgument(dstBuf.remaining() == 1, dstBuf.remaining());
+        try {
+            return Channels.readBlocking(conn.getSourceChannel(), dstBuf, timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (IOException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Read channel exception, ignore.", e);
+            }
+            return -1;
+        }
+    }
+
     protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) {
@@ -314,14 +338,22 @@ public class MysqlChannel implements BytesChannel {
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
             readLen = readAll(result, false);
-            if (isSslMode && remainingBuffer.position() == 0) {
+            if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
                 byte[] header = result.array();
-                int packetId = header[3] & 0xFF;
-                if (packetId != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
+                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0xFF) << 8) | ((header[2] & 0xFF) << 16);
+                if (result.position() >= 4 && mysqlPacketLength > 0 && mysqlPacketLength
+                        <= MAX_PHYSICAL_PACKET_LENGTH) {
+                    int packetId = header[3] & 0xFF;
+                    if (packetId != sequenceId) {
+                        LOG.warn("receive packet sequence id[" + packetId + "] want to get[" + sequenceId + "]");
+                        throw new IOException("Bad packet sequence.");
+                    }
+                } else {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("SSL mode: skipping sequence check, packet length: " + mysqlPacketLength
+                                + ", buffer position: " + result.position());
+                    }
                 }
-                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
                 // remove mysql packet header
                 result.position(4);
                 result.compact();

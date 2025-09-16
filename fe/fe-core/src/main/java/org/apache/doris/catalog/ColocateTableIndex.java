@@ -17,17 +17,17 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AlterColocateGroupStmt;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.plans.commands.AlterColocateGroupCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -105,25 +104,13 @@ public class ColocateTableIndex implements Writable {
         }
 
         public static GroupId read(DataInput in) throws IOException {
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
-                GroupId groupId = new GroupId();
-                groupId.readFields(in);
-                return groupId;
-            } else {
-                String json = Text.readString(in);
-                return GsonUtils.GSON.fromJson(json, GroupId.class);
-            }
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, GroupId.class);
         }
 
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, GsonUtils.GSON.toJson(this));
-        }
-
-        @Deprecated
-        private void readFields(DataInput in) throws IOException {
-            dbId = in.readLong();
-            grpId = in.readLong();
         }
 
         @Override
@@ -169,21 +156,28 @@ public class ColocateTableIndex implements Writable {
     }
 
     // group_name -> group_id
+    @SerializedName(value = "groupName2Id")
     private Map<String, GroupId> groupName2Id = Maps.newHashMap();
     // group_id -> table_ids
+    @SerializedName(value = "group2Tables")
     private Multimap<GroupId, Long> group2Tables = ArrayListMultimap.create();
     // table_id -> group_id
-    private Map<Long, GroupId> table2Group = Maps.newHashMap();
+    @SerializedName(value = "table2Group")
+    private Map<Long, GroupId> table2Group = Maps.newConcurrentMap();
     // group id -> group schema
+    @SerializedName(value = "group2Schema")
     private Map<GroupId, ColocateGroupSchema> group2Schema = Maps.newHashMap();
     // group_id -> bucketSeq -> backend ids
+    @SerializedName(value = "group2BackendsPerBucketSeq")
     private Table<GroupId, Tag, List<List<Long>>> group2BackendsPerBucketSeq = HashBasedTable.create();
     // the colocate group is unstable
+    @SerializedName(value = "unstableGroups")
     private Set<GroupId> unstableGroups = Sets.newHashSet();
     // save some error msg of the group for show. no need to persist
+    @SerializedName(value = "group2ErrMsgs")
     private Map<GroupId, String> group2ErrMsgs = Maps.newHashMap();
 
-    private transient ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private transient MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock();
 
     public ColocateTableIndex() {
 
@@ -378,6 +372,13 @@ public class ColocateTableIndex implements Writable {
         }
     }
 
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public boolean isColocateTableNoLock(long tableId) {
+        return table2Group.containsKey(tableId);
+    }
+
     public boolean isColocateTable(long tableId) {
         readLock();
         try {
@@ -415,6 +416,14 @@ public class ColocateTableIndex implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    // ATTN: in cloud, CloudReplica.getBackendIdImpl has some logic,
+    // If the FE concurrency is high, the CPU may be fully loaded, so try not to lock it here
+    // table2Group is ConcurrentHashMap
+    public GroupId getGroupNoLock(long tableId) {
+        Preconditions.checkState(table2Group.containsKey(tableId));
+        return table2Group.get(tableId);
     }
 
     public GroupId getGroup(long tableId) {
@@ -774,35 +783,20 @@ public class ColocateTableIndex implements Writable {
             group2Schema.put(grpId, groupSchema);
 
             // backends seqs
-            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
+            int tagSize = in.readInt();
+            for (int j = 0; j < tagSize; j++) {
+                Tag tag = Tag.read(in);
+                int bucketSize = in.readInt();
                 List<List<Long>> bucketsSeq = Lists.newArrayList();
-                int beSize = in.readInt();
-                for (int j = 0; j < beSize; j++) {
-                    int seqSize = in.readInt();
-                    List<Long> seq = Lists.newArrayList();
-                    for (int k = 0; k < seqSize; k++) {
-                        long beId = in.readLong();
-                        seq.add(beId);
+                for (int k = 0; k < bucketSize; k++) {
+                    List<Long> beIds = Lists.newArrayList();
+                    int beSize = in.readInt();
+                    for (int l = 0; l < beSize; l++) {
+                        beIds.add(in.readLong());
                     }
-                    bucketsSeq.add(seq);
+                    bucketsSeq.add(beIds);
                 }
-                group2BackendsPerBucketSeq.put(grpId, Tag.DEFAULT_BACKEND_TAG, bucketsSeq);
-            } else {
-                int tagSize = in.readInt();
-                for (int j = 0; j < tagSize; j++) {
-                    Tag tag = Tag.read(in);
-                    int bucketSize = in.readInt();
-                    List<List<Long>> bucketsSeq = Lists.newArrayList();
-                    for (int k = 0; k < bucketSize; k++) {
-                        List<Long> beIds = Lists.newArrayList();
-                        int beSize = in.readInt();
-                        for (int l = 0; l < beSize; l++) {
-                            beIds.add(in.readLong());
-                        }
-                        bucketsSeq.add(beIds);
-                    }
-                    group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
-                }
+                group2BackendsPerBucketSeq.put(grpId, tag, bucketsSeq);
             }
         }
 
@@ -821,12 +815,12 @@ public class ColocateTableIndex implements Writable {
         return table2Group;
     }
 
-    public void alterColocateGroup(AlterColocateGroupStmt stmt) throws UserException {
+    public void alterColocateGroup(AlterColocateGroupCommand command) throws UserException {
         writeLock();
         try {
-            Map<String, String> properties = stmt.getProperties();
-            String dbName = stmt.getColocateGroupName().getDb();
-            String groupName = stmt.getColocateGroupName().getGroup();
+            Map<String, String> properties = command.getProperties();
+            String dbName = command.getColocateGroupName().getDb();
+            String groupName = command.getColocateGroupName().getGroup();
             long dbId = 0;
             if (!GroupId.isGlobalGroupName(groupName)) {
                 Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -835,7 +829,7 @@ public class ColocateTableIndex implements Writable {
             String fullGroupName = GroupId.getFullGroupName(dbId, groupName);
             ColocateGroupSchema groupSchema = getGroupSchema(fullGroupName);
             if (groupSchema == null) {
-                throw new DdlException("Not found colocate group " + stmt.getColocateGroupName().toSql());
+                throw new DdlException("Not found colocate group " + command.getColocateGroupName().toSql());
             }
 
             GroupId groupId = groupSchema.getGroupId();
@@ -883,7 +877,7 @@ public class ColocateTableIndex implements Writable {
     }
 
     private void modifyColocateGroupReplicaAllocation(GroupId groupId, ReplicaAllocation replicaAlloc,
-            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean needEditLog) throws UserException {
+            Map<Tag, List<List<Long>>> backendsPerBucketSeq, boolean isReplay) throws UserException {
         ColocateGroupSchema groupSchema = getGroupSchema(groupId);
         if (groupSchema == null) {
             LOG.warn("not found group {}", groupId);
@@ -917,7 +911,7 @@ public class ColocateTableIndex implements Writable {
                     origDynamicProperties.put(DynamicPartitionProperty.REPLICATION_ALLOCATION,
                             replicaAlloc.toCreateStmt());
                     Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(
-                            origDynamicProperties, table, db);
+                            origDynamicProperties, table, db, isReplay);
                     tableProperty.modifyTableProperties(analyzedDynamicPartition);
                     tableProperty.buildDynamicProperty();
                 }
@@ -937,11 +931,11 @@ public class ColocateTableIndex implements Writable {
         groupSchema.setReplicaAlloc(replicaAlloc);
         setBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
 
-        if (needEditLog) {
+        if (!isReplay) {
             ColocatePersistInfo info = ColocatePersistInfo.createForModifyReplicaAlloc(groupId,
                     replicaAlloc, backendsPerBucketSeq);
             Env.getCurrentEnv().getEditLog().logColocateModifyRepliaAlloc(info);
         }
-        LOG.info("modify group {} replication allocation to {}, is replay {}", groupId, replicaAlloc, !needEditLog);
+        LOG.info("modify group {} replication allocation to {}, is replay {}", groupId, replicaAlloc, isReplay);
     }
 }

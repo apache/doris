@@ -20,18 +20,12 @@
 #include <cstdint>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/wrapper_field.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
-
-// only use in runtime filter and segment v2
 template <PrimitiveType T>
 class BitmapFilterColumnPredicate : public ColumnPredicate {
 public:
@@ -39,17 +33,13 @@ public:
     using SpecificFilter = BitmapFilterFunc<T>;
 
     BitmapFilterColumnPredicate(uint32_t column_id,
-                                const std::shared_ptr<BitmapFilterFuncBase>& filter, int)
+                                const std::shared_ptr<BitmapFilterFuncBase>& filter)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BitmapFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T || (is_string_type(input_type) && is_string_type(T));
-    }
 
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (_specific_filter->is_not_in()) {
@@ -70,11 +60,15 @@ public:
         return _specific_filter->contains_any(min_value, max_value);
     }
 
+    using ColumnPredicate::evaluate;
+
     Status evaluate(BitmapIndexIterator*, uint32_t, roaring::Roaring*) const override {
         return Status::OK();
     }
 
 private:
+    bool _can_ignore() const override { return false; }
+
     uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
                              uint16_t size) const override;
 
@@ -87,7 +81,7 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)reinterpret_cast<
+                (char*)assert_cast<
                         const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
                         ->get_data()
                         .data(),
@@ -102,8 +96,7 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 
-    int get_filter_id() const override { return _filter->get_filter_id(); }
-    bool is_filter() const override { return true; }
+    bool is_runtime_filter() const override { return true; }
 };
 
 template <PrimitiveType T>
@@ -111,15 +104,14 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
                                                          uint16_t* sel, uint16_t size) const {
     uint16_t new_size = 0;
     if (column.is_nullable()) {
-        const auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
+        const auto* nullable_col = assert_cast<const vectorized::ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         new_size =
                 evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
         new_size = evaluate<false>(column, nullptr, sel, size);
     }
-    _evaluated_rows += size;
-    _passed_rows += new_size;
+    update_filter_info(size - new_size, size);
     return new_size;
 }
 } //namespace doris

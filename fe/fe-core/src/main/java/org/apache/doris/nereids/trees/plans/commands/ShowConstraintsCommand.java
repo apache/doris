@@ -17,26 +17,35 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.hadoop.util.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
  * add constraint command
  */
-public class ShowConstraintsCommand extends Command implements NoForward {
+public class ShowConstraintsCommand extends ShowCommand {
 
-    public static final Logger LOG = LogManager.getLogger(ShowConstraintsCommand.class);
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Definition", ScalarType.createVarchar(20)))
+            .build();
+
     private final List<String> nameParts;
 
     /**
@@ -48,19 +57,35 @@ public class ShowConstraintsCommand extends Command implements NoForward {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
+    @Override
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableIf tableIf = RelationUtil.getDbAndTable(
-                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv()).value();
-        List<List<String>> res = tableIf.getConstraintsMap().entrySet().stream()
-                        .map(e -> Lists.newArrayList(e.getKey(),
-                                e.getValue().getType().getName(),
-                                e.getValue().toString()))
+                RelationUtil.getQualifierName(ctx, nameParts), ctx.getEnv(), Optional.empty()).value();
+        tableIf.readLock();
+        List<List<String>> res;
+        try {
+            res = tableIf.getConstraintsMap().entrySet().stream()
+                    .map(e -> Lists.newArrayList(e.getKey(),
+                            e.getValue().getType().getName(),
+                            e.getValue().toString()))
                     .collect(Collectors.toList());
-        executor.handleShowConstraintStmt(res);
+        } finally {
+            tableIf.readUnlock();
+        }
+        return new ShowResultSet(META_DATA, res);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowConstraintsCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
     }
 }

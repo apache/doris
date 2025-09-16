@@ -21,6 +21,8 @@ package org.apache.doris.common.jni.vec;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType.Type;
 
+import org.apache.log4j.Logger;
+
 import java.util.Collections;
 import java.util.Map;
 
@@ -28,12 +30,17 @@ import java.util.Map;
  * Store a batch of data as vector table.
  */
 public class VectorTable {
+    public static final Logger LOG = Logger.getLogger(VectorTable.class);
     private final VectorColumn[] columns;
     private final ColumnType[] columnTypes;
     private final String[] fields;
     private final VectorColumn meta;
     private final boolean onlyReadable;
     private final int numRowsOfReadable;
+    // this will be true if fields is empty
+    private final boolean isVirtual;
+    // count rows when isVirtual is true
+    private int numVirtualRows = 0;
 
     // Create writable vector table
     private VectorTable(ColumnType[] types, String[] fields, int capacity) {
@@ -48,6 +55,7 @@ public class VectorTable {
         this.meta = VectorColumn.createWritableColumn(new ColumnType("#meta", Type.BIGINT), metaSize);
         this.onlyReadable = false;
         numRowsOfReadable = -1;
+        this.isVirtual = columns.length == 0;
     }
 
     // Create readable vector table
@@ -69,6 +77,7 @@ public class VectorTable {
         this.meta = VectorColumn.createReadableColumn(metaAddress, metaSize, new ColumnType("#meta", Type.BIGINT));
         this.onlyReadable = true;
         numRowsOfReadable = numRows;
+        this.isVirtual = columns.length == 0;
     }
 
     public static VectorTable createWritableTable(ColumnType[] types, String[] fields, int capacity) {
@@ -111,16 +120,24 @@ public class VectorTable {
 
     public void appendNativeData(int fieldId, NativeColumnValue o) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         columns[fieldId].appendNativeValue(o);
     }
 
     public void appendData(int fieldId, ColumnValue o) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         columns[fieldId].appendValue(o);
+    }
+
+    public void appendVirtualData(int numRows) {
+        assert (isVirtual);
+        numVirtualRows += numRows;
     }
 
     public void appendData(int fieldId, Object[] batch, ColumnValueConverter converter, boolean isNullable) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         if (converter != null) {
             columns[fieldId].appendObjectColumn(converter.convert(batch), isNullable);
         } else {
@@ -190,6 +207,8 @@ public class VectorTable {
     public int getNumRows() {
         if (onlyReadable) {
             return numRowsOfReadable;
+        } else if (isVirtual) {
+            return numVirtualRows;
         } else {
             return columns[0].numRows();
         }
@@ -197,6 +216,10 @@ public class VectorTable {
 
     public int getNumColumns() {
         return columns.length;
+    }
+
+    public boolean isConstColumn(int idx) {
+        return columns[idx].isConst();
     }
 
     public long getMetaAddress() {
@@ -229,6 +252,18 @@ public class VectorTable {
     // for test only.
     public String dump(int rowLimit) {
         StringBuilder sb = new StringBuilder();
+        for (int col = 0; col < columns.length; col++) {
+            ColumnType.Type typeValue = columns[col].getColumnPrimitiveType();
+            sb.append(typeValue.name());
+            sb.append("(rows: " + columns[col].numRows());
+            sb.append(")(const: ");
+            sb.append(columns[col].isConst() ? "true) " : "false) ");
+            if (col != 0) {
+                sb.append(",    ");
+            }
+        }
+        sb.append("\n");
+
         for (int i = 0; i < rowLimit && i < getNumRows(); i++) {
             for (int j = 0; j < columns.length; j++) {
                 if (j != 0) {

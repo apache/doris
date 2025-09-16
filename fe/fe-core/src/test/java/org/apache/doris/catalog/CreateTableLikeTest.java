@@ -17,13 +17,17 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableLikeStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
@@ -48,18 +52,26 @@ public class CreateTableLikeTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.runningUnitTest = true;
         UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-        Config.enable_odbc_mysql_broker_table = true;
+        connectContext = TestWithFeService.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+
         String createDbStmtStr2 = "create database test2;";
-        CreateDbStmt createDbStmt2 = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr2, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt2);
+        logicalPlan = nereidsParser.parseSingle(createDbStmtStr2);
+        stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr2);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass
@@ -69,14 +81,18 @@ public class CreateTableLikeTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     private static void createTableLike(String sql) throws Exception {
-        CreateTableLikeStmt createTableLikeStmt =
-                (CreateTableLikeStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTableLike(createTableLikeStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateTableLikeCommand command = (CreateTableLikeCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
@@ -133,8 +149,8 @@ public class CreateTableLikeTest {
                 Env.getCurrentInternalCatalog().getDbOrDdlException("" + newDbName);
         Database existedDb = Env.getCurrentInternalCatalog()
                 .getDbOrDdlException("" + existedDbName);
-        MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
-        MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
+        OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
     }
 
@@ -249,9 +265,8 @@ public class CreateTableLikeTest {
         // 8. creat non-OLAP table
         String createNonOlapTableSql =
                 "create table test.testMysqlTbl\n" + "(k1 DATE, k2 INT, k3 SMALLINT, k4 VARCHAR(2048), k5 DATETIME)\n"
-                        + "ENGINE=mysql\nPROPERTIES(\n" + "\"host\" = \"127.0.0.1\",\n" + "\"port\" = \"8239\",\n"
-                        + "\"user\" = \"mysql_passwd\",\n" + "\"password\" = \"mysql_passwd\",\n"
-                        + "\"database\" = \"mysql_db_test\",\n" + "\"table\" = \"mysql_table_test\");";
+                        + "ENGINE=OLAP\n" + "DUPLICATE KEY(k1, k2, k3)\n" + " DISTRIBUTED BY HASH(k1) BUCKETS 32\n" + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\"\n" + ");";
         String createTableLikeSql8 = "create table test.testMysqlTbl_like like test.testMysqlTbl";
         String newDbName8 = "test";
         String existedDbName8 = "test";
@@ -367,5 +382,104 @@ public class CreateTableLikeTest {
                 "Rollup index[r11] not exists in Table[table_with_rollup]",
                 () -> checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSq3, newDbName3,
                         existedDbName3, newTblName3, existedTblName3, 1));
+    }
+
+    @Test
+    public void checkSyncedTableWithRollup() throws Exception {
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_rollup_synced\n" + "(\n"
+                        + "    event_day DATE,\n"
+                        + "    siteid INT DEFAULT '10',\n" + "    citycode SMALLINT,\n"
+                        + "    username VARCHAR(32) DEFAULT '',\n" + "    pv BIGINT SUM DEFAULT '0'\n" + ")\n"
+                        + "AGGREGATE KEY(event_day, siteid, citycode, username)\n"
+                        + "PARTITION BY RANGE(event_day)\n"
+                        + "(\n" + "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n"
+                        + "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n"
+                        + "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" + ")\n"
+                        + "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n" + "ROLLUP\n" + "(\n" + "r(event_day,pv),\n"
+                        + "r1(event_day,siteid,pv),\n" + "r2(siteid,pv),\n" + "r3(siteid,citycode,username,pv)\n"
+                        + ")\n" + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String createTableLikeWithRollupSql = "create table test.table_like_rollup2"
+                        + " like test.table_with_rollup_synced with rollup";
+
+        String existedDbName = "test";
+        String existedTblName = "table_with_rollup_synced";
+
+        createTable(createTableWithRollup);
+        createTableLike(createTableLikeWithRollupSql);
+
+        Database existedDb = Env.getCurrentInternalCatalog()
+                        .getDbOrDdlException(existedDbName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
+        List<String> existedTableStmt = Lists.newArrayList();
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
+                        -1L);
+
+        Assert.assertTrue(existedTableStmt.toString().contains("r1 (event_day, siteid, pv)"));
+        Assert.assertTrue(existedTableStmt.toString().contains("r3 (siteid, citycode, username, pv)"));
+        Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
+        Assert.assertTrue(existedTableStmt.toString().contains("r2 (siteid, pv)"));
+    }
+
+    @Test
+    public void checkSyncedTableWithOutRollup() throws Exception {
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_without_rollup_synced\n" + "(\n"
+                        + "    event_day DATE,\n"
+                        + "    siteid INT DEFAULT '10',\n" + "    citycode SMALLINT,\n"
+                        + "    username VARCHAR(32) DEFAULT '',\n" + "    pv BIGINT SUM DEFAULT '0'\n" + ")\n"
+                        + "AGGREGATE KEY(event_day, siteid, citycode, username)\n"
+                        + "PARTITION BY RANGE(event_day)\n"
+                        + "(\n" + "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n"
+                        + "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n"
+                        + "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" + ")\n"
+                        + "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n"
+                        + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String existedDbName = "test";
+        String existedTblName = "table_without_rollup_synced";
+
+        createTable(createTableWithRollup);
+
+        Database existedDb = Env.getCurrentInternalCatalog()
+                        .getDbOrDdlException(existedDbName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
+        List<String> existedTableStmt = Lists.newArrayList();
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
+                        -1L);
+
+        Assert.assertTrue(!existedTableStmt.toString().contains("ROLLUP"));
+    }
+
+    @Test
+    public void checkSyncedTableWithPartialRollup() throws Exception {
+        String createTableWithRollup = "CREATE TABLE IF NOT EXISTS test.table_with_partial_rollup_synced\n" + "(\n"
+                        + "    event_day DATE,\n"
+                        + "    siteid INT DEFAULT '10',\n" + "    citycode SMALLINT,\n"
+                        + "    username VARCHAR(32) DEFAULT '',\n" + "    pv BIGINT SUM DEFAULT '0'\n" + ")\n"
+                        + "AGGREGATE KEY(event_day, siteid, citycode, username)\n"
+                        + "PARTITION BY RANGE(event_day)\n"
+                        + "(\n" + "    PARTITION p201706 VALUES LESS THAN ('2021-07-01'),\n"
+                        + "    PARTITION p201707 VALUES LESS THAN ('2021-08-01'),\n"
+                        + "    PARTITION p201708 VALUES LESS THAN ('2021-09-01')\n" + ")\n"
+                        + "DISTRIBUTED BY HASH(siteid) BUCKETS 10\n" + "ROLLUP\n" + "(\n" + "r(event_day,pv)\n"
+                        + ")\n" + "PROPERTIES(\"replication_num\" = \"1\");";
+
+        String existedDbName = "test";
+        String existedTblName = "table_with_partial_rollup_synced";
+
+        createTable(createTableWithRollup);
+
+        Database existedDb = Env.getCurrentInternalCatalog()
+                        .getDbOrDdlException(existedDbName);
+        OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
+        List<String> existedTableStmt = Lists.newArrayList();
+        List<String> existedAddRollupStmt = Lists.newArrayList();
+        Env.getSyncedDdlStmt(existedTbl, existedTableStmt, null, existedAddRollupStmt, false, true,
+                        -1L);
+
+        Assert.assertTrue(!existedTableStmt.toString().contains("r (event_day, pv),"));
+        Assert.assertTrue(existedTableStmt.toString().contains("r (event_day, pv)"));
     }
 }

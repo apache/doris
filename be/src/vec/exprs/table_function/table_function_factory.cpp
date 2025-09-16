@@ -21,48 +21,44 @@
 
 #include <memory>
 #include <string_view>
-#include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/exprs/table_function/udf_table_function.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
-#include "vec/exprs/table_function/vexplode_json_array.h"
 #include "vec/exprs/table_function/vexplode_json_object.h"
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
-#include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/exprs/table_function/vexplode_v2.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename TableFunctionType>
 struct TableFunctionCreator {
     std::unique_ptr<TableFunction> operator()() { return TableFunctionType::create_unique(); }
 };
 
-template <typename DataImpl>
-struct VExplodeJsonArrayCreator {
-    std::unique_ptr<TableFunction> operator()() {
-        return VExplodeJsonArrayTableFunction<DataImpl>::create_unique();
-    }
-};
-
 const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunction>()>>
         TableFunctionFactory::_function_map {
-                {"explode_split", TableFunctionCreator<VExplodeSplitTableFunction>()},
+                {"explode_variant_array", TableFunctionCreator<VExplodeV2TableFunction>()},
                 {"explode_numbers", TableFunctionCreator<VExplodeNumbersTableFunction>()},
-                {"explode_json_array_int", VExplodeJsonArrayCreator<ParsedDataInt>()},
-                {"explode_json_array_double", VExplodeJsonArrayCreator<ParsedDataDouble>()},
-                {"explode_json_array_string", VExplodeJsonArrayCreator<ParsedDataString>()},
-                {"explode_json_array_json", VExplodeJsonArrayCreator<ParsedDataJSON>()},
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
-                {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
+                {"posexplode", TableFunctionCreator<VExplodeV2TableFunction> {}},
+                {"explode", TableFunctionCreator<VExplodeV2TableFunction> {}},
+                {"explode_variant_array_old", TableFunctionCreator<VExplodeTableFunction>()},
+                {"explode_old", TableFunctionCreator<VExplodeTableFunction> {}}};
 
-Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn) {
+const std::unordered_map<std::string, std::string> TableFunctionFactory::_function_to_replace = {
+        {"explode", "explode_old"}, {"explode_variant_array", "explode_variant_array_old"}};
+
+Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn,
+                                    int be_version = BeExecVersionManager::get_newest_version()) {
     bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
     if (t_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         *fn = pool->add(UDFTableFunction::create_unique(t_fn).release());
@@ -75,11 +71,18 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
         const std::string& fn_name_real =
                 is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
-        auto fn_iterator = _function_map.find(fn_name_real);
+        std::string fn_name_real_temp = fn_name_real;
+        temporary_function_update(be_version, fn_name_real_temp);
+
+        auto fn_iterator = _function_map.find(fn_name_real_temp);
         if (fn_iterator != _function_map.end()) {
             *fn = pool->add(fn_iterator->second().release());
             if (is_outer) {
                 (*fn)->set_outer();
+            }
+
+            if (fn_name_real_temp == "posexplode") {
+                static_cast<VExplodeV2TableFunction*>(*fn)->set_generate_row_index(true);
             }
 
             return Status::OK();
@@ -88,4 +91,5 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
     return Status::NotSupported("Table function {} is not support", t_fn.name.function_name);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

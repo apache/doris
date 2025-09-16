@@ -27,6 +27,7 @@
 
 #include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "runtime/cluster_info.h"
 
 namespace doris {
 
@@ -106,14 +107,14 @@ TEST(TaskWorkerPoolTest, ReportWorkerPool) {
     ExecEnv::GetInstance()->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
     Defer defer {[] { ExecEnv::GetInstance()->set_storage_engine(nullptr); }};
 
-    TMasterInfo master_info;
+    ClusterInfo cluster_info;
     std::atomic_int count {0};
-    ReportWorker worker("test", master_info, 1, [&] { ++count; });
+    ReportWorker worker("test", &cluster_info, 1, [&] { ++count; });
 
     worker.notify(); // Not received heartbeat yet, ignore
     std::this_thread::sleep_for(100ms);
 
-    master_info.network_address.__set_port(9030);
+    cluster_info.master_fe_addr.__set_port(9030);
     worker.notify();
     std::this_thread::sleep_for(100ms);
     EXPECT_EQ(count.load(), 1);

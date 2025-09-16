@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_regexp", "p0"){
+suite("test_index_match_regexp", "nonConcurrent"){
     def indexTbName1 = "test_index_match_regexp"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -79,7 +79,10 @@ suite("test_index_match_regexp", "p0"){
         load_httplogs_data.call(indexTbName1, 'test_index_match_regexp', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^team'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
@@ -87,7 +90,61 @@ suite("test_index_match_regexp", "p0"){
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '.*tickets.*'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 'nonexistence'; """
 
+        sql """ set inverted_index_max_expansions = 1; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+        
+        sql """ set inverted_index_max_expansions = 50; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp 'b'; """
+
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^GET\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^images\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^french\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^HTTP\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^hm_'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^jpg\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^gif\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^html\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^tickets\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^nav_'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^splash\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^body\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^quest\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^venue\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^hosts\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^tck_'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^arw\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^brdl\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^nbg\$'; """
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp '^inet\$'; """
+
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("RegexpQuery.get_regex_prefix")
+
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^GET\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^images\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^french\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^HTTP\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^hm_'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^jpg\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^gif\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^html\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^tickets\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^nav_'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^splash\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^body\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^quest\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^venue\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^hosts\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^tck_'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^arw\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^brdl\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^nbg\$'; """
+            qt_sql """ select count() from test_index_match_regexp where request match_regexp '^inet\$'; """
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("RegexpQuery.get_regex_prefix")
+        }
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        sql """ set inverted_index_max_expansions = 50; """
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

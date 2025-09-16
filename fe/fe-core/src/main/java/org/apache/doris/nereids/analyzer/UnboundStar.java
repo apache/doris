@@ -19,7 +19,9 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,30 +32,118 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Star expression.
  */
-public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
+public class UnboundStar extends Slot implements LeafExpression, Unbound, PropagateNullable {
     private final List<String> qualifier;
     // the start and end position of the sql substring(e.g. "*", "table.*")
     private final Optional<Pair<Integer, Integer>> indexInSqlString;
 
+    private final List<NamedExpression> exceptedSlots;
+
+    private final List<NamedExpression> replacedAlias;
+
     public UnboundStar(List<String> qualifier) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = Optional.empty();
+        this.exceptedSlots = ImmutableList.of();
+        this.replacedAlias = ImmutableList.of();
     }
 
     public UnboundStar(List<String> qualifier, Optional<Pair<Integer, Integer>> indexInSqlString) {
-        super(ImmutableList.of());
+        super(Optional.empty());
         this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
         this.indexInSqlString = indexInSqlString;
+        this.exceptedSlots = ImmutableList.of();
+        this.replacedAlias = ImmutableList.of();
+    }
+
+    /**
+     * The star expression is used in the select list, and the exceptedSlots is the column that is not selected.
+     *
+     * @param qualifier for example, "table1.*"
+     * @param exceptedSlots for example, * EXCEPT(a, b)
+     * @param replacedAlias for example, * REPLACE(a + 1 AS a)
+     */
+    public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots,
+            List<NamedExpression> replacedAlias) {
+        super(Optional.empty());
+        this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = Optional.empty();
+        this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),
+                "except columns can not be null");
+        this.replacedAlias = Objects.requireNonNull(ImmutableList.copyOf(replacedAlias),
+                "replace columns can not be null");
+    }
+
+    /**
+     * The star expression is used in the select list, and the exceptedSlots is the column that is not selected.
+     *
+     * @param qualifier for example, "table1.*"
+     * @param exceptedSlots for example, * EXCEPT(a, b)
+     * @param replacedAlias for example, * REPLACE(a + 1 AS a)
+     * @param indexInSqlString see {@link UnboundStar#indexInSqlString}
+     */
+    public UnboundStar(List<String> qualifier, List<NamedExpression> exceptedSlots, List<NamedExpression> replacedAlias,
+            Optional<Pair<Integer, Integer>> indexInSqlString) {
+        super(Optional.empty());
+        this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
+        this.indexInSqlString = indexInSqlString;
+        this.exceptedSlots = Objects.requireNonNull(ImmutableList.copyOf(exceptedSlots),
+                "except columns can not be null");
+        this.replacedAlias = Objects.requireNonNull(ImmutableList.copyOf(replacedAlias),
+                "replace columns can not be null");
     }
 
     @Override
-    public String toSql() {
-        return Utils.qualifiedName(qualifier, "*");
+    public Slot toSlot() {
+        return this;
+    }
+
+    @Override
+    public String getName() {
+        return "*";
+    }
+
+    @Override
+    public ExprId getExprId() throws UnboundException {
+        return new ExprId(-1);
+    }
+
+    @Override
+    public Slot withQualifier(List<String> qualifier) {
+        return this;
+    }
+
+    @Override
+    public Slot withName(String name) {
+        return this;
+    }
+
+    @Override
+    public Slot withExprId(ExprId exprId) {
+        return this;
+    }
+
+    @Override
+    public String computeToSql() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(Utils.qualifiedName(qualifier, "*"));
+        if (!exceptedSlots.isEmpty()) {
+            String exceptStr = exceptedSlots.stream().map(NamedExpression::toSql)
+                    .collect(Collectors.joining(", ", " EXCEPT(", ")"));
+            builder.append(exceptStr);
+        }
+        if (!replacedAlias.isEmpty()) {
+            String replaceStr = replacedAlias.stream().map(NamedExpression::toSql)
+                    .collect(Collectors.joining(", ", " REPLACE(", ")"));
+            builder.append(replaceStr);
+        }
+        return builder.toString();
     }
 
     @Override
@@ -64,6 +154,15 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
+        return indexInSqlString;
+    }
+
+    @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitUnboundStar(this, context);
     }
 
     @Override
@@ -78,20 +177,24 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
             return false;
         }
         UnboundStar that = (UnboundStar) o;
-        return qualifier.equals(that.qualifier);
-    }
-
-    public Optional<Pair<Integer, Integer>> getIndexInSqlString() {
-        return indexInSqlString;
+        return qualifier.equals(that.qualifier) && exceptedSlots.equals(that.exceptedSlots) && replacedAlias.equals(
+                that.replacedAlias);
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(super.hashCode(), qualifier);
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), qualifier, exceptedSlots, replacedAlias);
     }
 
-    @Override
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundStar(this, context);
+    public UnboundStar withIndexInSql(Pair<Integer, Integer> index) {
+        return new UnboundStar(qualifier, exceptedSlots, replacedAlias, Optional.ofNullable(index));
+    }
+
+    public List<NamedExpression> getReplacedAlias() {
+        return replacedAlias;
+    }
+
+    public List<NamedExpression> getExceptedSlots() {
+        return exceptedSlots;
     }
 }

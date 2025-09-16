@@ -24,11 +24,13 @@
 #include <thread>
 #include <tuple>
 
+#include "common/cast_set.h"
 #include "io/fs/err_utils.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
-
 namespace doris::io {
+
+#include "common/compile_check_begin.h"
 
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
@@ -125,6 +127,10 @@ FileHandleCache::FileHandleCache(size_t capacity, size_t num_partitions,
     for (FileHandleCachePartition& p : _cache_partitions) {
         p.cache.set_capacity(partition_capacity);
     }
+    Status st = init();
+    if (!st) {
+        LOG(FATAL) << "failed to start file handle cache thread: " << st.to_string();
+    }
 }
 
 FileHandleCache::~FileHandleCache() {
@@ -144,7 +150,8 @@ Status FileHandleCache::get_file_handle(const hdfsFS& fs, const std::string& fna
                                         FileHandleCache::Accessor* accessor, bool* cache_hit) {
     DCHECK_GE(mtime, 0);
     // Hash the key and get appropriate partition
-    int index = HashUtil::hash(fname.data(), fname.size(), 0) % _cache_partitions.size();
+    int index =
+            HashUtil::hash(fname.data(), cast_set<int>(fname.size()), 0) % _cache_partitions.size();
     FileHandleCachePartition& p = _cache_partitions[index];
 
     auto cache_key = std::make_pair(fname, mtime);
@@ -196,5 +203,7 @@ void FileHandleCache::_evict_handles_loop() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

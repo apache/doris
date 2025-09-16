@@ -50,6 +50,8 @@ public class FeConstants {
     // set to false to disable internal schema db
     public static boolean enableInternalSchemaDb = true;
 
+    public static boolean disableWGCheckerForUT = false;
+
     // default scheduler interval is 10 seconds
     public static int default_scheduler_interval_millisecond = 10000;
 
@@ -85,7 +87,6 @@ public class FeConstants {
 
     public static final String INTERNAL_DB_NAME = "__internal_schema";
     public static final String INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME = "cloud_cache_hotspot";
-    public static String TEMP_MATERIZLIZE_DVIEW_PREFIX = "internal_tmp_materialized_view_";
 
     public static String METADATA_FAILURE_RECOVERY_KEY = "metadata_failure_recovery";
 

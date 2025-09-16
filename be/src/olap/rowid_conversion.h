@@ -20,10 +20,13 @@
 #include <map>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // For unique key merge on write table, we should update delete bitmap
 // of destination rowset when compaction finished.
@@ -33,17 +36,43 @@ namespace doris {
 class RowIdConversion {
 public:
     RowIdConversion() = default;
-    ~RowIdConversion() = default;
+    ~RowIdConversion() { RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used); }
 
     // resize segment rowid map to its rows num
-    void init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
         for (size_t i = 0; i < num_rows.size(); i++) {
-            uint32_t id = _segments_rowid_map.size();
+            constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024; // 10M
+            if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
+                return Status::MemoryLimitExceeded(fmt::format(
+                        "RowIdConversion init_segment_map failed, process memory exceed limit or "
+                        "sys available memory less than low water mark , {}, "
+                        "consuming "
+                        "tracker:<{}>, peak used {}, current used {}.",
+                        doris::GlobalMemoryArbitrator::process_mem_log_str(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->label(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->peak_consumption(),
+                        doris::thread_context()
+                                ->thread_mem_tracker_mgr->limiter_mem_tracker()
+                                ->consumption()));
+            }
+
+            uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
             _id_to_segment_map.emplace_back(src_rowset_id, i);
-            _segments_rowid_map.emplace_back(std::vector<std::pair<uint32_t, uint32_t>>(
-                    num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX)));
+            std::vector<std::pair<uint32_t, uint32_t>> vec(
+                    num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
+
+            //NOTE: manually count _segments_rowid_map's memory here, because _segments_rowid_map could be used by indexCompaction.
+            // indexCompaction is a thridparty code, it's too complex to modify it.
+            // refer compact_column.
+            track_mem_usage(vec.capacity());
+            _segments_rowid_map.emplace_back(std::move(vec));
         }
+        return Status::OK();
     }
 
     // set dst rowset id
@@ -110,11 +139,24 @@ public:
     }
 
 private:
+    void track_mem_usage(size_t delta_std_pair_cap) {
+        _std_pair_cap += delta_std_pair_cap;
+
+        size_t new_size =
+                _std_pair_cap * sizeof(std::pair<uint32_t, uint32_t>) +
+                _segments_rowid_map.capacity() * sizeof(std::vector<std::pair<uint32_t, uint32_t>>);
+        CONSUME_THREAD_MEM_TRACKER(new_size - _seg_rowid_map_mem_used);
+        _seg_rowid_map_mem_used = new_size;
+    }
+
+private:
     // the first level vector: index indicates src segment.
     // the second level vector: index indicates row id of source segment,
     // value indicates row id of destination segment.
     // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
     std::vector<std::vector<std::pair<uint32_t, uint32_t>>> _segments_rowid_map;
+    size_t _seg_rowid_map_mem_used {0};
+    size_t _std_pair_cap {0};
 
     // Map source segment to 0 to n
     std::map<std::pair<RowsetId, uint32_t>, uint32_t> _segment_to_id_map;
@@ -132,4 +174,5 @@ private:
     std::uint32_t _cur_dst_segment_rowid = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

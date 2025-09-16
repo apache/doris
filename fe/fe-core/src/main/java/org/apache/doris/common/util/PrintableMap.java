@@ -17,14 +17,18 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.datasource.property.constants.CosProperties;
-import org.apache.doris.datasource.property.constants.DLFProperties;
-import org.apache.doris.datasource.property.constants.GCSProperties;
-import org.apache.doris.datasource.property.constants.GlueProperties;
+import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.constants.MCProperties;
-import org.apache.doris.datasource.property.constants.ObsProperties;
-import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
+import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.COSProperties;
+import org.apache.doris.datasource.property.storage.GCSProperties;
+import org.apache.doris.datasource.property.storage.MinioProperties;
+import org.apache.doris.datasource.property.storage.OBSProperties;
+import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 
 import com.google.common.collect.Sets;
 
@@ -43,6 +47,7 @@ public class PrintableMap<K, V> {
     private boolean wrap;
     private boolean hidePassword;
     private String entryDelimiter = ",";
+    private Set<String> additionalHiddenKeys = Sets.newHashSet();
 
     public static final Set<String> SENSITIVE_KEY;
     public static final Set<String> HIDDEN_KEY;
@@ -58,17 +63,20 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.addAll(Arrays.asList(
                 S3Properties.SECRET_KEY,
                 S3Properties.Env.SECRET_KEY,
-                ObsProperties.SECRET_KEY,
-                OssProperties.SECRET_KEY,
-                GCSProperties.SECRET_KEY,
-                CosProperties.SECRET_KEY,
-                GlueProperties.SECRET_KEY,
-                MCProperties.SECRET_KEY,
-                DLFProperties.SECRET_KEY));
+                MCProperties.SECRET_KEY));
+
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSHdfsProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(COSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OBSProperties.class));
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(MinioProperties.class));
+
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
-        HIDDEN_KEY.addAll(GlueProperties.META_KEYS);
-        HIDDEN_KEY.addAll(DLFProperties.META_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
@@ -98,6 +106,10 @@ public class PrintableMap<K, V> {
         this.hidePassword = hidePassword;
     }
 
+    public void setAdditionalHiddenKeys(Set<String> additionalHiddenKeys) {
+        this.additionalHiddenKeys = additionalHiddenKeys;
+    }
+
     @Override
     public String toString() {
         if (map == null) {
@@ -119,7 +131,7 @@ public class PrintableMap<K, V> {
         List<Map.Entry<K, V>> entries = new ArrayList<>();
         while (iter.hasNext()) {
             Map.Entry<K, V> entry = iter.next();
-            if (!HIDDEN_KEY.contains(entry.getKey())) {
+            if (!HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey())) {
                 entries.add(entry);
             }
         }

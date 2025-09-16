@@ -32,6 +32,22 @@ suite("test_arith_functions") {
         sql 'select add(k1, k2) + subtract(k2, k3) + multiply(k3, k4), cast(divide(k4, k3) + mod(k4, k3) as bigint) from test order by k1 limit 1'
         result([[11022916880, 11902L]])
     }
+
+    sql "drop TABLE if exists testmoddb"
+    sql """
+    CREATE TABLE testmoddb (
+        K1 BIGINT,
+        K2 FLOAT
+    ) properties("replication_num" = "1");
+   
+    """
+
+    sql """
+    insert into testmoddb values(1,1.1);
+    """
+
+    qt_sql """ select mod(k1,k2) from testmoddb; """
+
 //    test {
 //        sql 'select int_divide(k1, k2), bitand(k2, k3), bitor(k3, k4), bitxor(k4, k3), bitnot(k4) from test order by k1'
 //    }

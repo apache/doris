@@ -20,28 +20,82 @@ package org.apache.doris.nereids.cost;
 import org.apache.doris.qe.SessionVariable;
 
 /**
- * Cost encapsulate the real cost with double type.
- * We do this because we want to customize the operation of adding child cost
- * according different operator
+ * CostV1.
  */
-public interface Cost {
-    double getValue();
+public class Cost {
+    private static final Cost INFINITE = new Cost(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
+            Double.POSITIVE_INFINITY,
+            Double.POSITIVE_INFINITY);
+    private static final Cost ZERO = new Cost(0, 0, 0, 0);
 
-    static Cost zero(SessionVariable sessionVariable) {
-        if (sessionVariable.getEnableNewCostModel()) {
-            return CostV2.zero();
-        }
-        return CostV1.zero();
+    private final double cpuCost;
+    private final double memoryCost;
+    private final double networkCost;
+
+    private final double cost;
+
+    /**
+     * Constructor of CostV1.
+     */
+    public Cost(SessionVariable sessionVariable, double cpuCost, double memoryCost, double networkCost) {
+        // TODO: fix stats
+        cpuCost = Double.max(0, cpuCost);
+        memoryCost = Double.max(0, memoryCost);
+        networkCost = Double.max(0, networkCost);
+        this.cpuCost = cpuCost;
+        this.memoryCost = memoryCost;
+        this.networkCost = networkCost;
+
+        CostWeight costWeight = CostWeight.get(sessionVariable);
+        this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
+                + costWeight.networkWeight * networkCost;
     }
 
-    static Cost infinite(SessionVariable sessionVariable) {
-        if (sessionVariable.getEnableNewCostModel()) {
-            return CostV2.infinite();
-        }
-        return CostV1.infinite();
+    private Cost(double cost, double cpuCost, double memoryCost, double networkCost) {
+        this.cost = cost;
+        this.cpuCost = cpuCost;
+        this.memoryCost = memoryCost;
+        this.networkCost = networkCost;
     }
 
-    static Cost zeroV1() {
-        return CostV1.zero();
+    public static Cost infinite() {
+        return INFINITE;
+    }
+
+    public static Cost zero() {
+        return ZERO;
+    }
+
+    public double getCpuCost() {
+        return cpuCost;
+    }
+
+    public double getMemoryCost() {
+        return memoryCost;
+    }
+
+    public double getNetworkCost() {
+        return networkCost;
+    }
+
+    public double getValue() {
+        return cost;
+    }
+
+    public static Cost of(SessionVariable sessionVariable, double cpuCost, double maxMemory, double networkCost) {
+        return new Cost(sessionVariable, cpuCost, maxMemory, networkCost);
+    }
+
+    public static Cost ofCpu(SessionVariable sessionVariable, double cpuCost) {
+        return new Cost(sessionVariable, cpuCost, 0, 0);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("[").append((long) cpuCost).append("/")
+                .append((long) memoryCost).append("/").append((long) networkCost)
+                .append("/").append("]");
+        return sb.toString();
     }
 }

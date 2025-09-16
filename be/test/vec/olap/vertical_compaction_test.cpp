@@ -38,7 +38,6 @@
 
 #include "common/status.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/stringprintf.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
@@ -376,7 +375,7 @@ protected:
 
 private:
     const std::string kTestDir = "/ut_dir/vertical_compaction_test";
-    string absolute_dir;
+    std::string absolute_dir;
     DataDir* _data_dir = nullptr;
 };
 
@@ -455,7 +454,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
 
     TabletSchemaSPtr tablet_schema = create_schema();
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = overlap;
     for (auto i = 0; i < num_input_rowset; i++) {
         if (overlap == OVERLAP_UNKNOWN) {
@@ -469,7 +468,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -521,8 +520,6 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMerge) {
     EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // check vertical compaction result
     for (auto id = 0; id < output_data.size(); id++) {
         LOG(INFO) << "output data: " << std::get<0>(output_data[id]) << " "
@@ -563,7 +560,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
 
     TabletSchemaSPtr tablet_schema = create_schema(DUP_KEYS, true);
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = overlap;
     for (auto i = 0; i < num_input_rowset; i++) {
         if (overlap == OVERLAP_UNKNOWN) {
@@ -577,7 +574,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -628,8 +625,6 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMerge) {
     EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_input_rowset * num_segments * rows_per_segment);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // check vertical compaction result
     for (auto id = 0; id < output_data.size(); id++) {
         LOG(INFO) << "output data: " << std::get<0>(output_data[id]) << " "
@@ -671,7 +666,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
 
     TabletSchemaSPtr tablet_schema = create_schema(UNIQUE_KEYS);
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = overlap;
     for (auto i = 0; i < num_input_rowset; i++) {
         if (overlap == OVERLAP_UNKNOWN) {
@@ -685,7 +680,7 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -736,8 +731,6 @@ TEST_F(VerticalCompactionTest, TestUniqueKeyVerticalMerge) {
     EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // check vertical compaction result
     for (auto id = 0; id < output_data.size(); id++) {
         LOG(INFO) << "output data: " << std::get<0>(output_data[id]) << " "
@@ -797,7 +790,7 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
                                                     num_input_rowset));
 
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -848,8 +841,6 @@ TEST_F(VerticalCompactionTest, TestDupKeyVerticalMergeWithDelete) {
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(),
               num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // All keys less than 1000 are deleted by delete handler
     for (auto& item : output_data) {
         ASSERT_GE(std::get<0>(item), 100);
@@ -900,7 +891,7 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
                                                     num_input_rowset));
 
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         ASSERT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -951,8 +942,6 @@ TEST_F(VerticalCompactionTest, TestDupWithoutKeyVerticalMergeWithDelete) {
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(),
               num_input_rowset * num_segments * rows_per_segment - num_input_rowset * 100);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // All keys less than 1000 are deleted by delete handler
     for (auto& item : output_data) {
         ASSERT_GE(std::get<0>(item), 100);
@@ -977,7 +966,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
 
     TabletSchemaSPtr tablet_schema = create_agg_schema();
     // create input rowset
-    vector<RowsetSharedPtr> input_rowsets;
+    std::vector<RowsetSharedPtr> input_rowsets;
     SegmentsOverlapPB new_overlap = overlap;
     for (auto i = 0; i < num_input_rowset; i++) {
         if (overlap == OVERLAP_UNKNOWN) {
@@ -991,7 +980,7 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
         input_rowsets.push_back(rowset);
     }
     // create input rowset reader
-    vector<RowsetReaderSharedPtr> input_rs_readers;
+    std::vector<RowsetReaderSharedPtr> input_rs_readers;
     for (auto& rowset : input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
@@ -1042,8 +1031,6 @@ TEST_F(VerticalCompactionTest, TestAggKeyVerticalMerge) {
     EXPECT_EQ(Status::Error<END_OF_FILE>(""), s);
     EXPECT_EQ(out_rowset->rowset_meta()->num_rows(), output_data.size());
     EXPECT_EQ(output_data.size(), num_segments * rows_per_segment);
-    std::vector<uint32_t> segment_num_rows;
-    EXPECT_TRUE(output_rs_reader->get_segment_num_rows(&segment_num_rows).ok());
     // check vertical compaction result
     for (auto id = 0; id < output_data.size(); id++) {
         LOG(INFO) << "output data: " << std::get<0>(output_data[id]) << " "

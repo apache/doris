@@ -26,35 +26,48 @@
 #include <cstddef>
 #include <utility>
 
-#include "runtime/raw_value.h"
-#include "util/hash_util.hpp"
 #include "vec/columns/columns_common.h"
-#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
-ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_) {
-    /// Squash Const of Const.
-    while (const ColumnConst* const_data = typeid_cast<const ColumnConst*>(data.get())) {
-        data = const_data->get_data_column_ptr();
+ColumnPtr squash_const(const ColumnPtr& col) {
+    ColumnPtr res = col;
+    while (const auto* c = typeid_cast<const ColumnConst*>(res.get())) {
+        res = c->get_data_column_ptr();
+    }
+    return res;
+}
+
+ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_, bool create_with_empty,
+                         bool need_squash)
+        : data(need_squash ? squash_const(data_) : data_), s(s_) {
+    if (data->empty() != create_with_empty) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Incorrect size of nested column in constructor of ColumnConst: {}, "
+                               "create_with_empty: {}.",
+                               data->size(), create_with_empty);
     }
 
-    if (data->size() != 1) {
-        LOG(FATAL) << fmt::format(
+    if (data->size() != 1 && !create_with_empty) {
+        throw doris::Exception(
+                ErrorCode::INTERNAL_ERROR,
                 "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
                 data->size());
     }
 }
 
 ColumnPtr ColumnConst::convert_to_full_column() const {
-    return data->replicate(Offsets(1, s));
-}
-
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
+    // clone_resized(0) will make ColumnVariant loss type information
+    // so we use clone_resized(1) as possible workaround
+    auto result = data->clone_resized(std::min(1UL, s));
+    if (s > 1) {
+        result->insert_many_from(*data, 0, s - 1);
+    }
+    return result;
 }
 
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
@@ -71,14 +84,7 @@ size_t ColumnConst::filter(const Filter& filter) {
     return result_size;
 }
 
-ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
-    column_match_offsets_size(s, offsets.size());
-
-    size_t replicated_size = 0 == s ? 0 : offsets.back();
-    return ColumnConst::create(data, replicated_size);
-}
-
-ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
+MutableColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     if (limit == 0) {
         limit = s;
     } else {
@@ -86,44 +92,12 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     }
 
     if (perm.size() < limit) {
-        LOG(FATAL) << fmt::format("Size of permutation ({}) is less than required ({})",
-                                  perm.size(), limit);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
     }
 
     return ColumnConst::create(data, limit);
-}
-
-void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(rows == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
-        }
-    }
-}
-
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
 }
 
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
@@ -134,11 +108,15 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
+void ColumnConst::replace_float_special_values() {
+    data->replace_float_special_values();
+}
+
 std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& column,
                                                                 size_t row_num) noexcept {
     std::pair<ColumnPtr, size_t> result;
     if (is_column_const(column)) {
-        result.first = static_cast<const ColumnConst&>(column).get_data_column_ptr();
+        result.first = assert_cast<const ColumnConst&>(column).get_data_column_ptr();
         result.second = 0;
     } else {
         result.first = column.get_ptr();
@@ -150,7 +128,7 @@ std::pair<ColumnPtr, size_t> check_column_const_set_readability(const IColumn& c
 std::pair<const ColumnPtr&, bool> unpack_if_const(const ColumnPtr& ptr) noexcept {
     if (is_column_const(*ptr)) {
         return std::make_pair(
-                std::cref(static_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
+                std::cref(assert_cast<const ColumnConst&>(*ptr).get_data_column_ptr()), true);
     }
     return std::make_pair(std::cref(ptr), false);
 }
@@ -162,7 +140,7 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
                     [&](size_t const_index) -> bool { return col_const[const_index]; })) {
         // only need to avoid expanding when all parameters are const
         for (auto index : parameters) {
-            columns[index] = static_cast<const ColumnConst&>(
+            columns[index] = assert_cast<const ColumnConst&>(
                                      *block.get_by_position(arg_indexes[index]).column)
                                      .get_data_column_ptr();
         }
@@ -170,7 +148,7 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
         // no need to avoid expanding for this rare situation
         for (auto index : parameters) {
             if (col_const[index]) {
-                columns[index] = static_cast<const ColumnConst&>(
+                columns[index] = assert_cast<const ColumnConst&>(
                                          *block.get_by_position(arg_indexes[index]).column)
                                          .convert_to_full_column();
             } else {

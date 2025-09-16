@@ -136,7 +136,7 @@ declare -A table_columns=(
     ['promotion']='p_promo_sk, p_promo_id, p_start_date_sk, p_end_date_sk, p_item_sk, p_cost, p_response_targe, p_promo_name, p_channel_dmail, p_channel_email, p_channel_catalog, p_channel_tv, p_channel_radio, p_channel_press, p_channel_event, p_channel_demo, p_channel_details, p_purpose, p_discount_active'
     ['reason']='r_reason_sk, r_reason_id, r_reason_desc'
     ['ship_mode']='sm_ship_mode_sk, sm_ship_mode_id, sm_type, sm_code, sm_carrier, sm_contract'
-    ['store']='s_store_sk, s_store_id, s_rec_start_date, s_rec_end_date, s_closed_date_sk, s_store_name, s_number_employees, s_floor_space, s_hours, s_manager, s_market_id, s_geography_class, s_market_desc, s_market_manager, s_division_id, s_division_name, s_company_id, s_company_name, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip, s_country, s_gmt_offset, s_tax_precentage'
+    ['store']='s_store_sk, s_store_id, s_rec_start_date, s_rec_end_date, s_closed_date_sk, s_store_name, s_number_employees, s_floor_space, s_hours, s_manager, s_market_id, s_geography_class, s_market_desc, s_market_manager, s_division_id, s_division_name, s_company_id, s_company_name, s_street_number, s_street_name, s_street_type, s_suite_number, s_city, s_county, s_state, s_zip, s_country, s_gmt_offset, s_tax_percentage'
     ['store_returns']='sr_returned_date_sk, sr_return_time_sk, sr_item_sk, sr_customer_sk, sr_cdemo_sk, sr_hdemo_sk, sr_addr_sk, sr_store_sk, sr_reason_sk, sr_ticket_number, sr_return_quantity, sr_return_amt, sr_return_tax, sr_return_amt_inc_tax, sr_fee, sr_return_ship_cost, sr_refunded_cash, sr_reversed_charge, sr_store_credit, sr_net_loss'
     ['store_sales']='ss_sold_date_sk, ss_sold_time_sk, ss_item_sk, ss_customer_sk, ss_cdemo_sk, ss_hdemo_sk, ss_addr_sk, ss_store_sk, ss_promo_sk, ss_ticket_number, ss_quantity, ss_wholesale_cost, ss_list_price, ss_sales_price, ss_ext_discount_amt, ss_ext_sales_price, ss_ext_wholesale_cost, ss_ext_list_price, ss_ext_tax, ss_coupon_amt, ss_net_paid, ss_net_paid_inc_tax, ss_net_profit'
     ['time_dim']='t_time_sk, t_time_id, t_time, t_hour, t_minute, t_second, t_am_pm, t_shift, t_sub_shift, t_meal_time'
@@ -182,6 +182,7 @@ for table_name in ${!table_columns[*]}; do
                 ret=$(curl \
                     --location-trusted \
                     -u "${USER}":"${PASSWORD:-}" \
+                    -H "Expect: 100-continue" \
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \
                     -T "${file}" \
@@ -190,6 +191,7 @@ for table_name in ${!table_columns[*]}; do
                 ret=$(curl \
                     --location-trusted \
                     -u "${USER}":"${PASSWORD:-}" \
+                    -H "Expect: 100-continue" \
                     -H "label:${TXN_ID}_${FILE_ID}" \
                     -H "column_separator:|" \
                     -H "columns: ${table_columns[${table_name}]}" \

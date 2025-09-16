@@ -48,7 +48,7 @@ suite("test_inverted_index_mor", "p0"){
 
     sql """ INSERT INTO $indexTblName VALUES (1, 2, 12, 1.2, '1 2'), (3, 4, 34, 3.4, '3 4'); """
     sql """ INSERT INTO $indexTblName VALUES (11, 12, 1112, 11.12, '11 22'), (13, 14, 1314, 13.14, '13 14'); """
-
+    sql """ set enable_common_expr_pushdown = true; """
     // original data
     qt_11 """ SELECT * FROM $indexTblName ORDER BY k1,k2 """
 
@@ -62,7 +62,7 @@ suite("test_inverted_index_mor", "p0"){
 
     // can not add INVERTED INDEX with parser
     test{
-        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) USING INVERTED PROPERTIES("parser"="english"); """
+        sql """ ALTER TABLE ${indexTblName} ADD INDEX idx_c_string(`c_string`) using inverted properties("support_phrase" = "true", "parser" = "english", "lower_case" = "true"); """
         exception "errCode = 2, detailMessage = INVERTED index with parser can NOT be used in value columns of UNIQUE_KEYS table with merge_on_write disable. invalid index: idx_c_string"
     }
 

@@ -15,78 +15,50 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/aggregate_functions/aggregate_function.h"
+#include "aggregate_function_corr.h"
+
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function_binary.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/core/types.h"
+#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
 
-template <typename T>
-struct CorrMoment {
-    T m0 {};
-    T x1 {};
-    T y1 {};
-    T xy {};
-    T x2 {};
-    T y2 {};
-
-    void add(T x, T y) {
-        ++m0;
-        x1 += x;
-        y1 += y;
-        xy += x * y;
-        x2 += x * x;
-        y2 += y * y;
-    }
-
-    void merge(const CorrMoment& rhs) {
-        m0 += rhs.m0;
-        x1 += rhs.x1;
-        y1 += rhs.y1;
-        xy += rhs.xy;
-        x2 += rhs.x2;
-        y2 += rhs.y2;
-    }
-
-    void write(BufferWritable& buf) const {
-        write_binary(m0, buf);
-        write_binary(x1, buf);
-        write_binary(y1, buf);
-        write_binary(xy, buf);
-        write_binary(x2, buf);
-        write_binary(y2, buf);
-    }
-
-    void read(BufferReadable& buf) {
-        read_binary(m0, buf);
-        read_binary(x1, buf);
-        read_binary(y1, buf);
-        read_binary(xy, buf);
-        read_binary(x2, buf);
-        read_binary(y2, buf);
-    }
-
-    T get() const {
-        if ((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1) == 0) [[unlikely]] {
-            return 0;
-        }
-        return (m0 * xy - x1 * y1) / sqrt((m0 * x2 - x1 * x1) * (m0 * y2 - y1 * y1));
-    }
-
-    static String name() { return "corr"; }
-};
+template <PrimitiveType T>
+using CorrMomentStat = StatFunc<T, CorrMoment>;
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
-    assert_binary(name, argument_types);
-    return create_with_two_basic_numeric_types<CorrMoment>(argument_types[0], argument_types[1],
-                                                           argument_types, result_is_nullable);
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 2, 2);
+
+    DCHECK(argument_types[0]->get_primitive_type() == argument_types[1]->get_primitive_type());
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary, CorrMomentStat>(
+            argument_types, result_is_nullable, attr);
 }
 
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("corr", create_aggregate_corr_function);
+}
+
+template <PrimitiveType T>
+using CorrWelfordMomentStat = StatFunc<T, CorrMomentWelford>;
+
+AggregateFunctionPtr create_aggregate_corr_welford_function(const std::string& name,
+                                                            const DataTypes& argument_types,
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 2, 2);
+
+    return creator_with_type_list<TYPE_DOUBLE>::create<AggregateFunctionBinary,
+                                                       CorrWelfordMomentStat>(
+            argument_types, result_is_nullable, attr);
+}
+
+void register_aggregate_functions_corr_welford(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("corr_welford", create_aggregate_corr_welford_function);
 }
 
 } // namespace doris::vectorized

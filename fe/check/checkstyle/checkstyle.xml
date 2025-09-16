@@ -431,6 +431,10 @@ under the License.
                      value="WhitespaceAround: ''{0}'' is not preceded with whitespace."/>
         </module>
 
+        <module name="PackageDeclaration">
+            <property name="matchDirectoryStructure" value="true"/>
+        </module>
+
         <!-- filter -->
         <!-- https://checkstyle.org/config_filters.html#SuppressionXpathFilter -->
         <module name="SuppressionXpathFilter">

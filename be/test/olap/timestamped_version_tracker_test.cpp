@@ -35,8 +35,8 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/substitute.h"
 #include "gtest/gtest_pred_impl.h"
-#include "gutil/strings/substitute.h"
 #include "json2pb/json_to_pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
@@ -761,7 +761,7 @@ TEST_F(TestTimestampedVersionTracker, get_stale_version_path_json_doc) {
     }
 ])";
 
-    expect_result = strings::Substitute(expect_result, time_zone_str);
+    expect_result = absl::Substitute(expect_result, time_zone_str);
     EXPECT_EQ(expect_result, json_result);
 }
 

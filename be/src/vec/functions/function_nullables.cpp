@@ -18,7 +18,6 @@
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -52,9 +51,10 @@ public:
 
     // trans nullable column to non-nullable column. If argument is already non-nullable, raise error.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr& col = block.get_by_position(arguments[0]).column;
-        if (const auto* col_null = check_and_get_column<ColumnNullable>(col); col_null == nullptr) {
+        if (const auto* col_null = check_and_get_column<ColumnNullable>(col.get());
+            col_null == nullptr) {
             // not null
             block.replace_by_position(
                     result, ColumnNullable::create(col, ColumnBool::create(input_rows_count, 0)));
@@ -83,23 +83,19 @@ public:
 
     // trans nullable column to non-nullable column. If argument is already non-nullable, raise error.
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto& data = block.get_by_position(arguments[0]);
-        if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column);
-            col_null == nullptr) // raise error if input is not nullable.
-        {
-            return Status::InvalidArgument(
-                    "Try to use originally non-nullable column {} in nullable's non-nullable "
-                    "convertion.",
-                    data.column->get_name());
-        } else { // column is ColumnNullable
+        if (const auto* col_null = check_and_get_column<ColumnNullable>(data.column.get());
+            col_null != nullptr) {
             if (col_null->has_null()) [[unlikely]] {
                 return Status::InvalidArgument(
                         "There's NULL value in column {} which is illegal for non_nullable",
-                        data.column->get_name());
+                        data.name);
             }
             const ColumnPtr& nest_col = col_null->get_nested_column_ptr();
             block.replace_by_position(result, nest_col->clone_resized(nest_col->size()));
+        } else {
+            block.replace_by_position(result, data.column->clone_resized(input_rows_count));
         }
         return Status::OK();
     }

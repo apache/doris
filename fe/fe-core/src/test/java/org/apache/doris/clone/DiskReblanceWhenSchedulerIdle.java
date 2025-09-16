@@ -65,7 +65,7 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
     public void testDiskReblanceWhenSchedulerIdle() throws Exception {
         // case start
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackends();
+        List<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         Assertions.assertEquals(backendNum(), backends.size());
         for (Backend be : backends) {
             Assertions.assertEquals(0, invertedIndex.getTabletNumByBackendId(be.getId()));
@@ -109,7 +109,7 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
         tablets.forEach(tablet -> {
             Lists.newArrayList(tablet.getReplicas()).forEach(
                     replica -> {
-                    if (replica.getBackendId() == backends.get(1).getId()) {
+                    if (replica.getBackendIdWithoutException() == backends.get(1).getId()) {
                         replica.setDataSize(totalCapacity / 4);
                         replica.setRowCount(1);
                         tablet.deleteReplica(replica);

@@ -25,11 +25,32 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import java.util.Collection;
 import java.util.Set;
 
 public class IdGeneratorUtil {
+
+    public static long getBufferSizeForCreateTable(CreateTableInfo createTableInfo, ReplicaAllocation replicaAlloc)
+            throws DdlException {
+        long bufferSize = 1;
+        long partitionNum = createTableInfo.getPartitionDesc() == null ? 1 :
+                createTableInfo.getPartitionDesc().getSinglePartitionDescs().size();
+        long indexNum = createTableInfo.getRollupAlterClauseList().size() + 1;
+        long bucketNum = createTableInfo.getDistributionDesc().toDistributionInfo(createTableInfo.getColumns())
+                .getBucketNum();
+        bufferSize = bufferSize + partitionNum + indexNum;
+        if (createTableInfo.getPartitionDesc() == null) {
+            bufferSize = bufferSize + (replicaAlloc.getTotalReplicaNum() + 1) * indexNum * bucketNum;
+        } else {
+            for (SinglePartitionDesc partitionDesc : createTableInfo.getPartitionDesc().getSinglePartitionDescs()) {
+                long replicaNum = partitionDesc.getReplicaAlloc().getTotalReplicaNum();
+                bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
+            }
+        }
+        return bufferSize;
+    }
 
     public static long getBufferSizeForCreateTable(CreateTableStmt stmt, ReplicaAllocation replicaAlloc)
             throws DdlException {

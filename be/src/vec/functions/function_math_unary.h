@@ -21,7 +21,6 @@
 #pragma once
 
 #include "vec/columns/column_decimal.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/call_on_type_index.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -54,7 +53,7 @@ private:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto* col =
                 assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get());
 

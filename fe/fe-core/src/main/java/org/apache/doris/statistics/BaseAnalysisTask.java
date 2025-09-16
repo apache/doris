@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AuditLogHelper;
@@ -36,6 +37,7 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -64,84 +66,88 @@ public abstract class BaseAnalysisTask {
 
     protected static final String FULL_ANALYZE_TEMPLATE =
             "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
-            + "         ${catalogId} AS `catalog_id`, "
-            + "         ${dbId} AS `db_id`, "
-            + "         ${tblId} AS `tbl_id`, "
-            + "         ${idxId} AS `idx_id`, "
-            + "         '${colId}' AS `col_id`, "
-            + "         NULL AS `part_id`, "
-            + "         COUNT(1) AS `row_count`, "
-            + "         NDV(`${colName}`) AS `ndv`, "
-            + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            + "         SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
-            + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
-            + "         ${dataSizeFunction} AS `data_size`, "
-            + "         NOW() AS `update_time` "
-            + " FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
+            +     "${catalogId} AS `catalog_id`, "
+            +     "${dbId} AS `db_id`, "
+            +     "${tblId} AS `tbl_id`, "
+            +     "${idxId} AS `idx_id`, "
+            +     "'${colId}' AS `col_id`, "
+            +     "NULL AS `part_id`, "
+            +     "COUNT(1) AS `row_count`, "
+            +     "NDV(`${colName}`) AS `ndv`, "
+            +     "COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
+            +     "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            +     "${dataSizeFunction} AS `data_size`, "
+            +     "NOW() AS `update_time`, "
+            +     "null as `hot_value` "
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index}";
 
-    protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
-            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
-            + "${catalogId} AS `catalog_id`, "
-            + "${dbId} AS `db_id`, "
-            + "${tblId} AS `tbl_id`, "
-            + "${idxId} AS `idx_id`, "
-            + "'${colId}' AS `col_id`, "
-            + "NULL AS `part_id`, "
-            + "${rowCount} AS `row_count`, "
-            + "${ndvFunction} as `ndv`, "
-            + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
-            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
-            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
-            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            + "NOW() "
-            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}";
+    protected static final String LINEAR_ANALYZE_TEMPLATE = "WITH cte1 AS ("
+            +     "SELECT `${colName}` "
+            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit} ${preAggHint}), "
+            + "cte2 AS ("
+            +     "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            +     "${catalogId} AS `catalog_id`, "
+            +     "${dbId} AS `db_id`, "
+            +     "${tblId} AS `tbl_id`, "
+            +     "${idxId} AS `idx_id`, "
+            +     "'${colId}' AS `col_id`, "
+            +     "NULL AS `part_id`, "
+            +     "${rowCount} AS `row_count`, "
+            +     "${ndvFunction} as `ndv`, "
+            +     "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
+            +     "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
+            +     "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
+            +     "NOW() FROM cte1), "
+            + "cte3 AS ("
+            +     "SELECT GROUP_CONCAT(CONCAT("
+            +         "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+            +         "\" :\", ROUND(t.`count` / ${rowCount2}, 2)), \" ;\") "
+            +         "as `hot_value` "
+            +     "FROM ("
+            +         "SELECT ${subStringColName} as `hash_value`, "
+            +         "MAX(`${colName}`) as `column_key`, "
+            +         "COUNT(1) AS `count` "
+            +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
+            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
+            + "SELECT * FROM cte2 CROSS JOIN cte3";
 
-    protected static final String DUJ1_ANALYZE_STRING_TEMPLATE = "SELECT "
-            + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
-            + "${catalogId} AS `catalog_id`, "
-            + "${dbId} AS `db_id`, "
-            + "${tblId} AS `tbl_id`, "
-            + "${idxId} AS `idx_id`, "
-            + "'${colId}' AS `col_id`, "
-            + "NULL AS `part_id`, "
-            + "${rowCount} AS `row_count`, "
-            + "${ndvFunction} as `ndv`, "
-            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
-            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
-            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            + "NOW() "
-            + "FROM ( "
-            + "    SELECT t0.`colValue` as `column_key`, COUNT(1) as `count` "
-            + "    FROM "
-            + "    (SELECT SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024) AS `colValue` "
-            + "         FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
-            + "    ${sampleHints} ${limit}) as `t0` "
-            + "    GROUP BY `t0`.`colValue` "
-            + ") as `t1` ";
-
-    protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
-            + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
-            + "${catalogId} AS `catalog_id`, "
-            + "${dbId} AS `db_id`, "
-            + "${tblId} AS `tbl_id`, "
-            + "${idxId} AS `idx_id`, "
-            + "'${colId}' AS `col_id`, "
-            + "NULL AS `part_id`, "
-            + "${rowCount} AS `row_count`, "
-            + "${ndvFunction} as `ndv`, "
-            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
-            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
-            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            + "NOW() "
-            + "FROM ( "
-            + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
-            + "    FROM "
-            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
-            + "    ${sampleHints} ${limit}) as `t0` "
-            + "    GROUP BY `t0`.`${colName}` "
-            + ") as `t1` ";
+    protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
+            + "SELECT MAX(t0.`col_value`) as `col_value`, COUNT(1) as `count`, SUM(`len`) as `column_length` "
+            + "FROM "
+            +     "(SELECT "
+            +     "${subStringColName} AS `hash_value`, "
+            +     "`${colName}` AS `col_value`, "
+            +     "LENGTH(`${colName}`) as `len` "
+            +     "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) as `t0` "
+            +     "${preAggHint} GROUP BY `t0`.`hash_value`), "
+            + "cte2 AS ( "
+            +     "SELECT CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
+            +     "${catalogId} AS `catalog_id`, "
+            +     "${dbId} AS `db_id`, "
+            +     "${tblId} AS `tbl_id`, "
+            +     "${idxId} AS `idx_id`, "
+            +     "'${colId}' AS `col_id`, "
+            +     "NULL AS `part_id`, "
+            +     "${rowCount} AS `row_count`, "
+            +     "${ndvFunction} as `ndv`, "
+            +     "IFNULL(SUM(IF(`t1`.`col_value` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
+            +     "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            +     "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
+            +     "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
+            +     "NOW() "
+            +     "FROM cte1 t1), "
+            + "cte3 AS ("
+            +     "SELECT GROUP_CONCAT(CONCAT("
+            +         "REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
+            +         "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\") "
+            +         "as `hot_value` "
+            +     "FROM ("
+            +         "SELECT `col_value`, `count` "
+            +             "FROM cte1 "
+            +             "WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t2) "
+            + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = " SELECT "
             + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
@@ -190,7 +196,8 @@ public abstract class BaseAnalysisTask {
             + "MIN(${min}) AS `min`, "
             + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
-            + "NOW() AS `update_time` FROM "
+            + "NOW() AS `update_time`,"
+            + "null as `hot_value` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
             + " WHERE `catalog_id` = ${catalogId} "
             + " AND `db_id` = ${dbId} "
@@ -236,7 +243,8 @@ public abstract class BaseAnalysisTask {
                 || info.analysisType.equals(AnalysisType.HISTOGRAM))) {
             col = tbl.getColumn(info.colName);
             if (col == null) {
-                throw new RuntimeException(String.format("Column with name %s not exists", tbl.getName()));
+                throw new RuntimeException(String.format("Column with name %s not exists in table %s",
+                        info.colName, tbl.getName()));
             }
             Preconditions.checkArgument(!StatisticsUtil.isUnsupportedType(col.getType()),
                     String.format("Column with type %s is not supported", col.getType().toString()));
@@ -267,7 +275,7 @@ public abstract class BaseAnalysisTask {
     public void cancel() {
         killed = true;
         if (stmtExecutor != null) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
         }
         Env.getCurrentEnv().getAnalysisManager()
                 .updateTaskStatus(info, AnalysisState.FAILED,
@@ -281,7 +289,7 @@ public abstract class BaseAnalysisTask {
     protected String getDataSizeFunction(Column column, boolean useDuj1) {
         if (useDuj1) {
             if (column.getType().isStringType()) {
-                return "SUM(LENGTH(`column_key`) * count)";
+                return "SUM(`column_length`)";
             } else {
                 return "SUM(t1.count) * " + column.getType().getSlotSize();
             }
@@ -291,6 +299,14 @@ public abstract class BaseAnalysisTask {
             } else {
                 return "COUNT(1) * " + column.getType().getSlotSize();
             }
+        }
+    }
+
+    protected String getStringTypeColName(Column column) {
+        if (column.getType().isStringType()) {
+            return "xxhash_64(SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024))";
+        } else {
+            return "`${colName}`";
         }
     }
 
@@ -304,16 +320,14 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getNdvFunction(String totalRows) {
-        String sampleRows = "SUM(`t1`.`count`)";
-        String onceCount = "SUM(IF(`t1`.`count` = 1, 1, 0))";
-        String countDistinct = "COUNT(1)";
+        String n = "SUM(`t1`.`count`)"; // sample rows
+        String f1 = "SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0))";
+        String d = "COUNT(`t1`.`col_value`)"; // sample ndv
         // DUJ1 estimator: n*d / (n - f1 + f1*n/N)
         // f1 is the count of element that appears only once in the sample.
         // (https://github.com/postgres/postgres/blob/master/src/backend/commands/analyze.c)
         // (http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.93.8637&rep=rep1&type=pdf)
-        // sample_row * count_distinct / ( sample_row - once_count + once_count * sample_row / total_row)
-        return MessageFormat.format("{0} * {1} / ({0} - {2} + {2} * {0} / {3})", sampleRows,
-                countDistinct, onceCount, totalRows);
+        return MessageFormat.format("{0} * {1} / ({0} - {2} + {2} * {0} / {3})", n, d, f1, totalRows);
     }
 
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
@@ -495,9 +509,22 @@ public abstract class BaseAnalysisTask {
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
-        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            if (!colStatsData.isValid()) {
+                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
+                LOG.warn(message);
+                throw new RuntimeException(message);
+            }
+            // Update index row count after analyze.
+            if (this instanceof OlapAnalysisTask) {
+                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
+                // For sync job, get jobInfo from job.jobInfo.
+                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
+                jobInfo.addIndexRowCount(indexId, colStatsData.count);
+            }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));
@@ -515,7 +542,7 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void runInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             try {
                 stmtExecutor.execute();

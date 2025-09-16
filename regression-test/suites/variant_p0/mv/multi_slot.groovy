@@ -34,11 +34,11 @@ suite ("multi_slot") {
     sql """insert into multi_slot select 4,'{"k1" : -3, "k2" : null, "k4" : {"k44" : 456}}';"""
     order_qt_select_star "select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
 
-    createMV ("create materialized view k1a2p2ap3p as select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot;")
+    createMV ("create materialized view k1a2p2ap3p as select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 as a1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 as a2 from multi_slot;")
 
-    createMV("create materialized view k1a2p2ap3ps as select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1;")
+    createMV("create materialized view k1a2p2ap3ps as select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1 as a3,sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) as a4 from multi_slot group by abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1;")
 
-    createMV("create materialized view k1a2p2ap3psp as select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int));")
+    createMV("create materialized view k1a2p2ap3psp as select abs(cast(v['k4']['k44'] as int)) as a5, sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) as a6 from multi_slot group by abs(cast(v['k4']['k44'] as int));")
 
     sql """insert into multi_slot select -4,'{"k1" : -4, "k2" : -4, "k3" : "d"}';"""
     sql """insert into multi_slot select -5,'{"k1" : -4, "k2" : -4, "k4" : "d"}';"""
@@ -50,8 +50,35 @@ suite ("multi_slot") {
 
     order_qt_select_star "select abs(cast(v['k1'] as int))+cast(v['k2'] as int)+1,abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3 from multi_slot;"
     order_qt_select_star "select * from multi_slot order by cast(v['k1'] as int);"
-    // TODO fix and remove enable_rewrite_element_at_to_slot
-    order_qt_select_star "select /*+SET_VAR(enable_rewrite_element_at_to_slot=false) */ abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
+    order_qt_select_star "select abs(cast(v['k4']['k44'] as int)), sum(abs(cast(v['k2'] as int)+2)+cast(v['k3'] as int)+3) from multi_slot group by abs(cast(v['k4']['k44'] as int))"
+
+    sql "drop table if exists test_mv"
+    sql """
+    CREATE TABLE `test_mv` (
+        `handle_time` datetime NOT NULL ,
+        `client_request` variant NULL,
+        `status` int NULL
+    )  
+    DISTRIBUTED BY HASH(`handle_time`)
+    BUCKETS 10 PROPERTIES (
+      "is_being_synced" = "false",
+      "storage_medium" = "hdd",
+      "storage_format" = "V2",
+      "inverted_index_storage_format" = "V1",
+      "light_schema_change" = "true",
+      "disable_auto_compaction" = "false",
+      "enable_single_replica_compaction" = "false",
+      "replication_num" = "1"
+    );  
+    """
+    sql """insert into test_mv values ('2021-01-01 11:11:11', '{"url" : "http://xxx.xxx.xxx"}', 12)"""
+    createMV("create materialized view mv_1 as select `handle_time` as b1, `client_request`['url'] as `b2`, `status` as b3 from test_mv")
+    qt_sql "select `handle_time`, `client_request`['url'] as `uri`, `status` from test_mv"
+    test {
+        sql "create materialized view mv_x as select `client_request`['url'] as `b4`, `status` as b5 from test_mv"
+        exception("The first column could not be float, double or complex type like array, struct, map, json, variant.")
+    }
+
 
     // def retry_times = 60
     // for (def i = 0; i < retry_times; ++i) {

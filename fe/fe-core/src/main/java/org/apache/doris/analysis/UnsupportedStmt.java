@@ -20,14 +20,14 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-public class UnsupportedStmt extends StatementBase {
+public class UnsupportedStmt extends StatementBase implements NotFallbackInParser {
 
     public UnsupportedStmt() {
 
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
         // do nothing
     }
 

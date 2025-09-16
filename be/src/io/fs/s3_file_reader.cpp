@@ -35,7 +35,10 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "util/bvar_helper.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/s3_util.h"
@@ -120,26 +123,25 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     if (!client) {
         return Status::InternalError("init s3 client error");
     }
-    // // clang-format off
-    // auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
-    //         to, offset, bytes_req, bytes_read);
-    // // clang-format on
-    // if (resp.status.code != ErrorCode::OK) {
-    //     return std::move(Status(resp.status.code, std::move(resp.status.msg))
-    //                              .append(fmt::format("failed to read from {}", _path.native())));
-    // }
-    // if (*bytes_read != bytes_req) {
-    //     return Status::InternalError("failed to read from {}(bytes read: {}, bytes req: {})",
-    //                                  _path.native(), *bytes_read, bytes_req);
-    SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
 
     int retry_count = 0;
     const int base_wait_time = config::s3_read_base_wait_time_ms; // Base wait time in milliseconds
     const int max_wait_time = config::s3_read_max_wait_time_ms; // Maximum wait time in milliseconds
     const int max_retries = config::max_s3_client_retry; // wait 1s, 2s, 4s, 8s for each backoff
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
+
+    DBUG_EXECUTE_IF("S3FileReader::read_at_impl.io_slow", {
+        auto sleep_time = dp->param("sleep", 3);
+        LOG_INFO("S3FileReader::read_at_impl.io_slow inject sleep {} s", sleep_time)
+                .tag("bucket", _bucket)
+                .tag("key", _key);
+        std::this_thread::sleep_for(std::chrono::seconds(sleep_time));
+    });
+
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
+        *bytes_read = 0;
         s3_file_reader_read_counter << 1;
         // clang-format off
         auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
@@ -165,8 +167,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
             }
         }
         if (*bytes_read != bytes_req) {
-            return Status::InternalError("failed to read (bytes read: {}, bytes req: {})",
-                                         *bytes_read, bytes_req);
+            std::string msg = fmt::format(
+                    "failed to get object, path={} offset={} bytes_req={} bytes_read={} "
+                    "file_size={} tries={}",
+                    _path.native(), offset, bytes_req, *bytes_read, _file_size, (retry_count + 1));
+            LOG(WARNING) << msg;
+            return Status::InternalError(msg);
         }
         _s3_stats.total_bytes_read += bytes_req;
         s3_bytes_read_total << bytes_req;
@@ -178,7 +184,12 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         }
         return Status::OK();
     }
-    return Status::InternalError("failed to read from s3, exceeded maximum retries");
+    std::string msg = fmt::format(
+            "failed to get object, path={} offset={} bytes_req={} bytes_read={} file_size={} "
+            "tries={}",
+            _path.native(), offset, bytes_req, *bytes_read, _file_size, (max_retries + 1));
+    LOG(WARNING) << msg;
+    return Status::InternalError(msg);
 }
 
 void S3FileReader::_collect_profile_before_close() {

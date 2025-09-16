@@ -18,25 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_change_on_renamed_column") {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+    sql "set enable_add_index_for_new_data = false"
+
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -67,7 +58,7 @@ suite("test_index_change_on_renamed_column") {
             `id` INT COMMENT "",
             `s` STRING COMMENT ""
         )
-        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)
+        DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ( "replication_num" = "1" );
         """
 
@@ -80,7 +71,7 @@ suite("test_index_change_on_renamed_column") {
     
     // create inverted 
     sql """ alter table ${tableName} add index idx_s(s) USING INVERTED PROPERTIES('parser' = 'english')"""
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_col_change_finish(tableName, timeout)
     
     qt_select1 """ SELECT * FROM ${tableName} order by id; """
 
@@ -89,7 +80,7 @@ suite("test_index_change_on_renamed_column") {
 
     // build inverted index on renamed column
     if (!isCloudMode()) {
-        sql """ build index idx_s on ${tableName} """
+        build_index_on_table("idx_s", tableName)
         wait_for_build_index_on_partition_finish(tableName, timeout)
     }
 
@@ -99,11 +90,18 @@ suite("test_index_change_on_renamed_column") {
     assertEquals(show_result[0][2], "idx_s")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
+    qt_select3 """ SELECT /*+ SET_VAR(enable_inverted_index_query = true) */ * FROM ${tableName} where s1 match 'welcome'; """
+
+    def tablets = sql_return_maparray """ show tablets from ${tableName}; """
+    String tablet_id = tablets[0].TabletId
+    String backend_id = tablets[0].BackendId
+    String ip = backendId_to_backendIP.get(backend_id)
+    String port = backendId_to_backendHttpPort.get(backend_id)
+    check_nested_index_file(ip, port, tablet_id, 3, 1, "V2")
 
     // drop inverted index on renamed column
     sql """ alter table ${tableName} drop index idx_s; """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
     show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 0)

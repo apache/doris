@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -31,13 +30,13 @@
 #include "vec/exec/jni_connector.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
 namespace vectorized {
 class Block;
 } // namespace vectorized
-struct TypeDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
@@ -50,6 +49,18 @@ public:
 
     ~JniReader() override = default;
 
+    Status get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
+                       std::unordered_set<std::string>* missing_cols) override {
+        for (const auto& desc : _file_slot_descs) {
+            name_to_type->emplace(desc->col_name(), desc->type());
+        }
+        return Status::OK();
+    }
+
+    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override {
+        return _jni_connector->get_next_block(block, read_rows, eof);
+    }
+
     Status close() override {
         if (_jni_connector) {
             return _jni_connector->close();
@@ -58,6 +69,12 @@ public:
     }
 
 protected:
+    void _collect_profile_before_close() override {
+        if (_jni_connector) {
+            _jni_connector->collect_profile_before_close();
+        }
+    }
+
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
@@ -77,13 +94,8 @@ public:
 
     ~MockJniReader() override = default;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
-
     Status init_reader(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
     Status close() override {
         if (_jni_connector) {
@@ -100,7 +112,8 @@ protected:
     }
 
 private:
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    const std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

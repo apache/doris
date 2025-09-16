@@ -35,7 +35,7 @@ import java.util.Optional;
  * Physical table sink for all table type sink
  */
 public abstract class PhysicalTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> {
-
+    // group expression is not useful
     public PhysicalTableSink(PlanType type, List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,

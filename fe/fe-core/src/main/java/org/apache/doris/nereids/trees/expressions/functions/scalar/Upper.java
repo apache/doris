@@ -49,13 +49,18 @@ public class Upper extends ScalarFunction
         super("upper", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Upper(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Upper withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Upper(children.get(0));
+        return new Upper(getFunctionParams(children));
     }
 
     @Override

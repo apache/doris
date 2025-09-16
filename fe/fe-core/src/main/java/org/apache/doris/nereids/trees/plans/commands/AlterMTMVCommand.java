@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -31,7 +32,7 @@ import java.util.Objects;
 /**
  * alter multi table materialized view
  */
-public class AlterMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class AlterMTMVCommand extends Command implements ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(AlterMTMVCommand.class);
     private final AlterMTMVInfo alterMTMVInfo;
@@ -55,4 +56,8 @@ public class AlterMTMVCommand extends Command implements ForwardWithSync, NotAll
         return visitor.visitAlterMTMVCommand(this, context);
     }
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
+    }
 }

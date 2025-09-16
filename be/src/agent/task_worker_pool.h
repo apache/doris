@@ -27,7 +27,6 @@
 #include <string_view>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 
 namespace doris {
 
@@ -36,10 +35,10 @@ class StorageEngine;
 class CloudStorageEngine;
 class Thread;
 class ThreadPool;
-class TMasterInfo;
 class TReportRequest;
 class TTabletInfo;
 class TAgentTaskRequest;
+class ClusterInfo;
 
 class TaskWorkerPoolIf {
 public:
@@ -89,6 +88,8 @@ public:
 
     Status submit_task(const TAgentTaskRequest& task) override;
 
+    Status submit_high_prior_and_cancel_low(const TAgentTaskRequest& task);
+
 private:
     void normal_loop();
 
@@ -102,14 +103,14 @@ private:
     std::condition_variable _high_prior_condv;
     std::deque<std::unique_ptr<TAgentTaskRequest>> _high_prior_queue;
 
-    std::vector<scoped_refptr<Thread>> _workers;
+    std::vector<std::shared_ptr<Thread>> _workers;
 
     std::function<void(const TAgentTaskRequest&)> _callback;
 };
 
 class ReportWorker {
 public:
-    ReportWorker(std::string name, const TMasterInfo& master_info, int report_interval_s,
+    ReportWorker(std::string name, const ClusterInfo* cluster_info, int report_interval_s,
                  std::function<void()> callback);
 
     ~ReportWorker();
@@ -123,7 +124,7 @@ public:
 
 private:
     std::string _name;
-    scoped_refptr<Thread> _thread;
+    std::shared_ptr<Thread> _thread;
 
     std::mutex _mtx;
     std::condition_variable _condv;
@@ -133,27 +134,39 @@ private:
 
 void alter_inverted_index_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void alter_cloud_index_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void check_consistency_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
 void download_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
+void download_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
 void make_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void release_snapshot_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
+void release_snapshot_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
 void move_dir_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
+
+void move_dir_callback(CloudStorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req);
 
 void submit_table_compaction_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void push_storage_policy_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void push_index_policy_callback(const TAgentTaskRequest& req);
 
 void push_cooldown_conf_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
+
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
@@ -167,7 +180,7 @@ void alter_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
 void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
-void clone_callback(StorageEngine& engine, const TMasterInfo& master_info,
+void clone_callback(StorageEngine& engine, const ClusterInfo* cluster_info,
                     const TAgentTaskRequest& req);
 
 void storage_medium_migrate_callback(StorageEngine& engine, const TAgentTaskRequest& req);
@@ -180,14 +193,18 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req);
 
 void visible_version_callback(StorageEngine& engine, const TAgentTaskRequest& req);
 
-void report_task_callback(const TMasterInfo& master_info);
+void report_task_callback(const ClusterInfo* cluster_info);
 
-void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);
+void report_disk_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
 
-void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
+void report_disk_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
-void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_info);
+
+void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
+
+void report_index_policy_callback(const ClusterInfo* cluster_info);
 
 } // namespace doris

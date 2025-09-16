@@ -25,6 +25,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "util/binary_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -34,42 +35,34 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-} // namespace vectorized
-} // namespace doris
 
-namespace doris::vectorized {
-
-template <typename T>
+template <PrimitiveType T>
 struct AggregateFunctionAvgWeightedData {
-    void add(const T& data_val, double weight_val) {
+    using DataType = typename PrimitiveTypeTraits<T>::ColumnItemType;
+    void add(const DataType& data_val, double weight_val) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
-        if constexpr (IsDecimalV2<T>) {
-            DecimalV2Value value = binary_cast<Int128, DecimalV2Value>(data_val);
-            data_sum = data_sum + (double(value) * weight_val);
-        } else {
-            data_sum = data_sum + (data_val * weight_val);
-        }
+        data_sum = data_sum + (double(data_val) * weight_val);
         weight_sum = weight_sum + weight_val;
     }
 
     void write(BufferWritable& buf) const {
-        write_binary(data_sum, buf);
-        write_binary(weight_sum, buf);
+        buf.write_binary(data_sum);
+        buf.write_binary(weight_sum);
     }
 
     void read(BufferReadable& buf) {
-        read_binary(data_sum, buf);
-        read_binary(weight_sum, buf);
+        buf.read_binary(data_sum);
+        buf.read_binary(weight_sum);
     }
 
     void merge(const AggregateFunctionAvgWeightedData& rhs) {
@@ -91,32 +84,37 @@ struct AggregateFunctionAvgWeightedData {
     double weight_sum = 0.0;
 };
 
-template <typename T>
+template <PrimitiveType type>
 class AggregateFunctionAvgWeight final
-        : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
-                                              AggregateFunctionAvgWeight<T>> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
+                                              AggregateFunctionAvgWeight<type>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
-    using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
+    using T = typename PrimitiveTypeTraits<type>::CppType;
+    using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;
 
     AggregateFunctionAvgWeight(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
-                                           AggregateFunctionAvgWeight<T>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
+                                           AggregateFunctionAvgWeight<type>>(argument_types_) {}
 
     String get_name() const override { return "avg_weighted"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
-        const auto& weight = assert_cast<const ColumnFloat64&>(*columns[1]);
+             Arena&) const override {
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& weight =
+                assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
         this->data(place).add(column.get_data()[row_num], weight.get_element(row_num));
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -125,7 +123,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 
@@ -136,3 +134,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

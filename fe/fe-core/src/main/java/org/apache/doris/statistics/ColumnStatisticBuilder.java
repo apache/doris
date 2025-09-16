@@ -18,6 +18,11 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+
+import java.util.Map;
 
 public class ColumnStatisticBuilder {
     private double count;
@@ -35,6 +40,7 @@ public class ColumnStatisticBuilder {
     private ColumnStatistic original;
 
     private String updatedTime;
+    private Map<Literal, Float> hotValues;
 
     public ColumnStatisticBuilder() {
     }
@@ -52,11 +58,28 @@ public class ColumnStatisticBuilder {
         this.isUnknown = columnStatistic.isUnKnown;
         this.original = columnStatistic.original;
         this.updatedTime = columnStatistic.updatedTime;
+        this.hotValues = columnStatistic.hotValues;
     }
 
-    public ColumnStatisticBuilder setCount(double count) {
+    // ATTENTION: DON'T USE FOLLOWING TWO DURING STATS DERIVING EXCEPT FOR INITIALIZATION
+    public ColumnStatisticBuilder(double count) {
         this.count = count;
-        return this;
+    }
+
+    public ColumnStatisticBuilder(ColumnStatistic columnStatistic, double count) {
+        this.count = count;
+        this.ndv = columnStatistic.ndv;
+        this.avgSizeByte = columnStatistic.avgSizeByte;
+        this.numNulls = columnStatistic.numNulls;
+        this.dataSize = columnStatistic.dataSize;
+        this.minValue = columnStatistic.minValue;
+        this.maxValue = columnStatistic.maxValue;
+        this.minExpr = columnStatistic.minExpr;
+        this.maxExpr = columnStatistic.maxExpr;
+        this.isUnknown = columnStatistic.isUnKnown;
+        this.original = columnStatistic.original;
+        this.updatedTime = columnStatistic.updatedTime;
+        this.hotValues = columnStatistic.hotValues;
     }
 
     public ColumnStatisticBuilder setNdv(double ndv) {
@@ -109,6 +132,11 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public ColumnStatisticBuilder setHotValues(Map<Literal, Float> hotValues) {
+        this.hotValues = hotValues;
+        return this;
+    }
+
     public double getCount() {
         return count;
     }
@@ -158,16 +186,35 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
+    public Map<Literal, Float> getHotValues() {
+        return hotValues;
+    }
+
     public ColumnStatistic build() {
         dataSize = dataSize > 0 ? dataSize : Math.max((count - numNulls + 1) * avgSizeByte, 0);
         if (original == null && !isUnknown) {
             original = new ColumnStatistic(count, ndv, null, avgSizeByte, numNulls,
                     dataSize, minValue, maxValue, minExpr, maxExpr,
-                    isUnknown, updatedTime);
+                    isUnknown, updatedTime, hotValues);
         }
         ColumnStatistic colStats = new ColumnStatistic(count, ndv, original, avgSizeByte, numNulls,
                 dataSize, minValue, maxValue, minExpr, maxExpr,
-                isUnknown, updatedTime);
+                isUnknown, updatedTime, hotValues);
         return colStats;
+    }
+
+    public void normalizeAvgSizeByte(SlotReference slot) {
+        if (isUnknown) {
+            return;
+        }
+        if (avgSizeByte > 0) {
+            return;
+        }
+        avgSizeByte = slot.getDataType().toCatalogDataType().getSlotSize();
+        // When defining SQL schemas, users often tend to set the length of string \
+        // fields much longer than actually needed for storage.
+        if (slot.getDataType() instanceof CharacterType) {
+            avgSizeByte = Math.min(avgSizeByte, CharacterType.DEFAULT_WIDTH);
+        }
     }
 }

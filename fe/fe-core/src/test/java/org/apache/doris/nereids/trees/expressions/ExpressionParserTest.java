@@ -84,9 +84,10 @@ public class ExpressionParserTest extends ParserTestBase {
     public void testExprBetweenPredicate() {
         parseExpression("c BETWEEN a AND b")
                 .assertEquals(
-                        new And(
-                                new GreaterThanEqual(new UnboundSlot("c"), new UnboundSlot("a")),
-                                new LessThanEqual(new UnboundSlot("c"), new UnboundSlot("b"))
+                        new Between(
+                                new UnboundSlot("c"),
+                                new UnboundSlot("a"),
+                                new UnboundSlot("b")
                         )
                 );
     }
@@ -302,6 +303,24 @@ public class ExpressionParserTest extends ParserTestBase {
         assertExpr(e1);
 
         String e2 = "a is not null";
+        assertExpr(e2);
+    }
+
+    @Test
+    public void testIsTrue() {
+        String e1 = "a is true";
+        assertExpr(e1);
+
+        String e2 = "a is not true";
+        assertExpr(e2);
+    }
+
+    @Test
+    public void testIsFalse() {
+        String e1 = "a is false";
+        assertExpr(e1);
+
+        String e2 = "a is not false";
         assertExpr(e2);
     }
 

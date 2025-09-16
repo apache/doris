@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 #include <glog/vlog_is_on.h>
 
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 
@@ -72,6 +73,28 @@ void AnnotateTag::format_tag_list(std::ostream& stream) {
     }
 }
 
+void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void*) {
+    // Add prefix "RuntimeLogger ".
+    s << "RuntimeLogger ";
+    // Same as in fe.log
+    // The following is same as default log format. eg:
+    // I20240605 15:25:15.677153 1763151 meta_service_txn.cpp:481] msg...
+    s << l.severity[0];
+    s << std::setw(4) << 1900 + l.time.year();
+    s << std::setw(2) << 1 + l.time.month();
+    s << std::setw(2) << l.time.day();
+    s << ' ';
+    s << std::setw(2) << l.time.hour() << ':';
+    s << std::setw(2) << l.time.min() << ':';
+    s << std::setw(2) << l.time.sec() << ".";
+    s << std::setw(6) << l.time.usec();
+    s << ' ';
+    s << std::setfill(' ') << std::setw(5);
+    s << l.thread_id << std::setfill('0');
+    s << ' ';
+    s << l.filename << ':' << l.line_number << "]";
+}
+
 /**
  * @param basename the basename of log file
  * @return true for success
@@ -82,10 +105,19 @@ bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(mtx);
     if (inited) return true;
 
-    FLAGS_alsologtostderr = false;
-    // Don't log to stderr except fatal level
-    // so fatal log can output to be.out .
-    FLAGS_stderrthreshold = google::ERROR;
+    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
+    if (log_to_console) {
+        if (config::enable_file_logger) {
+            FLAGS_alsologtostderr = true;
+        } else {
+            FLAGS_logtostderr = true;
+        }
+    } else {
+        FLAGS_alsologtostderr = false;
+        // Don't log to stderr except fatal level
+        // so fatal log can output to be.out .
+        FLAGS_stderrthreshold = google::ERROR;
+    }
 
     // Set glog log dir
     FLAGS_log_dir = config::log_dir;
@@ -128,7 +160,12 @@ bool init_glog(const char* basename) {
         if (i.empty()) continue;
         google::SetVLOGLevel(i.c_str(), config::log_verbose_level);
     }
-    google::InitGoogleLogging(basename);
+    if (log_to_console) {
+        // Only add prefix if log output to stderr
+        google::InitGoogleLogging(basename, &custom_prefix);
+    } else {
+        google::InitGoogleLogging(basename);
+    }
     inited = true;
     return true;
 }

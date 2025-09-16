@@ -17,10 +17,21 @@
 
 suite ("test_follower_consistent_auth","p0,auth") {
 
+    def forComputeGroupStr = "";
+
+    //cloud-mode
+    if (isCloudMode()) {
+        def clusters = sql " SHOW CLUSTERS; "
+        assertTrue(!clusters.isEmpty())
+        def validCluster = clusters[0][0]
+        forComputeGroupStr = " for  $validCluster "
+    }
+
     def get_follower_ip = {
         def result = sql """show frontends;"""
+        logger.info("result:" + result)
         for (int i = 0; i < result.size(); i++) {
-            if (result[i][7] == "FOLLOWER" && result[i][8] == "false") {
+            if (result[i][7] == "FOLLOWER" && result[i][8] == "false" && result[i][11] == "true") {
                 return result[i][1]
             }
         }
@@ -29,7 +40,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
     def switch_ip = get_follower_ip()
     if (switch_ip != "null") {
         logger.info("switch_ip: " + switch_ip)
-        def new_jdbc_url = context.config.jdbcUrl.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
+
+        def tokens = context.config.jdbcUrl.split('/')
+        def url_tmp1 = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
+        def new_jdbc_url = url_tmp1.replaceAll(/\/\/[0-9.]+:/, "//${switch_ip}:")
         logger.info("new_jdbc_url: " + new_jdbc_url)
 
         String user = 'test_follower_consistent_user'
@@ -46,10 +60,10 @@ suite ("test_follower_consistent_auth","p0,auth") {
         String catalog_name = 'test_follower_consistent_catalog'
         try_sql("DROP role ${role}")
         sql """CREATE ROLE ${role}"""
-        sql """drop WORKLOAD GROUP if exists '${wg}'"""
-        sql """CREATE WORKLOAD GROUP "${wg}"
+        sql """drop WORKLOAD GROUP if exists ${wg} $forComputeGroupStr """
+        sql """CREATE WORKLOAD GROUP '${wg}' $forComputeGroupStr
         PROPERTIES (
-            "cpu_share"="10"
+            "min_cpu_percent"="10"
         );"""
         sql """DROP RESOURCE if exists ${rg}"""
         sql """
@@ -84,7 +98,7 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """create view ${dbName}.${view_name} as select * from ${dbName}.${tableName};"""
         sql """alter table ${dbName}.${tableName} add rollup ${rollup_name}(username)"""
         sleep(5 * 1000)
-        sql """create materialized view ${mv_name} as select username from ${dbName}.${tableName}"""
+        sql """create materialized view ${mv_name} as select username as username_new from ${dbName}.${tableName}"""
         sleep(5 * 1000)
         sql """CREATE MATERIALIZED VIEW ${dbName}.${mtmv_name} 
         BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
@@ -106,114 +120,131 @@ suite ("test_follower_consistent_auth","p0,auth") {
             def clusters = sql " SHOW CLUSTERS; "
             assertTrue(!clusters.isEmpty())
             def validCluster = clusters[0][0]
-            sql """GRANT USAGE_PRIV ON CLUSTER ${validCluster} TO ${user}""";
+            sql """GRANT USAGE_PRIV ON CLUSTER `${validCluster}` TO ${user}""";
         }
 
-
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        logger.info("url_tmp1:" + url_tmp1)
+        logger.info("new_jdbc_url:" + new_jdbc_url)
+        // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                sql "sync"
+        }
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "SHOW CATALOG RECYCLE BIN WHERE NAME = '${catalog_name}'"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "SHOW DATA"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+         connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                 sql "sync"
+         }
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
         }
 
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${view_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${view_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+         connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                 sql "sync"
+         }
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${view_name}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${view_name}"
         }
 
 
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${mtmv_name}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """grant select_priv(username) on ${dbName}.${mtmv_name} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${mtmv_name}"
         }
 
@@ -223,28 +254,36 @@ suite ("test_follower_consistent_auth","p0,auth") {
 
         // user
         sql """grant select_priv on ${dbName}.${tableName} to ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
         }
 
         sql """revoke select_priv on ${dbName}.${tableName} from ${user}"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
@@ -252,84 +291,102 @@ suite ("test_follower_consistent_auth","p0,auth") {
         sql """grant select_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant Load_priv on ${dbName}.${tableName} to ROLE '${role}'"""
         sql """grant '${role}' to '${user}'"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql "select username from ${dbName}.${tableName}"
             sql """insert into ${dbName}.`${tableName}` values (4, "444")"""
         }
 
         sql """revoke '${role}' from '${user}'"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Admin_priv,Select_priv"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
 
 
         // workload group
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             sql """set workload_group = '${wg}';"""
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql """set workload_group = '${wg}';"""
             try {
                 sql "select username from ${dbName}.${tableName}"
             } catch (Exception e) {
                 log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("USAGE/ADMIN privilege"))
+                assertTrue(e.getMessage().contains("denied"))
             }
         }
         sql """GRANT USAGE_PRIV ON WORKLOAD GROUP '${wg}' TO '${user}';"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             sql """set workload_group = '${wg}';"""
             sql """select username from ${dbName}.${tableName}"""
         }
 
         // resource group
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
+        connect(user, "${pwd}", url_tmp1) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
+        connect(user, "${pwd}", new_jdbc_url) {
             def res = sql """SHOW RESOURCES;"""
             assertTrue(res == [])
         }
         sql """GRANT USAGE_PRIV ON RESOURCE ${rg} TO ${user};"""
-        connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+         // If exec on fe follower, wait meta data is ready on follower
+        connect(context.config.jdbcUser, context.config.jdbcPassword, new_jdbc_url) {
+                         sql "sync"
+                 }
+        connect(user, "${pwd}", url_tmp1) {
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            assertTrue(res.size() == 10)
         }
-        connect(user=user, password="${pwd}", url=new_jdbc_url) {
-            def res = sql """SHOW RESOURCES;"""
-            assertTrue(res.size == 10)
+        connect(user, "${pwd}", new_jdbc_url) {
+            ArrayList res = sql """SHOW RESOURCES;"""
+            logger.info("res:" + res)
+            assertTrue(res.size() == 10)
         }
 
         try_sql("DROP USER ${user}")
-        try_sql("drop workload group if exists ${wg};")
+        try_sql("drop workload group if exists ${wg} $forComputeGroupStr;")
 
     }
 

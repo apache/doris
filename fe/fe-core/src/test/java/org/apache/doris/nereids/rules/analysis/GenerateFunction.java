@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.functions.DecimalWiderPrecisio
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.ImplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -96,6 +95,7 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@Deprecated
 public class GenerateFunction {
 
     static final Set<String> unaryArithmeticOperators = Arrays.stream(ArithmeticExpr.Operator.values())
@@ -183,6 +183,8 @@ public class GenerateFunction {
             .put("any", "any_value")
             .put("char_length", "character_length")
             .put("stddev_pop", "stddev")
+            .put("std", "stddev")
+            .put("percentile_cont", "percentile")
             .put("var_pop", "variance")
             .put("variance_pop", "variance")
             .put("var_samp", "variance_samp")
@@ -739,9 +741,6 @@ public class GenerateFunction {
             interfaces.add(arityExpressionType);
         }
         interfaces.add(getComputeSignatureInterface(functionName));
-        if (functionSet.isNondeterministicFunction(functionName)) {
-            interfaces.add(Nondeterministic.class);
-        }
 
         Function function = functions.get(0);
         if (!customNullableFunctions.contains(functionName)) {

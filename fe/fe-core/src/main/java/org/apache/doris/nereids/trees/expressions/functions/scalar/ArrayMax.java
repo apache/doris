@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -50,6 +51,19 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_max", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMax(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child().getDataType();
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException("array_max does not support complex types: " + toSql());
+        }
+    }
+
     @Override
     public DataType getDataType() {
         return ((ArrayType) (child().getDataType())).getItemType();
@@ -61,7 +75,7 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArrayMax withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayMax(children.get(0));
+        return new ArrayMax(getFunctionParams(children));
     }
 
     @Override

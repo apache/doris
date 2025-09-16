@@ -38,6 +38,8 @@ import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
@@ -60,8 +62,10 @@ public class BackendServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
 
-    private Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(Config.grpc_threadmgr_threads_nums,
+    private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+            Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
+
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
 
     public BackendServiceProxy() {
@@ -235,7 +239,7 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(TNetworkAddress address,
-            PExecPlanFragmentStartRequest request) throws TException, RpcException {
+            PExecPlanFragmentStartRequest request) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentStartAsync(request);
@@ -286,6 +290,23 @@ public class BackendServiceProxy {
         try {
             final BackendServiceClient client = getProxy(address);
             return client.fetchDataAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(address.hostname, e.getMessage());
+        }
+    }
+
+    public Future<InternalService.PFetchDataResult> fetchDataAsyncWithCallback(
+            TNetworkAddress address, InternalService.PFetchDataRequest request,
+            FutureCallback<InternalService.PFetchDataResult> callback) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            ListenableFuture<InternalService.PFetchDataResult> future = client.fetchDataAsync(request);
+            Futures.addCallback(
+                    future, callback,
+                    grpcThreadPool);
+            return future;
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
@@ -555,5 +576,48 @@ public class BackendServiceProxy {
         }
     }
 
+    public Future<InternalService.PGetBeResourceResponse> getBeResourceAsync(TNetworkAddress address, int timeoutSec,
+            InternalService.PGetBeResourceRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.getBeResource(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("get be resource failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 
+    public Future<InternalService.PDeleteDictionaryResponse> deleteDictionaryAsync(TNetworkAddress address,
+            int timeoutSec, InternalService.PDeleteDictionaryRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.deleteDictionary(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("delete dictionary failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
+    public Future<InternalService.PCommitRefreshDictionaryResponse> commitDictionaryAsync(TNetworkAddress address,
+            int timeoutSec, InternalService.PCommitRefreshDictionaryRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.commitRefreshDictionary(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("commit refresh dictionary failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
+    public Future<InternalService.PAbortRefreshDictionaryResponse> abortDictionaryAsync(TNetworkAddress address,
+            int timeoutSec, InternalService.PAbortRefreshDictionaryRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.abortRefreshDictionary(request, timeoutSec);
+        } catch (Throwable e) {
+            LOG.warn("abort refrersh dictionary failed, address={}:{}", address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
 }

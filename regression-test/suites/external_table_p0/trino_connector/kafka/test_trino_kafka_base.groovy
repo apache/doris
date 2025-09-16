@@ -21,17 +21,6 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_kafka") {
-    // set up trino-connector plugins
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
-    }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 
     // Ensure that all types are parsed correctly
     def select_top50 = {
@@ -43,6 +32,18 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
     String enabled_trino_connector = context.config.otherConfigs.get("enableTrinoConnectorTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")
         && enabled_trino_connector!= null && enabled_trino_connector.equalsIgnoreCase("true")) {
+        // set up trino-connector plugins
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
+
         def kafkaCsvTpoics = [
                 "trino_kafka_basic_data"
             ]
@@ -67,7 +68,11 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
                 producer.send(record)
             }
         }
-
+        def tblDescFile = "${context.file.parent}/table_desc"
+        def tblDescFileTemp = "/tmp/"
+        for (def ip in host_ips) {
+            scpFiles("root", ip, tblDescFile, tblDescFileTemp, false)
+        }
 
         // create trino-connector catalog
         String catalog_name = "test_trino_kafka_base_catalog"
@@ -81,7 +86,7 @@ suite("test_trino_kafka_base", "external,kafka,external_docker,external_docker_k
                 "trino.connector.name"="kafka",
                 "trino.kafka.table-names"="${db_name}.${basic_data_table}",
                 "trino.kafka.nodes"="${externalEnvIp}:${kafka_port}",
-                "trino.kafka.table-description-dir" = "${context.file.parent}/table_desc"
+                "trino.kafka.table-description-dir" = "/tmp/table_desc"
             );
         """
         sql """use `${catalog_name}`.`${db_name}`"""

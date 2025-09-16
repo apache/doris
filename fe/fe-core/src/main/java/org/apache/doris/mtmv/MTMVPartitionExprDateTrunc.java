@@ -27,12 +27,13 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
 import com.google.common.base.Preconditions;
@@ -47,7 +48,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
-    private static Set<String> timeUnits = ImmutableSet.of("year", "month", "day");
+    private static Set<String> timeUnits = ImmutableSet.of("year", "quarter", "week", "month", "day", "hour");
     private String timeUnit;
 
     public MTMVPartitionExprDateTrunc(FunctionCallExpr functionCallExpr) throws AnalysisException {
@@ -69,7 +70,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(MvccUtil.getSnapshotFromContext(relatedTable));
         if (partitionType == PartitionType.RANGE) {
             Type partitionColumnType = MTMVPartitionUtil
                     .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
@@ -78,7 +79,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                         "partitionColumnType should be date/datetime "
                                 + "when PartitionType is range and expr is date_trunc");
             }
+        } else {
+            throw new AnalysisException("date_trunc only support range partition");
         }
+    }
+
+    @Override
+    public String toSql(MTMVPartitionInfo mvPartitionInfo) {
+        return String.format("date_trunc(`%s`, '%s')", mvPartitionInfo.getPartitionCol(), timeUnit);
     }
 
     @Override
@@ -156,7 +164,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         DateTimeV2Literal dateTimeLiteral = strToDate(value, dateFormat);
         // for (2020-01-31,2020-02-01),if not -1, lower value and upper value will not same after rollup
         if (isUpper) {
-            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.secondsSub(dateTimeLiteral, new IntegerLiteral(1));
+            dateTimeLiteral = (DateTimeV2Literal) DateTimeArithmetic.secondsSub(dateTimeLiteral, new BigIntLiteral(1));
         }
         Expression expression = DateTimeExtractAndTransform.dateTrunc(dateTimeLiteral, new VarcharLiteral(timeUnit));
         if (!(expression instanceof DateTimeV2Literal)) {
@@ -196,11 +204,20 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             case "year":
                 result = value.plusYears(1L);
                 break;
+            case "quarter":
+                result = value.plusMonths(3L);
+                break;
             case "month":
                 result = value.plusMonths(1L);
                 break;
+            case "week":
+                result = value.plusWeeks(1L);
+                break;
             case "day":
                 result = value.plusDays(1L);
+                break;
+            case "hour":
+                result = value.plusHours(1L);
                 break;
             default:
                 throw new AnalysisException(

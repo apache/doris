@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/simple_function_factory.h"
@@ -37,7 +36,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr col = ColumnBool::create(1, false);
         block.replace_by_position(result, ColumnConst::create(col, input_rows_count));
         return Status::OK();

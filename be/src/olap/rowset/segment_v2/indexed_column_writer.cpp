@@ -38,6 +38,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* type_info, io::FileWriter* file_writer)
@@ -86,7 +87,7 @@ Status IndexedColumnWriter::init() {
 Status IndexedColumnWriter::add(const void* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
         // remember page's first value because it's used to build value index
-        _type_info->deep_copy(_first_value.data(), value, &_arena);
+        _type_info->deep_copy(_first_value.data(), value, _arena);
     }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(
@@ -117,12 +118,13 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     ordinal_t first_ordinal = _num_values - num_values_in_page;
 
     // IndexedColumn doesn't have NULLs, thus data page body only contains encoded values
-    OwnedSlice page_body = _data_page_builder->finish();
+    OwnedSlice page_body;
+    RETURN_IF_ERROR(_data_page_builder->finish(&page_body));
     RETURN_IF_ERROR(_data_page_builder->reset());
 
     PageFooterPB footer;
     footer.set_type(DATA_PAGE);
-    footer.set_uncompressed_size(page_body.slice().get_size());
+    footer.set_uncompressed_size(static_cast<uint32_t>(page_body.slice().get_size()));
     footer.mutable_data_page_footer()->set_first_ordinal(first_ordinal);
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
@@ -196,5 +198,6 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

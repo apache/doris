@@ -29,7 +29,7 @@ ROOT=$(
 )
 
 CURDIR="${ROOT}"
-TPCDS_DBGEN_DIR="${CURDIR}/DSGen-software-code-3.2.0rc1/tools"
+TPCDS_DBGEN_DIR="${CURDIR}/DSGen-software-code-3.2.0rc2/tools"
 
 usage() {
     echo "

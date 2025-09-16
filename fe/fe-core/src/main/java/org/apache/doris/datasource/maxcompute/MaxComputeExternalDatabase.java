@@ -32,12 +32,16 @@ public class MaxComputeExternalDatabase extends ExternalDatabase<MaxComputeExter
      * @param id database id.
      * @param name database name.
      */
-    public MaxComputeExternalDatabase(ExternalCatalog extCatalog, long id, String name) {
-        super(extCatalog, id, name, InitDatabaseLog.Type.MAX_COMPUTE);
+    public MaxComputeExternalDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
+        super(extCatalog, id, name, remoteName, InitDatabaseLog.Type.MAX_COMPUTE);
     }
 
     @Override
-    protected MaxComputeExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
-        return new MaxComputeExternalTable(tblId, tableName, name, (MaxComputeExternalCatalog) extCatalog);
+    public MaxComputeExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+            ExternalCatalog catalog,
+            ExternalDatabase db) {
+        return new MaxComputeExternalTable(tblId, localTableName, remoteTableName,
+                (MaxComputeExternalCatalog) extCatalog,
+                (MaxComputeExternalDatabase) db);
     }
 }

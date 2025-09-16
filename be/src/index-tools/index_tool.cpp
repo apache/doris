@@ -36,25 +36,28 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-#include "gutil/strings/strip.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
 
 using doris::segment_v2::DorisCompoundReader;
 using doris::segment_v2::DorisFSDirectoryFactory;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 using doris::segment_v2::InvertedIndexDescriptor;
-using doris::segment_v2::InvertedIndexFileReader;
+using doris::segment_v2::IndexFileReader;
 using doris::io::FileInfo;
 using doris::TabletIndex;
 using namespace doris::segment_v2;
@@ -119,9 +122,9 @@ std::vector<std::string> split(const std::string& s, char delimiter) {
 
 void search(lucene::store::Directory* dir, std::string& field, std::string& token,
             std::string& pred) {
-    IndexReader* reader = IndexReader::open(dir);
+    lucene::index::IndexReader* reader = lucene::index::IndexReader::open(dir);
 
-    IndexReader* newreader = reader->reopen();
+    lucene::index::IndexReader* newreader = reader->reopen();
     if (newreader != reader) {
         reader->close();
         _CLDELETE(reader);
@@ -169,9 +172,27 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         roaring::Roaring result;
         std::vector<std::string> terms = split(token, '|');
 
-        doris::TQueryOptions queryOptions;
-        ConjunctionQuery conjunct_query(s, queryOptions);
-        conjunct_query.add(field_ws, terms);
+        doris::OlapReaderStatistics stats;
+        doris::RuntimeState runtime_state;
+        doris::TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = 50;
+        runtime_state.set_query_options(query_options);
+        doris::io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->runtime_state = &runtime_state;
+        context->stats = &stats;
+        context->io_ctx = &io_ctx;
+
+        ConjunctionQuery conjunct_query(s, context);
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = field_ws;
+        for (auto& term : terms) {
+            doris::segment_v2::TermInfo term_info;
+            term_info.term = term;
+            query_info.term_infos.push_back(term_info);
+        }
+        conjunct_query.add(query_info);
         conjunct_query.search(result);
 
         total += result.cardinality();
@@ -194,7 +215,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
 }
 
 void check_terms_stats(lucene::store::Directory* dir) {
-    IndexReader* r = IndexReader::open(dir);
+    lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());
@@ -231,6 +252,24 @@ void check_terms_stats(lucene::store::Directory* dir) {
     _CLLDELETE(r);
 }
 
+std::unique_ptr<DorisCompoundReader> get_compound_reader(std::string file_path) {
+    CLuceneError err;
+    CL_NS(store)::IndexInput* index_input = nullptr;
+    auto ok = DorisFSDirectory::FSIndexInput::open(doris::io::global_local_filesystem(),
+                                                   file_path.c_str(), index_input, err, 4096, -1);
+    if (!ok) {
+        // now index_input = nullptr
+        if (err.number() == CL_ERR_FileNotFound) {
+            std::cerr << "file " << file_path << " not found" << std::endl;
+            exit(-1);
+        }
+        std::cerr << "file " << file_path << " open error:" << err.what() << std::endl;
+        exit(-1);
+    }
+
+    return std::make_unique<DorisCompoundReader>(index_input, 4096);
+}
+
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
@@ -253,9 +292,7 @@ int main(int argc, char** argv) {
         }
         std::unique_ptr<DorisCompoundReader> reader;
         try {
-            reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
-                    4096);
+            reader = get_compound_reader(file_path);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -288,9 +325,7 @@ int main(int argc, char** argv) {
         }
         std::unique_ptr<DorisCompoundReader> reader;
         try {
-            reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
-                    4096);
+            reader = get_compound_reader(file_path);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
             check_terms_stats(reader.get());
@@ -332,9 +367,8 @@ int main(int argc, char** argv) {
                         if (!file_str.ends_with(".idx")) {
                             continue;
                         }
-                        reader = std::make_unique<DorisCompoundReader>(
-                                DorisFSDirectoryFactory::getDirectory(fs, file_str.c_str()),
-                                file_str.c_str(), 4096);
+                        const auto file_path = FLAGS_directory + "/" + file_str;
+                        reader = get_compound_reader(file_path);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
                         std::cout << "==================================" << std::endl;
@@ -356,9 +390,7 @@ int main(int argc, char** argv) {
                     std::cerr << "file " << file_path << " not found" << std::endl;
                     return -1;
                 }
-                reader = std::make_unique<DorisCompoundReader>(
-                        DorisFSDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
-                        FLAGS_idx_file_name.c_str(), 4096);
+                reader = get_compound_reader(file_path);
                 std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                           << FLAGS_idx_file_name << std::endl;
                 std::cout << "==================================" << std::endl;
@@ -448,9 +480,9 @@ int main(int argc, char** argv) {
             // format: rowsetId_segmentId_indexId.idx
             std::string src_idx_full_name =
                     src_index_files[i] + "_" + std::to_string(index_id) + ".idx";
-            DorisCompoundReader* reader = new DorisCompoundReader(
-                    DorisFSDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
-                    src_idx_full_name.c_str());
+            const auto file_path = tablet_path + "/" + src_idx_full_name;
+            auto reader_ptr = get_compound_reader(file_path);
+            DorisCompoundReader* reader = reader_ptr.release();
             src_index_dirs[i] = reader;
         }
 
@@ -537,21 +569,21 @@ int main(int argc, char** argv) {
         }
 
         auto fs = doris::io::global_local_filesystem();
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                         doris::local_segment_path(file_dir, rowset_id, seg_id))},
                 rowset_id, seg_id, doris::InvertedIndexStorageFormatPB::V2);
         auto st = index_file_writer->open(&index_meta);
         if (!st.has_value()) {
-            std::cerr << "InvertedIndexFileWriter init error:" << st.error() << std::endl;
+            std::cerr << "IndexFileWriter init error:" << st.error() << std::endl;
             return -1;
         }
         using T = std::decay_t<decltype(st)>;
         auto dir = std::forward<T>(st).value();
         auto analyzer = _CLNEW lucene::analysis::standard95::StandardAnalyzer();
         // auto analyzer = _CLNEW lucene::analysis::SimpleAnalyzer<char>();
-        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir, analyzer, true, true);
+        auto indexwriter = _CLNEW lucene::index::IndexWriter(dir.get(), analyzer, true, true);
         indexwriter->setRAMBufferSizeMB(512);
         indexwriter->setMaxFieldLength(0x7FFFFFFFL);
         indexwriter->setMergeFactor(100000000);
@@ -588,7 +620,7 @@ int main(int argc, char** argv) {
 
         auto ret = index_file_writer->close();
         if (!ret.ok()) {
-            std::cerr << "InvertedIndexFileWriter close error:" << ret.msg() << std::endl;
+            std::cerr << "IndexFileWriter close error:" << ret.msg() << std::endl;
             return -1;
         }
     } else if (FLAGS_operation == "show_nested_files_v2") {
@@ -596,14 +628,15 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for show " << std::endl;
             return -1;
         }
-        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
+        std::string index_path_prefix =
+                google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<IndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "IndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::cout << "Nested files for " << index_path_prefix << std::endl;
@@ -624,7 +657,7 @@ int main(int argc, char** argv) {
                 CLuceneError err;
                 auto ret = index_file_reader->open(&index_meta);
                 if (!ret.has_value()) {
-                    std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                    std::cerr << "IndexFileReader open error:" << ret.error() << std::endl;
                     return -1;
                 }
                 using T = std::decay_t<decltype(ret)>;
@@ -642,14 +675,15 @@ int main(int argc, char** argv) {
             std::cout << "no file flag for check " << std::endl;
             return -1;
         }
-        std::string index_path_prefix = StripSuffixString(FLAGS_idx_file_path, ".idx");
+        std::string index_path_prefix =
+                google::protobuf::StripSuffixString(FLAGS_idx_file_path, ".idx");
         auto fs = doris::io::global_local_filesystem();
         try {
-            auto index_file_reader = std::make_unique<InvertedIndexFileReader>(
+            auto index_file_reader = std::make_unique<IndexFileReader>(
                     fs, index_path_prefix, doris::InvertedIndexStorageFormatPB::V2);
             auto st = index_file_reader->init(4096);
             if (!st.ok()) {
-                std::cerr << "InvertedIndexFileReader init error:" << st.msg() << std::endl;
+                std::cerr << "IndexFileReader init error:" << st.msg() << std::endl;
                 return -1;
             }
             std::vector<std::string> files;
@@ -662,7 +696,7 @@ int main(int argc, char** argv) {
             index_meta.init_from_pb(index_pb);
             auto ret = index_file_reader->open(&index_meta);
             if (!ret.has_value()) {
-                std::cerr << "InvertedIndexFileReader open error:" << ret.error() << std::endl;
+                std::cerr << "IndexFileReader open error:" << ret.error() << std::endl;
                 return -1;
             }
             using T = std::decay_t<decltype(ret)>;

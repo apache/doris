@@ -98,6 +98,7 @@ suite("test_chinese_analyzer"){
                 "replication_allocation" = "tag.location.default: 1"
         );
     """
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "INSERT INTO $indexTblName3 VALUES (1, '我来到北京清华大学'), (2, '我爱你中国'), (3, '人民可以得到更多实惠'), (4, '陕西省西安市高新区创业大厦A座，我的手机号码是12345678901,邮箱是12345678@qq.com，,ip是1.1.1.1，this information is created automatically.');"
     qt_sql "SELECT * FROM $indexTblName3 WHERE c MATCH_PHRASE '我爱你' ORDER BY id;"

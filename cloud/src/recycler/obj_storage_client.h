@@ -30,9 +30,15 @@ struct ObjectStoragePathRef {
 };
 
 struct ObjectStorageResponse {
-    ObjectStorageResponse(int r = 0, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
+    enum Code : int {
+        UNDEFINED = -1,
+        OK = 0,
+        NOT_FOUND = 1,
+    };
+
+    ObjectStorageResponse(int r = OK, std::string msg = "") : ret(r), error_msg(std::move(msg)) {}
     // clang-format off
-    int ret {0}; // To unify the error handle logic with BE, we'd better use the same error code as BE
+    int ret {OK}; // To unify the error handle logic with BE, we'd better use the same error code as BE
     // clang-format on
     std::string error_msg;
 };
@@ -49,6 +55,12 @@ public:
     virtual bool is_valid() = 0;
     virtual bool has_next() = 0;
     virtual std::optional<ObjectMeta> next() = 0;
+};
+
+class SimpleThreadPool;
+struct ObjClientOptions {
+    bool prefetch {true};
+    std::shared_ptr<SimpleThreadPool> executor;
 };
 
 class ObjStorageClient {
@@ -71,7 +83,8 @@ public:
 
     // According to the bucket and prefix specified by the user, it performs batch deletion based on the object names in the object array.
     virtual ObjectStorageResponse delete_objects(const std::string& bucket,
-                                                 std::vector<std::string> keys) = 0;
+                                                 std::vector<std::string> keys,
+                                                 ObjClientOptions option) = 0;
 
     // Delete the file named key in the object storage bucket.
     virtual ObjectStorageResponse delete_object(ObjectStoragePathRef path) = 0;
@@ -79,6 +92,7 @@ public:
     // According to the prefix, recursively delete all objects under the prefix.
     // If `expiration_time` > 0, only delete objects with mtime earlier than `expiration_time`.
     virtual ObjectStorageResponse delete_objects_recursively(ObjectStoragePathRef path,
+                                                             ObjClientOptions option,
                                                              int64_t expiration_time = 0) = 0;
 
     // Get the objects' expiration time on the bucket
@@ -91,6 +105,7 @@ public:
 
 protected:
     ObjectStorageResponse delete_objects_recursively_(ObjectStoragePathRef path,
+                                                      const ObjClientOptions& option,
                                                       int64_t expiration_time, size_t batch_size);
 };
 

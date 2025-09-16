@@ -18,17 +18,20 @@
 #include "set_source_operator.h"
 
 #include <memory>
+#include <type_traits>
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
@@ -42,15 +45,21 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
 
     auto output_data_types = vectorized::VectorizedUtils::get_data_types(
-            _parent->cast<SetSourceOperatorX<is_intersect>>()._row_descriptor);
+            _parent->cast<SetSourceOperatorX<is_intersect>>().row_descriptor());
     auto column_nums = child_exprs_lists[0].size();
     DCHECK_EQ(output_data_types.size(), column_nums)
             << output_data_types.size() << " " << column_nums;
     // the nullable is not depend on child, it's should use _row_descriptor from FE plan
     // some case all not nullable column from children, but maybe need output nullable.
-    vector<bool> nullable_flags(column_nums, false);
+    std::vector<bool> nullable_flags(column_nums, false);
     for (int i = 0; i < column_nums; ++i) {
         nullable_flags[i] = output_data_types[i]->is_nullable();
+        if (nullable_flags[i] != _shared_state->build_not_ignore_null[i]) {
+            return Status::InternalError(
+                    "SET operator expects a nullalbe : {} column in column {}, but the computed "
+                    "output is a nullable : {} column",
+                    nullable_flags[i], i, _shared_state->build_not_ignore_null[i]);
+        }
     }
 
     _left_table_data_types.clear();
@@ -68,22 +77,29 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
+
     _create_mutable_cols(local_state, block);
-    auto st = std::visit(
-            [&](auto&& arg) -> Status {
-                using HashTableCtxType = std::decay_t<decltype(arg)>;
-                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
-                                                                    state->batch_size(), eos);
-                } else {
-                    LOG(FATAL) << "FATAL: uninited hash table";
-                    __builtin_unreachable();
-                }
-            },
-            *local_state._shared_state->hash_table_variants);
-    RETURN_IF_ERROR(st);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
-                                                           block->columns()));
+    {
+        SCOPED_TIMER(local_state._get_data_timer);
+        RETURN_IF_ERROR(std::visit(
+                [&](auto&& arg) -> Status {
+                    using HashTableCtxType = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        return _get_data_in_hashtable<HashTableCtxType>(local_state, arg, block,
+                                                                        state->batch_size(), eos);
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                        __builtin_unreachable();
+                    }
+                },
+                local_state._shared_state->hash_table_variants->method_variant));
+    }
+    {
+        SCOPED_TIMER(local_state._filter_timer);
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
+    }
     local_state.reached_limit(block, eos);
     return Status::OK();
 }
@@ -109,26 +125,34 @@ template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
         vectorized::Block* output_block, const int batch_size, bool* eos) {
-    int left_col_len = local_state._left_table_data_types.size();
+    size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
-    auto& iter = hash_table_ctx.iterator;
-    auto block_size = 0;
+    local_state._result_indexs.clear();
+    local_state._result_indexs.reserve(batch_size);
 
-    for (; iter != hash_table_ctx.hash_table->end() && block_size < batch_size; ++iter) {
-        auto& value = iter->get_second();
-        auto it = value.begin();
+    auto add_result = [&local_state](auto value) {
+        auto* it = &value;
         if constexpr (is_intersect) {
             if (it->visited) { //intersected: have done probe, so visited values it's the result
-                _add_result_columns(local_state, value, block_size);
+                local_state._result_indexs.push_back(value.row_num);
             }
         } else {
             if (!it->visited) { //except: haven't visited values it's the needed result
-                _add_result_columns(local_state, value, block_size);
+                local_state._result_indexs.push_back(value.row_num);
             }
         }
+    };
+
+    auto& iter = hash_table_ctx.begin;
+    while (iter != hash_table_ctx.end && local_state._result_indexs.size() < batch_size) {
+        add_result(iter.get_second());
+        ++iter;
     }
 
-    *eos = iter == hash_table_ctx.hash_table->end();
+    *eos = iter == hash_table_ctx.end;
+
+    local_state._add_result_columns();
+
     if (!output_block->mem_reuse()) {
         for (int i = 0; i < left_col_len; ++i) {
             output_block->insert(
@@ -143,20 +167,15 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
 }
 
 template <bool is_intersect>
-void SetSourceOperatorX<is_intersect>::_add_result_columns(
-        SetSourceLocalState<is_intersect>& local_state, RowRefListWithFlags& value,
-        int& block_size) {
-    auto& build_col_idx = local_state._shared_state->build_col_idx;
-    auto& build_block = local_state._shared_state->build_block;
+void SetSourceLocalState<is_intersect>::_add_result_columns() {
+    auto& build_col_idx = _shared_state->build_col_idx;
+    auto& build_block = _shared_state->build_block;
 
-    auto it = value.begin();
-    for (auto idx = build_col_idx.begin(); idx != build_col_idx.end(); ++idx) {
-        auto& column = *build_block.get_by_position(idx->second).column;
-        local_state._mutable_cols[idx->first]->insert_from(column, it->row_num);
+    for (auto& idx : build_col_idx) {
+        const auto& column = *build_block.get_by_position(idx.second).column;
+        column.append_data_by_selector(_mutable_cols[idx.first], _result_indexs);
     }
-    block_size++;
 }
-
 template class SetSourceLocalState<true>;
 template class SetSourceLocalState<false>;
 template class SetSourceOperatorX<true>;

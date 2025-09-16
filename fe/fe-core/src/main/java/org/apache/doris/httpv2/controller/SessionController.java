@@ -18,6 +18,8 @@
 package org.apache.doris.httpv2.controller;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -44,6 +46,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 
@@ -55,20 +58,8 @@ public class SessionController extends RestBaseController {
     private static final Logger LOG = LogManager.getLogger(SessionController.class);
 
     static {
-        SESSION_TABLE_HEADER.add("CurrentConnected");
-        SESSION_TABLE_HEADER.add("Id");
-        SESSION_TABLE_HEADER.add("User");
-        SESSION_TABLE_HEADER.add("Host");
-        SESSION_TABLE_HEADER.add("LoginTime");
-        SESSION_TABLE_HEADER.add("Catalog");
-        SESSION_TABLE_HEADER.add("Db");
-        SESSION_TABLE_HEADER.add("Command");
-        SESSION_TABLE_HEADER.add("Time");
-        SESSION_TABLE_HEADER.add("State");
-        SESSION_TABLE_HEADER.add("QueryId");
-        SESSION_TABLE_HEADER.add("Info");
-        SESSION_TABLE_HEADER.add("FE");
-        SESSION_TABLE_HEADER.add("CloudCluster");
+        Table tbl = SchemaTable.TABLE_MAP.get("processlist");
+        tbl.getBaseSchema().stream().forEach(column -> SESSION_TABLE_HEADER.add(column.getName()));
     }
 
     @RequestMapping(path = "/session/all", method = RequestMethod.GET)
@@ -112,7 +103,7 @@ public class SessionController extends RestBaseController {
                 .listConnection("root", false);
         long nowMs = System.currentTimeMillis();
         return threadInfos.stream()
-                .map(info -> info.toRow(-1, nowMs))
+                .map(info -> info.toRow(-1, nowMs, Optional.empty()))
                 .map(row -> {
                     Map<String, String> record = new HashMap<>();
                     for (int i = 0; i < row.size(); i++) {

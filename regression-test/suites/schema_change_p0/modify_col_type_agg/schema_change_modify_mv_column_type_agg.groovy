@@ -67,31 +67,14 @@ suite("schema_change_modify_mv_column_type_agg") {
             def json = parseJson(result)
         }
     }
-    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT k2, k1, max(c_int) FROM ${testTable} GROUP BY k2, k1""")
+    createMV ("""CREATE MATERIALIZED VIEW mv_${testTable}_1 AS SELECT k2 as a1, k1 as a2, max(c_int) FROM ${testTable} GROUP BY k2, k1""")
     qt_sql """ desc ${testTable} all """
     sql "set topn_opt_limit_threshold = 100"
     qt_sql "SELECT * from ${testTable} order by 1, 2, 3 limit 10"
     qt_sql "SELECT * from ${testTable} where c_tinyint = 10 order by 1, 2, 3 limit 10 "
 
-    sql """
-          ALTER table ${testTable} MODIFY COLUMN c_int BIGINT max;
-          """
-    def getJobState = { tableName ->
-          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
-          return jobStateResult[0][9]
-     }
-    int max_try_time = 100
-    while (max_try_time--){
-        String result = getJobState(testTable)
-        if (result == "FINISHED") {
-            break
-        } else {
-            sleep(2000)
-            if (max_try_time < 1){
-                assertEquals(1,2)
-            }
-        }
+    test {
+        sql """ ALTER table ${testTable} MODIFY COLUMN c_int BIGINT max """
+        exception "Can not modify column contained by mv"
     }
-    qt_sql """ desc ${testTable} all """
-    sql "INSERT INTO ${testTable} SELECT * from ${testTable}"
 }

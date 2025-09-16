@@ -52,15 +52,18 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);
     fs_properties.properties = &_hadoop_conf;
+    if (!_write_info.broker_addresses.empty()) {
+        fs_properties.broker_addresses = &(_write_info.broker_addresses);
+    }
     io::FileDescription file_description = {
-            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name())};
+            .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
+            .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        bool parquet_disable_dictionary = false;
         TParquetCompressionType::type parquet_compression_type;
         switch (_compress_type) {
         case TFileCompressType::PLAIN: {
@@ -80,10 +83,11 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
                                          to_string(_compress_type));
         }
         }
+        ParquetFileOptions parquet_options = {parquet_compression_type,
+                                              TParquetVersion::PARQUET_1_0, false, false};
         _file_format_transformer.reset(new VParquetTransformer(
-                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names,
-                parquet_compression_type, parquet_disable_dictionary, TParquetVersion::PARQUET_1_0,
-                false, _iceberg_schema_json));
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
+                parquet_options, _iceberg_schema_json, &_schema));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
@@ -100,24 +104,27 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
+    Status result_status;
     if (_file_format_transformer != nullptr) {
-        Status st = _file_format_transformer->close();
-        if (!st.ok()) {
+        result_status = _file_format_transformer->close();
+        if (!result_status.ok()) {
             LOG(WARNING) << fmt::format("_file_format_transformer close failed, reason: {}",
-                                        st.to_string());
+                                        result_status.to_string());
         }
     }
-    if (!status.ok() && _fs != nullptr) {
+    bool status_ok = result_status.ok() && status.ok();
+    if (!status_ok && _fs != nullptr) {
         auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
         }
     }
-    if (status.ok()) {
-        _state->iceberg_commit_datas().emplace_back(_build_iceberg_commit_data());
+    if (status_ok) {
+        auto commit_data = _build_iceberg_commit_data();
+        _state->add_iceberg_commit_datas(commit_data);
     }
-    return Status::OK();
+    return result_status;
 }
 
 Status VIcebergPartitionWriter::write(vectorized::Block& block) {

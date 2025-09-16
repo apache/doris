@@ -23,6 +23,7 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
     }
 
     for (String hivePrefix : ["hive2", "hive3"]) {
+        setHivePrefix(hivePrefix)
         String catalog_name = "test_${hivePrefix}_serde_prop"
         String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -40,7 +41,28 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
 
 
         qt_2 """select * from ${catalog_name}.regression.serde_test1 order by id;"""
-        qt_2 """select * from ${catalog_name}.regression.serde_test2 order by id;"""
+        qt_3 """select * from ${catalog_name}.regression.serde_test2 order by id;"""
+        qt_4 """select * from ${catalog_name}.regression.serde_test3 order by id;"""
+        qt_5 """select * from ${catalog_name}.regression.serde_test4 order by id;"""
+        qt_6 """select * from ${catalog_name}.regression.serde_test5 order by id;"""
+        qt_7 """select * from ${catalog_name}.regression.serde_test6 order by id;"""
+        qt_8 """select * from ${catalog_name}.regression.serde_test7 order by id;"""
+
+        hive_docker """truncate table regression.serde_test8;"""
+        sql """insert into ${catalog_name}.regression.serde_test8 select * from ${catalog_name}.regression.serde_test7;"""
+        qt_9 """select * from ${catalog_name}.regression.serde_test8 order by id;"""
+
+        qt_test_open_csv_default_prop """select * from ${catalog_name}.regression.test_open_csv_default_prop order by id;"""
+        qt_test_open_csv_standard_prop """select * from ${catalog_name}.regression.test_open_csv_standard_prop order by id;"""
+        qt_test_open_csv_custom_prop """select * from ${catalog_name}.regression.test_open_csv_custom_prop order by id;"""
+
+        qt_test_empty_null_format_text """select * from ${catalog_name}.regression.test_empty_null_format_text order by id;"""
+        qt_test_empty_null_format_text2 """select * from ${catalog_name}.regression.test_empty_null_format_text where name is null order by id;"""
+        qt_test_empty_null_format_text3 """select * from ${catalog_name}.regression.test_empty_null_format_text where name = '' order by id;"""
+
+        qt_test_empty_null_defined_text """select * from ${catalog_name}.regression.test_empty_null_defined_text order by id;"""
+        qt_test_empty_null_defined_text2 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name is null order by id;"""
+        qt_test_empty_null_defined_text3 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name = '' order by id;"""
     }
 }
 

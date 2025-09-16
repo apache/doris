@@ -26,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
@@ -161,4 +162,31 @@ public class NetUtils {
         return new SystemInfoService.HostInfo(pair[0], Integer.valueOf(pair[1]));
     }
 
+    /**
+     * Convert IPv4 address to long
+     * @param inet4Address IPv4 address
+     * @return The corresponding long value
+     */
+    public static long inet4AddressToLong(Inet4Address inet4Address) {
+        byte[] bytes = inet4Address.getAddress();
+        long result = 0;
+        for (byte b : bytes) {
+            result = result << 8 | (b & 0xFF);
+        }
+        return result;
+    }
+
+    /**
+     * Convert long value back to IPv4 address
+     * @param value IP address as a long value
+     * @return The corresponding IPv4 address
+     */
+    public static Inet4Address longToInet4Address(long value) throws Exception {
+        byte[] bytes = new byte[4];
+        bytes[0] = (byte) ((value >> 24) & 0xFF);
+        bytes[1] = (byte) ((value >> 16) & 0xFF);
+        bytes[2] = (byte) ((value >> 8) & 0xFF);
+        bytes[3] = (byte) (value & 0xFF);
+        return (Inet4Address) Inet4Address.getByAddress(bytes);
+    }
 }

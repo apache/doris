@@ -76,7 +76,7 @@ suite("test_schema_change_agg", "p0") {
 
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
-        time 60
+        time 600
     }
 
     /*
@@ -102,7 +102,7 @@ suite("test_schema_change_agg", "p0") {
     sql """ alter table ${tableName3} modify column k4 bigint(11) sum NULL"""
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
-        time 60
+        time 600
     }
 
     sql """ alter table ${tableName3} add column v14 int sum NOT NULL default "0" after k13 """
@@ -112,7 +112,7 @@ suite("test_schema_change_agg", "p0") {
     sql """ alter table ${tableName3} modify column v14 int sum NULL default "0" """
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
-        time 60
+        time 600
     }
 
     sql """ alter table ${tableName3} drop column v14 """
@@ -136,7 +136,7 @@ suite("test_schema_change_agg", "p0") {
 
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName3}' ORDER BY createtime DESC LIMIT 1"""
-        time 60
+        time 600
     }
 
     sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.81,
@@ -150,13 +150,13 @@ suite("test_schema_change_agg", "p0") {
     // check add column without agg type
     test {
         sql """ alter table ${tableName3} add column v16 int NOT NULL default "0" after k13 """
-        exception "Invalid column order. value should be after key. index[${tableName3}]"
+        exception "can't add key column v16 after value column k13"
     }
 
     // del key
     test {
-        sql """ alter table ${tableName3} drop column k1 """
-        exception "Can not drop key column when table has value column with REPLACE aggregation method"
+        sql """ alter table ${tableName3} drop column k2 """
+        exception "Can not drop key column k2 in aggregation key table having REPLACE or REPLACE_IF_NOT_NULL column"
     }
 
 
@@ -184,7 +184,7 @@ suite("test_schema_change_agg", "p0") {
 
     test {
         sql "alter table ${tableName3} drop column siteid"
-        exception "Partition column[siteid] cannot be dropped. index[${tableName3}]"
+        exception "Can not drop partition or distribution column : siteid"
     }
 
     //modify col
@@ -192,20 +192,20 @@ suite("test_schema_change_agg", "p0") {
     // without agg type
     test {
         sql "alter table ${tableName3} modify column pv varchar"
-        exception "Can not change aggregation type"
+        exception "should set aggregation type to non-key column in aggregate key table"
     }
 
     //partition col
     test {
         sql "alter table ${tableName3} modify column siteid varchar DEFAULT '10'"
-        exception "Can not modify partition column[siteid]."
+        exception "Can not modify partition or distribution column : siteid"
     }
 
     //distribution key
 
     test {
         sql "alter table ${tableName3} modify column citycode smallint  comment 'citycode'"
-        exception "Can not modify distribution column[citycode]. index[${tableName3}]"
+        exception "Can not modify partition or distribution column : citycode"
     }
 
 

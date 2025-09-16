@@ -80,6 +80,7 @@ suite("test_compound_1", "p0"){
         load_httplogs_data.call(indexTbName, 'test_compound_1', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName} where (request match_phrase 'english' and clientip match_phrase '4' or request match_phrase 'images'); """
         qt_sql """ select count() from ${indexTbName} where (request match_phrase 'hm' and clientip match_phrase '3' or request match_phrase 'gif'); """

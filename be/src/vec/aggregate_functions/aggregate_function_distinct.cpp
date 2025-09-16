@@ -20,7 +20,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_distinct.h"
 
-#include <ostream>
+#include <algorithm>
 
 #include "vec/aggregate_functions/aggregate_function_combinator.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
@@ -28,6 +28,17 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+template <PrimitiveType T>
+struct Reducer {
+    template <bool stable>
+    using Output = AggregateFunctionDistinctSingleNumericData<T, stable>;
+    using AggregateFunctionDistinctNormal = AggregateFunctionDistinct<Output, false>;
+};
+
+template <PrimitiveType T>
+using AggregateFunctionDistinctNumeric = typename Reducer<T>::AggregateFunctionDistinctNormal;
 
 class AggregateFunctionCombinatorDistinct final : public IAggregateFunctionCombinator {
 public:
@@ -35,15 +46,16 @@ public:
 
     DataTypes transform_arguments(const DataTypes& arguments) const override {
         if (arguments.empty()) {
-            LOG(FATAL)
-                    << "Incorrect number of arguments for aggregate function with Distinct suffix";
+            throw doris::Exception(
+                    ErrorCode::INTERNAL_ERROR,
+                    "Incorrect number of arguments for aggregate function with Distinct suffix");
         }
         return arguments;
     }
 
     AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const bool result_is_nullable) const override {
+            const bool result_is_nullable, const AggregateFunctionAttr& attr) const override {
         DCHECK(nested_function != nullptr);
         if (nested_function == nullptr) {
             return nullptr;
@@ -51,45 +63,40 @@ public:
 
         if (arguments.size() == 1) {
             AggregateFunctionPtr res(
-                    creator_with_numeric_type::create<AggregateFunctionDistinct,
-                                                      AggregateFunctionDistinctSingleNumericData>(
-                            arguments, result_is_nullable, nested_function));
+                    creator_with_type_list<TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
+                                           TYPE_LARGEINT>::
+                            create<AggregateFunctionDistinctNumeric>(arguments, result_is_nullable,
+                                                                     attr, nested_function));
             if (res) {
                 return res;
             }
 
-            if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                res = creator_without_type::create<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<true>>>(
-                        arguments, result_is_nullable, nested_function);
-            } else {
-                res = creator_without_type::create<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<false>>>(
-                        arguments, result_is_nullable, nested_function);
-            }
+            res = creator_without_type::create<
+                    AggregateFunctionDistinct<AggregateFunctionDistinctSingleGenericData>>(
+                    arguments, result_is_nullable, attr, nested_function);
             return res;
         }
         return creator_without_type::create<
                 AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                arguments, result_is_nullable, nested_function);
+                arguments, result_is_nullable, attr, nested_function);
     }
 };
 
-const std::string DISTINCT_FUNCTION_PREFIX = "multi_distinct_";
-
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
-                                           const bool result_is_nullable) {
+                                           const bool result_is_nullable,
+                                           const AggregateFunctionAttr& attr) {
         // 1. we should get not nullable types;
         DataTypes nested_types(types.size());
-        std::transform(types.begin(), types.end(), nested_types.begin(),
-                       [](const auto& e) { return remove_nullable(e); });
+        std::ranges::transform(types, nested_types.begin(),
+                               [](const auto& e) { return remove_nullable(e); });
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorDistinct>();
         auto transform_arguments = function_combinator->transform_arguments(nested_types);
         auto nested_function_name = name.substr(DISTINCT_FUNCTION_PREFIX.size());
-        auto nested_function = factory.get(nested_function_name, transform_arguments);
+        auto nested_function = factory.get(nested_function_name, transform_arguments, false,
+                                           BeExecVersionManager::get_newest_version(), attr);
         return function_combinator->transform_aggregate_function(nested_function, types,
-                                                                 result_is_nullable);
+                                                                 result_is_nullable, attr);
     };
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX);
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX, true);

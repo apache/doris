@@ -21,11 +21,12 @@
 #include <stdint.h>
 
 #include "operator.h"
-#include "runtime/buffer_control_block.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/result_writer.h"
 
 namespace doris {
-class BufferControlBlock;
+#include "common/compile_check_begin.h"
+class ResultBlockBufferBase;
 
 namespace pipeline {
 
@@ -47,17 +48,22 @@ struct ResultFileOptions {
     TParquetCompressionType::type parquet_commpression_type;
     TParquetVersion::type parquet_version;
     bool parquert_disable_dictionary;
+    bool enable_int96_timestamps;
     //note: use outfile with parquet format, have deprecated 9:schema and 10:file_properties
     //But in order to consider the compatibility when upgrading, so add a bool to check
     //Now the code version is 1.1.2, so when the version is after 1.2, could remove this code.
     bool is_refactor_before_flag = false;
     std::string orc_schema;
     TFileCompressType::type orc_compression_type;
+    // currently only for csv
+    // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
+    TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
     bool delete_existing_files = false;
     std::string file_suffix;
     //Bring BOM when exporting to CSV format
     bool with_bom = false;
+    int64_t orc_writer_version = 0;
 
     ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
@@ -102,11 +108,20 @@ struct ResultFileOptions {
         if (t_opt.__isset.parquet_version) {
             parquet_version = t_opt.parquet_version;
         }
+        if (t_opt.__isset.enable_int96_timestamps) {
+            enable_int96_timestamps = t_opt.enable_int96_timestamps;
+        }
         if (t_opt.__isset.orc_schema) {
             orc_schema = t_opt.orc_schema;
         }
         if (t_opt.__isset.orc_compression_type) {
             orc_compression_type = t_opt.orc_compression_type;
+        }
+        if (t_opt.__isset.orc_writer_version) {
+            orc_writer_version = t_opt.orc_writer_version;
+        }
+        if (t_opt.__isset.compression_type) {
+            compression_type = t_opt.compression_type;
         }
     }
 };
@@ -124,18 +139,17 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
-    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
-    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
-    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
+
+    RuntimeProfile::Counter* _fetch_row_id_timer = nullptr;
+    RuntimeProfile::Counter* _write_data_timer = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
@@ -143,7 +157,6 @@ public:
     ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                         const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -151,7 +164,8 @@ private:
     friend class ResultSinkLocalState;
 
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
-    TResultSinkType::type _sink_type;
+    const TResultSinkType::type _sink_type;
+    const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;
 
@@ -163,10 +177,11 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     // for fetch data by rowids
-    TFetchOption _fetch_option;
+    const TFetchOption _fetch_option;
 
-    std::shared_ptr<BufferControlBlock> _sender = nullptr;
+    std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

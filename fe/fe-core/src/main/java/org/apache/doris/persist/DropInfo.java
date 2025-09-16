@@ -17,12 +17,12 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -30,6 +30,10 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropInfo implements Writable {
+    @SerializedName(value = "ctl")
+    private String ctl;
+    @SerializedName(value = "db")
+    private String db;
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tableId")
@@ -38,6 +42,10 @@ public class DropInfo implements Writable {
     private String tableName; // not used in equals and hashCode
     @SerializedName(value = "indexId")
     private long indexId;
+    @SerializedName(value = "indexName")
+    private String indexName; // not used in equals and hashCode
+    @SerializedName(value = "isView")
+    private boolean isView = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
     @SerializedName(value = "recycleTime")
@@ -46,13 +54,39 @@ public class DropInfo implements Writable {
     public DropInfo() {
     }
 
-    public DropInfo(long dbId, long tableId, String tableName, long indexId, boolean forceDrop, long recycleTime) {
+    // for external table
+    public DropInfo(String ctl, String db, String tbl) {
+        this.ctl = ctl;
+        this.db = db;
+        this.tableName = tbl;
+    }
+
+    // for internal table
+    public DropInfo(long dbId, long tableId, String tableName, boolean isView, boolean forceDrop,
+            long recycleTime) {
+        this(dbId, tableId, tableName, -1L, "", isView, forceDrop, recycleTime);
+    }
+
+    // for internal table
+    public DropInfo(long dbId, long tableId, String tableName, long indexId, String indexName, boolean isView,
+            boolean forceDrop, long recycleTime) {
+        this.ctl = InternalCatalog.INTERNAL_CATALOG_NAME;
         this.dbId = dbId;
         this.tableId = tableId;
         this.tableName = tableName;
         this.indexId = indexId;
+        this.indexName = indexName;
+        this.isView = isView;
         this.forceDrop = forceDrop;
         this.recycleTime = recycleTime;
+    }
+
+    public String getCtl() {
+        return ctl;
+    }
+
+    public String getDb() {
+        return db;
     }
 
     public long getDbId() {
@@ -71,12 +105,20 @@ public class DropInfo implements Writable {
         return this.indexId;
     }
 
+    public String getIndexName() {
+        return this.indexName;
+    }
+
+    public boolean isView() {
+        return this.isView;
+    }
+
     public boolean isForceDrop() {
-        return forceDrop;
+        return this.forceDrop;
     }
 
     public Long getRecycleTime() {
-        return recycleTime;
+        return this.recycleTime;
     }
 
     @Override
@@ -84,27 +126,8 @@ public class DropInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tableId = in.readLong();
-        forceDrop = in.readBoolean();
-        boolean hasIndexId = in.readBoolean();
-        if (hasIndexId) {
-            indexId = in.readLong();
-        } else {
-            indexId = -1L;
-        }
-    }
-
     public static DropInfo read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_114) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), DropInfo.class);
-        } else {
-            DropInfo dropInfo = new DropInfo();
-            dropInfo.readFields(in);
-            return dropInfo;
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), DropInfo.class);
     }
 
     public boolean equals(Object obj) {
@@ -119,10 +142,23 @@ public class DropInfo implements Writable {
         DropInfo info = (DropInfo) obj;
 
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
-                && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
+                && (isView == info.isView) && (forceDrop == info.forceDrop) && (recycleTime == info.recycleTime);
     }
 
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    public static DropInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, DropInfo.class);
+    }
+
+    @Override
+    public String toString() {
+        // In previous versions, ctl and db are not set, so they may be null.
+        return String.format("%s.%s.%s",
+                Strings.isNullOrEmpty(ctl) ? InternalCatalog.INTERNAL_CATALOG_NAME : ctl,
+                Strings.isNullOrEmpty(db) ? dbId : db,
+                tableName);
     }
 }

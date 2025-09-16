@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,6 +70,59 @@ public class FetchRemoteTabletSchemaUtil {
         this.tableColumns = Lists.newArrayList();
     }
 
+    private static final Map<String, Type> typeMap = new HashMap<>();
+
+    static {
+        typeMap.put("TINYINT", Type.TINYINT);
+        typeMap.put("SMALLINT", Type.SMALLINT);
+        typeMap.put("INT", Type.INT);
+        typeMap.put("BIGINT", Type.BIGINT);
+        typeMap.put("LARGEINT", Type.LARGEINT);
+        typeMap.put("UNSIGNED_TINYINT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_SMALLINT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_INT", Type.UNSUPPORTED);
+        typeMap.put("UNSIGNED_BIGINT", Type.UNSUPPORTED);
+        typeMap.put("FLOAT", Type.FLOAT);
+        typeMap.put("DISCRETE_DOUBLE", Type.DOUBLE);
+        typeMap.put("DOUBLE", Type.DOUBLE);
+        typeMap.put("CHAR", Type.CHAR);
+        typeMap.put("DATE", Type.DATE);
+        typeMap.put("DATEV2", Type.DATEV2);
+        typeMap.put("DATETIMEV2", Type.DATETIMEV2);
+        typeMap.put("DATETIME", Type.DATETIME);
+        typeMap.put("DECIMAL32", Type.DECIMAL32);
+        typeMap.put("DECIMAL64", Type.DECIMAL64);
+        typeMap.put("DECIMAL128I", Type.DECIMAL128);
+        typeMap.put("DECIMAL", Type.DECIMALV2);
+        typeMap.put("VARCHAR", Type.VARCHAR);
+        typeMap.put("STRING", Type.STRING);
+        typeMap.put("JSONB", Type.JSONB);
+        typeMap.put("VARIANT", Type.VARIANT);
+        typeMap.put("BOOLEAN", Type.BOOLEAN);
+        typeMap.put("HLL", Type.HLL);
+        typeMap.put("STRUCT", Type.STRUCT);
+        typeMap.put("LIST", Type.UNSUPPORTED);
+        typeMap.put("MAP", Type.MAP);
+        typeMap.put("OBJECT", Type.UNSUPPORTED);
+        typeMap.put("ARRAY", Type.ARRAY);
+        typeMap.put("IPV4", Type.IPV4);
+        typeMap.put("IPV6", Type.IPV6);
+        typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
+    }
+
+    public static Type getTypeFromTypeName(String typeName, int precision, int scale) {
+        Type res = typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
+        if (res.isScalarType() && (res.isDecimalV3() || res.isDecimalV2())) {
+            // set precision and scale
+            res = ScalarType.createType(res.getPrimitiveType(), 0, precision, scale);
+        }
+        return res;
+    }
+
+    public static Type getTypeFromTypeName(String typeName) {
+        return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
+    }
+
     public List<Column> fetch() {
         // 1. Find which Backend (BE) servers the tablets are on
         Preconditions.checkNotNull(remoteTablets);
@@ -77,7 +132,7 @@ public class FetchRemoteTabletSchemaUtil {
                 // only need alive replica
                 if (replica.isAlive()) {
                     Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
-                                    replica.getBackendId(), k -> Sets.newHashSet());
+                                    replica.getBackendIdWithoutException(), k -> Sets.newHashSet());
                     tabletIds.add(tablet.getId());
                 }
             }
@@ -98,15 +153,18 @@ public class FetchRemoteTabletSchemaUtil {
             if (!backend.isAlive()) {
                 continue;
             }
-            // need 2 be to provide a retry
-            if (coordinatorBackend.size() < 2) {
-                coordinatorBackend.add(backend);
-            }
+            coordinatorBackend.add(backend);
             PTabletsLocation.Builder locationBuilder = PTabletsLocation.newBuilder()
                                                         .setHost(backend.getHost())
                                                         .setBrpcPort(backend.getBrpcPort());
             PTabletsLocation location = locationBuilder.addAllTabletId(tabletIds).build();
             locations.add(location);
+        }
+        // pick 2 random coordinator
+        Collections.shuffle(coordinatorBackend);
+        if (!coordinatorBackend.isEmpty()) {
+            coordinatorBackend = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
+            LOG.debug("pick coordinator backend {}", coordinatorBackend.get(0));
         }
         PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
                                                                     .addAllTabletLocation(locations)
@@ -176,7 +234,7 @@ public class FetchRemoteTabletSchemaUtil {
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
         try {
             AggregateType aggType = AggregateType.getAggTypeFromAggName(column.getAggregation());
-            Type type = Type.getTypeFromTypeName(column.getType());
+            Type type = getTypeFromTypeName(column.getType(), column.getPrecision(), column.getFrac());
             String columnName = column.getName();
             boolean isKey = column.getIsKey();
             boolean isNullable = column.getIsNullable();

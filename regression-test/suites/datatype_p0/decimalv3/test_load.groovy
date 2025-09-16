@@ -75,14 +75,17 @@ suite("test_load") {
         );
     """
     sql "set enable_insert_strict=true;"
-    // overflow, max is inserted
+    def sessionVarOrigValue = sql("select @@enable_strict_cast")
+    sql "set enable_strict_cast=false"
+    // overflow, null is inserted
     sql """
         insert into test_decimalv3_insert values("9999999999999999999999999999999999999999",1);
     """
-    // underflow, min is inserted
+    // underflow, null is inserted
     sql """
         insert into test_decimalv3_insert values("-9999999999999999999999999999999999999999",2);
     """
+
     sql """
         insert into test_decimalv3_insert values("99999999999999999999999999999999.9999991",3);
     """
@@ -90,17 +93,33 @@ suite("test_load") {
         insert into test_decimalv3_insert values("-99999999999999999999999999999999.9999991",4);
     """
 
+    sql "set enable_strict_cast=true"
+    // overflow, return error
+    test {
+        sql """
+            insert into test_decimalv3_insert values("9999999999999999999999999999999999999999",1);
+        """
+        exception ""
+    }
+    // underflow, return error
+    test {
+        sql """
+            insert into test_decimalv3_insert values("-9999999999999999999999999999999999999999",2);
+        """
+        exception ""
+    }
+
     test {
         sql """
         insert into test_decimalv3_insert values("99999999999999999999999999999999.9999999",5);
         """
-        exception "error"
+        exception ""
     }
     test {
         sql """
         insert into test_decimalv3_insert values("-99999999999999999999999999999999.9999999",6);
         """
-        exception "error"
+        exception ""
     }
     qt_decimalv3_insert "select * from test_decimalv3_insert order by 1, 2;"
 
@@ -131,7 +150,6 @@ suite("test_load") {
         select * from test_sys_update_basic_test_update_decimal_tb order by 1, 2;
     """
 
-    sql """ set enable_nereids_dml=false; """
     sql """
         drop TABLE if exists test_sys_update_basic_test_update_decimal_tb;
     """

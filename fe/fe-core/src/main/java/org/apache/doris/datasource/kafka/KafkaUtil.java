@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -34,8 +35,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -221,37 +224,92 @@ public class KafkaUtil {
 
     private static InternalService.PProxyResult getInfoRequest(InternalService.PProxyRequest request, int timeout)
                                                         throws LoadException {
+        long startTime = System.currentTimeMillis();
         int retryTimes = 0;
         TNetworkAddress address = null;
         Future<InternalService.PProxyResult> future = null;
         InternalService.PProxyResult result = null;
-        while (retryTimes < 3) {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (backendIds.isEmpty()) {
-                throw new LoadException("Failed to get info. No alive backends");
-            }
-            Collections.shuffle(backendIds);
-            Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+        Set<Long> failedBeIds = new HashSet<>();
+        TStatusCode code = null;
+        String errorMsg = null;
 
-            try {
-                future = BackendServiceProxy.getInstance().getInfo(address, request);
-                result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
-                retryTimes++;
-                continue;
+        try {
+            while (retryTimes < 3) {
+                List<Long> backendIds = new ArrayList<>();
+                for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    if (backend != null && backend.isLoadAvailable()
+                            && !backend.isDecommissioned()
+                            && !failedBeIds.contains(beId)
+                            && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
+                        backendIds.add(beId);
+                    }
+                }
+                // If there are no available backends, utilize the blacklist.
+                // Special scenarios include:
+                // 1. A specific job that connects to Kafka may time out for topic config or network error,
+                //    leaving only one backend operational.
+                // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
+                // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
+                if (backendIds.isEmpty()) {
+                    for (Long beId : Env.getCurrentEnv().getRoutineLoadManager().getBlacklist().keySet()) {
+                        backendIds.add(beId);
+                    }
+                }
+                if (backendIds.isEmpty()) {
+                    MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
+                    if (failedBeIds.isEmpty()) {
+                        errorMsg = "no alive backends";
+                    }
+                    throw new LoadException("failed to get info: " + errorMsg + ",");
+                }
+                Collections.shuffle(backendIds);
+                Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                long beId = be.getId();
+
+                try {
+                    future = BackendServiceProxy.getInstance().getInfo(address, request);
+                    result = future.get(Config.max_get_kafka_meta_timeout_second, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    errorMsg = e.getMessage();
+                    LOG.warn("failed to get info request to " + address + " err " + e.getMessage());
+                    failedBeIds.add(beId);
+                    retryTimes++;
+                    continue;
+                }
+                code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code != TStatusCode.OK) {
+                    errorMsg = result.getStatus().getErrorMsgsList().toString();
+                    LOG.warn("failed to get info request to "
+                            + address + " err " + result.getStatus().getErrorMsgsList());
+                    failedBeIds.add(beId);
+                    retryTimes++;
+                } else {
+                    return result;
+                }
             }
-            TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-            if (code != TStatusCode.OK) {
-                LOG.warn("failed to get info request to "
-                        + address + " err " + result.getStatus().getErrorMsgsList());
-                retryTimes++;
-            } else {
-                return result;
+
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_FAIL_COUNT.increase(1L);
+            throw new LoadException("failed to get info: " + errorMsg + ",");
+        } finally {
+            // Ensure that not all BE added to the blacklist.
+            // For single request:
+            //     Only when the final success is achieved, the failed BE will be added to the blacklist,
+            //     ensuring that there are always BE nodes that are not on the blacklist.
+            // For multiple requests:
+            //     If there is only one BE left without being blacklisted after multiple jitters,
+            //     even if this BE fails, it will not be blacklisted.
+            if (code != null && code == TStatusCode.OK && !failedBeIds.isEmpty()) {
+                for (Long beId : failedBeIds) {
+                    Env.getCurrentEnv().getRoutineLoadManager().addToBlacklist(beId);
+                    LOG.info("add beId {} to blacklist, blacklist: {}", beId,
+                            Env.getCurrentEnv().getRoutineLoadManager().getBlacklist());
+                }
             }
+            long endTime = System.currentTimeMillis();
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
+            MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
-
-        throw new LoadException("Failed to get info");
     }
 }

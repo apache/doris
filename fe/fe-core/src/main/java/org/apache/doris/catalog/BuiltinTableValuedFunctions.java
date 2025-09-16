@@ -19,16 +19,20 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.table.Backends;
 import org.apache.doris.nereids.trees.expressions.functions.table.Catalogs;
+import org.apache.doris.nereids.trees.expressions.functions.table.File;
 import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
+import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
+import org.apache.doris.nereids.trees.expressions.functions.table.PaimonMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.PartitionValues;
 import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -50,7 +54,9 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(FrontendsDisks.class, "frontends_disks"),
             tableValued(GroupCommit.class, "group_commit"),
             tableValued(Local.class, "local"),
+            tableValued(HudiMeta.class, "hudi_meta"),
             tableValued(IcebergMeta.class, "iceberg_meta"),
+            tableValued(PaimonMeta.class, "paimon_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
@@ -59,7 +65,9 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Partitions.class, "partitions"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
-            tableValued(Query.class, "query")
+            tableValued(Query.class, "query"),
+            tableValued(PartitionValues.class, "partition_values"),
+            tableValued(File.class, "file")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

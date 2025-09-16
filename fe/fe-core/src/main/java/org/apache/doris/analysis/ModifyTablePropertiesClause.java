@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Strings;
 
@@ -66,8 +67,18 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         this.properties = properties;
     }
 
+    // for nereids
+    public ModifyTablePropertiesClause(Map<String, String> properties, String storagePolicy, boolean isBeingSynced,
+            boolean needTableStable, AlterOpType opType) {
+        super(opType);
+        this.properties = properties;
+        this.storagePolicy = storagePolicy;
+        this.isBeingSynced = isBeingSynced;
+        this.needTableStable = needTableStable;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze() throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
@@ -260,6 +271,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
+            throw new AnalysisException(
+                "Property "
+                + PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT + " is not allowed to change");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("true")
                     && !properties.get(PropertyAnalyzer
@@ -346,6 +361,24 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             // do nothing, will be analyzed when creating alter job
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ROW_STORE_COLUMNS)) {
             // do nothing, will be analyzed when creating alter job
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            String analyzePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "");
+            if (analyzePolicy != null
+                    && !analyzePolicy.equals(PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY)
+                    && !analyzePolicy.equals(PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY)
+                    && !analyzePolicy.equals(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+                throw new AnalysisException(
+                    "Table auto analyze policy only support for " + PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY
+                        + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
+                        + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
+            throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
+            throw new AnalysisException("You can not modify storage_page_size|storage_dict_page_size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
@@ -354,6 +387,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
 
     private void analyzeForMTMV() throws AnalysisException {
         if (tableName != null) {
+            // Skip external catalog.
+            if (!(InternalCatalog.INTERNAL_CATALOG_NAME.equals(tableName.getCtl()))) {
+                return;
+            }
             Table table = Env.getCurrentInternalCatalog().getDbOrAnalysisException(tableName.getDb())
                     .getTableOrAnalysisException(tableName.getTbl());
             if (!(table instanceof MTMV)) {

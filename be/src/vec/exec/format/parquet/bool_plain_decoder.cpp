@@ -27,13 +27,15 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 Status BoolPlainDecoder::skip_values(size_t num_values) {
-    int skip_cached = std::min(num_unpacked_values_ - unpacked_value_idx_, (int)num_values);
+    int skip_cached =
+            std::min(num_unpacked_values_ - unpacked_value_idx_, cast_set<int>(num_values));
     unpacked_value_idx_ += skip_cached;
     if (skip_cached == num_values) {
         return Status::OK();
     }
-    int num_remaining = num_values - skip_cached;
+    int num_remaining = cast_set<int>(num_values - skip_cached);
     int num_to_skip = BitUtil::RoundDownToPowerOf2(num_remaining, 32);
     if (num_to_skip > 0) {
         bool_values_.SkipBatch(1, num_to_skip);
@@ -63,7 +65,7 @@ Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
 template <bool has_filter>
 Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         ColumnSelectVector& select_vector, bool is_dict_filter) {
-    auto& column_data = static_cast<ColumnVector<UInt8>&>(*doris_column).get_data();
+    auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
 
@@ -101,4 +103,6 @@ Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
+#include "common/compile_check_end.h"
+
 } // namespace doris::vectorized

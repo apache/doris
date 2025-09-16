@@ -34,12 +34,12 @@
 #include "olap/schema.h"
 #include "olap/utils.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 
 #pragma once
 
 namespace doris {
+#include "common/compile_check_begin.h"
 enum KeysType : int;
 
 namespace vectorized {
@@ -84,10 +84,7 @@ usage:
 class RowSourcesBuffer {
 public:
     RowSourcesBuffer(int64_t tablet_id, const std::string& tablet_path, ReaderType reader_type)
-            : _tablet_id(tablet_id),
-              _tablet_path(tablet_path),
-              _reader_type(reader_type),
-              _buffer(ColumnUInt16::create()) {}
+            : _tablet_id(tablet_id), _tablet_path(tablet_path), _reader_type(reader_type) {}
 
     ~RowSourcesBuffer() {
         _reset_buffer();
@@ -101,17 +98,17 @@ public:
     Status flush();
 
     RowSource current() {
-        DCHECK(_buf_idx < _buffer->size());
-        return RowSource(_buffer->get_element(_buf_idx));
+        DCHECK(_buf_idx < _buffer.size());
+        return RowSource(_buffer[_buf_idx]);
     }
-    void advance(int32_t step = 1) {
-        DCHECK(_buf_idx + step <= _buffer->size());
+    void advance(int64_t step = 1) {
+        DCHECK(_buf_idx + step <= _buffer.size());
         _buf_idx += step;
     }
 
     uint64_t buf_idx() const { return _buf_idx; }
     uint64_t total_size() const { return _total_size; }
-    uint64_t buffered_size() { return _buffer->size(); }
+    uint64_t buffered_size() { return _buffer.size(); }
     void set_agg_flag(uint64_t index, bool agg);
     bool get_agg_flag(uint64_t index);
 
@@ -129,7 +126,7 @@ private:
     Status _serialize();
     Status _deserialize();
     void _reset_buffer() {
-        _buffer->clear();
+        _buffer.clear();
         _buf_idx = 0;
     }
 
@@ -138,7 +135,7 @@ private:
     ReaderType _reader_type = ReaderType::UNKNOWN;
     uint64_t _buf_idx = 0;
     int _fd = -1;
-    ColumnUInt16::MutablePtr _buffer;
+    PaddedPODArray<UInt16> _buffer;
     uint64_t _total_size = 0;
 };
 
@@ -234,7 +231,7 @@ private:
     mutable bool _is_same = false;
     int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
-    int _num_key_columns;
+    int64_t _num_key_columns;
     const std::vector<uint32_t> _key_group_cluster_key_idxes;
     size_t _cur_batch_num = 0;
 
@@ -282,7 +279,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -348,7 +345,7 @@ public:
     }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     // It will be released after '_merge_heap' has been built.
     std::vector<RowwiseIteratorUPtr> _origin_iters;
@@ -396,7 +393,7 @@ public:
     uint64_t merged_rows() const override { return _filtered_rows; }
 
 private:
-    int _get_size(Block* block) { return block->rows(); }
+    int64_t _get_size(Block* block) { return block->rows(); }
 
     Status check_all_iter_finished();
 
@@ -432,4 +429,5 @@ std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         RowSourcesBuffer* row_sources_buf);
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

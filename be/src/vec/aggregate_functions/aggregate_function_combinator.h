@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /** Aggregate function combinator allows to take one aggregate function
   *  and transform it to another aggregate function.
@@ -63,9 +64,11 @@ public:
       */
     virtual AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const bool result_is_nullable) const = 0;
+            const bool result_is_nullable, const AggregateFunctionAttr& attr) const = 0;
 
     virtual ~IAggregateFunctionCombinator() = default;
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -67,7 +67,7 @@ suite("nereids_tpch_q15") {
     """
 
     qt_select """
-    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_fragment_exec_instance_num=8, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
+    select /*+SET_VAR(exec_mem_limit=8589934592, parallel_pipeline_task_num=8, batch_size=4096, disable_join_reorder=false, enable_cost_based_join_reorder=true, enable_projection=true) */
         s_suppkey,
         s_name,
         s_address,

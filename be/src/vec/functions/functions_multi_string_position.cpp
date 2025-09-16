@@ -39,7 +39,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/string_searcher.h"
@@ -55,6 +54,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -78,7 +78,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto haystack_column = block.get_by_position(arguments[0]).column;
         auto needles_column = block.get_by_position(arguments[1]).column;
 
@@ -106,10 +106,11 @@ public:
         const ColumnConst* col_needles_const =
                 check_and_get_column_const<ColumnArray>(needles_ptr.get());
 
-        if (!col_needles_const && !col_needles_vector)
+        if (!col_needles_const && !col_needles_vector) {
             return Status::InvalidArgument(
                     "function '{}' encountered unsupported needles column, found {}", name,
                     needles_column->get_name());
+        }
 
         if (col_haystack_const && col_needles_vector) {
             return Status::InvalidArgument(
@@ -118,8 +119,7 @@ public:
                     name);
         }
 
-        using ResultType = typename Impl::ResultType;
-        auto col_res = ColumnVector<ResultType>::create();
+        auto col_res = ColumnVector<Impl::ResultType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
         auto& vec_res = col_res->get_data();
@@ -175,7 +175,7 @@ public:
 
 struct FunctionMultiSearchAllPositionsImpl {
 public:
-    using ResultType = Int32;
+    static constexpr PrimitiveType ResultType = TYPE_INT;
     using SingleSearcher = ASCIICaseSensitiveStringSearcher;
     static constexpr auto name = "multi_search_all_positions";
 
@@ -194,7 +194,7 @@ public:
         std::vector<SingleSearcher> searchers;
         searchers.reserve(needles_size);
         for (const auto& needle : needles_arr) {
-            if (needle.get_type() != Field::Types::String) {
+            if (!is_string_type(needle.get_type())) {
                 return Status::InvalidArgument("invalid type of needle {}", needle.get_type_name());
             }
             searchers.emplace_back(needle.get<StringRef>().data, needle.get<StringRef>().size);
@@ -219,9 +219,9 @@ public:
                 const auto* haystack_end =
                         haystack - prev_haystack_offset + haystack_offsets[haystack_index];
 
-                auto ans_now = searcher.search(haystack, haystack_end);
+                const auto* ans_now = searcher.search(haystack, haystack_end);
                 vec_res[res_index] =
-                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+                        ans_now >= haystack_end ? 0 : (Int32)std::distance(haystack, ans_now) + 1;
                 prev_haystack_offset = haystack_offsets[haystack_index];
             }
         }
@@ -296,7 +296,7 @@ public:
 
                 auto ans_now = searcher.search(haystack, haystack_end);
                 vec_res[ans_row_begin + ans_slot_in_row] =
-                        ans_now >= haystack_end ? 0 : std::distance(haystack, ans_now) + 1;
+                        ans_now >= haystack_end ? 0 : (Int32)std::distance(haystack, ans_now) + 1;
             }
 
             prev_haystack_offset = haystack_offsets[haystack_index];
@@ -315,4 +315,5 @@ void register_function_multi_string_position(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiSearchAllPositions>();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

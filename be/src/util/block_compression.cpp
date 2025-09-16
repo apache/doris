@@ -17,44 +17,45 @@
 
 #include "util/block_compression.h"
 
+#include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+
+#include <exception>
 // Only used on x86 or x86_64
 #if defined(__x86_64__) || defined(_M_X64) || defined(i386) || defined(__i386__) || \
         defined(__i386) || defined(_M_IX86)
 #include <libdeflate.h>
 #endif
+#include <brotli/decode.h>
 #include <glog/log_severity.h>
 #include <glog/logging.h>
-#include <limits.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
-#include <stdint.h>
 #include <zconf.h>
 #include <zlib.h>
 #include <zstd.h>
 #include <zstd_errors.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <mutex>
-#include <new>
+#include <orc/Exceptions.hh>
 #include <ostream>
 
+#include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "exec/decompressor.h"
-#include "gutil/endian.h"
-#include "gutil/strings/substitute.h"
-#include "orc/OrcFile.hh"
 #include "runtime/thread_context.h"
-#include "util/bit_util.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
+#include "vec/common/endian.h"
 
 namespace orc {
 /**
@@ -70,8 +71,7 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
-
-using strings::Substitute;
+#include "common/compile_check_begin.h"
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -86,10 +86,7 @@ Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t 
 }
 
 bool BlockCompressionCodec::exceed_max_compress_len(size_t uncompressed_size) {
-    if (uncompressed_size > std::numeric_limits<int32_t>::max()) {
-        return true;
-    }
-    return false;
+    return uncompressed_size > std::numeric_limits<int32_t>::max();
 }
 
 class Lz4BlockCompression : public BlockCompressionCodec {
@@ -120,18 +117,20 @@ public:
         static Lz4BlockCompression s_instance;
         return &s_instance;
     }
-    ~Lz4BlockCompression() {
+    ~Lz4BlockCompression() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
         _ctx_pool.clear();
     }
 
     Status compress(const Slice& input, faststring* output) override {
-        if (input.size > INT_MAX) {
+        if (input.size > LZ4_MAX_INPUT_SIZE) {
             return Status::InvalidArgument(
-                    "LZ4 not support those case(input.size>INT_MAX), maybe you should change "
-                    "fragment_transmission_compression_codec to snappy, size={}",
-                    input.size);
+                    "LZ4 not support those case(input.size>LZ4_MAX_INPUT_SIZE), maybe you should "
+                    "change "
+                    "fragment_transmission_compression_codec to snappy, input.size={}, "
+                    "LZ4_MAX_INPUT_SIZE={}",
+                    input.size, LZ4_MAX_INPUT_SIZE);
         }
 
         std::unique_ptr<Context> context;
@@ -164,9 +163,12 @@ public:
                 compressed_buf.size = max_len;
             }
 
-            size_t compressed_len =
-                    LZ4_compress_fast_continue(context->ctx, input.data, compressed_buf.data,
-                                               input.size, compressed_buf.size, ACCELARATION);
+            // input.size is aready checked before;
+            // compressed_buf.size is got from max_compressed_len, which is
+            // the return value of LZ4_compressBound, so it is safe to cast to int
+            size_t compressed_len = LZ4_compress_fast_continue(
+                    context->ctx, input.data, compressed_buf.data, static_cast<int>(input.size),
+                    static_cast<int>(compressed_buf.size), ACCELARATION);
             if (compressed_len == 0) {
                 compress_failed = true;
                 return Status::InvalidArgument("Output buffer's capacity is not enough, size={}",
@@ -186,16 +188,16 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
-        auto decompressed_len =
-                LZ4_decompress_safe(input.data, output->data, input.size, output->size);
+        auto decompressed_len = LZ4_decompress_safe(
+                input.data, output->data, cast_set<int>(input.size), cast_set<int>(output->size));
         if (decompressed_len < 0) {
-            return Status::InvalidArgument("fail to do LZ4 decompress, error={}", decompressed_len);
+            return Status::InternalError("fail to do LZ4 decompress, error={}", decompressed_len);
         }
         output->size = decompressed_len;
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(cast_set<int>(len)); }
 
 private:
     // reuse LZ4 compress stream
@@ -235,22 +237,70 @@ public:
     HadoopLz4BlockCompression() {
         Status st = Decompressor::create_decompressor(CompressType::LZ4BLOCK, &_decompressor);
         if (!st.ok()) {
-            LOG(FATAL) << "HadoopLz4BlockCompression construction failed. status = " << st << "\n";
+            throw Exception(Status::FatalError(
+                    "HadoopLz4BlockCompression construction failed. status = {}", st));
         }
     }
+
+    ~HadoopLz4BlockCompression() override = default;
 
     static HadoopLz4BlockCompression* instance() {
         static HadoopLz4BlockCompression s_instance;
         return &s_instance;
     }
+
+    // hadoop use block compression for lz4
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/Lz4Codec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/Lz4Codec.java
+        size_t lz4_block_size = config::lz4_compression_block_size;
+        size_t overhead = lz4_block_size / 255 + 16;
+        size_t max_input_size = lz4_block_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<OwnedSlice> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(Lz4BlockCompression::compress(input_slice, &output_data));
+            out_len += output_data.size();
+            buffers.push_back(output_data.build());
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, cast_set<uint32_t>(input.get_size()));
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, cast_set<uint32_t>(slice.get_size()));
+            output_buffer += 4;
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
+        return Status::OK();
+    }
+
     Status decompress(const Slice& input, Slice* output) override {
         size_t input_bytes_read = 0;
         size_t decompressed_len = 0;
         size_t more_input_bytes = 0;
         size_t more_output_bytes = 0;
         bool stream_end = false;
-        auto st = _decompressor->decompress((uint8_t*)input.data, input.size, &input_bytes_read,
-                                            (uint8_t*)output->data, output->size, &decompressed_len,
+        auto st = _decompressor->decompress((uint8_t*)input.data, cast_set<uint32_t>(input.size),
+                                            &input_bytes_read, (uint8_t*)output->data,
+                                            cast_set<uint32_t>(output->size), &decompressed_len,
                                             &stream_end, &more_input_bytes, &more_output_bytes);
         //try decompress use hadoopLz4 ,if failed fall back lz4.
         return (st != Status::OK() || stream_end != true)
@@ -413,14 +463,14 @@ private:
                                     &input_size, nullptr);
         if (LZ4F_isError(lres)) {
             decompress_failed = true;
-            return Status::InvalidArgument("Fail to do LZ4F decompress, res={}",
-                                           LZ4F_getErrorName(lres));
+            return Status::InternalError("Fail to do LZ4F decompress, res={}",
+                                         LZ4F_getErrorName(lres));
         } else if (input_size != input.size) {
             decompress_failed = true;
             return Status::InvalidArgument(
-                    strings::Substitute("Fail to do LZ4F decompress: trailing data left in "
-                                        "compressed data, read=$0 vs given=$1",
-                                        input_size, input.size));
+                    absl::Substitute("Fail to do LZ4F decompress: trailing data left in "
+                                     "compressed data, read=$0 vs given=$1",
+                                     input_size, input.size));
         } else if (lres != 0) {
             decompress_failed = true;
             return Status::InvalidArgument(
@@ -441,7 +491,7 @@ private:
             }
             auto res = LZ4F_createCompressionContext(&localCtx->ctx, LZ4F_VERSION);
             if (LZ4F_isError(res) != 0) {
-                return Status::InvalidArgument(strings::Substitute(
+                return Status::InvalidArgument(absl::Substitute(
                         "LZ4F_createCompressionContext error, res=$0", LZ4F_getErrorName(res)));
             }
             out = std::move(localCtx);
@@ -466,7 +516,7 @@ private:
             }
             auto res = LZ4F_createDecompressionContext(&localCtx->ctx, LZ4F_VERSION);
             if (LZ4F_isError(res) != 0) {
-                return Status::InvalidArgument(strings::Substitute(
+                return Status::InvalidArgument(absl::Substitute(
                         "LZ4F_createDeompressionContext error, res=$0", LZ4F_getErrorName(res)));
             }
             out = std::move(localCtx);
@@ -567,7 +617,8 @@ public:
             }
 
             size_t compressed_len = LZ4_compress_HC_continue(
-                    context->ctx, input.data, compressed_buf.data, input.size, compressed_buf.size);
+                    context->ctx, input.data, compressed_buf.data, cast_set<int>(input.size),
+                    static_cast<int>(compressed_buf.size));
             if (compressed_len == 0) {
                 compress_failed = true;
                 return Status::InvalidArgument("Output buffer's capacity is not enough, size={}",
@@ -587,16 +638,19 @@ public:
     }
 
     Status decompress(const Slice& input, Slice* output) override {
-        auto decompressed_len =
-                LZ4_decompress_safe(input.data, output->data, input.size, output->size);
+        auto decompressed_len = LZ4_decompress_safe(
+                input.data, output->data, cast_set<int>(input.size), cast_set<int>(output->size));
         if (decompressed_len < 0) {
-            return Status::InvalidArgument("fail to do LZ4 decompress, error={}", decompressed_len);
+            return Status::InvalidArgument(
+                    "destination buffer is not large enough or the source stream is detected "
+                    "malformed, fail to do LZ4 decompress, error={}",
+                    decompressed_len);
         }
         output->size = decompressed_len;
         return Status::OK();
     }
 
-    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(len); }
+    size_t max_compressed_len(size_t len) override { return LZ4_compressBound(cast_set<int>(len)); }
 
 private:
     Status _acquire_compression_ctx(std::unique_ptr<Context>& out) {
@@ -619,7 +673,7 @@ private:
     }
     void _release_compression_ctx(std::unique_ptr<Context> context) {
         DCHECK(context);
-        LZ4_resetStreamHC_fast(context->ctx, _compression_level);
+        LZ4_resetStreamHC_fast(context->ctx, static_cast<int>(_compression_level));
         std::lock_guard<std::mutex> l(_ctx_mutex);
         _ctx_pool.push_back(std::move(context));
     }
@@ -703,7 +757,7 @@ public:
         static SnappyBlockCompression s_instance;
         return &s_instance;
     }
-    ~SnappyBlockCompression() override {}
+    ~SnappyBlockCompression() override = default;
 
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
@@ -738,13 +792,70 @@ public:
     size_t max_compressed_len(size_t len) override { return snappy::MaxCompressedLength(len); }
 };
 
+class HadoopSnappyBlockCompression : public SnappyBlockCompression {
+public:
+    static HadoopSnappyBlockCompression* instance() {
+        static HadoopSnappyBlockCompression s_instance;
+        return &s_instance;
+    }
+    ~HadoopSnappyBlockCompression() override = default;
+
+    // hadoop use block compression for snappy
+    // https://github.com/apache/hadoop/blob/trunk/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-nativetask/src/main/native/src/codec/SnappyCodec.cc
+    Status compress(const Slice& input, faststring* output) override {
+        // be same with hadop https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/compress/SnappyCodec.java
+        size_t snappy_block_size = config::snappy_compression_block_size;
+        size_t overhead = snappy_block_size / 6 + 32;
+        size_t max_input_size = snappy_block_size - overhead;
+
+        size_t data_len = input.size;
+        char* data = input.data;
+        std::vector<OwnedSlice> buffers;
+        size_t out_len = 0;
+
+        while (data_len > 0) {
+            size_t input_size = std::min(data_len, max_input_size);
+            Slice input_slice(data, input_size);
+            faststring output_data;
+            RETURN_IF_ERROR(SnappyBlockCompression::compress(input_slice, &output_data));
+            out_len += output_data.size();
+            // the OwnedSlice will be moved here
+            buffers.push_back(output_data.build());
+            data += input_size;
+            data_len -= input_size;
+        }
+
+        // hadoop block compression: umcompressed_length | compressed_length1 | compressed_data1 | compressed_length2 | compressed_data2 | ...
+        size_t total_output_len = 4 + 4 * buffers.size() + out_len;
+        output->resize(total_output_len);
+        char* output_buffer = (char*)output->data();
+        BigEndian::Store32(output_buffer, cast_set<uint32_t>(input.get_size()));
+        output_buffer += 4;
+        for (const auto& buffer : buffers) {
+            auto slice = buffer.slice();
+            BigEndian::Store32(output_buffer, cast_set<uint32_t>(slice.get_size()));
+            output_buffer += 4;
+            memcpy(output_buffer, slice.get_data(), slice.get_size());
+            output_buffer += slice.get_size();
+        }
+
+        DCHECK_EQ(output_buffer - (char*)output->data(), total_output_len);
+
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: SnappyHadoopBlockCompression::decompress");
+    }
+};
+
 class ZlibBlockCompression : public BlockCompressionCodec {
 public:
     static ZlibBlockCompression* instance() {
         static ZlibBlockCompression s_instance;
         return &s_instance;
     }
-    ~ZlibBlockCompression() {}
+    ~ZlibBlockCompression() override = default;
 
     Status compress(const Slice& input, faststring* output) override {
         size_t max_len = max_compressed_len(input.size);
@@ -752,8 +863,12 @@ public:
         Slice s(*output);
 
         auto zres = ::compress((Bytef*)s.data, &s.size, (Bytef*)input.data, input.size);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do ZLib compress, error={}", zError(zres));
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(fmt::format(
+                    "ZLib compression failed due to memory allocationerror.error = {}, res = {} ",
+                    zError(zres), zres)));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do Zlib compress, error={}", zError(zres));
         }
         output->resize(s.size);
         return Status::OK();
@@ -769,33 +884,39 @@ public:
         zstrm.zfree = Z_NULL;
         zstrm.opaque = Z_NULL;
         auto zres = deflateInit(&zstrm, Z_DEFAULT_COMPRESSION);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                           zError(zres), zres);
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to do ZLib stream compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
         }
         // we assume that output is e
         zstrm.next_out = (Bytef*)output->data();
-        zstrm.avail_out = output->size();
+        zstrm.avail_out = cast_set<decltype(zstrm.avail_out)>(output->size());
         for (int i = 0; i < inputs.size(); ++i) {
             if (inputs[i].size == 0) {
                 continue;
             }
             zstrm.next_in = (Bytef*)inputs[i].data;
-            zstrm.avail_in = inputs[i].size;
+            zstrm.avail_in = cast_set<decltype(zstrm.avail_in)>(inputs[i].size);
             int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
 
             zres = deflate(&zstrm, flush);
             if (zres != Z_OK && zres != Z_STREAM_END) {
-                return Status::InvalidArgument("Fail to do ZLib stream compress, error={}, res={}",
-                                               zError(zres), zres);
+                return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                             zError(zres), zres);
             }
         }
 
         output->resize(zstrm.total_out);
         zres = deflateEnd(&zstrm);
-        if (zres != Z_OK) {
-            return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
-                                           zError(zres), zres);
+        if (zres == Z_DATA_ERROR) {
+            return Status::InvalidArgument("Fail to do deflateEnd, error={}, res={}", zError(zres),
+                                           zres);
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                         zError(zres), zres);
         }
         return Status::OK();
     }
@@ -804,8 +925,13 @@ public:
         size_t input_size = input.size;
         auto zres =
                 ::uncompress2((Bytef*)output->data, &output->size, (Bytef*)input.data, &input_size);
-        if (zres != Z_OK) {
+        if (zres == Z_DATA_ERROR) {
             return Status::InvalidArgument("Fail to do ZLib decompress, error={}", zError(zres));
+        } else if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded("Fail to do ZLib decompress, error={}",
+                                                        zError(zres)));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do ZLib decompress, error={}", zError(zres));
         }
         return Status::OK();
     }
@@ -813,6 +939,90 @@ public:
     size_t max_compressed_len(size_t len) override {
         // one-time overhead of six bytes for the entire stream plus five bytes per 16 KB block
         return len + 6 + 5 * ((len >> 14) + 1);
+    }
+};
+
+class Bzip2BlockCompression : public BlockCompressionCodec {
+public:
+    static Bzip2BlockCompression* instance() {
+        static Bzip2BlockCompression s_instance;
+        return &s_instance;
+    }
+    ~Bzip2BlockCompression() override = default;
+
+    Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+        auto size = cast_set<uint32_t>(output->size());
+        auto bzres = BZ2_bzBuffToBuffCompress((char*)output->data(), &size, (char*)input.data,
+                                              cast_set<uint32_t>(input.size), 9, 0, 0);
+        if (bzres == BZ_MEM_ERROR) {
+            throw Exception(
+                    Status::MemoryLimitExceeded("Fail to do Bzip2 compress, ret={}", bzres));
+        } else if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Fail to do Bzip2 compress, ret={}", bzres);
+        } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                   bzres != BZ_STREAM_END && bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
+        }
+        output->resize(size);
+        return Status::OK();
+    }
+
+    Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
+                    faststring* output) override {
+        size_t max_len = max_compressed_len(uncompressed_size);
+        output->resize(max_len);
+
+        bz_stream bzstrm;
+        bzero(&bzstrm, sizeof(bzstrm));
+        int bzres = BZ2_bzCompressInit(&bzstrm, 9, 0, 0);
+        if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
+        } else if (bzres == BZ_MEM_ERROR) {
+            throw Exception(
+                    Status::MemoryLimitExceeded("Failed to init bz2. status code: {}", bzres));
+        } else if (bzres != BZ_OK) {
+            return Status::InternalError("Failed to init bz2. status code: {}", bzres);
+        }
+        // we assume that output is e
+        bzstrm.next_out = (char*)output->data();
+        bzstrm.avail_out = cast_set<uint32_t>(output->size());
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i].size == 0) {
+                continue;
+            }
+            bzstrm.next_in = (char*)inputs[i].data;
+            bzstrm.avail_in = cast_set<uint32_t>(inputs[i].size);
+            int flush = (i == (inputs.size() - 1)) ? BZ_FINISH : BZ_RUN;
+
+            bzres = BZ2_bzCompress(&bzstrm, flush);
+            if (bzres == BZ_PARAM_ERROR) {
+                return Status::InvalidArgument("Failed to init bz2. status code: {}", bzres);
+            } else if (bzres != BZ_RUN_OK && bzres != BZ_FLUSH_OK && bzres != BZ_FINISH_OK &&
+                       bzres != BZ_STREAM_END && bzres != BZ_OK) {
+                return Status::InternalError("Failed to init bz2. status code: {}", bzres);
+            }
+        }
+
+        size_t total_out = (size_t)bzstrm.total_out_hi32 << 32 | (size_t)bzstrm.total_out_lo32;
+        output->resize(total_out);
+        bzres = BZ2_bzCompressEnd(&bzstrm);
+        if (bzres == BZ_PARAM_ERROR) {
+            return Status::InvalidArgument("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
+        } else if (bzres != BZ_OK) {
+            return Status::InternalError("Fail to do deflateEnd on bzip2 stream, res={}", bzres);
+        }
+        return Status::OK();
+    }
+
+    Status decompress(const Slice& input, Slice* output) override {
+        return Status::InternalError("unimplement: Bzip2BlockCompression::decompress");
+    }
+
+    size_t max_compressed_len(size_t len) override {
+        // TODO: make sure the max_compressed_len for bzip2
+        return len * 2;
     }
 };
 
@@ -928,18 +1138,18 @@ public:
                 bool finished = false;
                 do {
                     // do compress
-                    auto ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
+                    ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
 
                     if (ZSTD_isError(ret)) {
                         compress_failed = true;
-                        return Status::InvalidArgument("ZSTD_compressStream2 error: {}",
-                                                       ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                        return Status::InternalError("ZSTD_compressStream2 error: {}",
+                                                     ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
                     }
 
                     // ret is ZSTD hint for needed output buffer size
                     if (ret > 0 && out_buf.pos == out_buf.size) {
                         compress_failed = true;
-                        return Status::InvalidArgument("ZSTD_compressStream2 output buffer full");
+                        return Status::InternalError("ZSTD_compressStream2 output buffer full");
                     }
 
                     finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
@@ -951,6 +1161,8 @@ public:
             if (max_len <= MAX_COMPRESSION_BUFFER_SIZE_FOR_REUSE) {
                 output->assign_copy(reinterpret_cast<uint8_t*>(compressed_buf.data), out_buf.pos);
             }
+        } catch (std::exception& e) {
+            return Status::InternalError("Fail to do ZSTD compress due to exception {}", e.what());
         } catch (...) {
             // Do not set compress_failed to release context
             DCHECK(!compress_failed);
@@ -974,8 +1186,8 @@ public:
                                          input.size);
         if (ZSTD_isError(ret)) {
             decompress_failed = true;
-            return Status::InvalidArgument("ZSTD_decompressDCtx error: {}",
-                                           ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+            return Status::InternalError("ZSTD_decompressDCtx error: {}",
+                                         ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
         }
 
         // set decompressed size for caller
@@ -1055,6 +1267,96 @@ public:
     }
     ~GzipBlockCompression() override = default;
 
+    Status compress(const Slice& input, faststring* output) override {
+        size_t max_len = max_compressed_len(input.size);
+        output->resize(max_len);
+
+        z_stream z_strm = {};
+        z_strm.zalloc = Z_NULL;
+        z_strm.zfree = Z_NULL;
+        z_strm.opaque = Z_NULL;
+
+        int zres = deflateInit2(&z_strm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
+                                8, Z_DEFAULT_STRATEGY);
+
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to init ZLib compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to init ZLib compress, error={}, res={}",
+                                         zError(zres), zres);
+        }
+
+        z_strm.next_in = (Bytef*)input.get_data();
+        z_strm.avail_in = cast_set<decltype(z_strm.avail_in)>(input.get_size());
+        z_strm.next_out = (Bytef*)output->data();
+        z_strm.avail_out = cast_set<decltype(z_strm.avail_out)>(output->size());
+
+        zres = deflate(&z_strm, Z_FINISH);
+        if (zres != Z_OK && zres != Z_STREAM_END) {
+            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
+        }
+
+        output->resize(z_strm.total_out);
+        zres = deflateEnd(&z_strm);
+        if (zres == Z_DATA_ERROR) {
+            return Status::InvalidArgument("Fail to end zlib compress");
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to end zlib compress");
+        }
+        return Status::OK();
+    }
+
+    Status compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
+                    faststring* output) override {
+        size_t max_len = max_compressed_len(uncompressed_size);
+        output->resize(max_len);
+
+        z_stream zstrm;
+        zstrm.zalloc = Z_NULL;
+        zstrm.zfree = Z_NULL;
+        zstrm.opaque = Z_NULL;
+        auto zres = deflateInit2(&zstrm, Z_DEFAULT_COMPRESSION, Z_DEFLATED, MAX_WBITS + GZIP_CODEC,
+                                 8, Z_DEFAULT_STRATEGY);
+        if (zres == Z_MEM_ERROR) {
+            throw Exception(Status::MemoryLimitExceeded(
+                    "Fail to init ZLib stream compress, error={}, res={}", zError(zres), zres));
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to init ZLib stream compress, error={}, res={}",
+                                         zError(zres), zres);
+        }
+
+        // we assume that output is e
+        zstrm.next_out = (Bytef*)output->data();
+        zstrm.avail_out = cast_set<decltype(zstrm.avail_out)>(output->size());
+        for (int i = 0; i < inputs.size(); ++i) {
+            if (inputs[i].size == 0) {
+                continue;
+            }
+            zstrm.next_in = (Bytef*)inputs[i].data;
+            zstrm.avail_in = cast_set<decltype(zstrm.avail_in)>(inputs[i].size);
+            int flush = (i == (inputs.size() - 1)) ? Z_FINISH : Z_NO_FLUSH;
+
+            zres = deflate(&zstrm, flush);
+            if (zres != Z_OK && zres != Z_STREAM_END) {
+                return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+                                             zError(zres), zres);
+            }
+        }
+
+        output->resize(zstrm.total_out);
+        zres = deflateEnd(&zstrm);
+        if (zres == Z_DATA_ERROR) {
+            return Status::InvalidArgument("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                           zError(zres), zres);
+        } else if (zres != Z_OK) {
+            return Status::InternalError("Fail to do deflateEnd on ZLib stream, error={}, res={}",
+                                         zError(zres), zres);
+        }
+        return Status::OK();
+    }
+
     Status decompress(const Slice& input, Slice* output) override {
         z_stream z_strm = {};
         z_strm.zalloc = Z_NULL;
@@ -1063,21 +1365,28 @@ public:
 
         int ret = inflateInit2(&z_strm, MAX_WBITS + GZIP_CODEC);
         if (ret != Z_OK) {
-            return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
+            return Status::InternalError("Fail to init ZLib decompress, error={}, res={}",
                                          zError(ret), ret);
         }
 
         // 1. set input and output
         z_strm.next_in = reinterpret_cast<Bytef*>(input.data);
-        z_strm.avail_in = input.size;
+        z_strm.avail_in = cast_set<decltype(z_strm.avail_in)>(input.size);
         z_strm.next_out = reinterpret_cast<Bytef*>(output->data);
-        z_strm.avail_out = output->size;
+        z_strm.avail_out = cast_set<decltype(z_strm.avail_out)>(output->size);
 
         if (z_strm.avail_out > 0) {
             // We only support non-streaming use case  for block decompressor
             ret = inflate(&z_strm, Z_FINISH);
             if (ret != Z_OK && ret != Z_STREAM_END) {
                 (void)inflateEnd(&z_strm);
+                if (ret == Z_MEM_ERROR) {
+                    throw Exception(Status::MemoryLimitExceeded(
+                            "Fail to do ZLib stream compress, error={}, res={}", zError(ret), ret));
+                } else if (ret == Z_DATA_ERROR) {
+                    return Status::InvalidArgument(
+                            "Fail to do ZLib stream compress, error={}, res={}", zError(ret), ret);
+                }
                 return Status::InternalError("Fail to do ZLib stream compress, error={}, res={}",
                                              zError(ret), ret);
             }
@@ -1111,7 +1420,7 @@ public:
             // http://compgroups.net/comp.unix.programmer/gzip-compressing-an-in-memory-string-usi/54854
             // To have a safe upper bound for "wrapper variations", we add 32 to
             // estimate
-            int upper_bound = deflateBound(&zstrm, len) + 32;
+            auto upper_bound = deflateBound(&zstrm, len) + 32;
             return upper_bound;
         }
     }
@@ -1240,6 +1549,31 @@ public:
     }
 };
 
+class BrotliBlockCompression final : public BlockCompressionCodec {
+public:
+    static BrotliBlockCompression* instance() {
+        static BrotliBlockCompression s_instance;
+        return &s_instance;
+    }
+
+    Status compress(const Slice& input, faststring* output) override {
+        return Status::InvalidArgument("not impl brotli compress.");
+    }
+
+    size_t max_compressed_len(size_t len) override { return 0; };
+
+    Status decompress(const Slice& input, Slice* output) override {
+        // The size of output buffer is always equal to the umcompressed length.
+        BrotliDecoderResult result = BrotliDecoderDecompress(
+                input.get_size(), reinterpret_cast<const uint8_t*>(input.get_data()), &output->size,
+                reinterpret_cast<uint8_t*>(output->data));
+        if (result != BROTLI_DECODER_RESULT_SUCCESS) {
+            return Status::InternalError("Brotli decompression failed, result={}", result);
+        }
+        return Status::OK();
+    }
+};
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec) {
     switch (type) {
@@ -1266,6 +1600,37 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         break;
     default:
         return Status::InternalError("unknown compression type({})", type);
+    }
+
+    return Status::OK();
+}
+
+// this can only be used in hive text write
+Status get_block_compression_codec(TFileCompressType::type type, BlockCompressionCodec** codec) {
+    switch (type) {
+    case TFileCompressType::PLAIN:
+        *codec = nullptr;
+        break;
+    case TFileCompressType::ZLIB:
+        *codec = ZlibBlockCompression::instance();
+        break;
+    case TFileCompressType::GZ:
+        *codec = GzipBlockCompression::instance();
+        break;
+    case TFileCompressType::BZ2:
+        *codec = Bzip2BlockCompression::instance();
+        break;
+    case TFileCompressType::LZ4BLOCK:
+        *codec = HadoopLz4BlockCompression::instance();
+        break;
+    case TFileCompressType::SNAPPYBLOCK:
+        *codec = HadoopSnappyBlockCompression::instance();
+        break;
+    case TFileCompressType::ZSTD:
+        *codec = ZstdBlockCompression::instance();
+        break;
+    default:
+        return Status::InternalError("unsupport compression type({}) int hive text", type);
     }
 
     return Status::OK();
@@ -1299,6 +1664,9 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
     case tparquet::CompressionCodec::LZO:
         *codec = LzoBlockCompression::instance();
         break;
+    case tparquet::CompressionCodec::BROTLI:
+        *codec = BrotliBlockCompression::instance();
+        break;
     default:
         return Status::InternalError("unknown compression type({})", parquet_codec);
     }
@@ -1306,4 +1674,5 @@ Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_code
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

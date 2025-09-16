@@ -17,7 +17,8 @@
 
 package org.apache.doris.datasource.hudi.source;
 
-import org.apache.doris.datasource.FileSplit;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.spi.Split;
 
 import org.apache.hadoop.conf.Configuration;
@@ -36,6 +37,7 @@ import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.storage.StoragePath;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -45,6 +47,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class COWIncrementalRelation implements IncrementalRelation {
@@ -59,7 +62,6 @@ public class COWIncrementalRelation implements IncrementalRelation {
     private final Collection<String> filteredRegularFullPaths;
     private final Collection<String> filteredMetaBootstrapFullPaths;
 
-    private final boolean includeStartTime;
     private final String startTs;
     private final String endTs;
 
@@ -78,7 +80,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
         if (!metaClient.getTableConfig().populateMetaFields()) {
             throw new HoodieException("Incremental queries are not supported when meta fields are disabled");
         }
-        HoodieInstant lastInstant = commitTimeline.lastInstant().get();
+
         String startInstantTime = optParams.get("hoodie.datasource.read.begin.instanttime");
         if (startInstantTime == null) {
             throw new HoodieException("Specify the begin instant time to pull from using "
@@ -87,43 +89,50 @@ public class COWIncrementalRelation implements IncrementalRelation {
         if (EARLIEST_TIME.equals(startInstantTime)) {
             startInstantTime = "000";
         }
-        String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                lastInstant.getTimestamp());
+
+        String latestTime = hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+                ? commitTimeline.lastInstant().get().getCompletionTime()
+                : commitTimeline.lastInstant().get().requestedTime();
+        String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime", latestTime);
+        if (LATEST_TIME.equals(endInstantTime)) {
+            endInstantTime = latestTime;
+        }
+
         startInstantArchived = commitTimeline.isBeforeTimelineStarts(startInstantTime);
         endInstantArchived = commitTimeline.isBeforeTimelineStarts(endInstantTime);
 
         HoodieTimeline commitsTimelineToReturn;
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
-            commitsTimelineToReturn = commitTimeline.findInstantsInRangeByStateTransitionTime(startInstantTime,
-                    lastInstant.getStateTransitionTime());
+            commitsTimelineToReturn = commitTimeline.findInstantsInRangeByCompletionTime(startInstantTime,
+                    endInstantTime);
         } else {
-            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, lastInstant.getTimestamp());
+            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, endInstantTime);
         }
         List<HoodieInstant> commitsToReturn = commitsTimelineToReturn.getInstants();
 
         // todo: support configuration hoodie.datasource.read.incr.filters
-        Path basePath = metaClient.getBasePathV2();
+        StoragePath basePath = metaClient.getBasePath();
         Map<String, String> regularFileIdToFullPath = new HashMap<>();
         Map<String, String> metaBootstrapFileIdToFullPath = new HashMap<>();
         HoodieTimeline replacedTimeline = commitsTimelineToReturn.getCompletedReplaceTimeline();
         Map<String, String> replacedFile = new HashMap<>();
         for (HoodieInstant instant : replacedTimeline.getInstants()) {
-            HoodieReplaceCommitMetadata.fromBytes(metaClient.getActiveTimeline().getInstantDetails(instant).get(),
-                    HoodieReplaceCommitMetadata.class).getPartitionToReplaceFileIds().forEach(
-                        (key, value) -> value.forEach(
-                            e -> replacedFile.put(e, FSUtils.getPartitionPath(basePath, key).toString())));
+            HoodieReplaceCommitMetadata metadata = metaClient.getActiveTimeline()
+                    .readReplaceCommitMetadata(instant);
+            metadata.getPartitionToReplaceFileIds().forEach(
+                            (key, value) -> value.forEach(
+                                    e -> replacedFile.put(e, FSUtils.constructAbsolutePath(basePath, key).toString())));
         }
 
         fileToWriteStat = new HashMap<>();
         for (HoodieInstant commit : commitsToReturn) {
-            HoodieCommitMetadata metadata = HoodieCommitMetadata.fromBytes(
-                    commitTimeline.getInstantDetails(commit).get(), HoodieCommitMetadata.class);
+            HoodieCommitMetadata metadata = metaClient.getActiveTimeline().readCommitMetadata(commit);
             metadata.getPartitionToWriteStats().forEach((partition, stats) -> {
                 for (HoodieWriteStat stat : stats) {
-                    fileToWriteStat.put(FSUtils.getPartitionPath(basePath, stat.getPath()).toString(), stat);
+                    fileToWriteStat.put(FSUtils.constructAbsolutePath(basePath, stat.getPath()).toString(), stat);
                 }
             });
-            if (HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS.equals(commit.getTimestamp())) {
+            if (HoodieTimeline.METADATA_BOOTSTRAP_INSTANT_TS.equals(commit.requestedTime())) {
                 metadata.getFileIdAndFullPaths(basePath).forEach((k, v) -> {
                     if (!(replacedFile.containsKey(k) && v.startsWith(replacedFile.get(k)))) {
                         metaBootstrapFileIdToFullPath.put(k, v);
@@ -155,16 +164,10 @@ public class COWIncrementalRelation implements IncrementalRelation {
 
         }
 
-        fs = basePath.getFileSystem(configuration);
+        fs = new Path(basePath.toUri().getPath()).getFileSystem(configuration);
         fullTableScan = shouldFullTableScan();
-        includeStartTime = !fullTableScan;
-        if (fullTableScan || commitsToReturn.isEmpty()) {
-            startTs = startInstantTime;
-            endTs = endInstantTime;
-        } else {
-            startTs = commitsToReturn.get(0).getTimestamp();
-            endTs = commitsToReturn.get(commitsToReturn.size() - 1).getTimestamp();
-        }
+        startTs = startInstantTime;
+        endTs = endInstantTime;
     }
 
     private boolean shouldFullTableScan() throws HoodieException, IOException {
@@ -208,38 +211,36 @@ public class COWIncrementalRelation implements IncrementalRelation {
         Option<String[]> partitionColumns = metaClient.getTableConfig().getPartitionFields();
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
-        for (String baseFile : filteredMetaBootstrapFullPaths) {
+
+        Consumer<String> generatorSplit =  baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
-                    HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
+            LocationPath locationPath = LocationPath.of(baseFile);
+            HudiSplit hudiSplit = new HudiSplit(locationPath, 0,
+                    stat.getFileSizeInBytes(), stat.getFileSizeInBytes(), new String[0],
+                    HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath()));
+            hudiSplit.setTableFormatType(TableFormatType.HUDI);
+            splits.add(hudiSplit);
+        };
+
+        for (String baseFile : filteredMetaBootstrapFullPaths) {
+            generatorSplit.accept(baseFile);
         }
         for (String baseFile : filteredRegularFullPaths) {
-            HoodieWriteStat stat = fileToWriteStat.get(baseFile);
-            splits.add(new FileSplit(new Path(baseFile), 0, stat.getFileSizeInBytes(), stat.getFileSizeInBytes(),
-                    new String[0],
-                    HudiPartitionProcessor.parsePartitionValues(partitionNames, stat.getPartitionPath())));
+            generatorSplit.accept(baseFile);
         }
         return splits;
     }
 
     @Override
     public Map<String, String> getHoodieParams() {
-        optParams.put("hoodie.datasource.read.incr.operation", "true");
         optParams.put("hoodie.datasource.read.begin.instanttime", startTs);
         optParams.put("hoodie.datasource.read.end.instanttime", endTs);
-        optParams.put("hoodie.datasource.read.incr.includeStartTime", includeStartTime ? "true" : "false");
         return optParams;
     }
 
     @Override
     public boolean fallbackFullTableScan() {
         return fullTableScan;
-    }
-
-    @Override
-    public boolean isIncludeStartTime() {
-        return includeStartTime;
     }
 
     @Override

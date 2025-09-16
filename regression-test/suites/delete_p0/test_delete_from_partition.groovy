@@ -65,4 +65,35 @@ suite("test_delete_from_partition") {
 
     sql """delete from ${tableName} where l1 < "i" and l2 < "h";"""
     qt_sql """select * from ${tableName} order by l1, l2"""
+
+    def testDeleteTableName = "test_delete_partition"
+    sql """DROP TABLE IF EXISTS ${testDeleteTableName} """
+    sql """create table ${testDeleteTableName}
+    (
+            k1 TINYINT not null,
+                    k2 INT NOT NULL DEFAULT "1" COMMENT "int column",
+    k3 VARCHAR(20)
+    )
+    UNIQUE KEY(`k1`, `k2`)
+    PARTITION BY LIST(`k1`)
+    (
+            PARTITION `p1` VALUES IN (1),
+    PARTITION `p2` VALUES IN (2)
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 1
+    PROPERTIES ('replication_num' = '1');"""
+
+    sql """insert into ${testDeleteTableName} values (1, 2, "test1"), (2, 2, "test");"""
+
+    qt_sql """select * from ${testDeleteTableName} order by k1;"""
+
+    sql """delete from
+    ${testDeleteTableName} partition p1
+    using ${testDeleteTableName} partition (p1) as t1
+    left outer join ${testDeleteTableName} partitions (p1, p2) as t2 on t1.k2 = t2.k2
+    where
+    ${testDeleteTableName}.k2 = t1.k2
+    and t2.k2 is not null;"""
+
+    qt_sql """select * from ${testDeleteTableName};"""
 }

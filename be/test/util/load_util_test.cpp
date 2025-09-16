@@ -119,7 +119,71 @@ TEST_F(LoadUtilTest, ParseTest) {
         TFileFormatType::type format_type;
         TFileCompressType::type compress_type;
         LoadUtil::parse_format("JSON", "GZ", &format_type, &compress_type);
-        EXPECT_EQ(TFileFormatType::FORMAT_UNKNOWN, format_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::GZ, compress_type);
+    }
+    {
+        // JSON, LZO
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "LZOP", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::LZO, compress_type);
+    }
+    {
+        // JSON, BZ2
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "BZ2", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::BZ2, compress_type);
+    }
+    {
+        // JSON, LZ4
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "LZ4", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::LZ4FRAME, compress_type);
+    }
+    {
+        // JSON, LZ4_BLOCK
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "LZ4_BLOCK", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::LZ4BLOCK, compress_type);
+    }
+    {
+        // JSON, LZOP
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "LZOP", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::LZO, compress_type);
+    }
+    {
+        // JSON, SNAPPY_BLOCK
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "SNAPPY_BLOCK", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::SNAPPYBLOCK, compress_type);
+    }
+    {
+        // JSON, DEFLATE
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "DEFLATE", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
+        EXPECT_EQ(TFileCompressType::DEFLATE, compress_type);
+    }
+    {
+        // JSON, unkonw
+        TFileFormatType::type format_type;
+        TFileCompressType::type compress_type;
+        LoadUtil::parse_format("JSON", "UNKNOWN", &format_type, &compress_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
         EXPECT_EQ(TFileCompressType::PLAIN, compress_type);
     }
     {

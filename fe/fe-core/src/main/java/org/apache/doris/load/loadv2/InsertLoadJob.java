@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
@@ -32,9 +31,9 @@ import org.apache.doris.load.FailMsg.CancelType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Set;
 
 /**
@@ -43,6 +42,9 @@ import java.util.Set;
  * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
  */
 public class InsertLoadJob extends LoadJob {
+
+    private static final Logger LOG = LogManager.getLogger(InsertLoadJob.class);
+
     @SerializedName("tid")
     private long tableId;
 
@@ -107,17 +109,15 @@ public class InsertLoadJob extends LoadJob {
         return Sets.newHashSet(name);
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        Table table = database.getTableOrMetaException(tableId);
-        return Sets.newHashSet(table.getName());
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        tableId = in.readLong();
+        try {
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            Table table = database.getTableOrMetaException(tableId);
+            return Sets.newHashSet(table.getName());
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
+        }
     }
 }

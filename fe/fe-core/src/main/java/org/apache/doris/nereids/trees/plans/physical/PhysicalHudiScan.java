@@ -26,7 +26,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -35,10 +35,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Physical Hudi scan for Hudi table.
@@ -46,7 +46,6 @@ import java.util.Set;
 public class PhysicalHudiScan extends PhysicalFileScan {
 
     // for hudi incremental read
-    private final Optional<TableScanParams> scanParams;
     private final Optional<IncrementalRelation> incrementalRelation;
 
     /**
@@ -54,15 +53,15 @@ public class PhysicalHudiScan extends PhysicalFileScan {
      */
     public PhysicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
-            LogicalProperties logicalProperties, Set<Expression> conjuncts,
+            LogicalProperties logicalProperties,
             SelectedPartitions selectedPartitions, Optional<TableSample> tableSample,
             Optional<TableSnapshot> tableSnapshot,
-            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+            Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
-                conjuncts, selectedPartitions, tableSample, tableSnapshot);
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
-        this.scanParams = scanParams;
         this.incrementalRelation = incrementalRelation;
     }
 
@@ -72,12 +71,13 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     public PhysicalHudiScan(RelationId id, ExternalTable table, List<String> qualifier,
             DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
-            Statistics statistics, Set<Expression> conjuncts, SelectedPartitions selectedPartitions,
+            Statistics statistics, SelectedPartitions selectedPartitions,
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
-            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+            Collection<Slot> operativeSlots) {
         super(id, PlanType.PHYSICAL_HUDI_SCAN, table, qualifier, distributionSpec, groupExpression, logicalProperties,
-                physicalProperties, statistics, conjuncts, selectedPartitions, tableSample, tableSnapshot);
-        this.scanParams = scanParams;
+                physicalProperties, statistics, selectedPartitions, tableSample, tableSnapshot,
+                operativeSlots, scanParams);
         this.incrementalRelation = incrementalRelation;
     }
 
@@ -92,25 +92,25 @@ public class PhysicalHudiScan extends PhysicalFileScan {
     @Override
     public PhysicalHudiScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), conjuncts, selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation);
+                groupExpression, getLogicalProperties(), selectedPartitions, tableSample, tableSnapshot,
+                scanParams, incrementalRelation, operativeSlots);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), conjuncts, selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation);
+                groupExpression, logicalProperties.get(), selectedPartitions, tableSample, tableSnapshot,
+                scanParams, incrementalRelation, operativeSlots);
     }
 
     @Override
     public PhysicalHudiScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return new PhysicalHudiScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, conjuncts,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics,
                 selectedPartitions, tableSample, tableSnapshot,
-                scanParams, incrementalRelation);
+                scanParams, incrementalRelation, operativeSlots);
     }
 
     @Override
@@ -124,7 +124,6 @@ public class PhysicalHudiScan extends PhysicalFileScan {
                 "qualified", Utils.qualifiedName(qualifier, table.getName()),
                 "output", getOutput(),
                 "stats", statistics,
-                "conjuncts", conjuncts,
                 "selected partitions num",
                 selectedPartitions.isPruned ? selectedPartitions.selectedPartitions.size() : "unknown",
                 "isIncremental", incrementalRelation.isPresent()

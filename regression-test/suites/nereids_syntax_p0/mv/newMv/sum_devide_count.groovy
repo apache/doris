@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("sum_devide_count") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS sum_devide_count; """
 
     sql """
@@ -31,67 +33,60 @@ suite ("sum_devide_count") {
         """
 
     sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
+    sql "insert into sum_devide_count select 1,1,1,'a';"
     sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 2,2,2,'b';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
+    sql "insert into sum_devide_count select 3,-3,null,'c';"
     sql "insert into sum_devide_count select 3,-3,null,'c';"
 
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
+    createMV ("create materialized view kavg as select k1 as a1,k4 as a2,sum(k2),count(k2) from sum_devide_count group by k1,k4;")
 
     sleep(3000)
 
     sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select -4,-4,-4,'d';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
+    sql "insert into sum_devide_count select 3,2,null,'c';"
     sql "insert into sum_devide_count select 3,2,null,'c';"
 
     sql "analyze table sum_devide_count with sync;"
+    sql """alter table sum_devide_count modify column k1 set stats ('row_count'='20');"""
+
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from sum_devide_count order by k1,k2,k3,k4;"
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;", "kavg")
     order_qt_select_mv "select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;"
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;", "kavg")
     order_qt_select_mv "select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;"
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;", "kavg")
     order_qt_select_mv "select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;"
 
-    explain {
-        sql("select sum(k2)/count(k2) from sum_devide_count;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from sum_devide_count;", "kavg")
     order_qt_select_mv "select sum(k2)/count(k2) from sum_devide_count;"
 
     sql """set enable_stats=true;"""
+    mv_rewrite_success("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;", "kavg")
 
-    explain {
-        sql("select k1,k4,sum(k2)/count(k2) from sum_devide_count group by k1,k4 order by k1,k4;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;", "kavg")
 
-    explain {
-        sql("select k1,sum(k2)/count(k2) from sum_devide_count group by k1 order by k1;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;", "kavg")
 
-    explain {
-        sql("select k4,sum(k2)/count(k2) from sum_devide_count group by k4 order by k4;")
-        contains "(kavg)"
-    }
-
-    explain {
-        sql("select sum(k2)/count(k2) from sum_devide_count;")
-        contains "(kavg)"
-    }
+    mv_rewrite_success("select sum(k2)/count(k2) from sum_devide_count;", "kavg")
 }

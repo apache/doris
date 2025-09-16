@@ -31,7 +31,15 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -44,6 +52,7 @@ import org.apache.commons.math3.util.Precision;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -72,7 +81,7 @@ class ExpressionEstimationTest {
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(0, estimated.minValue);
         Assertions.assertEquals(500, estimated.maxValue);
-        Assertions.assertEquals(1, estimated.ndv);
+        Assertions.assertEquals(500, estimated.ndv);
     }
 
     // MIN(a)
@@ -95,7 +104,7 @@ class ExpressionEstimationTest {
         ColumnStatistic estimated = ExpressionEstimation.estimate(max, stat);
         Assertions.assertEquals(0, estimated.minValue);
         Assertions.assertEquals(1000, estimated.maxValue);
-        Assertions.assertEquals(1, estimated.ndv);
+        Assertions.assertEquals(500, estimated.ndv);
     }
 
     // a + b
@@ -357,6 +366,7 @@ class ExpressionEstimationTest {
         CaseWhen caseWhen = new CaseWhen(whens);
         ColumnStatistic est = ExpressionEstimation.estimate(caseWhen, stats);
         Assertions.assertEquals(est.ndv, 100);
+        Assertions.assertEquals(est.avgSizeByte, 16);
     }
 
     @Test
@@ -383,5 +393,89 @@ class ExpressionEstimationTest {
         If ifClause = new If(BooleanLiteral.TRUE, a, b);
         ColumnStatistic est = ExpressionEstimation.estimate(ifClause, stats);
         Assertions.assertEquals(est.ndv, 100);
+        Assertions.assertEquals(est.avgSizeByte, 16);
+    }
+
+    @Test
+    public void testNonNullable() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(100)
+                .setMinExpr(new StringLiteral("2020-01-01"))
+                .setMinValue(20200101000000.0)
+                .setMaxExpr(new StringLiteral("2021abcdefg"))
+                .setNumNulls(10)
+                .setMaxValue(20210101000000.0);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stats = new Statistics(1000, slotToColumnStat);
+
+        ColumnStatistic est = ExpressionEstimation.estimate(a, stats);
+        Assertions.assertEquals(10, est.numNulls);
+
+        est = ExpressionEstimation.estimate(new NonNullable(a), stats);
+        Assertions.assertEquals(0, est.numNulls);
+    }
+
+    @Test
+    public void testLiteral() {
+        Statistics stats = new Statistics(1000, new HashMap<>());
+
+        BigIntLiteral l1 = new BigIntLiteral(1000000);
+        ColumnStatistic est = ExpressionEstimation.estimate(l1, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 8);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        VarcharLiteral l2 = new VarcharLiteral("abcdefghij");
+        est = ExpressionEstimation.estimate(l2, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 10);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        DoubleLiteral l3 = new DoubleLiteral(0.01);
+        est = ExpressionEstimation.estimate(l3, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 8);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        DateV2Literal l4 = new DateV2Literal("2024-09-10");
+        est = ExpressionEstimation.estimate(l4, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 4);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        DateTimeLiteral l5 = new DateTimeLiteral("2024-09-10 00:00:00");
+        est = ExpressionEstimation.estimate(l5, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 16);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        BooleanLiteral l6 = BooleanLiteral.TRUE;
+        est = ExpressionEstimation.estimate(l6, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 1);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        DecimalLiteral l7 = new DecimalLiteral(BigDecimal.valueOf(2024.0928));
+        est = ExpressionEstimation.estimate(l7, stats);
+        Assertions.assertEquals(est.ndv, 1);
+        Assertions.assertEquals(est.avgSizeByte, 16);
+        Assertions.assertEquals(est.numNulls, 0);
+
+        NullLiteral l8 = new NullLiteral();
+        est = ExpressionEstimation.estimate(l8, stats);
+        Assertions.assertEquals(est.ndv, 0);
+        Assertions.assertEquals(est.avgSizeByte, 1);
+        Assertions.assertEquals(est.numNulls, 1);
+    }
+
+    @Test
+    public void testThrowException() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        Cast cast = new Cast(a, DateType.INSTANCE);
+        // do not throw any exception
+        ColumnStatistic est = ExpressionEstimation.estimate(cast, null);
+        Assertions.assertTrue(est.isUnKnown());
     }
 }

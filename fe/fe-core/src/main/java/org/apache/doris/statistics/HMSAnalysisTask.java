@@ -26,6 +26,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.hive.HiveUtil;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Sets;
@@ -104,10 +105,11 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         for (String names : partitionNames) {
             // names is like "date=20230101" for one level partition
             // and like "date=20230101/hour=12" for two level partition
-            String[] parts = names.split("/");
-            for (String part : parts) {
-                if (part.startsWith(col.getName())) {
-                    String value = HiveUtil.getHivePartitionValue(part);
+            List<String[]> parts = HiveUtil.toPartitionColNameAndValues(names);
+            for (String[] part : parts) {
+                String colName = part[0];
+                String value = part[1];
+                if (colName != null && colName.equals(col.getName())) {
                     // HIVE_DEFAULT_PARTITION hive partition value when the partition name is not specified.
                     if (value == null || value.isEmpty() || value.equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
                         numNulls += 1;
@@ -221,6 +223,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         Pair<Double, Long> sampleInfo = getSampleInfo();
         params.put("scaleFactor", String.valueOf(sampleInfo.first));
+        params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
         if (LOG.isDebugEnabled()) {
             LOG.debug("Will do sample collection for column {}", col.getName());
         }
@@ -247,16 +250,15 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
             bucketFlag = true;
             sb.append(LINEAR_ANALYZE_TEMPLATE);
             params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
-            params.put("rowCount", "ROUND(count(1) * ${scaleFactor})");
+            params.put("rowCount", "ROUND(COUNT(1) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
         } else {
-            if (col.getType().isStringType()) {
-                sb.append(DUJ1_ANALYZE_STRING_TEMPLATE);
-            } else {
-                sb.append(DUJ1_ANALYZE_TEMPLATE);
-            }
+            sb.append(DUJ1_ANALYZE_TEMPLATE);
+            params.put("subStringColName", getStringTypeColName(col));
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
             params.put("ndvFunction", getNdvFunction("ROUND(SUM(t1.count) * ${scaleFactor})"));
             params.put("rowCount", "ROUND(SUM(t1.count) * ${scaleFactor})");
+            params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         }
         LOG.info("Sample for column [{}]. Scale factor [{}], "
                 + "limited [{}], is distribute column [{}]",

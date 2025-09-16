@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -46,13 +47,13 @@ public class ArrayDifference extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(SmallIntType.INSTANCE)).args(ArrayType.of(TinyIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(IntegerType.INSTANCE)).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(IntegerType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(ArrayType.of(BigIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(LargeIntType.INSTANCE)).args(ArrayType.of(LargeIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
             FunctionSignature.retArgType(0).args(ArrayType.of(DecimalV3Type.WILDCARD))
     );
@@ -64,13 +65,31 @@ public class ArrayDifference extends ScalarFunction
         super("array_difference", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayDifference(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_difference needs to calculate the difference of the elements in the array.
+     * so the element type must be numeric, boolean or string.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (child(0).getDataType().isArrayType()
+                && !((ArrayType) child(0).getDataType()).getItemType().canBeCalculatedInArray()) {
+            throw new AnalysisException("array_difference does not support type "
+                    + child(0).getDataType().toString() + ", expression is " + toSql());
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayDifference withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayDifference(children.get(0));
+        return new ArrayDifference(getFunctionParams(children));
     }
 
     @Override

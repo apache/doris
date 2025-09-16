@@ -34,15 +34,17 @@
 #include <new>
 #include <queue>
 #include <shared_mutex>
+#include <type_traits>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "io/hdfs_builder.h"
+#include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/pending_rowset_helper.h"
-#include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
@@ -53,15 +55,19 @@
 #include "olap/txn_manager.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "util/runtime_profile.h"
 #include "util/time.h"
 #include "vec/core/block.h"
+#include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exec/format/parquet/vparquet_reader.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 // Process push command, the main logical is as follows:
@@ -116,19 +122,12 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 "PushHandler::_do_streaming_ingestion input tablet is nullptr");
     }
 
-    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
-    if (!base_migration_rlock.owns_lock()) {
-        return Status::Error<TRY_LOCK_FAILED>(
-                "PushHandler::_do_streaming_ingestion get lock failed");
-    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    {
-        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-        RETURN_IF_ERROR(_engine.txn_manager()->prepare_txn(request.partition_id, *tablet,
-                                                           request.transaction_id, load_id));
-    }
+
+    RETURN_IF_ERROR(
+            tablet->prepare_txn(request.partition_id, request.transaction_id, load_id, false));
 
     // not call validate request here, because realtime load does not
     // contain version info
@@ -156,12 +155,28 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         }
     }
 
+    int32_t max_version_config = tablet->max_version_config();
     // check if version number exceed limit
-    if (tablet->exceed_version_limit(config::max_tablet_version_num)) {
+    if (tablet->exceed_version_limit(max_version_config)) {
         return Status::Status::Error<TOO_MANY_VERSION>(
-                "failed to push data. version count: {}, exceed limit: {}, tablet: {}",
-                tablet->version_count(), config::max_tablet_version_num, tablet->tablet_id());
+                "failed to push data. version count: {}, exceed limit: {}, tablet: {}. Please "
+                "reduce the frequency of loading data or adjust the max_tablet_version_num or "
+                "time_series_max_tablet_version_num in "
+                "be.conf to a larger value.",
+                tablet->version_count(), max_version_config, tablet->tablet_id());
     }
+
+    auto version_count = tablet->version_count() + tablet->stale_version_count();
+    if (tablet->avg_rs_meta_serialize_size() * version_count >
+        config::tablet_meta_serialize_size_limit) {
+        return Status::Error<TOO_MANY_VERSION>(
+                "failed to init rowset builder. meta serialize size : {}, exceed limit: {}, "
+                "tablet: {}. Please reduce the frequency of loading data or adjust the "
+                "max_tablet_version_num in be.conf to a larger value.",
+                tablet->avg_rs_meta_serialize_size() * version_count,
+                config::tablet_meta_serialize_size_limit, tablet->tablet_id());
+    }
+
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->copy_from(*tablet->tablet_schema());
     if (!request.columns_desc.empty() && request.columns_desc[0].col_unique_id >= 0) {
@@ -207,7 +222,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
 
 Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur_rowset,
                                 TabletSchemaSPtr tablet_schema, PushType push_type) {
-    Status res = Status::OK();
+    Status st = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -246,18 +261,18 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // init schema
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
             if (schema == nullptr) {
-                res = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
-                                                      cur_tablet->tablet_id());
+                st = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
+                                                     cur_tablet->tablet_id());
                 break;
             }
 
             // init Reader
             std::unique_ptr<PushBrokerReader> reader = PushBrokerReader::create_unique(
                     schema.get(), _request.broker_scan_range, _request.desc_tbl);
-            res = reader->init();
-            if (reader == nullptr || !res.ok()) {
-                res = Status::Error<PUSH_INIT_ERROR>("fail to init reader. res={}, tablet={}", res,
-                                                     cur_tablet->tablet_id());
+            st = reader->init();
+            if (reader == nullptr || !st.ok()) {
+                st = Status::Error<PUSH_INIT_ERROR>("fail to init reader. st={}, tablet={}", st,
+                                                    cur_tablet->tablet_id());
                 break;
             }
 
@@ -267,18 +282,18 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             // 4. Read data from broker and write into cur_tablet
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&block);
-                if (!res.ok()) {
+                st = reader->next(&block);
+                if (!st.ok()) {
                     LOG(WARNING) << "read next row failed."
-                                 << " res=" << res << " read_rows=" << num_rows;
+                                 << " st=" << st << " read_rows=" << num_rows;
                     break;
                 } else {
                     if (reader->eof()) {
                         break;
                     }
-                    if (!(res = rowset_writer->add_block(&block)).ok()) {
+                    if (!(st = rowset_writer->add_block(&block)).ok()) {
                         LOG(WARNING) << "fail to attach block to rowset_writer. "
-                                     << "res=" << res << ", tablet=" << cur_tablet->tablet_id()
+                                     << "st=" << st << ", tablet=" << cur_tablet->tablet_id()
                                      << ", read_rows=" << num_rows;
                         break;
                     }
@@ -290,16 +305,16 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             RETURN_IF_ERROR(reader->close());
         }
 
-        if (!res.ok()) {
+        if (!st.ok()) {
             break;
         }
 
-        if (!(res = rowset_writer->flush()).ok()) {
+        if (!(st = rowset_writer->flush()).ok()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
 
-        if (!(res = rowset_writer->build(*cur_rowset)).ok()) {
+        if (!(st = rowset_writer->build(*cur_rowset)).ok()) {
             LOG(WARNING) << "failed to build rowset";
             break;
         }
@@ -308,9 +323,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         _write_rows += (*cur_rowset)->num_rows();
     } while (false);
 
-    VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->tablet_id()
+    VLOG_TRACE << "convert delta file end. st=" << st << ", tablet=" << cur_tablet->tablet_id()
                << ", processed_rows" << num_rows;
-    return res;
+    return st;
 }
 
 PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
@@ -334,8 +349,12 @@ PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange&
     _file_params.expr_of_dest_slot = _params.expr_of_dest_slot;
     _file_params.dest_sid_to_src_sid_without_trans = _params.dest_sid_to_src_sid_without_trans;
     _file_params.strict_mode = _params.strict_mode;
-    _file_params.__isset.broker_addresses = true;
-    _file_params.broker_addresses = t_scan_range.broker_addresses;
+    if (_ranges[0].file_type == TFileType::FILE_HDFS) {
+        _file_params.hdfs_params = parse_properties(_params.properties);
+    } else {
+        _file_params.__isset.broker_addresses = true;
+        _file_params.broker_addresses = t_scan_range.broker_addresses;
+    }
 
     for (const auto& range : _ranges) {
         TFileRangeDesc file_range;
@@ -384,8 +403,10 @@ Status PushBrokerReader::init() {
     _runtime_profile->set_name("PushBrokerReader");
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
+    _file_reader_stats.reset(new io::FileReaderStats());
     _io_ctx.reset(new io::IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
+    _io_ctx->file_reader_stats = _file_reader_stats.get();
     _io_ctx->query_id = &_runtime_state->query_id();
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
@@ -432,15 +453,14 @@ Status PushBrokerReader::_init_src_block() {
         auto it = _name_to_col_type.find(slot->col_name());
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
-            data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                    slot->type(), slot->is_nullable());
+            data_type = slot->get_data_type_ptr();
         } else {
-            data_type = vectorized::DataTypeFactory::instance().create_data_type(it->second, true);
+            data_type = it->second;
         }
         if (data_type == nullptr) {
             return Status::NotSupported("Not support data type {} for column {}",
-                                        it == _name_to_col_type.end() ? slot->type().debug_string()
-                                                                      : it->second.debug_string(),
+                                        it == _name_to_col_type.end() ? slot->type()->get_name()
+                                                                      : it->second->get_name(),
                                         slot->col_name());
         }
         vectorized::MutableColumnPtr data_column = data_type->create_column();
@@ -453,28 +473,50 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             continue;
         }
-        if (slot_desc->type().is_variant_type()) {
+        if (slot_desc->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             continue;
         }
         auto& arg = _src_block_ptr->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
-        vectorized::ColumnsWithTypeAndName arguments {
-                arg,
-                {vectorized::DataTypeString().create_column_const(
-                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                 std::make_shared<vectorized::DataTypeString>(), ""}};
-        auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
-                "CAST", arguments, return_type);
         idx = _src_block_name_to_idx[slot_desc->col_name()];
-        RETURN_IF_ERROR(
-                func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
-        _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        // bitmap convert：src -> to_base64 -> bitmap_from_base64
+        if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
+            auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    PrimitiveType::TYPE_STRING, slot_desc->is_nullable());
+            auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "to_base64", {arg}, base64_return_type);
+            RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
+                                                    arg.column->size()));
+            _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
+            auto& arg_base64 = _src_block_ptr->get_by_name(slot_desc->col_name());
+            auto func_bitmap_from_base64 =
+                    vectorized::SimpleFunctionFactory::instance().get_function(
+                            "bitmap_from_base64", {arg_base64}, return_type);
+            RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
+                                                             arg_base64.column->size()));
+            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        } else {
+            vectorized::ColumnsWithTypeAndName arguments {
+                    arg,
+                    {vectorized::DataTypeString().create_column_const(
+                             arg.column->size(),
+                             vectorized::Field::create_field<TYPE_STRING>(
+                                     is_decimal(return_type->get_primitive_type())
+                                             ? "Decimal"
+                                             : remove_nullable(return_type)->get_family_name())),
+                     std::make_shared<vectorized::DataTypeString>(), ""}};
+            auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                    "CAST", arguments, return_type);
+            RETURN_IF_ERROR(
+                    func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
+            _src_block_ptr->get_by_position(idx).type = std::move(return_type);
+        }
     }
     return Status::OK();
 }
@@ -500,7 +542,7 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
         column_ptr = _src_block.get_by_position(result_column_id).column;
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
-        DCHECK(column_ptr != nullptr);
+        DCHECK(column_ptr);
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
@@ -542,7 +584,7 @@ Status PushBrokerReader::_init_expr_ctxes() {
 
     std::map<SlotId, SlotDescriptor*> src_slot_desc_map;
     std::unordered_map<SlotDescriptor*, int> src_slot_desc_to_index {};
-    for (int i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
+    for (size_t i = 0, len = src_tuple_desc->slots().size(); i < len; ++i) {
         auto* slot_desc = src_tuple_desc->slots()[i];
         src_slot_desc_to_index.emplace(slot_desc, i);
         src_slot_desc_map.emplace(slot_desc->id(), slot_desc);
@@ -622,12 +664,11 @@ Status PushBrokerReader::_get_next_reader() {
                         const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
                         _io_ctx.get(), _runtime_state.get());
 
-        RETURN_IF_ERROR(parquet_reader->open());
-        std::vector<std::string> place_holder;
         init_status = parquet_reader->init_reader(
-                _all_col_names, place_holder, _colname_to_value_range, _push_down_exprs,
-                _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
-                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts, false);
+                _all_col_names, _colname_to_value_range, _push_down_exprs, _real_tuple_desc,
+                _default_val_row_desc.get(), _col_name_to_slot_id,
+                &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
+                vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
@@ -649,4 +690,5 @@ Status PushBrokerReader::_get_next_reader() {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

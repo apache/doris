@@ -17,13 +17,17 @@
 
 #include "cloud/cloud_tablets_channel.h"
 
+#include <mutex>
+
 #include "cloud/cloud_delta_writer.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "olap/delta_writer.h"
 #include "runtime/tablets_channel.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CloudTabletsChannel::CloudTabletsChannel(CloudStorageEngine& engine, const TabletsChannelKey& key,
                                          const UniqueId& load_id, bool is_high_priority,
@@ -55,19 +59,28 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
-    std::unordered_map<int64_t, std::vector<uint32_t>> tablet_to_rowidxs;
+    std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     std::unordered_set<int64_t> partition_ids;
-    for (auto& [tablet_id, _] : tablet_to_rowidxs) {
-        auto tablet_writer_it = _tablet_writers.find(tablet_id);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+    std::vector<CloudDeltaWriter*> writers;
+    {
+        // add_batch may concurrency with inc_open but not under _lock.
+        // so need to protect it with _tablet_writers_lock.
+        std::lock_guard<std::mutex> l(_tablet_writers_lock);
+        for (auto& [tablet_id, _] : tablet_to_rowidxs) {
+            auto tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (tablet_writer_it == _tablet_writers.end()) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            }
+            partition_ids.insert(tablet_writer_it->second->partition_id());
+            writers.push_back(static_cast<CloudDeltaWriter*>(tablet_writer_it->second.get()));
         }
-        partition_ids.insert(tablet_writer_it->second->partition_id());
-    }
-    if (!partition_ids.empty()) {
-        RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+        if (config::skip_writing_empty_rowset_metadata && !writers.empty()) {
+            RETURN_IF_ERROR(CloudDeltaWriter::batch_init(writers));
+        } else if (!partition_ids.empty()) {
+            RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+        }
     }
 
     return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
@@ -124,7 +137,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     _state = kFinished;
 
     // All senders are closed
-    // 1. close all delta writers
+    // 1. close all delta writers. under _lock.
     std::vector<CloudDeltaWriter*> writers_to_commit;
     writers_to_commit.reserve(_tablet_writers.size());
     bool success = true;
@@ -248,7 +261,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         it++;
     }
 
-    tablet_vec->Reserve(writers_to_commit.size());
+    tablet_vec->Reserve(static_cast<int>(writers_to_commit.size()));
     for (auto* writer : writers_to_commit) {
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
@@ -264,4 +277,5 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

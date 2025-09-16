@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 } // namespace doris
 
@@ -40,7 +41,7 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _scanner_param.common_param = p._common_scanner_param;
     // init schema scanner profile
     _scanner_param.profile = std::make_unique<RuntimeProfile>("SchemaScanner");
-    profile()->add_child(_scanner_param.profile.get(), true, nullptr);
+    custom_profile()->add_child(_scanner_param.profile.get(), true, nullptr);
 
     // get src tuple desc
     const auto* schema_table =
@@ -48,18 +49,19 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // new one scanner
     _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
+    _schema_scanner->set_dependency(_data_dependency);
     if (nullptr == _schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+    return _schema_scanner->init(state, &_scanner_param, state->obj_pool());
 }
 
 Status SchemaScanLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
-    return _schema_scanner->start(state);
+    return _schema_scanner->get_next_block_async(state);
 }
 
 SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
@@ -119,20 +121,22 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         _common_scanner_param->catalog =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.catalog));
     }
-    return Status::OK();
-}
 
-Status SchemaScanOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::open(state));
-
-    if (_common_scanner_param->user) {
-        TSetSessionParams param;
-        param.__set_user(*_common_scanner_param->user);
-        //TStatus t_status;
-        //RETURN_IF_ERROR(SchemaJniHelper::set_session(param, &t_status));
-        //RETURN_IF_ERROR(Status(t_status));
+    if (tnode.schema_scan_node.__isset.fe_addr_list) {
+        for (const auto& fe_addr : tnode.schema_scan_node.fe_addr_list) {
+            _common_scanner_param->fe_addr_list.insert(fe_addr);
+        }
+    } else if (tnode.schema_scan_node.__isset.ip && tnode.schema_scan_node.__isset.port) {
+        TNetworkAddress fe_addr;
+        fe_addr.hostname = tnode.schema_scan_node.ip;
+        fe_addr.port = tnode.schema_scan_node.port;
+        _common_scanner_param->fe_addr_list.insert(fe_addr);
     }
 
+    if (tnode.schema_scan_node.__isset.frontend_conjuncts) {
+        _common_scanner_param->frontend_conjuncts =
+                state->obj_pool()->add(new std::string(tnode.schema_scan_node.frontend_conjuncts));
+    }
     return Status::OK();
 }
 
@@ -146,7 +150,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
-    _slot_num = _dest_tuple_desc->slots().size();
+    _slot_num = cast_set<int>(_dest_tuple_desc->slots().size());
     // get src tuple desc
     const auto* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
@@ -156,13 +160,14 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     }
 
     // new one scanner
-    _schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
+    auto temp_schema_scanner = SchemaScanner::create(schema_table->schema_table_type());
 
-    if (nullptr == _schema_scanner) {
+    if (nullptr == temp_schema_scanner) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(
+            temp_schema_scanner->get_column_desc());
 
     // if src columns size is zero, it's the dummy slots.
     if (columns_desc.empty()) {
@@ -183,11 +188,11 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
                                          _dest_tuple_desc->slots()[i]->col_name());
         }
 
-        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
-            return Status::InternalError("schema not match. input is {}({}) and output is {}({})",
-                                         columns_desc[j].name, type_to_string(columns_desc[j].type),
-                                         _dest_tuple_desc->slots()[i]->col_name(),
-                                         type_to_string(_dest_tuple_desc->slots()[i]->type().type));
+        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type()->get_primitive_type()) {
+            return Status::InternalError(
+                    "schema not match. input is {}({}) and output is {}({})", columns_desc[j].name,
+                    type_to_string(columns_desc[j].type), _dest_tuple_desc->slots()[i]->col_name(),
+                    type_to_string(_dest_tuple_desc->slots()[i]->type()->get_primitive_type()));
         }
     }
 
@@ -217,17 +222,20 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
         // src block columns desc is filled by schema_scanner->get_column_desc.
         vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
-            TypeDescriptor descriptor(columns_desc[i].type);
-            auto data_type =
-                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
+                    columns_desc[i].type, true);
             src_block.insert(vectorized::ColumnWithTypeAndName(data_type->create_column(),
                                                                data_type, columns_desc[i].name));
         }
         while (true) {
             RETURN_IF_CANCELLED(state);
 
+            if (local_state._data_dependency->is_blocked_by()) {
+                break;
+            }
             // get all slots from schema table.
-            RETURN_IF_ERROR(local_state._schema_scanner->get_next_block(&src_block, &schema_eos));
+            RETURN_IF_ERROR(
+                    local_state._schema_scanner->get_next_block(state, &src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;
@@ -249,8 +257,8 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
                         *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
                         src_block.rows());
             }
-            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                    local_state._conjuncts, block, _dest_tuple_desc->slots().size()));
+            RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block,
+                                                     _dest_tuple_desc->slots().size()));
             src_block.clear();
         }
     } while (block->rows() == 0 && !*eos);
@@ -259,4 +267,5 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

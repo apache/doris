@@ -20,6 +20,9 @@
 // and modified by Doris.
 
 suite("test_create_mv") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     def tableName = "test_mv_10010"
 
     def getJobState = { table ->
@@ -49,12 +52,14 @@ suite("test_create_mv") {
 
     sql """ insert into ${tableName} values ('2024-03-20 10:00:00', 'a', 'b', 1) """
 
+    sql """alter table test_mv_10010 modify column load_time set stats ('row_count'='1');"""
+
     sql """
         create materialized view mv_1 as
         select 
           date_trunc(load_time, 'minute'),
-          id,
-          class,
+          id as a1,
+          class as a2,
           count(id) as total,
           min(result) as min_result,
           sum(result) as max_result
@@ -65,7 +70,7 @@ suite("test_create_mv") {
 
     sql """ SHOW ALTER TABLE MATERIALIZED VIEW """
 
-    max_try_secs = 60
+    def max_try_secs = 60
     while (max_try_secs--) {
         String res = getJobState(tableName)
         if (res == "FINISHED" || res == "CANCELLED") {

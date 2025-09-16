@@ -20,6 +20,7 @@ package org.apache.doris.common;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,6 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -72,10 +74,24 @@ public class ConfigBase {
         void handle(Field field, String confVal) throws Exception;
     }
 
-    static class DefaultConfHandler implements ConfHandler {
+    public static class DefaultConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
             setConfigField(field, confVal);
+        }
+    }
+
+    static class CommaSeparatedIntersectConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String newVal) throws Exception {
+            String oldVal = String.valueOf(field.get(null));
+            Set<String> oldSets = Sets.newHashSet(oldVal.split(","));
+            Set<String> newSets = Sets.newHashSet(newVal.split(","));
+            if (!oldSets.removeAll(newSets)) {
+                throw new ConfigException("Config '" + field.getName()
+                    + "' must have intersection between the configs");
+            }
+            setConfigField(field, newVal);
         }
     }
 
@@ -121,6 +137,10 @@ public class ConfigBase {
             }
             initConf(ldapConfFile);
         }
+    }
+
+    public static Field getField(String name) {
+        return confFields.get(name);
     }
 
     public void initCustom(String customConfFile) throws Exception {

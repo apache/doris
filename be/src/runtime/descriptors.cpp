@@ -25,95 +25,141 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <stddef.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
-#include <memory>
 
+#include "common/exception.h"
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_nothing.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_struct.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
         : _id(tdesc.id),
-          _type(TypeDescriptor::from_thrift(tdesc.slotType)),
+          _type(vectorized::DataTypeFactory::instance().create_data_type(
+                  tdesc.slotType, tdesc.nullIndicatorBit != -1)),
           _parent(tdesc.parent),
           _col_pos(tdesc.columnPos),
-          _is_nullable(tdesc.nullIndicatorBit != -1),
           _col_name(tdesc.colName),
           _col_name_lower_case(to_lower(tdesc.colName)),
           _col_unique_id(tdesc.col_unique_id),
-          _col_type(thrift_to_type(tdesc.primitive_type)),
           _slot_idx(tdesc.slotIdx),
           _field_idx(-1),
-          _is_materialized(tdesc.isMaterialized),
+          _is_materialized(tdesc.isMaterialized && tdesc.need_materialize),
           _is_key(tdesc.is_key),
-          _need_materialize(tdesc.need_materialize),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
-          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
+    if (tdesc.__isset.virtual_column_expr) {
+        // Make sure virtual column is valid.
+        if (tdesc.virtual_column_expr.nodes.empty()) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is empty, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
+        const auto& node = tdesc.virtual_column_expr.nodes[0];
+        if (node.node_type == TExprNodeType::SLOT_REF) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is slot ref, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
+        this->virtual_column_expr = std::make_shared<doris::TExpr>(tdesc.virtual_column_expr);
+    }
+}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
-          _type(TypeDescriptor::from_protobuf(pdesc.slot_type())),
+          _type(vectorized::DataTypeFactory::instance().create_data_type(
+                  pdesc.slot_type(), pdesc.null_indicator_bit() != -1)),
           _parent(pdesc.parent()),
           _col_pos(pdesc.column_pos()),
-          _is_nullable(pdesc.null_indicator_bit() != -1),
           _col_name(pdesc.col_name()),
           _col_name_lower_case(to_lower(pdesc.col_name())),
           _col_unique_id(pdesc.col_unique_id()),
-          _col_type(static_cast<PrimitiveType>(pdesc.col_type())),
           _slot_idx(pdesc.slot_idx()),
           _field_idx(-1),
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
-          _need_materialize(true),
           _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
+
+#ifdef BE_TEST
+SlotDescriptor::SlotDescriptor()
+        : _id(0),
+          _type(nullptr),
+          _parent(0),
+          _col_pos(0),
+          _col_unique_id(0),
+          _slot_idx(0),
+          _field_idx(-1),
+          _is_materialized(true),
+          _is_key(false),
+          _is_auto_increment(false) {}
+#endif
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
     pslot->set_parent(_parent);
-    _type.to_protobuf(pslot->mutable_slot_type());
+    _type->to_protobuf(pslot->mutable_slot_type());
     pslot->set_column_pos(_col_pos);
     pslot->set_byte_offset(0);
     pslot->set_null_indicator_byte(0);
-    pslot->set_null_indicator_bit(_is_nullable ? 0 : -1);
+    pslot->set_null_indicator_bit(_type->is_nullable() ? 0 : -1);
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
     pslot->set_col_unique_id(_col_unique_id);
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
-    pslot->set_col_type(_col_type);
+    pslot->set_col_type(_type->get_primitive_type());
     for (const std::string& path : _column_paths) {
         pslot->add_column_paths(path);
     }
 }
 
-vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
-    auto data_type = get_data_type_ptr();
-    if (data_type) {
-        return data_type->create_column();
-    }
-    return nullptr;
+vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
+    return vectorized::get_data_type_with_default_argument(type());
 }
 
-vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
-    return vectorized::DataTypeFactory::instance().create_data_type(type(), is_nullable());
+vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    if (this->get_virtual_column_expr() != nullptr) {
+        return vectorized::ColumnNothing::create(0);
+    }
+
+    return type()->create_column();
+}
+
+bool SlotDescriptor::is_nullable() const {
+    return _type->is_nullable();
+}
+
+PrimitiveType SlotDescriptor::col_type() const {
+    return _type->get_primitive_type();
 }
 
 std::string SlotDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
-        << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
-    return out.str();
+    const bool is_virtual = this->get_virtual_column_expr() != nullptr;
+    return fmt::format(
+            "SlotDescriptor(id={}, type={}, col_name={}, col_unique_id={}, "
+            "is_virtual={})",
+            _id, _type->get_name(), _col_name, _col_unique_id, is_virtual);
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
@@ -135,6 +181,15 @@ OlapTableDescriptor::OlapTableDescriptor(const TTableDescriptor& tdesc) : TableD
 std::string OlapTableDescriptor::debug_string() const {
     std::stringstream out;
     out << "OlapTable(" << TableDescriptor::debug_string() << ")";
+    return out.str();
+}
+
+DictionaryTableDescriptor::DictionaryTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc) {}
+
+std::string DictionaryTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "Dictionary(" << TableDescriptor::debug_string() << ")";
     return out.str();
 }
 
@@ -189,7 +244,21 @@ MaxComputeTableDescriptor::MaxComputeTableDescriptor(const TTableDescriptor& tde
           _tunnel_url(tdesc.mcTable.tunnel_url),
           _access_key(tdesc.mcTable.access_key),
           _secret_key(tdesc.mcTable.secret_key),
-          _public_access(tdesc.mcTable.public_access) {}
+          _public_access(tdesc.mcTable.public_access) {
+    if (tdesc.mcTable.__isset.endpoint) {
+        _endpoint = tdesc.mcTable.endpoint;
+    } else {
+        _init_status = Status::InvalidArgument(
+                "fail to init MaxComputeTableDescriptor, missing endpoint.");
+    }
+
+    if (tdesc.mcTable.__isset.quota) {
+        _quota = tdesc.mcTable.quota;
+    } else {
+        _init_status =
+                Status::InvalidArgument("fail to init MaxComputeTableDescriptor, missing quota.");
+    }
+}
 
 MaxComputeTableDescriptor::~MaxComputeTableDescriptor() = default;
 
@@ -235,25 +304,6 @@ std::string MySQLTableDescriptor::debug_string() const {
     out << "MySQLTable(" << TableDescriptor::debug_string() << " _db" << _mysql_db
         << " table=" << _mysql_table << " host=" << _host << " port=" << _port << " user=" << _user
         << " passwd=" << _passwd << " charset=" << _charset;
-    return out.str();
-}
-
-ODBCTableDescriptor::ODBCTableDescriptor(const TTableDescriptor& tdesc)
-        : TableDescriptor(tdesc),
-          _db(tdesc.odbcTable.db),
-          _table(tdesc.odbcTable.table),
-          _host(tdesc.odbcTable.host),
-          _port(tdesc.odbcTable.port),
-          _user(tdesc.odbcTable.user),
-          _passwd(tdesc.odbcTable.passwd),
-          _driver(tdesc.odbcTable.driver),
-          _type(tdesc.odbcTable.type) {}
-
-std::string ODBCTableDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "ODBCTable(" << TableDescriptor::debug_string() << " _db" << _db << " table=" << _table
-        << " host=" << _host << " port=" << _port << " user=" << _user << " passwd=" << _passwd
-        << " driver=" << _driver << " type" << _type;
     return out.str();
 }
 
@@ -309,7 +359,9 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     if (slot->is_materialized()) {
         ++_num_materialized_slots;
 
-        if (slot->type().is_string_type() || slot->type().is_collection_type()) {
+        if (is_complex_type(slot->type()->get_primitive_type()) ||
+            is_var_len_object(slot->type()->get_primitive_type()) ||
+            is_string_type(slot->type()->get_primitive_type())) {
             _has_varlen_slots = true;
         }
     }
@@ -371,7 +423,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
-    _num_slots = tuple_desc->slots().size();
+    _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -506,7 +558,7 @@ int RowDescriptor::get_column_id(int slot_id, bool force_materialize_slot) const
     int column_id_counter = 0;
     for (auto* const tuple_desc : _tuple_desc_map) {
         for (auto* const slot : tuple_desc->slots()) {
-            if (!force_materialize_slot && !slot->need_materialize()) {
+            if (!force_materialize_slot && !slot->is_materialized()) {
                 continue;
             }
             if (slot->id() == slot_id) {
@@ -529,10 +581,6 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         switch (tdesc.tableType) {
         case TTableType::MYSQL_TABLE:
             desc = pool->add(new MySQLTableDescriptor(tdesc));
-            break;
-
-        case TTableType::ODBC_TABLE:
-            desc = pool->add(new ODBCTableDescriptor(tdesc));
             break;
 
         case TTableType::OLAP_TABLE:
@@ -563,11 +611,14 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         case TTableType::TRINO_CONNECTOR_TABLE:
             desc = pool->add(new TrinoConnectorTableDescriptor(tdesc));
             break;
+        case TTableType::DICTIONARY_TABLE:
+            desc = pool->add(new DictionaryTableDescriptor(tdesc));
+            break;
         default:
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
         }
 
-        (*tbl)->_tbl_desc_map[tdesc.id] = desc;
+        (*tbl)->_tbl_desc_map[static_cast<int32_t>(tdesc.id)] = desc;
     }
 
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {
@@ -575,7 +626,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
 
         // fix up table pointer
         if (tdesc.__isset.tableId) {
-            desc->_table_desc = (*tbl)->get_table_descriptor(tdesc.tableId);
+            desc->_table_desc = (*tbl)->get_table_descriptor(static_cast<int32_t>(tdesc.tableId));
             DCHECK(desc->_table_desc != nullptr);
         }
 
@@ -642,5 +693,5 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

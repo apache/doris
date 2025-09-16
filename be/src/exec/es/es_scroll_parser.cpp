@@ -17,9 +17,9 @@
 
 #include "exec/es/es_scroll_parser.h"
 
+#include <absl/strings/substitute.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
-#include <gutil/strings/substitute.h>
 #include <rapidjson/allocators.h>
 #include <rapidjson/encodings.h>
 #include <stdint.h>
@@ -32,7 +32,6 @@
 #include <string>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
@@ -48,9 +47,12 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/field.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static const char* FIELD_SCROLL_ID = "_scroll_id";
 static const char* FIELD_HITS = "hits";
@@ -100,9 +102,9 @@ static const std::string ERROR_COL_DATA_IS_ARRAY =
 static const std::string INVALID_NULL_VALUE =
         "Invalid null value occurs: Non-null column `$0` contains NULL";
 
-#define RETURN_ERROR_IF_COL_IS_ARRAY(col, type)                              \
+#define RETURN_ERROR_IF_COL_IS_ARRAY(col, type, is_array)                    \
     do {                                                                     \
-        if (col.IsArray()) {                                                 \
+        if (col.IsArray() == is_array) {                                     \
             std::stringstream ss;                                            \
             ss << "Expected value of type: " << type_to_string(type)         \
                << "; but found type: " << json_type_to_string(col.GetType()) \
@@ -167,7 +169,7 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -186,11 +188,12 @@ Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot
     return Status::OK();
 }
 
-template <typename T, typename RT>
+template <PrimitiveType T>
 Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
-                          RT* slot, const cctz::time_zone& time_zone) {
-    constexpr bool is_datetime_v1 = std::is_same_v<T, VecDateTimeValue>;
-    T dt_val;
+                          typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
+                          const cctz::time_zone& time_zone) {
+    constexpr bool is_datetime_v1 = T == TYPE_DATE || T == TYPE_DATETIME;
+    typename PrimitiveTypeTraits<T>::CppType dt_val;
     if (is_date_str) {
         const std::string str_date = col.GetString();
         int str_length = col.GetStringLength();
@@ -199,7 +202,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             std::chrono::system_clock::time_point tp;
             // time_zone suffix pattern
             // Z/+08:00/-04:30
-            RE2 time_zone_pattern(R"([+-]\d{2}:\d{2}|Z)");
+            RE2 time_zone_pattern(R"([+-]\d{2}:?\d{2}|Z)");
             bool ok = false;
             std::string fmt;
             re2::StringPiece value;
@@ -268,19 +271,23 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
     }
 
-    *reinterpret_cast<RT*>(slot) = binary_cast<T, RT>(*reinterpret_cast<T*>(&dt_val));
+    *reinterpret_cast<typename PrimitiveTypeTraits<T>::ColumnItemType*>(slot) =
+            binary_cast<typename PrimitiveTypeTraits<T>::CppType,
+                        typename PrimitiveTypeTraits<T>::ColumnItemType>(
+                    *reinterpret_cast<typename PrimitiveTypeTraits<T>::CppType*>(&dt_val));
     return Status::OK();
 }
 
-template <typename T, typename RT>
-Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value, RT* slot,
+template <PrimitiveType T>
+Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                    typename PrimitiveTypeTraits<T>::ColumnItemType* slot,
                     const cctz::time_zone& time_zone) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
         // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
         // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(col, type, false, slot, time_zone);
+        return get_date_value_int<T>(col, type, false, slot, time_zone);
     } else if (col.IsArray() && pure_doc_value && !col.Empty()) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
@@ -288,22 +295,22 @@ Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_d
         // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
         // date field's docvalue
         if (col[0].IsString()) {
-            return get_date_value_int<T, RT>(col[0], type, true, slot, time_zone);
+            return get_date_value_int<T>(col[0], type, true, slot, time_zone);
         }
         // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(col[0], type, false, slot, time_zone);
+        return get_date_value_int<T>(col[0], type, false, slot, time_zone);
     } else {
         // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-        RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+        RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
         RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-        return get_date_value_int<T, RT>(col, type, true, slot, time_zone);
+        return get_date_value_int<T>(col, type, true, slot, time_zone);
     }
 }
-template <typename T, typename RT>
+template <PrimitiveType T>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
                      vectorized::IColumn* col_ptr, const cctz::time_zone& time_zone) {
-    RT data;
-    RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data, time_zone)));
+    typename PrimitiveTypeTraits<T>::ColumnItemType data;
+    RETURN_IF_ERROR((get_date_int<T>(col, type, pure_doc_value, &data, time_zone)));
     col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
     return Status::OK();
 }
@@ -322,7 +329,7 @@ Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* sl
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -351,7 +358,7 @@ Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
 
     StringParser::ParseResult result;
@@ -383,31 +390,202 @@ Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
         return Status::OK();
     }
 
+    auto parse_and_insert_data = [&](const rapidjson::Value& col_value) -> Status {
+        StringParser::ParseResult result;
+        std::string val = col_value.GetString();
+        // ES allows inserting numbers and characters containing decimals in numeric types.
+        // To parse these numbers in Doris, we remove the decimals here.
+        size_t pos = val.find('.');
+        if (pos != std::string::npos) {
+            val = val.substr(0, pos);
+        }
+        size_t len = val.length();
+        T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
+        RETURN_ERROR_IF_PARSING_FAILED(result, col_value, type);
+
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
+        return Status::OK();
+    };
+
     if (pure_doc_value && col.IsArray() && !col.Empty()) {
-        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
-        T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+        if (col[0].IsNumber()) {
+            T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+            return Status::OK();
+        } else {
+            RETURN_ERROR_IF_COL_IS_ARRAY(col[0], type, true);
+            RETURN_ERROR_IF_COL_IS_NOT_STRING(col[0], type);
+            return parse_and_insert_data(col[0]);
+        }
+    }
+
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+    return parse_and_insert_data(col);
+}
+
+template <PrimitiveType T>
+Status handle_value(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
+                    typename PrimitiveTypeTraits<T>::ColumnItemType& val) {
+    if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT || T == TYPE_BIGINT ||
+                  T == TYPE_LARGEINT) {
+        RETURN_IF_ERROR(get_int_value<typename PrimitiveTypeTraits<T>::ColumnItemType>(
+                col, sub_type, &val, pure_doc_value));
         return Status::OK();
     }
-
-    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-    StringParser::ParseResult result;
-    std::string val = col.GetString();
-    // ES allows inserting numbers and characters containing decimals in numeric types.
-    // To parse these numbers in Doris, we remove the decimals here.
-    size_t pos = val.find(".");
-    if (pos != std::string::npos) {
-        val = val.substr(0, pos);
+    if constexpr (T == TYPE_FLOAT) {
+        RETURN_IF_ERROR(get_float_value<float>(col, sub_type, &val, pure_doc_value));
+        return Status::OK();
     }
-    size_t len = val.length();
-    T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
+    if constexpr (T == TYPE_DOUBLE) {
+        RETURN_IF_ERROR(get_float_value<double>(col, sub_type, &val, pure_doc_value));
+        return Status::OK();
+    }
+    if constexpr (T == TYPE_STRING || T == TYPE_CHAR || T == TYPE_VARCHAR) {
+        RETURN_ERROR_IF_COL_IS_ARRAY(col, sub_type, true);
+        if (!col.IsString()) {
+            val = json_value_to_string(col);
+        } else {
+            val = col.GetString();
+        }
+        return Status::OK();
+    }
+    if constexpr (T == TYPE_BOOLEAN) {
+        if (col.IsBool()) {
+            val = col.GetBool();
+            return Status::OK();
+        }
 
-    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
+        if (col.IsNumber()) {
+            val = static_cast<typename PrimitiveTypeTraits<T>::ColumnItemType>(col.GetInt());
+            return Status::OK();
+        }
 
+        bool is_nested_str = false;
+        if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsBool()) {
+            val = col[0].GetBool();
+            return Status::OK();
+        } else if (pure_doc_value && col.IsArray() && !col.Empty() && col[0].IsString()) {
+            is_nested_str = true;
+        } else if (pure_doc_value && col.IsArray()) {
+            return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
+        }
+
+        const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+        const std::string& str_val = str_col.GetString();
+        size_t val_size = str_col.GetStringLength();
+        StringParser::ParseResult result;
+        val = StringParser::string_to_bool(str_val.c_str(), val_size, &result);
+        RETURN_ERROR_IF_PARSING_FAILED(result, str_col, sub_type);
+        return Status::OK();
+    }
+    throw Exception(ErrorCode::INTERNAL_ERROR, "Un-supported type: {}", type_to_string(T));
+}
+
+template <PrimitiveType T>
+Status process_single_column(const rapidjson::Value& col, PrimitiveType sub_type,
+                             bool pure_doc_value, vectorized::Array& array) {
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    RETURN_IF_ERROR(handle_value<T>(col, sub_type, pure_doc_value, val));
+    array.push_back(vectorized::Field::create_field<T>(val));
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status process_column_array(const rapidjson::Value& col, PrimitiveType sub_type,
+                            bool pure_doc_value, vectorized::Array& array) {
+    for (const auto& sub_col : col.GetArray()) {
+        RETURN_IF_ERROR(process_single_column<T>(sub_col, sub_type, pure_doc_value, array));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status process_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
+                      vectorized::Array& array) {
+    if (!col.IsArray()) {
+        return process_single_column<T>(col, sub_type, pure_doc_value, array);
+    } else {
+        return process_column_array<T>(col, sub_type, pure_doc_value, array);
+    }
+}
+
+template <PrimitiveType T>
+Status process_date_column(const rapidjson::Value& col, PrimitiveType sub_type, bool pure_doc_value,
+                           vectorized::Array& array, const cctz::time_zone& time_zone) {
+    if (!col.IsArray()) {
+        typename PrimitiveTypeTraits<T>::ColumnItemType data;
+        RETURN_IF_ERROR((get_date_int<T>(col, sub_type, pure_doc_value, &data, time_zone)));
+        array.push_back(vectorized::Field::create_field<T>(data));
+    } else {
+        for (const auto& sub_col : col.GetArray()) {
+            typename PrimitiveTypeTraits<T>::ColumnItemType data;
+            RETURN_IF_ERROR((get_date_int<T>(sub_col, sub_type, pure_doc_value, &data, time_zone)));
+            array.push_back(vectorized::Field::create_field<T>(data));
+        }
+    }
+    return Status::OK();
+}
+
+Status process_jsonb_column(const rapidjson::Value& col, PrimitiveType sub_type,
+                            bool pure_doc_value, vectorized::Array& array) {
+    if (!col.IsArray()) {
+        JsonBinaryValue jsonb_value;
+        RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
+        vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+        array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
+    } else {
+        for (const auto& sub_col : col.GetArray()) {
+            JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(sub_col)));
+            vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+            array.push_back(vectorized::Field::create_field<TYPE_JSONB>(json));
+        }
+    }
+    return Status::OK();
+}
+
+Status ScrollParser::parse_column(const rapidjson::Value& col, PrimitiveType sub_type,
+                                  bool pure_doc_value, vectorized::Array& array,
+                                  const cctz::time_zone& time_zone) {
+    switch (sub_type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+        return process_column<TYPE_STRING>(col, sub_type, pure_doc_value, array);
+    case TYPE_TINYINT:
+        return process_column<TYPE_TINYINT>(col, sub_type, pure_doc_value, array);
+    case TYPE_SMALLINT:
+        return process_column<TYPE_SMALLINT>(col, sub_type, pure_doc_value, array);
+    case TYPE_INT:
+        return process_column<TYPE_INT>(col, sub_type, pure_doc_value, array);
+    case TYPE_BIGINT:
+        return process_column<TYPE_BIGINT>(col, sub_type, pure_doc_value, array);
+    case TYPE_LARGEINT:
+        return process_column<TYPE_LARGEINT>(col, sub_type, pure_doc_value, array);
+    case TYPE_FLOAT:
+        return process_column<TYPE_FLOAT>(col, sub_type, pure_doc_value, array);
+    case TYPE_DOUBLE:
+        return process_column<TYPE_DOUBLE>(col, sub_type, pure_doc_value, array);
+    case TYPE_BOOLEAN:
+        return process_column<TYPE_BOOLEAN>(col, sub_type, pure_doc_value, array);
+    // date/datetime v2 is the default type for catalog table,
+    // see https://github.com/apache/doris/pull/16304
+    // No need to support date and datetime types.
+    case TYPE_DATEV2: {
+        return process_date_column<TYPE_DATEV2>(col, sub_type, pure_doc_value, array, time_zone);
+    }
+    case TYPE_DATETIMEV2: {
+        return process_date_column<TYPE_DATETIMEV2>(col, sub_type, pure_doc_value, array,
+                                                    time_zone);
+    }
+    case TYPE_JSONB: {
+        return process_jsonb_column(col, sub_type, pure_doc_value, array);
+    }
+    default:
+        LOG(ERROR) << "Do not support Array type: " << sub_type;
+        return Status::InternalError("Unsupported type");
+    }
 }
 
 ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
@@ -509,21 +687,21 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 nullable_column->insert_data(nullptr, 0);
                 continue;
             } else {
-                std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+                std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
                 return Status::RuntimeError(details);
             }
         }
 
         const rapidjson::Value& col = (*line)[col_name];
 
-        PrimitiveType type = slot_desc->type().type;
+        auto type = slot_desc->type()->get_primitive_type();
 
         // when the column value is null, the subsequent type casting will report an error
         if (col.IsNull() && slot_desc->is_nullable()) {
             col_ptr->insert_data(nullptr, 0);
             continue;
         } else if (col.IsNull() && !slot_desc->is_nullable()) {
-            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+            std::string details = absl::Substitute(INVALID_NULL_VALUE, col_name);
             return Status::RuntimeError(details);
         }
         switch (type) {
@@ -543,7 +721,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     val = col[0].GetString();
                 }
             } else {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
                 if (!col.IsString()) {
                     val = json_value_to_string(col);
                 } else {
@@ -568,8 +746,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_INT: {
-            RETURN_IF_ERROR(insert_int_value<int32>(col, type, col_ptr, pure_doc_value,
-                                                    slot_desc->is_nullable()));
+            RETURN_IF_ERROR(insert_int_value<int32_t>(col, type, col_ptr, pure_doc_value,
+                                                      slot_desc->is_nullable()));
             break;
         }
 
@@ -605,7 +783,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             }
 
             if (col.IsNumber()) {
-                int8_t val = col.GetInt();
+                int8_t val = static_cast<int8_t>(col.GetInt());
                 col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
                 break;
             }
@@ -623,7 +801,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
 
-            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+            RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
 
             const std::string& val = str_col.GetString();
             size_t val_size = str_col.GetStringLength();
@@ -649,161 +827,52 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                         val = col[0].GetString();
                     }
                 } else {
-                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
                     if (!col.IsString()) {
                         val = json_value_to_string(col);
                     } else {
                         val = col.GetString();
                     }
                 }
-                data.parse_from_str(val.data(), val.length());
+                data.parse_from_str(val.data(), static_cast<int32_t>(val.length()));
             }
             col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
             break;
         }
 
         case TYPE_DATE:
+            RETURN_IF_ERROR(
+                    fill_date_int<TYPE_DATE>(col, type, pure_doc_value, col_ptr, time_zone));
+            break;
         case TYPE_DATETIME:
-            RETURN_IF_ERROR((fill_date_int<VecDateTimeValue, int64_t>(col, type, pure_doc_value,
-                                                                      col_ptr, time_zone)));
+            RETURN_IF_ERROR(
+                    fill_date_int<TYPE_DATETIME>(col, type, pure_doc_value, col_ptr, time_zone));
             break;
         case TYPE_DATEV2:
-            RETURN_IF_ERROR((fill_date_int<DateV2Value<DateV2ValueType>, uint32_t>(
-                    col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR(
+                    fill_date_int<TYPE_DATEV2>(col, type, pure_doc_value, col_ptr, time_zone));
             break;
         case TYPE_DATETIMEV2: {
-            RETURN_IF_ERROR((fill_date_int<DateV2Value<DateTimeV2ValueType>, uint64_t>(
-                    col, type, pure_doc_value, col_ptr, time_zone)));
+            RETURN_IF_ERROR(
+                    fill_date_int<TYPE_DATETIMEV2>(col, type, pure_doc_value, col_ptr, time_zone));
             break;
         }
         case TYPE_ARRAY: {
             vectorized::Array array;
-            const auto& sub_type = tuple_desc->slots()[i]->type().children[0].type;
-            for (auto& sub_col : col.GetArray()) {
-                switch (sub_type) {
-                case TYPE_CHAR:
-                case TYPE_VARCHAR:
-                case TYPE_STRING: {
-                    std::string val;
-                    RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
-                    if (!sub_col.IsString()) {
-                        val = json_value_to_string(sub_col);
-                    } else {
-                        val = sub_col.GetString();
-                    }
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_TINYINT: {
-                    int8_t val;
-                    RETURN_IF_ERROR(get_int_value<int8_t>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_SMALLINT: {
-                    int16_t val;
-                    RETURN_IF_ERROR(
-                            get_int_value<int16_t>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_INT: {
-                    int32 val;
-                    RETURN_IF_ERROR(get_int_value<int32>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_BIGINT: {
-                    int64_t val;
-                    RETURN_IF_ERROR(
-                            get_int_value<int64_t>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_LARGEINT: {
-                    __int128 val;
-                    RETURN_IF_ERROR(
-                            get_int_value<__int128>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_FLOAT: {
-                    float val {};
-                    RETURN_IF_ERROR(
-                            get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_DOUBLE: {
-                    double val {};
-                    RETURN_IF_ERROR(
-                            get_float_value<double>(sub_col, sub_type, &val, pure_doc_value));
-                    array.push_back(val);
-                    break;
-                }
-                case TYPE_BOOLEAN: {
-                    if (sub_col.IsBool()) {
-                        array.push_back(sub_col.GetBool());
-                        break;
-                    }
-
-                    if (sub_col.IsNumber()) {
-                        array.push_back(sub_col.GetInt());
-                        break;
-                    }
-
-                    bool is_nested_str = false;
-                    if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
-                        sub_col[0].IsBool()) {
-                        array.push_back(sub_col[0].GetBool());
-                        break;
-                    } else if (pure_doc_value && sub_col.IsArray() && !sub_col.Empty() &&
-                               sub_col[0].IsString()) {
-                        is_nested_str = true;
-                    } else if (pure_doc_value && sub_col.IsArray()) {
-                        return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
-                    }
-
-                    const rapidjson::Value& str_col = is_nested_str ? sub_col[0] : sub_col;
-
-                    const std::string& val = str_col.GetString();
-                    size_t val_size = str_col.GetStringLength();
-                    StringParser::ParseResult result;
-                    bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-                    RETURN_ERROR_IF_PARSING_FAILED(result, str_col, type);
-                    array.push_back(b);
-                    break;
-                }
-                // date/datetime v2 is the default type for catalog table,
-                // see https://github.com/apache/doris/pull/16304
-                // No need to support date and datetime types.
-                case TYPE_DATEV2: {
-                    uint32_t data;
-                    RETURN_IF_ERROR((get_date_int<DateV2Value<DateV2ValueType>, uint32_t>(
-                            sub_col, sub_type, pure_doc_value, &data, time_zone)));
-                    array.push_back(data);
-                    break;
-                }
-                case TYPE_DATETIMEV2: {
-                    uint64_t data;
-                    RETURN_IF_ERROR((get_date_int<DateV2Value<DateTimeV2ValueType>, uint64_t>(
-                            sub_col, sub_type, pure_doc_value, &data, time_zone)));
-                    array.push_back(data);
-                    break;
-                }
-                default: {
-                    LOG(ERROR) << "Do not support Array type: " << sub_type;
-                    break;
-                }
-                }
-            }
-            col_ptr->insert(array);
+            const auto& sub_type =
+                    assert_cast<const vectorized::DataTypeArray*>(
+                            vectorized::remove_nullable(tuple_desc->slots()[i]->type()).get())
+                            ->get_nested_type()
+                            ->get_primitive_type();
+            RETURN_IF_ERROR(parse_column(col, sub_type, pure_doc_value, array, time_zone));
+            col_ptr->insert(vectorized::Field::create_field<TYPE_ARRAY>(array));
             break;
         }
         case TYPE_JSONB: {
-            JsonBinaryValue binary_val(json_value_to_string(col));
-            vectorized::JsonbField json(binary_val.value(), binary_val.size());
-            col_ptr->insert(json);
+            JsonBinaryValue jsonb_value;
+            RETURN_IF_ERROR(jsonb_value.from_json_string(json_value_to_string(col)));
+            vectorized::JsonbField json(jsonb_value.value(), jsonb_value.size());
+            col_ptr->insert(vectorized::Field::create_field<TYPE_JSONB>(json));
             break;
         }
         default: {
@@ -817,5 +886,5 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     *line_eof = false;
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

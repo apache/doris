@@ -21,24 +21,8 @@ suite("test_index_change_with_full_compaction") {
     def tableName = "index_change_with_full_compaction_dup_keys"
 
     def timeout = 60000
-    def delta_time = 1000
-    def alter_res = "null"
-    def useTime = 0
 
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
+    sql "set enable_add_index_for_new_data = true"
 
     try {
         //BackendId,Cluster,IP,HeartbeatPort,BePort,HttpPort,BrpcPort,LastStartTime,LastHeartbeat,Alive,SystemDecommissioned,ClusterDecommissioned,TabletNum,DataUsedCapacity,AvailCapacity,TotalCapacity,UsedPct,MaxDiskUsedPct,Tag,ErrMsg,Version,Status
@@ -136,77 +120,20 @@ suite("test_index_change_with_full_compaction") {
 
         // create inverted index
         sql """ CREATE INDEX idx_user_id ON ${tableName}(`user_id`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_date ON ${tableName}(`date`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
         sql """ CREATE INDEX idx_city ON ${tableName}(`city`) USING INVERTED """
-        wait_for_latest_op_on_table_finish(tableName, timeout)
-
-        // trigger compactions for all tablets in ${tableName}
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            backend_id = tablet.BackendId
-            StringBuilder sb = new StringBuilder();
-            sb.append("curl -X POST http://")
-            sb.append(backendId_to_backendIP.get(backend_id))
-            sb.append(":")
-            sb.append(backendId_to_backendHttpPort.get(backend_id))
-            sb.append("/api/compaction/run?tablet_id=")
-            sb.append(tablet_id)
-            sb.append("&compact_type=full")
-
-            String command = sb.toString()
-            process = command.execute()
-            code = process.waitFor()
-            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-            out = process.getText()
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            assertEquals(code, 0)
-            def compactJson = parseJson(out.trim())
-            if (compactJson.status.toLowerCase() == "fail") {
-                assertEquals(disableAutoCompaction, false)
-                logger.info("Compaction was done automatically!")
-            }
-            if (disableAutoCompaction) {
-                assertEquals("success", compactJson.status.toLowerCase())
-            }
-        }
 
         // build index
-        if (!isCloudMode()) {
-            sql "build index idx_user_id on ${tableName}"
-            sql "build index idx_date on ${tableName}"
-            sql "build index idx_city on ${tableName}"
-        }
 
-        // wait for all compactions done
-        for (def tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(1000)
-                String tablet_id = tablet.TabletId
-                backend_id = tablet.BackendId
-                StringBuilder sb = new StringBuilder();
-                sb.append("curl -X GET http://")
-                sb.append(backendId_to_backendIP.get(backend_id))
-                sb.append(":")
-                sb.append(backendId_to_backendHttpPort.get(backend_id))
-                sb.append("/api/compaction/run_status?tablet_id=")
-                sb.append(tablet_id)
+        build_index_on_table("idx_user_id", tableName)
+        wait_for_last_build_index_finish(tableName, timeout)
+        build_index_on_table("idx_date", tableName)
+        wait_for_last_build_index_finish(tableName, timeout)
+        build_index_on_table("idx_city", tableName)
+        wait_for_last_build_index_finish(tableName, timeout)
 
-                String command = sb.toString()
-                logger.info(command)
-                process = command.execute()
-                code = process.waitFor()
-                err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-                out = process.getText()
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-        }
+        // trigger compactions for all tablets in ${tableName}
+        trigger_and_wait_compaction(tableName, "full")
 
         int rowCount = 0
         for (def tablet in tablets) {

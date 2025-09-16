@@ -18,24 +18,39 @@
 package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Common interface for logical/physical project.
  */
-public interface Project {
-    List<NamedExpression> getProjects();
+public interface Project extends ProjectMergeable {
+
+    @Override
+    default boolean canProcessProject(List<NamedExpression> parentProjects) {
+        List<NamedExpression> bottomProjects = getProjects();
+        if (ExpressionUtils.containsWindowExpression(parentProjects)
+                && ExpressionUtils.containsWindowExpression(bottomProjects)) {
+            return false;
+        }
+
+        return ProjectMergeable.super.canProcessProject(parentProjects);
+    }
 
     /**
      * Generate a map that the key is the alias slot, corresponding value is the expression produces the slot.
@@ -53,15 +68,35 @@ public interface Project {
     }
 
     /**
-     * combine upper level and bottom level projections
+     * combine upper level and bottom level projections.
+     * if the combined expressions too huge, will return empty.
      * 1. alias combination, for example
      * proj(x as y, b) --> proj(a as x, b, c) =>(a as y, b)
      * 2. remove used projection in bottom project
      * @param childProject bottom project
      * @return project list for merged project
      */
-    default List<NamedExpression> mergeProjections(Project childProject) {
-        return PlanUtils.mergeProjections(childProject.getProjects(), getProjects());
+    default Optional<List<NamedExpression>> mergeProjections(Project childProject) {
+        Optional<List<NamedExpression>> parentProjectsOpt
+                = PlanUtils.tryMergeProjections(childProject.getProjects(), getProjects());
+        if (!parentProjectsOpt.isPresent()) {
+            return Optional.empty();
+        }
+        ImmutableList.Builder<NamedExpression> projectsBuilder
+                = ImmutableList.builderWithExpectedSize(parentProjectsOpt.get().size());
+        projectsBuilder.addAll(parentProjectsOpt.get());
+        for (NamedExpression expression : childProject.getProjects()) {
+            // keep NoneMovableFunction for later use
+            if (expression.containsType(NoneMovableFunction.class)) {
+                projectsBuilder.add(expression);
+            }
+        }
+        return Optional.of(projectsBuilder.build());
+    }
+
+    /** check can merge two projects */
+    default boolean canMergeChildProjections(Project childProject) {
+        return childProject.canProcessProject(getProjects());
     }
 
     /**
@@ -96,5 +131,27 @@ public interface Project {
             }
         }
         return true;
+    }
+
+    /**
+     * project(A as B) is eventually slot project, where A is a slot
+     */
+    default boolean isEventuallyAllSlots() {
+        for (NamedExpression project : getProjects()) {
+            if (!project.isSlot() && !(project instanceof Alias && project.child(0) instanceof Slot)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** containsNoneMovableFunction */
+    default boolean containsNoneMovableFunction() {
+        for (NamedExpression expression : getProjects()) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

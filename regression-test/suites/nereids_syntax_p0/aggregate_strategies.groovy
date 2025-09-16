@@ -18,8 +18,6 @@
 suite("aggregate_strategies") {
 
     def test_aggregate_strategies = { tableName, bucketNum ->
-        sql "SET enable_fallback_to_original_planner=true"
-
         sql "drop table if exists $tableName"
         sql """CREATE TABLE `$tableName` (
           `id` int(11) NOT NULL,
@@ -39,10 +37,6 @@ suite("aggregate_strategies") {
         // insert 10 rows, with duplicate
         sql "insert into $tableName select number, concat('name_', number) from numbers('number'='5')"
         sql "insert into $tableName select number, concat('name_', number) from numbers('number'='5')"
-
-
-        sql "SET enable_nereids_planner=true"
-        sql "SET enable_fallback_to_original_planner=false"
 
         order_qt_count_all "select count(ALL *) from $tableName"
         order_qt_count_all "select count(*) from $tableName"
@@ -113,8 +107,6 @@ suite("aggregate_strategies") {
 
         order_qt_count_distinct_sum_distinct_same "select max(distinct id), sum(distinct id) from $tableName"
 
-        // explain plan select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI')*/ max(distinct id), sum(distinct id) from test_bucket1_table;
-
         order_qt_count_distinct_sum_distinct_same "select max(distinct id), sum(distinct id) from $tableName"
         order_qt_count_distinct_sum_distinct_difference "select count(distinct name), sum(distinct id) from $tableName"
 
@@ -155,12 +147,6 @@ suite("aggregate_strategies") {
             from $tableName
         )a
         group by c"""
-
-
-        test {
-            sql "select count(distinct id, name), count(distinct id) from $tableName"
-            exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
-        }
     }
 
     test_aggregate_strategies('test_bucket1_table', 1)
@@ -168,38 +154,10 @@ suite("aggregate_strategies") {
 
     test {
         sql """select
-                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
-                count(distinct number)
-                from numbers('number' = '10000')"""
-        result([[10000L]])
-    }
-
-    test {
-        sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
-                count(distinct number)
-                from numbers('number' = '10000')"""
-        result([[10000L]])
-    }
-
-    test {
-        sql """select
-                /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_DISTINCT')*/
-                count(distinct number)
-                from numbers('number' = '10000')"""
-        result([[10000L]])
-    }
-
-    test {
-        sql """select
-                /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_DISTINCT')*/
                 count(distinct number)
                 from numbers('number' = '10000')"""
         result([[10000L]])
     }
 
     qt_sql_distinct_same_col """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
-
-    sql "set experimental_enable_pipeline_engine=true"
-    qt_sql_distinct_same_col2 """SELECT COUNT(DISTINCT id, id) FROM test_bucket10_table GROUP BY id """
 }

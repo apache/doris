@@ -341,6 +341,9 @@ public class HyperGraphBuilder {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (cascadesContext.getMemo() == null) {
+            MemoTestUtils.initMemoAndValidState(cascadesContext);
+        }
         injectRowcount(cascadesContext.getMemo().getRoot());
         return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
@@ -349,6 +352,9 @@ public class HyperGraphBuilder {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (cascadesContext.getMemo() == null) {
+            MemoTestUtils.initMemoAndValidState(cascadesContext);
+        }
         return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
@@ -370,7 +376,7 @@ public class HyperGraphBuilder {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
                             count, null, null, true,
-                            new Date().toString()));
+                            new Date().toString(), null));
         }
         return new Statistics(count, slotIdToColumnStats);
     }

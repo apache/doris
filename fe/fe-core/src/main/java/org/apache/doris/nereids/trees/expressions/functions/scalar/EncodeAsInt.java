@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * ScalarFunction 'EncodeAsInt'.
  */
-public class EncodeAsInt extends ScalarFunction
+public class EncodeAsInt extends EncodeString
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -47,13 +47,18 @@ public class EncodeAsInt extends ScalarFunction
         super("encode_as_int", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private EncodeAsInt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public EncodeAsInt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new EncodeAsInt(children.get(0));
+        return new EncodeAsInt(getFunctionParams(children));
 
     }
 

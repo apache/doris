@@ -34,7 +34,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
@@ -48,15 +47,17 @@
 #include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
+#include "util/brpc_closure.h"
 #include "util/mem_info.h"
-#include "util/ref_count_closure.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 BaseDeltaWriter::BaseDeltaWriter(const WriteRequest& req, RuntimeProfile* profile,
@@ -103,17 +104,21 @@ Status BaseDeltaWriter::init() {
     if (_is_init) {
         return Status::OK();
     }
+    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
+    if (doris::thread_context()->is_attach_task()) {
+        wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
+    }
     RETURN_IF_ERROR(_rowset_builder->init());
     RETURN_IF_ERROR(_memtable_writer->init(
             _rowset_builder->rowset_writer(), _rowset_builder->tablet_schema(),
-            _rowset_builder->get_partial_update_info(), nullptr,
+            _rowset_builder->get_partial_update_info(), wg_sptr,
             _rowset_builder->tablet()->enable_unique_key_merge_on_write()));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     return Status::OK();
 }
 
-Status DeltaWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) {
+Status DeltaWriter::write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -248,9 +253,9 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     auto cur_rowset = _rowset_builder->rowset();
     auto tablet_schema = cur_rowset->rowset_meta()->tablet_schema();
     if (!tablet_schema->skip_write_index_on_load()) {
-        for (auto& column : tablet_schema->columns()) {
-            const TabletIndex* index_meta = tablet_schema->get_inverted_index(*column);
-            if (index_meta) {
+        for (const auto& column : tablet_schema->columns()) {
+            auto index_metas = tablet_schema->inverted_indexs(*column);
+            for (const auto* index_meta : index_metas) {
                 indices_ids.emplace_back(index_meta->index_id(), index_meta->get_index_suffix());
             }
         }
@@ -272,7 +277,7 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(const PNodeInfo& node_info) 
     request->set_rowset_path(tablet_path);
     request->set_token(ExecEnv::GetInstance()->token());
     request->set_brpc_port(config::brpc_port);
-    request->set_node_id(node_info.id());
+    request->set_node_id(static_cast<int32_t>(node_info.id()));
     for (int segment_id = 0; segment_id < cur_rowset->rowset_meta()->num_segments(); segment_id++) {
         auto seg_path =
                 local_segment_path(tablet_path, cur_rowset->rowset_id().to_string(), segment_id);
@@ -359,4 +364,5 @@ int64_t BaseDeltaWriter::num_rows_filtered() const {
     return rowset_writer == nullptr ? 0 : rowset_writer->num_rows_filtered();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

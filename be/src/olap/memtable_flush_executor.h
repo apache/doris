@@ -34,11 +34,13 @@ namespace doris {
 class DataDir;
 class MemTable;
 class RowsetWriter;
+class WorkloadGroup;
 
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     std::atomic_uint64_t flush_time_ns = 0;
+    std::atomic_uint64_t flush_submit_count = 0;
     std::atomic_int64_t flush_running_count = 0;
     std::atomic_uint64_t flush_finish_count = 0;
     std::atomic_uint64_t flush_size_bytes = 0;
@@ -55,12 +57,14 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 // 1. Immediately disallow submission of any subsequent memtable
 // 2. For the memtables that have already been submitted, there is no need to flush,
 //    because the entire job will definitely fail;
-class FlushToken {
-public:
-    explicit FlushToken(ThreadPool* thread_pool)
-            : _flush_status(Status::OK()), _thread_pool(thread_pool) {}
+class FlushToken : public std::enable_shared_from_this<FlushToken> {
+    ENABLE_FACTORY_CREATOR(FlushToken);
 
-    Status submit(std::unique_ptr<MemTable> mem_table);
+public:
+    FlushToken(ThreadPool* thread_pool, std::shared_ptr<WorkloadGroup> wg_sptr)
+            : _flush_status(Status::OK()), _thread_pool(thread_pool), _wg_wptr(wg_sptr) {}
+
+    Status submit(std::shared_ptr<MemTable> mem_table);
 
     // error has happens, so we cancel this token
     // And remove all tasks in the queue.
@@ -72,22 +76,28 @@ public:
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
-    void set_rowset_writer(RowsetWriter* rowset_writer) { _rowset_writer = rowset_writer; }
+    void set_rowset_writer(std::shared_ptr<RowsetWriter> rowset_writer) {
+        _rowset_writer = rowset_writer;
+    }
 
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
     void _shutdown_flush_token() { _shutdown.store(true); }
     bool _is_shutdown() { return _shutdown.load(); }
+    void _wait_submit_task_finish();
     void _wait_running_task_finish();
 
 private:
     friend class MemtableFlushTask;
 
-    void _flush_memtable(std::unique_ptr<MemTable> memtable_ptr, int32_t segment_id,
+    void _flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t segment_id,
                          int64_t submit_task_time);
 
     Status _do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size);
+
+    Status _try_reserve_memory(const std::shared_ptr<ResourceContext>& resource_context,
+                               int64_t size);
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
@@ -96,7 +106,7 @@ private:
 
     FlushStatistic _stats;
 
-    RowsetWriter* _rowset_writer = nullptr;
+    std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
 
     MemTableStat _memtable_stat;
 
@@ -104,7 +114,10 @@ private:
     ThreadPool* _thread_pool = nullptr;
 
     std::mutex _mutex;
-    std::condition_variable _cond;
+    std::condition_variable _submit_task_finish_cond;
+    std::condition_variable _running_task_finish_cond;
+
+    std::weak_ptr<WorkloadGroup> _wg_wptr;
 };
 
 // MemTableFlushExecutor is responsible for flushing memtables to disk.
@@ -120,7 +133,6 @@ class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() = default;
     ~MemTableFlushExecutor() {
-        _deregister_metrics();
         _flush_pool->shutdown();
         _high_prio_flush_pool->shutdown();
     }
@@ -129,18 +141,32 @@ public:
     // because it needs path hash of each data dir.
     void init(int num_disk);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
-                              bool is_high_priority);
+    Status create_flush_token(std::shared_ptr<FlushToken>& flush_token,
+                              std::shared_ptr<RowsetWriter> rowset_writer, bool is_high_priority,
+                              std::shared_ptr<WorkloadGroup> wg_sptr);
 
-    Status create_flush_token(std::unique_ptr<FlushToken>& flush_token, RowsetWriter* rowset_writer,
-                              ThreadPool* wg_flush_pool_ptr);
+    // return true if it already has any flushing task
+    bool check_and_inc_has_any_flushing_task() {
+        // need to use CAS instead of only `if (0 == _flushing_task_count)` statement,
+        // to avoid concurrent entries both pass the if statement
+        int expected_count = 0;
+        if (!_flushing_task_count.compare_exchange_strong(expected_count, 1)) {
+            return true;
+        }
+        DCHECK(expected_count == 0 && _flushing_task_count == 1);
+        return false;
+    }
+
+    void inc_flushing_task() { _flushing_task_count++; }
+
+    void dec_flushing_task() { _flushing_task_count--; }
+
+    ThreadPool* flush_pool() { return _flush_pool.get(); }
 
 private:
-    void _register_metrics();
-    static void _deregister_metrics();
-
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;
+    std::atomic<int> _flushing_task_count = 0;
 };
 
 } // namespace doris

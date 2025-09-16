@@ -46,14 +46,14 @@
 3	6	13	14	15	0	2	13
 
 -- !desc --
-k1	INT	Yes	true	\N	
-v1	TINYINT	Yes	false	\N	NONE
-v2	INT	Yes	false	\N	NONE
-v3	INT	Yes	false	\N	NONE
-v4	INT	Yes	false	\N	NONE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	NONE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	NONE
-__DORIS_SEQUENCE_COL__	INT	Yes	false	\N	NONE
+k1	int	Yes	true	\N	
+v1	tinyint	Yes	false	\N	NONE
+v2	int	Yes	false	\N	NONE
+v3	int	Yes	false	\N	NONE
+v4	int	Yes	false	\N	NONE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
+__DORIS_VERSION_COL__	bigint	No	false	0	NONE
+__DORIS_SEQUENCE_COL__	int	Yes	false	\N	NONE
 
 -- !1 --
 1	1	1	1	1	0	2	1
@@ -71,14 +71,14 @@ __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	NONE
 3	3	3	3	3	0	2	3
 
 -- !desc --
-k1	INT	Yes	true	\N	
-v1	TINYINT	Yes	false	\N	REPLACE
-v2	INT	Yes	false	\N	REPLACE
-v3	INT	Yes	false	\N	REPLACE
-or	INT	Yes	false	\N	REPLACE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
-__DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
+k1	int	Yes	true	\N	
+v1	tinyint	Yes	false	\N	REPLACE
+v2	int	Yes	false	\N	REPLACE
+v3	int	Yes	false	\N	REPLACE
+or	int	Yes	false	\N	REPLACE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	REPLACE
+__DORIS_VERSION_COL__	bigint	No	false	0	REPLACE
+__DORIS_SEQUENCE_COL__	int	Yes	false	\N	REPLACE
 
 -- !all --
 1	4	11	12	13
@@ -127,14 +127,14 @@ __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 3	6	13	14	15	0	2	13
 
 -- !desc --
-k1	INT	Yes	true	\N	
-v1	TINYINT	Yes	false	\N	NONE
-v2	INT	Yes	false	\N	NONE
-v3	INT	Yes	false	\N	NONE
-v4	INT	Yes	false	\N	NONE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	NONE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	NONE
-__DORIS_SEQUENCE_COL__	INT	Yes	false	\N	NONE
+k1	int	Yes	true	\N	
+v1	tinyint	Yes	false	\N	NONE
+v2	int	Yes	false	\N	NONE
+v3	int	Yes	false	\N	NONE
+v4	int	Yes	false	\N	NONE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
+__DORIS_VERSION_COL__	bigint	No	false	0	NONE
+__DORIS_SEQUENCE_COL__	int	Yes	false	\N	NONE
 
 -- !1 --
 1	1	1	1	1	0	2	1
@@ -152,12 +152,12 @@ __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	NONE
 3	3	3	3	3	0	2	3
 
 -- !desc --
-k1	INT	Yes	true	\N	
-v1	TINYINT	Yes	false	\N	REPLACE
-v2	INT	Yes	false	\N	REPLACE
-v3	INT	Yes	false	\N	REPLACE
-or	INT	Yes	false	\N	REPLACE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
-__DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
+k1	int	Yes	true	\N	
+v1	tinyint	Yes	false	\N	REPLACE
+v2	int	Yes	false	\N	REPLACE
+v3	int	Yes	false	\N	REPLACE
+or	int	Yes	false	\N	REPLACE
+__DORIS_DELETE_SIGN__	tinyint	No	false	0	REPLACE
+__DORIS_VERSION_COL__	bigint	No	false	0	REPLACE
+__DORIS_SEQUENCE_COL__	int	Yes	false	\N	REPLACE
 

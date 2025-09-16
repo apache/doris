@@ -21,8 +21,8 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
-import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.common.util.S3Util;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.rest.PagedIterable;
@@ -36,10 +36,12 @@ import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
 import com.azure.storage.blob.batch.BlobBatchClient;
 import com.azure.storage.blob.batch.BlobBatchClientBuilder;
+import com.azure.storage.blob.models.BlobErrorCode;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.http.HttpStatus;
@@ -47,28 +49,32 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.UUID;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
     private static final String URI_TEMPLATE = "https://%s.blob.core.windows.net";
-    protected Map<String, String> properties;
+
+    protected AzureProperties azureProperties;
     private BlobServiceClient client;
-    private boolean isUsePathStyle = false;
+    private boolean isUsePathStyle;
 
-    private boolean forceParsingByStandardUri = false;
+    private boolean forceParsingByStandardUri;
 
-    public AzureObjStorage(Map<String, String> properties) {
-        this.properties = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        setProperties(properties);
+    public AzureObjStorage(AzureProperties azureProperties) {
+        this.azureProperties = azureProperties;
+        this.isUsePathStyle = Boolean.parseBoolean(azureProperties.getUsePathStyle());
+        this.forceParsingByStandardUri = Boolean.parseBoolean(azureProperties.getForceParsingByStandardUrl());
     }
 
     // To ensure compatibility with S3 usage, the path passed by the user still starts with 'S3://${containerName}'.
@@ -84,42 +90,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return remotePath.substring(firstSlashIndex + 1);
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    protected void setProperties(Map<String, String> properties) {
-        this.properties.putAll(properties);
-        try {
-            S3Properties.requiredS3Properties(this.properties);
-        } catch (DdlException e) {
-            throw new IllegalArgumentException(e);
-        }
-        // Virtual hosted-style is recommended in the s3 protocol.
-        // The path-style has been abandoned, but for some unexplainable reasons,
-        // the s3 client will determine whether the endpiont starts with `s3`
-        // when generating a virtual hosted-sytle request.
-        // If not, it will not be converted ( https://github.com/aws/aws-sdk-java-v2/pull/763),
-        // but the endpoints of many cloud service providers for object storage do not start with s3,
-        // so they cannot be converted to virtual hosted-sytle.
-        // Some of them, such as aliyun's oss, only support virtual hosted-style,
-        // and some of them(ceph) may only support
-        // path-style, so we need to do some additional conversion.
-        isUsePathStyle = this.properties.getOrDefault(PropertyConverter.USE_PATH_STYLE, "false")
-                .equalsIgnoreCase("true");
-        forceParsingByStandardUri = this.properties.getOrDefault(PropertyConverter.FORCE_PARSING_BY_STANDARD_URI,
-                "false").equalsIgnoreCase("true");
-    }
 
     @Override
     public BlobServiceClient getClient() throws UserException {
         if (client == null) {
-            String uri = String.format(URI_TEMPLATE, properties.get(S3Properties.ACCESS_KEY));
-            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(properties.get(S3Properties.ACCESS_KEY),
-                    properties.get(S3Properties.SECRET_KEY));
+            StorageSharedKeyCredential cred = new StorageSharedKeyCredential(azureProperties.getAccessKey(),
+                    azureProperties.getSecretKey());
             BlobServiceClientBuilder builder = new BlobServiceClientBuilder();
             builder.credential(cred);
-            builder.endpoint(uri);
+            builder.endpoint(azureProperties.getEndpoint());
             client = builder.buildClient();
         }
         return client;
@@ -135,8 +114,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
-            BlobProperties properties = blobClient.getProperties();
-            LOG.info("head file {} success: {}", remotePath, properties.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("headObject remotePath:{} bucket:{} key:{} properties:{}",
+                        remotePath, uri.getBucket(), uri.getKey(), blobClient.getProperties());
+            }
             return Status.OK;
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == HttpStatus.SC_NOT_FOUND) {
@@ -158,7 +139,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             S3URI uri = S3URI.create(remoteFilePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             BlobProperties properties = blobClient.downloadToFile(localFile.getAbsolutePath());
-            LOG.info("get file " + remoteFilePath + " success: " + properties.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get file {} success, properties: {}", remoteFilePath, properties);
+            }
             return Status.OK;
         } catch (BlobStorageException e) {
             return new Status(
@@ -193,9 +176,14 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.getBucket()).getBlobClient(uri.getKey());
             blobClient.delete();
-            LOG.info("delete file " + remotePath + " success");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("delete file {} success", remotePath);
+            }
             return Status.OK;
         } catch (BlobStorageException e) {
+            if (e.getErrorCode() == BlobErrorCode.BLOB_NOT_FOUND) {
+                return Status.OK;
+            }
             return new Status(
                     Status.ErrCode.COMMON_ERROR,
                     "get file from azure error: " + e.getServiceMessage());
@@ -234,7 +222,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 isTruncated = objects.isTruncated();
                 continuationToken = objects.getContinuationToken();
             } while (isTruncated);
-            LOG.info("total delete {} objects for dir {}", totalObjects, remotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("total delete {} objects for dir {}", totalObjects, remotePath);
+            }
             return Status.OK;
         } catch (BlobStorageException e) {
             return new Status(Status.ErrCode.COMMON_ERROR, "list objects for delete objects failed: " + e.getMessage());
@@ -254,7 +244,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             BlobClient destinationBlobClient = getClient().getBlobContainerClient(destUri.getBucket())
                     .getBlobClient(destUri.getKey());
             destinationBlobClient.beginCopy(sourceBlobClient.getBlobUrl(), null);
-            LOG.info("Blob copied from " + origFilePath + " to " + destFilePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Blob copy file from {} to {} success", origFilePath, destFilePath);
+            }
             return Status.OK;
         } catch (BlobStorageException e) {
             return new Status(
@@ -269,8 +261,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException {
         try {
-            ListBlobsOptions options = new ListBlobsOptions().setPrefix(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(uri.getKey());
             PagedIterable<BlobItem> pagedBlobs = getClient().getBlobContainerClient(uri.getBucket())
                     .listBlobs(options, continuationToken, null);
             PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
@@ -280,7 +272,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 remoteObjects.add(new RemoteObject(blobItem.getName(), "", blobItem.getProperties().getETag(),
                         blobItem.getProperties().getContentLength()));
             }
-            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() == null,
+            return new RemoteObjects(remoteObjects, pagedResponse.getContinuationToken() != null,
                     pagedResponse.getContinuationToken());
         } catch (BlobStorageException e) {
             LOG.warn(String.format("Failed to list objects for S3: %s", remotePath), e);
@@ -294,25 +286,12 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     // Due to historical reasons, when the BE parses the object storage path.
     // It assumes the path starts with 'S3://${containerName}'
     // So here the path needs to be constructed in a format that BE can parse.
-    private String constructS3Path(String fileName, String bucket) throws UserException {
-        LOG.info("the path is {}", String.format("s3://%s/%s", bucket, fileName));
-        return String.format("s3://%s/%s", bucket, fileName);
-    }
-
-    public static String getLongestPrefix(String globPattern) {
-        int length = globPattern.length();
-        int earliestSpecialCharIndex = length;
-
-        char[] specialChars = {'*', '?', '[', '{', '\\'};
-
-        for (char specialChar : specialChars) {
-            int index = globPattern.indexOf(specialChar);
-            if (index != -1 && index < earliestSpecialCharIndex) {
-                earliestSpecialCharIndex = index;
-            }
+    private String constructS3Path(String fileName, String bucket) {
+        String path = String.format("s3://%s/%s", bucket, fileName);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("constructS3Path fileName:{}, bucket:{}, the path is {}", fileName, bucket, path);
         }
-
-        return globPattern.substring(0, earliestSpecialCharIndex);
+        return path;
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
@@ -325,37 +304,61 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             String globPath = uri.getKey();
             String bucket = uri.getBucket();
-            LOG.info("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
+            }
             BlobContainerClient client = getClient().getBlobContainerClient(bucket);
             java.nio.file.Path pathPattern = Paths.get(globPath);
-            LOG.info("path pattern {}", pathPattern.toString());
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("azure glob list pathPattern: {}, bucket: {}", pathPattern, bucket);
+            }
+            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
 
-            String listPrefix = getLongestPrefix(globPath);
-            LOG.info("azure glob list prefix is {}", listPrefix);
+            HashSet<String> directorySet = new HashSet<>();
+            String listPrefix = S3Util.getLongestPrefix(globPath);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("azure glob list prefix is {}", listPrefix);
+            }
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
             String newContinuationToken = null;
             do {
                 roundCnt++;
-                PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
-                PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
+                PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
 
                 for (BlobItem blobItem : pagedResponse.getElements()) {
                     elementCnt++;
                     java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                    if (!matcher.matches(blobPath)) {
-                        continue;
+                    boolean isPrefix = false;
+                    while (blobPath.normalize().toString().startsWith(listPrefix)) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get blob {}", blobPath.normalize().toString());
+                        }
+                        if (!matcher.matches(blobPath)) {
+                            isPrefix = true;
+                            blobPath = blobPath.getParent();
+                            continue;
+                        }
+                        if (directorySet.contains(blobPath.normalize().toString())) {
+                            break;
+                        }
+                        if (isPrefix) {
+                            directorySet.add(blobPath.normalize().toString());
+                        }
+
+                        matchCnt++;
+                        RemoteFile remoteFile = new RemoteFile(
+                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
+                                        uri.getBucket()),
+                                !isPrefix,
+                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
+                        result.add(remoteFile);
+
+                        blobPath = blobPath.getParent();
+                        isPrefix = true;
                     }
-                    matchCnt++;
-                    RemoteFile remoteFile = new RemoteFile(
-                            fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                    uri.getBucket()),
-                            !blobItem.isPrefix(),
-                            blobItem.isPrefix() ? -1 : blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getContentLength(),
-                            blobItem.getProperties().getLastModified().getSecond());
-                    result.add(remoteFile);
                 }
                 newContinuationToken = pagedResponse.getContinuationToken();
             } while (newContinuationToken != null);
@@ -366,14 +369,64 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     + " failed because azure error: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("errors while glob file " + remotePath, e);
-            st = new Status(Status.ErrCode.COMMON_ERROR, "errors while glob file " + remotePath + e.getMessage());
+            st = new Status(Status.ErrCode.COMMON_ERROR,
+                    "errors while glob file " + remotePath + ": " + e.getMessage());
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
             LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, matchCnt, roundCnt,
+                    remotePath, elementCnt, roundCnt, matchCnt,
                     duration / 1000);
         }
         return st;
+    }
+
+    public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
+                                                     String newContinuationToken) {
+        PagedIterable<BlobItem> pagedBlobs = client.listBlobs(options, newContinuationToken, null);
+        return pagedBlobs.iterableByPage().iterator().next();
+    }
+
+
+    public Status multipartUpload(String remotePath, @Nullable InputStream inputStream, long totalBytes) {
+        Status st = Status.OK;
+        long uploadedBytes = 0;
+        int bytesRead = 0;
+        byte[] buffer = new byte[CHUNK_SIZE];
+        List<String> blockIds = new ArrayList<>();
+        BlockBlobClient blockBlobClient = null;
+
+
+        try {
+            S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+            blockBlobClient = getClient().getBlobContainerClient(uri.getBucket())
+                    .getBlobClient(uri.getKey()).getBlockBlobClient();
+            while (uploadedBytes < totalBytes && (bytesRead = inputStream.read(buffer)) != -1) {
+                String blockId = Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes());
+                blockIds.add(blockId);
+                blockBlobClient.stageBlock(blockId, new ByteArrayInputStream(buffer, 0, bytesRead), bytesRead);
+                uploadedBytes += bytesRead;
+            }
+            blockBlobClient.commitBlockList(blockIds);
+        } catch (Exception e) {
+            LOG.warn("remotePath:{}, ", remotePath, e);
+            st = new Status(Status.ErrCode.COMMON_ERROR, "Failed to multipartUpload " + remotePath
+                    + " reason: " + e.getMessage());
+
+            if (blockBlobClient != null) {
+                try {
+                    blockBlobClient.delete();
+                } catch (Exception e1) {
+                    LOG.warn("abort multipartUpload failed", e1);
+                }
+            }
+        }
+        return st;
+    }
+
+    @Override
+    public void close() throws Exception {
+        // Create a BlobServiceClient instance (thread-safe and reusable).
+       // Note: BlobServiceClient does NOT implement Closeable and does not require explicit closing.
     }
 }

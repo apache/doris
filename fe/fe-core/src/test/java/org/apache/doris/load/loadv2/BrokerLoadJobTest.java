@@ -17,26 +17,19 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
@@ -45,14 +38,11 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -63,130 +53,6 @@ public class BrokerLoadJobTest {
     @BeforeClass
     public static void start() {
         MetricRepo.init();
-    }
-
-    @Test
-    public void testFromLoadStmt(@Injectable LoadStmt loadStmt, @Injectable LabelName labelName,
-                                 @Injectable DataDescription dataDescription, @Mocked Env env, @Mocked InternalCatalog catalog,
-                                 @Injectable Database database) {
-        List<DataDescription> dataDescriptionList = Lists.newArrayList();
-        dataDescriptionList.add(dataDescription);
-
-        String tableName = "table";
-        String databaseName = "database";
-        new Expectations() {
-            {
-                loadStmt.getLabel();
-                minTimes = 0;
-                result = labelName;
-                labelName.getDbName();
-                minTimes = 0;
-                result = databaseName;
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(databaseName);
-                minTimes = 0;
-                result = database;
-                loadStmt.getDataDescriptions();
-                minTimes = 0;
-                result = dataDescriptionList;
-                dataDescription.getTableName();
-                minTimes = 0;
-                result = tableName;
-                database.getTableNullable(tableName);
-                minTimes = 0;
-                result = null;
-            }
-        };
-
-        try {
-            BulkLoadJob.fromLoadStmt(loadStmt);
-            Assert.fail();
-        } catch (DdlException e) {
-            System.out.println("could not find table named " + tableName);
-        }
-
-    }
-
-    @Test
-    public void testFromLoadStmt2(@Injectable LoadStmt loadStmt, @Injectable DataDescription dataDescription,
-                                  @Injectable LabelName labelName, @Injectable Database database, @Injectable OlapTable olapTable,
-                                  @Mocked Env env, @Mocked InternalCatalog catalog) {
-
-        String label = "label";
-        long dbId = 1;
-        String tableName = "table";
-        String databaseName = "database";
-        List<DataDescription> dataDescriptionList = Lists.newArrayList();
-        dataDescriptionList.add(dataDescription);
-        BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
-        Map<String, String> properties = new HashMap<>();
-        properties.put(LoadStmt.PRIORITY, "HIGH");
-
-        new Expectations() {
-            {
-                loadStmt.getLabel();
-                minTimes = 0;
-                result = labelName;
-                labelName.getDbName();
-                minTimes = 0;
-                result = databaseName;
-                labelName.getLabelName();
-                minTimes = 0;
-                result = label;
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-                catalog.getDbNullable(databaseName);
-                minTimes = 0;
-                result = database;
-                loadStmt.getDataDescriptions();
-                minTimes = 0;
-                result = dataDescriptionList;
-                dataDescription.getTableName();
-                minTimes = 0;
-                result = tableName;
-                database.getTableNullable(tableName);
-                minTimes = 0;
-                result = olapTable;
-                dataDescription.getPartitionNames();
-                minTimes = 0;
-                result = null;
-                database.getId();
-                minTimes = 0;
-                result = dbId;
-                loadStmt.getBrokerDesc();
-                minTimes = 0;
-                result = brokerDesc;
-                loadStmt.getEtlJobType();
-                minTimes = 0;
-                result = EtlJobType.BROKER;
-                loadStmt.getProperties();
-                minTimes = 0;
-                result = properties;
-            }
-        };
-
-        new MockUp<Load>() {
-            @Mock
-            public void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
-
-            }
-        };
-
-        try {
-            BrokerLoadJob brokerLoadJob = (BrokerLoadJob) BulkLoadJob.fromLoadStmt(loadStmt);
-            Assert.assertEquals(Long.valueOf(dbId), Deencapsulation.getField(brokerLoadJob, "dbId"));
-            Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
-            Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));
-            Assert.assertEquals(EtlJobType.BROKER, Deencapsulation.getField(brokerLoadJob, "jobType"));
-            Assert.assertEquals(brokerLoadJob.getPriority(), LoadTask.Priority.HIGH);
-        } catch (DdlException e) {
-            Assert.fail(e.getMessage());
-        }
-
     }
 
     @Test
@@ -274,7 +140,7 @@ public class BrokerLoadJobTest {
                                           @Injectable BrokerFileGroupAggInfo fileGroupAggInfo, @Injectable BrokerFileGroup brokerFileGroup1,
                                           @Injectable BrokerFileGroup brokerFileGroup2, @Injectable BrokerFileGroup brokerFileGroup3,
                                           @Mocked MasterTaskExecutor masterTaskExecutor, @Injectable OlapTable olapTable,
-                                          @Mocked LoadingTaskPlanner loadingTaskPlanner) {
+                                          @Mocked NereidsLoadingTaskPlanner loadingTaskPlanner) {
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
         Deencapsulation.setField(brokerLoadJob, "state", JobState.LOADING);
         long taskId = 1L;

@@ -18,16 +18,23 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.BitSet;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * ExpressionUtils ut.
@@ -175,14 +182,29 @@ public class ExpressionUtilsTest extends TestWithFeService {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             List<? extends Expression> originalExpressions = rewrittenPlan.getExpressions();
                             List<? extends Expression> shuttledExpressions
-                                    = ExpressionUtils.shuttleExpressionWithLineage(originalExpressions, rewrittenPlan,
-                                    Sets.newHashSet(), Sets.newHashSet(), new BitSet());
+                                    = ExpressionUtils.shuttleExpressionWithLineage(originalExpressions, rewrittenPlan);
                             assertExpect(originalExpressions, shuttledExpressions,
                                     "(cast(abs((cast(O_TOTALPRICE as DECIMALV3(16, 2)) + 10.00)) as "
                                             + "DOUBLE) + abs(sqrt(cast(PS_SUPPLYCOST as DOUBLE))))",
                                     "L_LINENUMBER",
                                     "O_ORDERSTATUS");
                         });
+    }
+
+    @Test
+    public void testExtractUniformSlot() {
+        Slot a = new SlotReference("a", IntegerType.INSTANCE);
+        Slot b = new SlotReference("b", IntegerType.INSTANCE);
+        Slot c = new SlotReference("c", IntegerType.INSTANCE);
+        Expression va = Literal.of(1);
+        Expression vb = Literal.of(2);
+        Expression vc = Literal.of(3);
+        Expression expression = new And(Arrays.asList(new EqualTo(a, va), new EqualTo(b, vb), new EqualTo(c, vc)));
+        Map<Slot, Expression> expectUniformSlots = Maps.newHashMap();
+        expectUniformSlots.put(a, va);
+        expectUniformSlots.put(b, vb);
+        expectUniformSlots.put(c, vc);
+        Assertions.assertEquals(expectUniformSlots, ExpressionUtils.extractUniformSlot(expression));
     }
 
     private void assertExpect(List<? extends Expression> originalExpressions,

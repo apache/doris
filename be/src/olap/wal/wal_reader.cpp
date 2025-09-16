@@ -17,12 +17,16 @@
 
 #include "olap/wal/wal_reader.h"
 
+#include <string_view>
+#include <utility>
+
 #include "common/status.h"
 #include "io/fs/file_reader.h"
-#include "io/fs/local_file_system.h"
+#include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/string_util.h"
 #include "wal_writer.h"
 
 namespace doris {
@@ -30,22 +34,40 @@ namespace doris {
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 
 WalReader::~WalReader() = default;
-
-static Status _deserialize(PBlock& block, const std::string& buf) {
+Status WalReader::_deserialize(PBlock& block, const std::string& buf, size_t block_len,
+                               size_t bytes_read) {
     if (UNLIKELY(!block.ParseFromString(buf))) {
-        return Status::InternalError("failed to deserialize row");
+        return Status::InternalError(
+                "failed to deserialize row, file_size=" + std::to_string(file_reader->size()) +
+                ", read_offset=" + std::to_string(_offset) + +", block_bytes=" +
+                std::to_string(block_len) + ", read_block_bytes=" + std::to_string(bytes_read));
     }
     return Status::OK();
 }
 
+std::pair<int64_t, int64_t> parse_db_tb_from_wal_path(const std::string& wal_path) {
+    auto ret = split(wal_path, "/");
+    DCHECK_GT(ret.size(), 3);
+    auto db_id_pos = ret.size() - 1 - 2;
+    auto tb_id_pos = ret.size() - 1 - 1;
+    auto db_id = std::stoll(ret[db_id_pos]);
+    auto tb_id = std::stoll(ret[tb_id_pos]);
+
+    return {db_id, tb_id};
+}
+
 Status WalReader::init() {
+    auto [db_id, tb_id] = parse_db_tb_from_wal_path(_file_name);
+    io::FileSystemSPtr fs;
+    RETURN_IF_ERROR(determine_wal_fs(db_id, tb_id, fs));
     bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_file_name, &exists));
+    RETURN_IF_ERROR(fs->exists(_file_name, &exists));
     if (!exists) {
         LOG(WARNING) << "not exist wal= " << _file_name;
         return Status::NotFound("wal {} doesn't exist", _file_name);
     }
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(_file_name, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(_file_name, &file_reader));
+
     return Status::OK();
 }
 
@@ -69,12 +91,18 @@ Status WalReader::read_block(PBlock& block) {
     if (block_len == 0) {
         return Status::DataQualityError("fail to read wal {} ,block is empty", _file_name);
     }
+    if (_offset == file_reader->size()) {
+        LOG(WARNING) << "need read block with length=" << block_len << ", but offset=" << _offset
+                     << " reached end of WAL (path=" << _file_name
+                     << ", size=" << file_reader->size() << ")";
+        return Status::EndOfFile("end of wal file");
+    }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);
     RETURN_IF_ERROR(file_reader->read_at(_offset, {block_buf.c_str(), block_len}, &bytes_read));
+    RETURN_IF_ERROR(_deserialize(block, block_buf, block_len, bytes_read));
     _offset += block_len;
-    RETURN_IF_ERROR(_deserialize(block, block_buf));
     // checksum
     uint8_t checksum_len_buf[WalWriter::CHECKSUM_SIZE];
     RETURN_IF_ERROR(file_reader->read_at(_offset, {checksum_len_buf, WalWriter::CHECKSUM_SIZE},

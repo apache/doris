@@ -41,7 +41,7 @@
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
                                  const std::vector<level_t>& rep_levels,
                                  const std::vector<level_t>& def_levels) {
@@ -109,7 +109,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    io::IOContext* io_ctx,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size, const tparquet::OffsetIndex* offset_index) {
-    if (field->type.type == TYPE_ARRAY) {
+    if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size));
@@ -117,7 +117,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         reader.reset(array_reader.release());
-    } else if (field->type.type == TYPE_MAP) {
+    } else if (field->data_type->get_primitive_type() == TYPE_MAP) {
         std::unique_ptr<ParquetColumnReader> key_reader;
         std::unique_ptr<ParquetColumnReader> value_reader;
         RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
@@ -129,7 +129,7 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         auto map_reader = MapColumnReader::create_unique(row_ranges, ctz, io_ctx);
         RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
         reader.reset(map_reader.release());
-    } else if (field->type.type == TYPE_STRUCT) {
+    } else if (field->data_type->get_primitive_type() == TYPE_STRUCT) {
         std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> child_readers;
         child_readers.reserve(field->children.size());
         for (int i = 0; i < field->children.size(); ++i) {
@@ -179,9 +179,8 @@ void ParquetColumnReader::_generate_read_ranges(int64_t start_index, int64_t end
 Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field, size_t max_buf_size) {
     _field_schema = field;
     auto& chunk_meta = _chunk_meta.meta_data;
-    int64_t chunk_start = chunk_meta.__isset.dictionary_page_offset
-                                  ? chunk_meta.dictionary_page_offset
-                                  : chunk_meta.data_page_offset;
+    int64_t chunk_start = has_dict_page(chunk_meta) ? chunk_meta.dictionary_page_offset
+                                                    : chunk_meta.data_page_offset;
     size_t chunk_len = chunk_meta.total_compressed_size;
     size_t prefetch_buffer_size = std::min(chunk_len, max_buf_size);
     if (typeid_cast<io::MergeRangeFileReader*>(file.get())) {
@@ -209,7 +208,15 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
             level_t def_level = -1;
             size_t loop_skip = def_decoder.get_next_run(&def_level, num_values - skipped);
             if (loop_skip == 0) {
-                continue;
+                std::stringstream ss;
+                auto& bit_reader = def_decoder.rle_decoder().bit_reader();
+                ss << "def_decoder buffer (hex): ";
+                for (size_t i = 0; i < bit_reader.max_bytes(); ++i) {
+                    ss << std::hex << std::setw(2) << std::setfill('0')
+                       << static_cast<int>(bit_reader.buffer()[i]) << " ";
+                }
+                LOG(WARNING) << ss.str();
+                return Status::InternalError("Failed to decode definition level.");
             }
             if (def_level == 0) {
                 null_size += loop_skip;
@@ -231,7 +238,7 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
 }
 
 Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
-                                        DataTypePtr& type, ColumnSelectVector& select_vector,
+                                        DataTypePtr& type, FilterMap& filter_map,
                                         bool is_dict_filter) {
     if (num_values == 0) {
         return Status::OK();
@@ -242,7 +249,7 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto* nullable_column =
-                static_cast<vectorized::ColumnNullable*>(const_cast<IColumn*>(doris_column.get()));
+                assert_cast<vectorized::ColumnNullable*>(const_cast<IColumn*>(doris_column.get()));
 
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
@@ -254,7 +261,15 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
                 level_t def_level;
                 size_t loop_read = def_decoder.get_next_run(&def_level, num_values - has_read);
                 if (loop_read == 0) {
-                    continue;
+                    std::stringstream ss;
+                    auto& bit_reader = def_decoder.rle_decoder().bit_reader();
+                    ss << "def_decoder buffer (hex): ";
+                    for (size_t i = 0; i < bit_reader.max_bytes(); ++i) {
+                        ss << std::hex << std::setw(2) << std::setfill('0')
+                           << static_cast<int>(bit_reader.buffer()[i]) << " ";
+                    }
+                    LOG(WARNING) << ss.str();
+                    return Status::InternalError("Failed to decode definition level.");
                 }
                 bool is_null = def_level == 0;
                 if (!(prev_is_null ^ is_null)) {
@@ -286,9 +301,12 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         }
         null_map.emplace_back((u_short)remaining);
     }
+    ColumnSelectVector select_vector;
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
+        RETURN_IF_ERROR(select_vector.init(null_map, num_values, map_data_column, &filter_map,
+                                           _filter_map_index));
+        _filter_map_index += num_values;
     }
     return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter);
 }
@@ -299,29 +317,49 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
  * whether the reader should read the remaining value of the last row in previous page.
  */
 Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
-                                               ColumnSelectVector& select_vector, size_t batch_size,
+                                               FilterMap& filter_map, size_t batch_size,
                                                size_t* read_rows, bool* eof, bool is_dict_filter,
-                                               bool align_rows = false) {
+                                               bool align_rows) {
+    std::unique_ptr<FilterMap> nested_filter_map;
+
+    FilterMap* current_filter_map = &filter_map;
     size_t origin_size = 0;
     if (align_rows) {
         origin_size = _rep_levels.size();
         // just read the remaining values of the last row in previous page,
         // so there's no a new row should be read.
         batch_size = 0;
+        /*
+         * Since the function is repeatedly called to fetch data for the batch size,
+         * it causes `_rep_levels.resize(0); _def_levels.resize(0);`, resulting in the
+         * definition and repetition levels of the reader only containing the latter
+         * part of the batch (i.e., missing some parts). Therefore, when using the
+         * definition and repetition levels to fill the null_map for structs and maps,
+         * the function should not be called multiple times before filling.
+        * todo:
+         * We may need to consider reading the entire batch of data at once, as this approach
+         * would be more user-friendly in terms of function usage. However, we must consider that if the
+         * data spans multiple pages, memory usage may increase significantly.
+         */
     } else {
         _rep_levels.resize(0);
         _def_levels.resize(0);
+        if (_nested_filter_map_data) {
+            _nested_filter_map_data->resize(0);
+        }
     }
     size_t parsed_rows = 0;
     size_t remaining_values = _chunk_reader->remaining_num_values();
     bool has_rep_level = _chunk_reader->max_rep_level() > 0;
     bool has_def_level = _chunk_reader->max_def_level() > 0;
 
+    // Handle repetition levels (indicates nesting structure)
     if (has_rep_level) {
         LevelDecoder& rep_decoder = _chunk_reader->rep_level_decoder();
+        // Read repetition levels until batch is full or no more values
         while (parsed_rows <= batch_size && remaining_values > 0) {
             level_t rep_level = rep_decoder.get_next();
-            if (rep_level == 0) {
+            if (rep_level == 0) { // rep_level 0 indicates start of new row
                 if (parsed_rows == batch_size) {
                     rep_decoder.rewind_one();
                     break;
@@ -331,42 +369,63 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             _rep_levels.emplace_back(rep_level);
             remaining_values--;
         }
+
+        // Generate nested filter map
+        if (filter_map.has_filter() && (!filter_map.filter_all())) {
+            if (_nested_filter_map_data == nullptr) {
+                _nested_filter_map_data.reset(new std::vector<uint8_t>());
+            }
+            RETURN_IF_ERROR(filter_map.generate_nested_filter_map(
+                    _rep_levels, *_nested_filter_map_data, &nested_filter_map,
+                    &_orig_filter_map_index, origin_size));
+            // Update current_filter_map to nested_filter_map
+            current_filter_map = nested_filter_map.get();
+        }
     } else if (!align_rows) {
         // case : required child columns in struct type
         parsed_rows = std::min(remaining_values, batch_size);
         remaining_values -= parsed_rows;
         _rep_levels.resize(parsed_rows, 0);
     }
+
+    // Process definition levels (indicates null values)
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
-        _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        // if parsed_values is 0, we don't need to decode levels
+        if (parsed_values != 0) {
+            _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        }
     } else {
         std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
 
+    // Handle nullable columns
     MutableColumnPtr data_column;
     std::vector<uint16_t> null_map;
     NullMap* map_data_column = nullptr;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
         auto* nullable_column = const_cast<vectorized::ColumnNullable*>(
-                static_cast<const vectorized::ColumnNullable*>(doris_column.get()));
-
-        //        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-        //                (*std::move(src_column)).mutate().get());
+                assert_cast<const vectorized::ColumnNullable*>(doris_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {
-        if (_field_schema->is_nullable) {
+        if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
+
+    // Process definition levels to build null map
     size_t has_read = origin_size;
     size_t ancestor_nulls = 0;
+    size_t null_size = 0;
+    size_t nonnull_size = 0;
     null_map.emplace_back(0);
     bool prev_is_null = false;
+    std::unordered_set<size_t> ancestor_null_indices;
+
     while (has_read < origin_size + parsed_values) {
         level_t def_level = _def_levels[has_read++];
         size_t loop_read = 1;
@@ -374,16 +433,23 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             has_read++;
             loop_read++;
         }
+
         if (def_level < _field_schema->repeated_parent_def_level) {
-            // when def_level is less than repeated_parent_def_level, it means that level
-            // will affect its ancestor.
+            for (size_t i = 0; i < loop_read; i++) {
+                ancestor_null_indices.insert(has_read - loop_read + i);
+            }
             ancestor_nulls += loop_read;
             continue;
         }
+
         bool is_null = def_level < _field_schema->definition_level;
+        if (is_null) {
+            null_size += loop_read;
+        } else {
+            nonnull_size += loop_read;
+        }
+
         if (prev_is_null == is_null && (USHRT_MAX - null_map.back() >= loop_read)) {
-            // If whether the values are nullable in current loop is the same the previous values,
-            // we can save the memory usage in null map
             null_map.back() += loop_read;
         } else {
             if (!(prev_is_null ^ is_null)) {
@@ -401,29 +467,78 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
 
     size_t num_values = parsed_values - ancestor_nulls;
-    {
-        SCOPED_RAW_TIMER(&_decode_null_map_time);
-        select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
-    }
-    RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
-    if (ancestor_nulls != 0) {
-        RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
-    }
 
-    if (!align_rows) {
-        *read_rows = parsed_rows;
+    // Handle filtered values
+    if (current_filter_map->filter_all()) {
+        // Skip all values if everything is filtered
+        if (null_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        }
+        if (nonnull_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        }
+        if (ancestor_nulls != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
+        }
+    } else {
+        ColumnSelectVector select_vector;
+        {
+            SCOPED_RAW_TIMER(&_decode_null_map_time);
+            RETURN_IF_ERROR(
+                    select_vector.init(null_map, num_values, map_data_column, current_filter_map,
+                                       _nested_filter_map_data ? origin_size : _filter_map_index,
+                                       &ancestor_null_indices));
+        }
+
+        RETURN_IF_ERROR(
+                _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
+        if (ancestor_nulls != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
+        }
     }
+    *read_rows += parsed_rows;
+    _filter_map_index += parsed_values;
+
+    // Handle cross-page reading
     if (_chunk_reader->remaining_num_values() == 0) {
         if (_chunk_reader->has_next_page()) {
             RETURN_IF_ERROR(_chunk_reader->next_page());
             RETURN_IF_ERROR(_chunk_reader->load_page_data());
-            select_vector.reset();
-            return _read_nested_column(doris_column, type, select_vector, 0, read_rows, eof,
+            return _read_nested_column(doris_column, type, filter_map, 0, read_rows, eof,
                                        is_dict_filter, true);
         } else {
             *eof = true;
         }
     }
+
+    // Apply filtering to repetition and definition levels
+    if (current_filter_map->has_filter()) {
+        if (current_filter_map->filter_all()) {
+            _rep_levels.resize(0);
+            _def_levels.resize(0);
+        } else {
+            std::vector<level_t> filtered_rep_levels;
+            std::vector<level_t> filtered_def_levels;
+            filtered_rep_levels.reserve(_rep_levels.size());
+            filtered_def_levels.reserve(_def_levels.size());
+
+            const uint8_t* filter_map_data = current_filter_map->filter_map_data();
+
+            for (size_t i = 0; i < _rep_levels.size(); i++) {
+                if (filter_map_data[i]) {
+                    filtered_rep_levels.push_back(_rep_levels[i]);
+                    filtered_def_levels.push_back(_def_levels[i]);
+                }
+            }
+
+            _rep_levels = std::move(filtered_rep_levels);
+            _def_levels = std::move(filtered_def_levels);
+        }
+    }
+
+    // Prepare for next row
+    ++_orig_filter_map_index;
+
     if (_rep_levels.size() > 0) {
         // make sure the rows of complex type are aligned correctly,
         // so the repetition level of first element should be 0, meaning a new row is started.
@@ -431,6 +546,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
+
 Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_column,
                                                       bool* has_dict) {
     bool loaded;
@@ -439,11 +555,6 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();
-}
-
-Status ScalarColumnReader::get_dict_codes(const ColumnString* column_string,
-                                          std::vector<int32_t>* dict_codes) {
-    return _chunk_reader->get_dict_codes(column_string, dict_codes);
 }
 
 MutableColumnPtr ScalarColumnReader::convert_dict_column_to_string_column(
@@ -466,19 +577,24 @@ Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
     return Status::OK();
 }
 
-Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            ColumnSelectVector& select_vector, size_t batch_size,
-                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status ScalarColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     if (_converter == nullptr) {
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
-                _field_schema, _field_schema->type, type, _ctz, is_dict_filter);
+                _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
         if (!_converter->support()) {
-            return Status::InternalError("The column type of '{}' is not supported: {}",
-                                         _field_schema->name, _converter->get_error_msg());
+            return Status::InternalError(
+                    "The column type of '{}' is not supported: {}, is_dict_filter: {}, "
+                    "src_logical_type: {}, dst_logical_type: {}",
+                    _field_schema->name, _converter->get_error_msg(), is_dict_filter,
+                    _field_schema->data_type->get_name(), type->get_name());
         }
     }
-    ColumnPtr resolved_column = _converter->get_physical_column(
-            _field_schema->physical_type, _field_schema->type, doris_column, type, is_dict_filter);
+    ColumnPtr resolved_column =
+            _converter->get_physical_column(_field_schema->physical_type, _field_schema->data_type,
+                                            doris_column, type, is_dict_filter);
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     do {
@@ -492,8 +608,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
         if (_nested_column) {
             RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-            RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, select_vector,
-                                                batch_size, read_rows, eof, is_dict_filter));
+            RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map,
+                                                batch_size, read_rows, eof, is_dict_filter, false));
             break;
         }
 
@@ -511,16 +627,16 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             bool skip_whole_batch = false;
             // Determining whether to skip page or batch will increase the calculation time.
             // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
-            if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
+            if (filter_map.has_filter() && filter_map.filter_ratio() > 0.6) {
                 // lazy read
                 size_t remaining_num_values = 0;
                 for (auto& range : read_ranges) {
                     remaining_num_values += range.last_row - range.first_row;
                 }
                 if (batch_size >= remaining_num_values &&
-                    select_vector.can_filter_all(remaining_num_values)) {
+                    filter_map.can_filter_all(remaining_num_values, _filter_map_index)) {
                     // We can skip the whole page if the remaining values is filtered by predicate columns
-                    select_vector.skip(remaining_num_values);
+                    _filter_map_index += remaining_num_values;
                     _current_row_index += _chunk_reader->remaining_num_values();
                     RETURN_IF_ERROR(_chunk_reader->skip_page());
                     *read_rows = remaining_num_values;
@@ -530,9 +646,9 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     break;
                 }
                 skip_whole_batch = batch_size <= remaining_num_values &&
-                                   select_vector.can_filter_all(batch_size);
+                                   filter_map.can_filter_all(batch_size, _filter_map_index);
                 if (skip_whole_batch) {
-                    select_vector.skip(batch_size);
+                    _filter_map_index += batch_size;
                 }
             }
             // load page data to decode or skip values
@@ -550,7 +666,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     RETURN_IF_ERROR(_skip_values(read_values));
                 } else {
                     RETURN_IF_ERROR(_read_values(read_values, resolved_column, resolved_type,
-                                                 select_vector, is_dict_filter));
+                                                 filter_map, is_dict_filter));
                 }
                 has_read += read_values;
                 _current_row_index += read_values;
@@ -566,7 +682,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
     } while (false);
 
-    return _converter->convert(resolved_column, _field_schema->type, type, doris_column,
+    return _converter->convert(resolved_column, _field_schema->data_type, type, doris_column,
                                is_dict_filter);
 }
 
@@ -577,40 +693,41 @@ Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_read
     return Status::OK();
 }
 
-Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                           ColumnSelectVector& select_vector, size_t batch_size,
-                                           size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status ArrayColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        if (_field_schema->is_nullable) {
+        if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
-    if (remove_nullable(type)->get_type_id() != TypeIndex::Array) {
+    if (type->get_primitive_type() != PrimitiveType::TYPE_ARRAY) {
         return Status::Corruption(
-                "Wrong data type for column '{}', expected Array type, actual type id {}.",
-                _field_schema->name, remove_nullable(type)->get_type_id());
+                "Wrong data type for column '{}', expected Array type, actual type: {}.",
+                _field_schema->name, type->get_name());
     }
 
-    ColumnPtr& element_column = static_cast<ColumnArray&>(*data_column).get_data_ptr();
-    DataTypePtr& element_type = const_cast<DataTypePtr&>(
-            (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
-                    ->get_nested_type());
+    ColumnPtr& element_column = assert_cast<ColumnArray&>(*data_column).get_data_ptr();
+    auto& element_type = const_cast<DataTypePtr&>(
+            (assert_cast<const DataTypeArray*>(remove_nullable(type).get()))->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, select_vector,
+    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type,
+                                                      root_node->get_element_node(), filter_map,
                                                       batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
     }
 
-    ColumnArray::Offsets64& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
+    ColumnArray::Offsets64& offsets_data = assert_cast<ColumnArray&>(*data_column).get_offsets();
     // fill offset and null map
     fill_array_offset(_field_schema, offsets_data, null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
@@ -628,33 +745,34 @@ Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
     return Status::OK();
 }
 
-Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                         ColumnSelectVector& select_vector, size_t batch_size,
-                                         size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status MapColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        if (_field_schema->is_nullable) {
+        if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
-    if (remove_nullable(type)->get_type_id() != TypeIndex::Map) {
+    if (remove_nullable(type)->get_primitive_type() != PrimitiveType::TYPE_MAP) {
         return Status::Corruption(
                 "Wrong data type for column '{}', expected Map type, actual type id {}.",
-                _field_schema->name, remove_nullable(type)->get_type_id());
+                _field_schema->name, type->get_name());
     }
 
-    auto& map = static_cast<ColumnMap&>(*data_column);
-    DataTypePtr& key_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_key_type());
-    DataTypePtr& value_type = const_cast<DataTypePtr&>(
-            reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_value_type());
+    auto& map = assert_cast<ColumnMap&>(*data_column);
+    auto& key_type = const_cast<DataTypePtr&>(
+            assert_cast<const DataTypeMap*>(remove_nullable(type).get())->get_key_type());
+    auto& value_type = const_cast<DataTypePtr&>(
+            assert_cast<const DataTypeMap*>(remove_nullable(type).get())->get_value_type());
     ColumnPtr& key_column = map.get_keys_ptr();
     ColumnPtr& value_column = map.get_values_ptr();
 
@@ -662,14 +780,16 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     size_t value_rows = 0;
     bool key_eof = false;
     bool value_eof = false;
-    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, select_vector, batch_size,
-                                                  &key_rows, &key_eof, is_dict_filter));
+
+    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, root_node->get_key_node(),
+                                                  filter_map, batch_size, &key_rows, &key_eof,
+                                                  is_dict_filter));
+
     while (value_rows < key_rows && !value_eof) {
         size_t loop_rows = 0;
-        select_vector.reset();
-        RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
-                                                        key_rows - value_rows, &loop_rows,
-                                                        &value_eof, is_dict_filter));
+        RETURN_IF_ERROR(_value_reader->read_column_data(
+                value_column, value_type, root_node->get_value_node(), filter_map,
+                key_rows - value_rows, &loop_rows, &value_eof, is_dict_filter));
         value_rows += loop_rows;
     }
     DCHECK_EQ(key_rows, value_rows);
@@ -685,6 +805,7 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    RETURN_IF_ERROR(map.deduplicate_keys());
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
@@ -697,33 +818,33 @@ Status StructColumnReader::init(
     _child_readers = std::move(child_readers);
     return Status::OK();
 }
-Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            ColumnSelectVector& select_vector, size_t batch_size,
-                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status StructColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_column)).mutate().get());
+        auto mutable_column = doris_column->assume_mutable();
+        auto* nullable_column = assert_cast<vectorized::ColumnNullable*>(mutable_column.get());
         null_map_ptr = &nullable_column->get_null_map_data();
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        if (_field_schema->is_nullable) {
+        if (_field_schema->data_type->is_nullable()) {
             return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
-    if (remove_nullable(type)->get_type_id() != TypeIndex::Struct) {
+    if (type->get_primitive_type() != PrimitiveType::TYPE_STRUCT) {
         return Status::Corruption(
                 "Wrong data type for column '{}', expected Struct type, actual type id {}.",
-                _field_schema->name, remove_nullable(type)->get_type_id());
+                _field_schema->name, type->get_name());
     }
 
-    auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
-    const DataTypeStruct* doris_struct_type =
-            reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
+    auto& doris_struct = assert_cast<ColumnStruct&>(*data_column);
+    const auto* doris_struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
 
-    bool least_one_reader = false;
+    int64_t not_missing_column_id = -1;
     std::vector<size_t> missing_column_idxs {};
 
     _read_column_names.clear();
@@ -732,32 +853,39 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
         auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
         auto& doris_name = const_cast<String&>(doris_struct_type->get_element_name(i));
-
-        // remember the missing column index
-        if (_child_readers.find(doris_name) == _child_readers.end()) {
+        if (!root_node->children_column_exists(doris_name)) {
             missing_column_idxs.push_back(i);
             continue;
         }
+        auto file_name = root_node->children_file_column_name(doris_name);
 
-        _read_column_names.insert(doris_name);
+        _read_column_names.emplace_back(file_name);
 
-        select_vector.reset();
         size_t field_rows = 0;
         bool field_eof = false;
-        if (!least_one_reader) {
-            least_one_reader = true;
-            RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                    doris_field, doris_type, select_vector, batch_size, &field_rows, &field_eof,
-                    is_dict_filter));
+        if (not_missing_column_id == -1) {
+            not_missing_column_id = i;
+            RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
+                    doris_field, doris_type, root_node->get_children_node(doris_name), filter_map,
+                    batch_size, &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
+            /*
+             * Considering the issue in the `_read_nested_column` function where data may span across pages, leading
+             * to missing definition and repetition levels, when filling the null_map of the struct later, it is
+             * crucial to use the definition and repetition levels from the first read column
+             * (since `_read_nested_column` is not called repeatedly).
+             *
+             *  It is worth mentioning that, theoretically, any sub-column can be chosen to fill the null_map,
+             *  and selecting the shortest one will offer better performance
+             */
         } else {
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
-                select_vector.reset();
-                RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                        doris_field, doris_type, select_vector, *read_rows - field_rows, &loop_rows,
-                        &field_eof, is_dict_filter));
+                RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
+                        doris_field, doris_type, root_node->get_children_node(doris_name),
+                        filter_map, *read_rows - field_rows, &loop_rows, &field_eof,
+                        is_dict_filter));
                 field_rows += loop_rows;
             }
             DCHECK_EQ(*read_rows, field_rows);
@@ -765,20 +893,29 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
     }
 
-    if (!least_one_reader) {
+    if (not_missing_column_id == -1) {
         // TODO: support read struct which columns are all missing
         return Status::Corruption("Not support read struct '{}' which columns are all missing",
                                   _field_schema->name);
     }
 
+    //  This missing_column_sz is not *read_rows. Because read_rows returns the number of rows.
+    //  For example: suppose we have a column array<struct<a:int,b:string>>,
+    //  where b is a newly added column, that is, a missing column.
+    //  There are two rows of data in this column,
+    //      [{1,null},{2,null},{3,null}]
+    //      [{4,null},{5,null}]
+    //  When you first read subcolumn a, you read 5 data items and the value of *read_rows is 2.
+    //  You should insert 5 records into subcolumn b instead of 2.
+    auto missing_column_sz = doris_struct.get_column(not_missing_column_id).size();
     // fill missing column with null or default value
     for (auto idx : missing_column_idxs) {
         auto& doris_field = doris_struct.get_column_ptr(idx);
         auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(idx));
         DCHECK(doris_type->is_nullable());
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doris_field)).mutate().get());
-        nullable_column->insert_null_elements(*read_rows);
+        auto mutable_column = doris_field->assume_mutable();
+        auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
+        nullable_column->insert_many_defaults(missing_column_sz);
     }
 
     if (null_map_ptr != nullptr) {
@@ -788,5 +925,6 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
     return Status::OK();
 }
+#include "common/compile_check_end.h"
 
 }; // namespace doris::vectorized

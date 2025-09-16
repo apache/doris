@@ -64,11 +64,13 @@ protected:
     virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader,
                                       const FileReaderOptions& opts) = 0;
 
-    Path absolute_path(const Path& path) const override {
+    Status absolute_path(const Path& path, Path& abs_path) const override {
         if (path.is_absolute()) {
-            return path;
+            abs_path = path;
+        } else {
+            abs_path = _root_path / path;
         }
-        return _root_path / path;
+        return Status::OK();
     }
 
     Path _root_path;

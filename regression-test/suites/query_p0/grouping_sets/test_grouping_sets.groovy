@@ -98,7 +98,7 @@ suite("test_grouping_sets", "p0") {
             SELECT k1, k3, MAX( k8 ) FROM test_query_db.test 
             GROUP BY k1, GROUPING SETS ( (k1, k3), (k1), ( ) ), ROLLUP(k1, k3)
             """
-        exception "Syntax error"
+        exception "mismatched input 'SETS'"
     }
 
     qt_select13"""

@@ -23,6 +23,7 @@
 #include "vec/sink/writer/vjdbc_table_writer.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class JdbcTableSinkOperatorX;
 class JdbcTableSinkLocalState final
@@ -45,7 +46,6 @@ public:
                            const std::vector<TExpr>& select_exprs);
     Status init(const TDataSink& thrift_sink) override;
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -60,4 +60,5 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

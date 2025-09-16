@@ -57,4 +57,11 @@ public interface MTMVPartitionExprService {
      * @throws AnalysisException
      */
     void analyze(MTMVPartitionInfo mtmvPartitionInfo) throws AnalysisException;
+
+    /**
+     * for show create MTMV
+     * @param mvPartitionInfo
+     * @return
+     */
+    String toSql(MTMVPartitionInfo mvPartitionInfo);
 }

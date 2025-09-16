@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -28,15 +29,8 @@
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/utils/util.hpp"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
-using std::vector;
-
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VSortedRunMerger::VSortedRunMerger(const VExprContextSPtrs& ordering_expr,
                                    const std::vector<bool>& is_asc_order,
@@ -68,29 +62,23 @@ void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
+Status VSortedRunMerger::prepare(const std::vector<BlockSupplier>& input_runs) {
     try {
         for (const auto& supplier : input_runs) {
             if (_use_sort_desc) {
-                _cursors.emplace_back(supplier, _desc);
+                _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(supplier, _desc));
             } else {
-                _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+                _cursors.emplace_back(BlockSupplierSortCursorImpl::create_shared(
+                        supplier, _ordering_expr, _is_asc_order, _nulls_first));
             }
         }
     } catch (const std::exception& e) {
         return Status::Cancelled(e.what());
     }
 
-    for (auto& _cursor : _cursors) {
-        if (!_cursor._is_eof) {
-            _priority_queue.push(MergeSortCursor(&_cursor));
-        }
-    }
-
-    for (const auto& cursor : _cursors) {
-        if (!cursor._is_eof) {
-            _empty_block = cursor.create_empty_blocks();
-            break;
+    for (auto& cursor : _cursors) {
+        if (!cursor->eof()) {
+            _priority_queue.push(MergeSortCursor(cursor));
         }
     }
 
@@ -105,57 +93,66 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
 
     if (_pending_cursor != nullptr) {
         MergeSortCursor cursor(_pending_cursor);
-        if (has_next_block(cursor)) {
+        {
+            ScopedTimer<MonotonicStopWatch> timer1(_get_next_block_timer);
+            cursor->process_next();
+        }
+        if (!cursor->eof()) {
             _priority_queue.push(cursor);
         }
         _pending_cursor = nullptr;
     }
+
+    Defer set_limit([&]() {
+        _num_rows_returned += output_block->rows();
+        if (_limit != -1 && _num_rows_returned >= _limit) {
+            output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
+            *eos = true;
+        }
+    });
 
     if (_priority_queue.empty()) {
         *eos = true;
         return Status::OK();
     } else if (_priority_queue.size() == 1) {
         auto current = _priority_queue.top();
-        while (_offset != 0 && current->block_ptr() != nullptr) {
-            if (_offset >= current->rows - current->pos) {
-                _offset -= (current->rows - current->pos);
-                _pending_cursor = current.impl;
+        DCHECK(!current->eof());
+        DCHECK(current->block_ptr() != nullptr);
+        while (_offset != 0) {
+            auto process_rows = std::min(current->rows - current->pos, (int)_offset);
+            current->next(process_rows);
+            _offset -= process_rows;
+            if (current->is_last(0)) {
                 _priority_queue.pop();
+                if (current->eof()) {
+                    *eos = true;
+                } else {
+                    _pending_cursor = current.impl;
+                }
                 return Status::OK();
-            } else {
-                current->pos += _offset;
-                _offset = 0;
             }
         }
 
-        if (current->is_first()) {
-            if (current->block_ptr() != nullptr) {
-                current->block_ptr()->swap(*output_block);
-                _pending_cursor = current.impl;
-                _priority_queue.pop();
-                return Status::OK();
-            } else {
-                *eos = true;
-            }
-        } else {
-            if (current->block_ptr() != nullptr) {
-                for (int i = 0; i < current->all_columns.size(); i++) {
-                    auto& column_with_type = current->block_ptr()->get_by_position(i);
-                    column_with_type.column = column_with_type.column->cut(
-                            current->pos, current->rows - current->pos);
-                }
-                current->block_ptr()->swap(*output_block);
-                _pending_cursor = current.impl;
-                _priority_queue.pop();
-                return Status::OK();
-            } else {
-                *eos = true;
+        if (!current->is_first()) {
+            for (int i = 0; i < current->block->columns(); i++) {
+                auto& column_with_type = current->block_ptr()->get_by_position(i);
+                column_with_type.column =
+                        column_with_type.column->cut(current->pos, current->rows - current->pos);
             }
         }
+        current->block_ptr()->swap(*output_block);
+        current->next(current->rows - current->pos);
+        if (current->eof()) {
+            *eos = true;
+        } else {
+            _pending_cursor = current.impl;
+        }
+        _priority_queue.pop();
+        return Status::OK();
     } else {
-        size_t num_columns = _empty_block.columns();
-        MutableBlock m_block =
-                VectorizedUtils::build_mutable_mem_reuse_block(output_block, _empty_block);
+        size_t num_columns = _priority_queue.top().impl->block->columns();
+        MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(
+                output_block, *_priority_queue.top().impl->block);
         MutableColumns& merged_columns = m_block.mutable_columns();
 
         if (num_columns != merged_columns.size()) {
@@ -195,7 +192,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 ++merged_rows;
             }
 
-            if (!next_heap(current)) {
+            current->next();
+            if (_need_more_data(current)) {
                 do_insert();
                 return Status::OK();
             }
@@ -209,28 +207,19 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
         }
     }
 
-    _num_rows_returned += output_block->rows();
-    if (_limit != -1 && _num_rows_returned >= _limit) {
-        output_block->set_num_rows(output_block->rows() - (_num_rows_returned - _limit));
-        *eos = true;
-    }
     return Status::OK();
 }
 
-bool VSortedRunMerger::next_heap(MergeSortCursor& current) {
-    if (!current->is_last()) {
-        current->next();
+bool VSortedRunMerger::_need_more_data(MergeSortCursor& current) {
+    if (!current->is_last(0)) {
         _priority_queue.push(current);
+        return false;
+    } else if (current->eof()) {
+        return false;
+    } else {
+        _pending_cursor = current.impl;
         return true;
     }
-
-    _pending_cursor = current.impl;
-    return false;
-}
-
-inline bool VSortedRunMerger::has_next_block(doris::vectorized::MergeSortCursor& current) {
-    ScopedTimer<MonotonicStopWatch> timer(_get_next_block_timer);
-    return current->has_next_block();
 }
 
 } // namespace doris::vectorized

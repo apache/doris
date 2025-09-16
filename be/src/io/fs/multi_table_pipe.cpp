@@ -96,7 +96,7 @@ std::string MultiTablePipe::parse_dst_table(const char* data, size_t size) {
 
 Status MultiTablePipe::dispatch(const std::string& table, const char* data, size_t size,
                                 AppendFunc cb) {
-    if (size == 0 || strlen(data) == 0) {
+    if (size == 0) {
         LOG(WARNING) << "empty data for table: " << table << ", ctx: " << _ctx->brief();
         return Status::InternalError("empty data");
     }
@@ -193,11 +193,12 @@ Status MultiTablePipe::request_and_exec_plans() {
         request.__set_memtable_on_sink_node(_ctx->memtable_on_sink_node);
         request.__set_user(_ctx->qualified_user);
         request.__set_cloud_cluster(_ctx->cloud_cluster);
+        request.__set_max_filter_ratio(1.0);
         // no need to register new_load_stream_mgr coz it is already done in routineload submit task
 
         // plan this load
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
-        TNetworkAddress master_addr = exec_env->master_info()->network_address;
+        TNetworkAddress master_addr = exec_env->cluster_info()->master_fe_addr;
         int64_t stream_load_put_start_time = MonotonicNanos();
         RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
@@ -214,7 +215,7 @@ Status MultiTablePipe::request_and_exec_plans() {
 
         if (_ctx->multi_table_put_result.__isset.params &&
             !_ctx->multi_table_put_result.__isset.pipeline_params) {
-            st = exec_plans(exec_env, _ctx->multi_table_put_result.params);
+            return Status::Aborted("only support pipeline engine");
         } else if (!_ctx->multi_table_put_result.__isset.params &&
                    _ctx->multi_table_put_result.__isset.pipeline_params) {
             st = exec_plans(exec_env, _ctx->multi_table_put_result.pipeline_params);
@@ -229,8 +230,8 @@ Status MultiTablePipe::request_and_exec_plans() {
     return st;
 }
 
-template <typename ExecParam>
-Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
+                                  const std::vector<TPipelineFragmentParams>& params) {
     // put unplanned pipes into planned pipes and clear unplanned pipes
     for (auto& pair : _unplanned_tables) {
         _ctx->table_list.push_back(pair.first);
@@ -249,9 +250,10 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
         }
 
         _inflight_cnt++;
-
+        TPipelineFragmentParamsList mocked;
         RETURN_IF_ERROR(exec_env->fragment_mgr()->exec_plan_fragment(
-                plan, [this, plan](RuntimeState* state, Status* status) {
+                plan, QuerySource::ROUTINE_LOAD,
+                [this, plan](RuntimeState* state, Status* status) {
                     DCHECK(state);
                     auto pair = _planned_tables.find(plan.table_name);
                     if (pair == _planned_tables.end()) {
@@ -263,39 +265,35 @@ Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> para
 
                     {
                         std::lock_guard<std::mutex> l(_tablet_commit_infos_lock);
+                        auto commit_infos = state->tablet_commit_infos();
                         _tablet_commit_infos.insert(_tablet_commit_infos.end(),
-                                                    state->tablet_commit_infos().begin(),
-                                                    state->tablet_commit_infos().end());
+                                                    commit_infos.begin(), commit_infos.end());
                     }
                     _number_total_rows += state->num_rows_load_total();
                     _number_loaded_rows += state->num_rows_load_success();
                     _number_filtered_rows += state->num_rows_load_filtered();
                     _number_unselected_rows += state->num_rows_load_unselected();
 
-                    // check filtered ratio for this plan fragment
-                    int64_t num_selected_rows =
-                            state->num_rows_load_total() - state->num_rows_load_unselected();
-                    if (num_selected_rows > 0 &&
-                        (double)state->num_rows_load_filtered() / num_selected_rows >
-                                _ctx->max_filter_ratio) {
-                        *status = Status::DataQualityError("too many filtered rows");
-                    }
-                    if (_number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
-                        _ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
-                    }
-
                     // if any of the plan fragment exec failed, set the status to the first failed plan
-                    if (!status->ok()) {
-                        LOG(WARNING)
-                                << "plan fragment exec failed. errmsg=" << *status << _ctx->brief();
-                        _status = *status;
+                    {
+                        std::lock_guard<std::mutex> l(_callback_lock);
+                        if (!state->get_error_log_file_path().empty()) {
+                            _ctx->error_url =
+                                    to_load_error_http_path(state->get_error_log_file_path());
+                        }
+                        if (!status->ok()) {
+                            LOG(WARNING) << "plan fragment exec failed. errmsg=" << *status
+                                         << _ctx->brief();
+                            _status = *status;
+                        }
                     }
 
                     auto inflight_cnt = _inflight_cnt.fetch_sub(1);
                     if (inflight_cnt == 1 && is_consume_finished()) {
                         _handle_consumer_finished();
                     }
-                }));
+                },
+                mocked));
     }
 
     return Status::OK();
@@ -313,8 +311,8 @@ Status MultiTablePipe::request_and_exec_plans() {
     return Status::OK();
 }
 
-template <typename ExecParam>
-Status MultiTablePipe::exec_plans(ExecEnv* exec_env, std::vector<ExecParam> params) {
+Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
+                                  const std::vector<TPipelineFragmentParams>& params) {
     return Status::OK();
 }
 
@@ -326,6 +324,19 @@ void MultiTablePipe::_handle_consumer_finished() {
     _ctx->number_filtered_rows = _number_filtered_rows;
     _ctx->number_unselected_rows = _number_unselected_rows;
     _ctx->commit_infos = _tablet_commit_infos;
+
+    // remove ctx to avoid memory leak.
+    for (const auto& pair : _planned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+    for (const auto& pair : _unplanned_tables) {
+        if (pair.second) {
+            doris::ExecEnv::GetInstance()->new_load_stream_mgr()->remove(pair.second->id);
+        }
+    }
+
     LOG(INFO) << "all plan for multi-table load complete. number_total_rows="
               << _ctx->number_total_rows << " number_loaded_rows=" << _ctx->number_loaded_rows
               << " number_filtered_rows=" << _ctx->number_filtered_rows
@@ -333,11 +344,6 @@ void MultiTablePipe::_handle_consumer_finished() {
               << ", ctx: " << _ctx->brief();
     _ctx->promise.set_value(_status); // when all done, finish the routine load task
 }
-
-template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
-                                           std::vector<TExecPlanFragmentParams> params);
-template Status MultiTablePipe::exec_plans(ExecEnv* exec_env,
-                                           std::vector<TPipelineFragmentParams> params);
 
 } // namespace io
 } // namespace doris

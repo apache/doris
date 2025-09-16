@@ -16,27 +16,12 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
-    def getMVJobState = { tbName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][8]
-    }
-    def waitForJob =  (tbName, timeout) -> {
-        while (timeout--){
-            String result = getMVJobState(tbName)
-            if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
-            }
-        }
-    }
+
 
     try {
         String backend_id;
@@ -44,21 +29,6 @@ suite ("test_uniq_mv_schema_change") {
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     sql """
@@ -95,8 +65,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName, """select user_id as a1, date as a2, city as a3, age as a4, sex as a5 from ${tableName}""")
 
     // alter and test light schema change
     if (!isCloudMode()) {
@@ -105,8 +74,7 @@ suite ("test_uniq_mv_schema_change") {
 
     //add materialized view
     def mvName2 = "mv2"
-    sql "create materialized view ${mvName2} as select user_id, date, city, age, cost from ${tableName};"
-    waitForJob(tableName, 3000)
+    create_sync_mv(context.dbName, tableName, mvName2, """select user_id as b1, date as b2, city as b3, age as b4, sex as b5, cost as b6 from ${tableName};""")
 
     sql """ INSERT INTO ${tableName} VALUES
              (2, '2017-10-01', 'Beijing', 10, 1, '2020-01-02', '2020-01-02', '2020-01-02', 1, 31, 21)
@@ -121,7 +89,7 @@ suite ("test_uniq_mv_schema_change") {
 
     // add column
     sql """
-        ALTER table ${tableName} ADD COLUMN new_column INT default "1" 
+        ALTER table ${tableName} ADD COLUMN new_column INT default "1"
         """
 
     sql """ SELECT * FROM ${tableName} WHERE user_id=2 """
@@ -182,31 +150,8 @@ suite ("test_uniq_mv_schema_change") {
         """
 
     // compaction
-    String[][] tablets = sql """ show tablets from ${tableName}; """
-    for (String[] tablet in tablets) {
-            String tablet_id = tablet[0]
-            backend_id = tablet[2]
-            logger.info("run compaction:" + tablet_id)
-            (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-            logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
-            //assertEquals(code, 0)
-    }
+    trigger_and_wait_compaction(tableName, "cumulative")
 
-    // wait for all compactions done
-    for (String[] tablet in tablets) {
-            boolean running = true
-            do {
-                Thread.sleep(100)
-                String tablet_id = tablet[0]
-                backend_id = tablet[2]
-                (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
-                assertEquals(code, 0)
-                def compactionStatus = parseJson(out.trim())
-                assertEquals("success", compactionStatus.status.toLowerCase())
-                running = compactionStatus.run_status
-            } while (running)
-    }
     qt_sc """ select count(*) from ${tableName} """
 
     qt_sc """  SELECT * FROM ${tableName} WHERE user_id=2 """

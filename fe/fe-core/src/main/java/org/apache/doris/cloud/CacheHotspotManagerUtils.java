@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud;
 
-import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DbName;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
@@ -25,8 +24,10 @@ import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -69,9 +70,10 @@ public class CacheHotspotManagerUtils {
                 + "    last_access_time DATETIMEV2)\n"
                 + "    UNIQUE KEY(cluster_id, backend_id, table_id, index_id, partition_id, insert_day)\n"
                 + "    PARTITION BY RANGE (insert_day) ()\n"
-                + "    DISTRIBUTED BY HASH (cluster_id)\n"
+                + "    DISTRIBUTED BY HASH (cluster_id) BUCKETS 1\n"
                 + "    PROPERTIES (\n"
                 + "    \"dynamic_partition.enable\" = \"true\",\n"
+                + "    \"dynamic_partition.buckets\" = \"1\",\n"
                 + "    \"dynamic_partition.time_unit\" = \"DAY\",\n"
                 + "    \"dynamic_partition.start\" = \"-7\",\n"
                 + "    \"dynamic_partition.end\" = \"3\",\n"
@@ -187,17 +189,16 @@ public class CacheHotspotManagerUtils {
     public static void execUpdate(String sql) throws Exception {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
     }
 
     private static void execCreateDatabase() throws Exception {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                new DbName(null, FeConstants.INTERNAL_DB_NAME),
-                null);
+        CreateDatabaseCommand command = new CreateDatabaseCommand(true,
+                new DbName("", FeConstants.INTERNAL_DB_NAME),
+                    null);
         try {
-            Env.getCurrentEnv().createDb(createDbStmt);
+            Env.getCurrentEnv().createDb(command);
         } catch (DdlException e) {
             LOG.warn("Failed to create database: {}, will try again later",
                     FeConstants.INTERNAL_DB_NAME, e);
@@ -208,30 +209,32 @@ public class CacheHotspotManagerUtils {
         try (AutoCloseConnectContext r = buildConnectContext()) {
             execCreateDatabase();
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, CREATE_CACHE_TABLE);
-            r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
         }
         Database db = Env.getCurrentInternalCatalog().getDbNullable(FeConstants.INTERNAL_DB_NAME);
         if (db == null) {
             LOG.warn("{} database doesn't exist", FeConstants.INTERNAL_DB_NAME);
+            throw new Exception(
+                    String.format("Database %s doesn't exist", FeConstants.INTERNAL_DB_NAME));
         }
 
         Table t = db.getTableNullable(FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
         if (t == null) {
             LOG.warn("{} table doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME);
+            throw new Exception(
+                    String.format("Table %s doesn't exist", FeConstants.INTERNAL_FILE_CACHE_HOTSPOT_TABLE_NAME));
         }
         INTERNAL_TABLE_ID = String.valueOf(t.getId());
     }
 
     public static AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
+        connectContext.getState().setInternal(true);
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        sessionVariable.internalSession = true;
         // sessionVariable.setMaxExecMemByte(StatisticConstants.STATISTICS_MAX_MEM_PER_QUERY_IN_BYTES);
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.setInsertMaxFilterRatio(1);
         // sessionVariable.parallelExecInstanceNum = StatisticConstants.STATISTIC_PARALLEL_EXEC_INSTANCE_NUM;
-        sessionVariable.setEnableNereidsPlanner(false);
         sessionVariable.enableProfile = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
@@ -239,8 +242,7 @@ public class CacheHotspotManagerUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setUserInsertTimeout(getCacheHotSpotInsertTimeoutInSecTimeout());
         return new AutoCloseConnectContext(connectContext);
     }
@@ -255,7 +257,11 @@ public class CacheHotspotManagerUtils {
             this.previousContext = ConnectContext.get();
             this.connectContext = connectContext;
             connectContext.setThreadLocalInfo();
-            connectContext.getCloudCluster();
+            try {
+                connectContext.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+            }
         }
 
         @Override

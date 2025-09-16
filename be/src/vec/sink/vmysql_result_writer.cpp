@@ -20,6 +20,8 @@
 #include <fmt/core.h>
 #include <gen_cpp/Data_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <stdint.h>
 #include <string.h>
@@ -27,37 +29,18 @@
 
 #include <ostream>
 #include <string>
-#include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "gutil/integral_types.h"
-#include "olap/hll.h"
-#include "runtime/buffer_control_block.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/large_int_value.h"
-#include "runtime/primitive_type.h"
+#include "common/config.h"
+#include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/binary_cast.hpp"
-#include "util/jsonb_utils.h"
-#include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_complex.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_decimal.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_struct.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/pod_array.h"
-#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -66,28 +49,65 @@
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/runtime/vdatetime_value.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+void GetResultBatchCtx::on_failure(const Status& status) {
+    DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
+    status.to_protobuf(_result->mutable_status());
+    _done->Run();
+}
+
+void GetResultBatchCtx::on_close(int64_t packet_seq, int64_t returned_rows) {
+    Status status;
+    status.to_protobuf(_result->mutable_status());
+    PQueryStatistics* statistics = _result->mutable_query_statistics();
+    statistics->set_returned_rows(returned_rows);
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(true);
+    _done->Run();
+}
+
+Status GetResultBatchCtx::on_data(const std::shared_ptr<TFetchDataResult>& t_result,
+                                  int64_t packet_seq, ResultBlockBufferBase* buffer) {
+    Status st = Status::OK();
+    if (t_result != nullptr) {
+        uint8_t* buf = nullptr;
+        uint32_t len = 0;
+        ThriftSerializer ser(false, 4096);
+        RETURN_IF_ERROR(ser.serialize(&t_result->result_batch, &len, &buf));
+        _result->set_row_batch(std::string((const char*)buf, len));
+    } else {
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    _result->set_packet_seq(packet_seq);
+    _result->set_eos(false);
+
+    /// The size limit of proto buffer message is 2G
+    if (_result->ByteSizeLong() > _max_msg_size) {
+        st = Status::InternalError("Message size exceeds 2GB: {}", _result->ByteSizeLong());
+        _result->clear_row_batch();
+        _result->set_empty_batch(true);
+    }
+    st.to_protobuf(_result->mutable_status());
+    _done->Run();
+    return Status::OK();
+}
 
 template <bool is_binary_format>
-VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(BufferControlBlock* sinker,
-                                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                                         RuntimeProfile* parent_profile)
+VMysqlResultWriter<is_binary_format>::VMysqlResultWriter(
+        std::shared_ptr<ResultBlockBufferBase> sinker, const VExprContextSPtrs& output_vexpr_ctxs,
+        RuntimeProfile* parent_profile)
         : ResultWriter(),
-          _sinker(sinker),
+          _sinker(std::dynamic_pointer_cast<MySQLResultBlockBuffer>(sinker)),
           _output_vexpr_ctxs(output_vexpr_ctxs),
           _parent_profile(parent_profile) {}
 
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::init(RuntimeState* state) {
     _init_profile();
-    // TODO: for PointQueryExecutor, the sinker is null, but we still need call init(),
-    // so comment out this check temporarily.
-    // if (nullptr == _sinker) {
-    //     return Status::InternalError("sinker is NULL pointer.");
-    // }
     set_output_object_data(state->return_object_data_as_binary());
     _is_dry_run = state->query_options().dry_run_query;
 
@@ -103,7 +123,6 @@ void VMysqlResultWriter<is_binary_format>::_init_profile() {
         _convert_tuple_timer =
                 ADD_CHILD_TIMER(_parent_profile, "TupleConvertTime", "AppendBatchTime");
         _result_send_timer = ADD_CHILD_TIMER(_parent_profile, "ResultSendTime", "AppendBatchTime");
-        _copy_buffer_timer = ADD_CHILD_TIMER(_parent_profile, "CopyBufferTime", "AppendBatchTime");
         _sent_rows_counter = ADD_COUNTER(_parent_profile, "NumSentRows", TUnit::UNIT);
         _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
     }
@@ -122,6 +141,8 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = ':';
         _options.null_format = "null";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
         break;
     case TSerdeDialect::PRESTO:
         // eg:
@@ -132,6 +153,20 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
         _options.map_key_delim = '=';
         _options.null_format = "NULL";
         _options.null_len = 4;
+        _options.mysql_collection_delim = ", ";
+        _options.is_bool_value_num = true;
+        break;
+    case TSerdeDialect::HIVE:
+        // eg:
+        //  array: ["abc","def","",null]
+        //  map: {"k1":null,"k2":"v3"}
+        _options.nested_string_wrapper = "\"";
+        _options.wrapper_len = 1;
+        _options.map_key_delim = ':';
+        _options.null_format = "null";
+        _options.null_len = 4;
+        _options.mysql_collection_delim = ",";
+        _options.is_bool_value_num = false;
         break;
     default:
         return Status::InternalError("unknown serde dialect: {}", serde_dialect);
@@ -140,23 +175,11 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
 }
 
 template <bool is_binary_format>
-Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
-    SCOPED_TIMER(_append_row_batch_timer);
+Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
-    if (UNLIKELY(input_block.rows() == 0)) {
-        return status;
-    }
-
-    DCHECK(_output_vexpr_ctxs.empty() != true);
-
-    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
-    // failed, just return the error status
-    Block block;
-    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
-                                                                       input_block, &block));
+    int num_rows = cast_set<int>(block.rows());
     // convert one batch
-    auto result = std::make_unique<TFetchDataResult>();
-    auto num_rows = block.rows();
+    auto result = std::make_shared<TFetchDataResult>();
     result->result_batch.rows.resize(num_rows);
     uint64_t bytes_sent = 0;
     {
@@ -179,19 +202,18 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
             const auto& [column_ptr, col_const] =
                     unpack_if_const(block.get_by_position(col_idx).column);
-            int scale = _output_vexpr_ctxs[col_idx]->root()->type().scale;
+            int scale = _output_vexpr_ctxs[col_idx]->root()->data_type()->get_scale();
             // decimalv2 scale and precision is hard code, so we should get real scale and precision
             // from expr
             DataTypeSerDeSPtr serde;
-            if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
+            if (_output_vexpr_ctxs[col_idx]->root()->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_DECIMALV2) {
                 if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
-                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                            std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
                     serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
                 } else {
-                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
-                                                                                             27);
+                    serde = std::make_shared<DataTypeDecimalSerDe<TYPE_DECIMALV2>>(27, scale);
                 }
             } else {
                 serde = block.get_by_position(col_idx).type->get_serde();
@@ -211,7 +233,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
             }
         }
 
-        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
@@ -231,11 +253,7 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
-            if (_sinker) {
-                status = _sinker->add_batch(state, result);
-            } else {
-                _results.push_back(std::move(result));
-            }
+            status = _sinker->add_batch(state, result);
         }
         if (status.ok()) {
             _written_rows += num_rows;
@@ -250,6 +268,47 @@ Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& i
 }
 
 template <bool is_binary_format>
+Status VMysqlResultWriter<is_binary_format>::write(RuntimeState* state, Block& input_block) {
+    SCOPED_TIMER(_append_row_batch_timer);
+    Status status = Status::OK();
+    if (UNLIKELY(input_block.rows() == 0)) {
+        return status;
+    }
+
+    DCHECK(_output_vexpr_ctxs.empty() != true);
+
+    // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
+    // failed, just return the error status
+    Block block;
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
+                                                                       input_block, &block));
+    const auto total_bytes = block.bytes();
+
+    if (total_bytes > config::thrift_max_message_size) [[unlikely]] {
+        const auto total_rows = block.rows();
+        const auto sub_block_count = (total_bytes + config::thrift_max_message_size - 1) /
+                                     config::thrift_max_message_size;
+        const auto sub_block_rows = (total_rows + sub_block_count - 1) / sub_block_count;
+
+        size_t offset = 0;
+        while (offset < total_rows) {
+            size_t rows = std::min(static_cast<size_t>(sub_block_rows), total_rows - offset);
+            auto sub_block = block.clone_empty();
+            for (size_t i = 0; i != block.columns(); ++i) {
+                sub_block.get_by_position(i).column =
+                        block.get_by_position(i).column->cut(offset, rows);
+            }
+            offset += rows;
+
+            RETURN_IF_ERROR(_write_one_block(state, sub_block));
+        }
+        return Status::OK();
+    }
+
+    return _write_one_block(state, block);
+}
+
+template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::close(Status) {
     COUNTER_SET(_sent_rows_counter, _written_rows);
     COUNTER_UPDATE(_bytes_sent_counter, _bytes_sent);
@@ -259,5 +318,4 @@ Status VMysqlResultWriter<is_binary_format>::close(Status) {
 template class VMysqlResultWriter<true>;
 template class VMysqlResultWriter<false>;
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

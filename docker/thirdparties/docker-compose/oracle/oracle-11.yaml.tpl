@@ -25,7 +25,7 @@ services:
       - ${DOCKER_ORACLE_EXTERNAL_PORT}:1521
     privileged: true
     healthcheck:
-      test: [ "CMD", "bash", "-c", "echo 'select 1 from dual;' | ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe /u01/app/oracle/product/11.2.0/xe/bin/sqlplus -s DORIS_TEST/123456@localhost"]
+      test: [ "CMD", "bash", "-c", "echo 'SELECT 1 FROM doris_test.deadline;' | ORACLE_HOME=/u01/app/oracle/product/11.2.0/xe /u01/app/oracle/product/11.2.0/xe/bin/sqlplus -s DORIS_TEST/123456@localhost" ]
       interval: 20s
       timeout: 60s
       retries: 120
@@ -39,13 +39,6 @@ services:
       - TZ=Asia/Shanghai
     networks:
       - doris--oracle_11
-  doris--oracle-hello-world:
-    image: hello-world
-    depends_on:
-      doris--oracle_11:
-        condition: service_healthy 
-    networks:
-      - doris--oracle_11
 
 networks:
   doris--oracle_11:
@@ -53,3 +46,7 @@ networks:
       driver: default
       config:
         - subnet: 168.40.0.0/24
+
+# login in container
+# sqlplus system/oracle@127.0.0.1:1521
+# sqlplus DORIS_TEST/123456@127.0.0.1:1521

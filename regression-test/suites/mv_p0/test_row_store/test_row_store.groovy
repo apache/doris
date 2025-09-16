@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_row_store") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -26,7 +28,26 @@ suite ("test_row_store") {
         """
 
     test {
-        sql "create materialized view kavg as select k1,k4,avg(k2) from d_table group by k1,k4;"
+        sql "create materialized view kavg as select k1 as a1,k4 as a2,avg(k2) from d_table group by k1,k4;"
         exception "RowStore table can't create materialized view"
     }
+
+    // test ip type with row store
+    sql """ DROP TABLE IF EXISTS ipv_row; """
+    sql """ CREATE TABLE ipv_row (
+             `id` int,
+             `ip_v6` ipv6,
+             `ip_v4` ipv4
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`id`) BUCKETS 4
+            PROPERTIES (
+                 "store_row_column"="true",
+                 "replication_allocation" = "tag.location.default: 1"
+            ); """
+
+    // rowstore column can't  make inde
+    sql """ insert into ipv_row values(2, '2001:16a0:2:200a::2', '192.1.2.0');"""
+    sql """ insert into ipv_row values(1, '::', '0.0.0.0');"""
+    qt_sql """select * from ipv_row where id = 1;"""
+
 }

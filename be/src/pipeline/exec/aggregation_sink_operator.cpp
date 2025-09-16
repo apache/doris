@@ -20,14 +20,17 @@
 #include <memory>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/primitive_type.h"
+#include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given
 /// size or above. The sizes roughly correspond to hash table sizes where the bucket
@@ -55,25 +58,24 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
     _agg_data = Base::_shared_state->agg_data.get();
-    _agg_arena_pool = Base::_shared_state->agg_arena_pool.get();
-    _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
-    _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
+    _serialize_key_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(
+            Base::custom_profile(), "MemoryUsageSerializeKeyArena", TUnit::BYTES, 1);
 
-    _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
-    _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
-    _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
-    _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");
-    _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
-    _hash_table_limit_compute_timer = ADD_TIMER(Base::profile(), "DoLimitComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
-    _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-    _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
+    _build_timer = ADD_TIMER(Base::custom_profile(), "BuildTime");
+    _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
+    _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
+    _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
+    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_limit_compute_timer = ADD_TIMER(Base::custom_profile(), "DoLimitComputeTime");
+    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_input_counter =
+            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
+
+    _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
+    _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
 
     return Status::OK();
 }
@@ -97,11 +99,11 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(
                 p._probe_expr_ctxs[i]->clone(state, Base::_shared_state->probe_expr_ctxs[i]));
     }
-    Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 
     if (Base::_shared_state->probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                Base::_shared_state->agg_profile_arena->alloc(p._total_size_of_aggregate_states));
+        _agg_data->without_key =
+                reinterpret_cast<vectorized::AggregateDataPtr>(_agg_profile_arena.aligned_alloc(
+                        p._total_size_of_aggregate_states, p._align_aggregate_states));
 
         if (p._is_merge) {
             _executor = std::make_unique<Executor<true, true>>();
@@ -177,6 +179,8 @@ Status AggSinkLocalState::_create_agg_status(vectorized::AggregateDataPtr data) 
 Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
     SCOPED_TIMER(_build_timer);
+    _memory_usage_last_executing = 0;
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_single_add(
                 block,
@@ -188,6 +192,8 @@ Status AggSinkLocalState::_execute_without_key(vectorized::Block* block) {
 }
 
 Status AggSinkLocalState::_merge_with_serialized_key(vectorized::Block* block) {
+    _memory_usage_last_executing = 0;
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _merge_with_serialized_key_helper<true, false>(block);
     } else {
@@ -200,9 +206,7 @@ size_t AggSinkLocalState::_memory_usage() const {
         return 0;
     }
     size_t usage = 0;
-    if (_agg_arena_pool) {
-        usage += _agg_arena_pool->size();
-    }
+    usage += _agg_arena_pool.size();
 
     if (Base::_shared_state->aggregate_data_container) {
         usage += Base::_shared_state->aggregate_data_container->memory_usage();
@@ -221,6 +225,13 @@ size_t AggSinkLocalState::_memory_usage() const {
     return usage;
 }
 
+bool AggSinkLocalState::is_blockable() const {
+    return std::any_of(
+            Base::_shared_state->aggregate_evaluators.begin(),
+            Base::_shared_state->aggregate_evaluators.end(),
+            [](const vectorized::AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
+
 void AggSinkLocalState::_update_memusage_with_serialized_key() {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
@@ -228,24 +239,20 @@ void AggSinkLocalState::_update_memusage_with_serialized_key() {
                        },
                        [&](auto& agg_method) -> void {
                            auto& data = *agg_method.hash_table;
-                           auto arena_memory_usage =
-                                   _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage() -
-                                   Base::_shared_state->mem_usage_record.used_in_arena;
-                           Base::_mem_tracker->consume(arena_memory_usage);
-                           Base::_mem_tracker->consume(
-                                   data.get_buffer_size_in_bytes() -
-                                   Base::_shared_state->mem_usage_record.used_in_state);
-                           _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                           COUNTER_UPDATE(
-                                   _hash_table_memory_usage,
-                                   data.get_buffer_size_in_bytes() -
-                                           Base::_shared_state->mem_usage_record.used_in_state);
-                           Base::_shared_state->mem_usage_record.used_in_state =
-                                   data.get_buffer_size_in_bytes();
-                           Base::_shared_state->mem_usage_record.used_in_arena =
-                                   _agg_arena_pool->size() +
-                                   Base::_shared_state->aggregate_data_container->memory_usage();
+                           int64_t memory_usage_arena = _agg_arena_pool.size();
+                           int64_t memory_usage_container =
+                                   _shared_state->aggregate_data_container->memory_usage();
+                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
+
+                           COUNTER_SET(_memory_usage_arena, memory_usage_arena);
+                           COUNTER_SET(_memory_usage_container, memory_usage_container);
+                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
+                           COUNTER_SET(_serialize_key_arena_memory_usage,
+                                       memory_usage_arena + memory_usage_container);
+
+                           COUNTER_SET(_memory_used_counter, memory_usage_arena +
+                                                                     memory_usage_container +
+                                                                     hash_table_memory_usage);
                        }},
                _agg_data->method_variant);
 }
@@ -267,7 +274,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
     vectorized::ColumnRawPtrs key_columns(key_size);
     std::vector<int> key_locs(key_size);
 
-    for (size_t i = 0; i < key_size; ++i) {
+    for (int i = 0; i < key_size; ++i) {
         if constexpr (for_spill) {
             key_columns[i] = block->get_by_position(i).column.get();
             key_locs[i] = i;
@@ -278,15 +285,16 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
             block->replace_by_position_if_const(result_column_id);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
+        key_columns[i]->assume_mutable()->replace_float_special_values();
     }
 
-    int rows = block->rows();
+    size_t rows = block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
 
     if (limit && !_shared_state->do_sort_limit) {
-        _find_in_hash_table(_places.data(), key_columns, rows);
+        _find_in_hash_table(_places.data(), key_columns, (uint32_t)rows);
 
         for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
@@ -328,16 +336,16 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
         bool need_do_agg = true;
         if (limit) {
             need_do_agg = _emplace_into_hash_table_limit(_places.data(), block, key_locs,
-                                                         key_columns, rows);
+                                                         key_columns, (uint32_t)rows);
             rows = block->rows();
         } else {
-            _emplace_into_hash_table(_places.data(), key_columns, rows);
+            _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
         }
 
         if (need_do_agg) {
             for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
                 if (Base::_shared_state->aggregate_evaluators[i]->is_merge() || for_spill) {
-                    int col_id = 0;
+                    size_t col_id = 0;
                     if constexpr (for_spill) {
                         col_id = Base::_shared_state->probe_expr_ctxs.size() + i;
                     } else {
@@ -395,6 +403,9 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(vectorized::Block* b
 Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
     SCOPED_TIMER(_merge_timer);
     DCHECK(_agg_data->without_key != nullptr);
+
+    _memory_usage_last_executing = 0;
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
         if (Base::_shared_state->aggregate_evaluators[i]->is_merge()) {
             int col_id = AggSharedState::get_slot_column_id(
@@ -424,14 +435,14 @@ Status AggSinkLocalState::_merge_without_key(vectorized::Block* block) {
 }
 
 void AggSinkLocalState::_update_memusage_without_key() {
-    auto arena_memory_usage =
-            _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
-    Base::_mem_tracker->consume(arena_memory_usage);
-    _serialize_key_arena_memory_usage->add(arena_memory_usage);
-    Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
+    int64_t arena_memory_usage = _agg_arena_pool.size();
+    COUNTER_SET(_memory_used_counter, arena_memory_usage);
+    COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
 Status AggSinkLocalState::_execute_with_serialized_key(vectorized::Block* block) {
+    _memory_usage_last_executing = 0;
+    SCOPED_PEAK_MEM(&_memory_usage_last_executing);
     if (_shared_state->reach_limit) {
         return _execute_with_serialized_key_helper<true>(block);
     } else {
@@ -457,10 +468,11 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
-    int rows = block->rows();
+    auto rows = (uint32_t)block->rows();
     if (_places.size() < rows) {
         _places.resize(rows);
     }
@@ -503,7 +515,8 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(vectorized::Block*
                 _shared_state->reach_limit =
                         hash_table_size >=
                         (_shared_state->do_sort_limit
-                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit * 5
+                                 ? Base::_parent->template cast<AggSinkOperatorX>()._limit *
+                                           config::topn_agg_limit_multiplier
                                  : Base::_parent->template cast<AggSinkOperatorX>()._limit);
                 if (_shared_state->reach_limit && _shared_state->do_sort_limit) {
                     _shared_state->build_limit_heap(hash_table_size);
@@ -523,7 +536,7 @@ size_t AggSinkLocalState::_get_hash_table_size() const {
 
 void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                                  vectorized::ColumnRawPtrs& key_columns,
-                                                 size_t num_rows) {
+                                                 uint32_t num_rows) {
     std::visit(vectorized::Overload {
                        [&](std::monostate& arg) -> void {
                            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -537,7 +550,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
 
                            auto creator = [this](const auto& ctor, auto& key, auto& origin) {
                                HashMethodType::try_presis_key_and_origin(key, origin,
-                                                                         *_agg_arena_pool);
+                                                                         _agg_arena_pool);
                                auto mapped =
                                        Base::_shared_state->aggregate_data_container->append_data(
                                                origin);
@@ -549,7 +562,7 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
                            };
 
                            auto creator_for_null_key = [&](auto& mapped) {
-                               mapped = _agg_arena_pool->aligned_alloc(
+                               mapped = _agg_arena_pool.aligned_alloc(
                                        Base::_parent->template cast<AggSinkOperatorX>()
                                                ._total_size_of_aggregate_states,
                                        Base::_parent->template cast<AggSinkOperatorX>()
@@ -562,8 +575,8 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -575,7 +588,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                                        vectorized::Block* block,
                                                        const std::vector<int>& key_locs,
                                                        vectorized::ColumnRawPtrs& key_columns,
-                                                       size_t num_rows) {
+                                                       uint32_t num_rows) {
     return std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) {
@@ -604,33 +617,18 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                     key_columns[i] =
                                             block->get_by_position(key_locs[i]).column.get();
                                 }
-                                num_rows = block->rows();
+                                num_rows = (uint32_t)block->rows();
                             }
 
                             AggState state(key_columns);
                             agg_method.init_serialized_keys(key_columns, num_rows);
                             size_t i = 0;
 
-                            auto refresh_top_limit = [&, this]() {
-                                _shared_state->limit_heap.pop();
-                                for (int j = 0; j < key_columns.size(); ++j) {
-                                    _shared_state->limit_columns[j]->insert_from(*key_columns[j],
-                                                                                 i);
-                                }
-                                _shared_state->limit_heap.emplace(
-                                        _shared_state->limit_columns[0]->size() - 1,
-                                        _shared_state->limit_columns,
-                                        _shared_state->order_directions,
-                                        _shared_state->null_directions);
-                                _shared_state->limit_columns_min =
-                                        _shared_state->limit_heap.top()._row_id;
-                            };
-
-                            auto creator = [this, refresh_top_limit](const auto& ctor, auto& key,
-                                                                     auto& origin) {
+                            auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                                 try {
                                     HashMethodType::try_presis_key_and_origin(key, origin,
-                                                                              *_agg_arena_pool);
+                                                                              _agg_arena_pool);
+                                    _shared_state->refresh_top_limit(i, key_columns);
                                     auto mapped =
                                             _shared_state->aggregate_data_container->append_data(
                                                     origin);
@@ -639,7 +637,6 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                         throw Exception(st.code(), st.to_string());
                                     }
                                     ctor(key, mapped);
-                                    refresh_top_limit();
                                 } catch (...) {
                                     // Exception-safety - if it can not allocate memory or create status,
                                     // the destructors will not be called.
@@ -648,8 +645,8 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 }
                             };
 
-                            auto creator_for_null_key = [this, refresh_top_limit](auto& mapped) {
-                                mapped = _agg_arena_pool->aligned_alloc(
+                            auto creator_for_null_key = [&](auto& mapped) {
+                                mapped = _agg_arena_pool.aligned_alloc(
                                         Base::_parent->template cast<AggSinkOperatorX>()
                                                 ._total_size_of_aggregate_states,
                                         Base::_parent->template cast<AggSinkOperatorX>()
@@ -658,13 +655,13 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
                                 if (!st) {
                                     throw Exception(st.code(), st.to_string());
                                 }
-                                refresh_top_limit();
+                                _shared_state->refresh_top_limit(i, key_columns);
                             };
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
                             for (i = 0; i < num_rows; ++i) {
-                                places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                    creator_for_null_key);
+                                places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                     creator_for_null_key);
                             }
                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                             return true;
@@ -676,7 +673,7 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
 
 void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places,
                                             vectorized::ColumnRawPtrs& key_columns,
-                                            size_t num_rows) {
+                                            uint32_t num_rows) {
     std::visit(vectorized::Overload {[&](std::monostate& arg) -> void {
                                          throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                                                 "uninited hash table");
@@ -702,15 +699,32 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
 }
 
 Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(
-            init_agg_hash_method(_agg_data, probe_exprs,
-                                 Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _agg_data, get_data_types(probe_exprs),
+            Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
     return Status::OK();
 }
 
-AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs, bool require_bucket_distribution)
-        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode.node_id),
+size_t AggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) const {
+    size_t size_to_reserve = std::visit(
+            [&](auto&& arg) -> size_t {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<HashTableCtxType, std::monostate>) {
+                    return 0;
+                } else {
+                    return arg.hash_table->estimate_memory(state->batch_size());
+                }
+            },
+            _agg_data->method_variant);
+
+    size_to_reserve += _memory_usage_last_executing;
+    return size_to_reserve;
+}
+
+AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
+                                   const TPlanNode& tnode, const DescriptorTbl& descs,
+                                   bool require_bucket_distribution)
+        : DataSinkOperatorX<AggSinkLocalState>(operator_id, tnode, dest_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
           _needs_finalize(tnode.agg_node.need_finalize),
@@ -742,22 +756,16 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
-
-    const auto& agg_functions = tnode.agg_node.aggregate_functions;
-    _external_agg_bytes_threshold = state->external_agg_bytes_threshold();
-
-    _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
-                            [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
 
     if (tnode.agg_node.__isset.agg_sort_info_by_group_key) {
         _do_sort_limit = true;
         const auto& agg_sort_info = tnode.agg_node.agg_sort_info_by_group_key;
         DCHECK_EQ(agg_sort_info.nulls_first.size(), agg_sort_info.is_asc_order.size());
 
-        const int order_by_key_size = agg_sort_info.is_asc_order.size();
+        const size_t order_by_key_size = agg_sort_info.is_asc_order.size();
         _order_directions.resize(order_by_key_size);
         _null_directions.resize(order_by_key_size);
         for (int i = 0; i < order_by_key_size; ++i) {
@@ -771,14 +779,33 @@ Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status AggSinkOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::prepare(state));
+
+    RETURN_IF_ERROR(_init_probe_expr_ctx(state));
+
+    RETURN_IF_ERROR(_init_aggregate_evaluators(state));
+
+    RETURN_IF_ERROR(_calc_aggregate_evaluators());
+
+    RETURN_IF_ERROR(_check_agg_fn_output());
+
+    return Status::OK();
+}
+
+Status AggSinkOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(
-            _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc()));
+            _probe_expr_ctxs, state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
+    return Status::OK();
+}
+
+Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -786,16 +813,24 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
             _make_nullable_keys.emplace_back(i);
         }
     }
-    for (int i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<AggSinkLocalState>::_child_x->row_desc(),
+                state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc(),
                 intermediate_slot_desc, output_slot_desc));
+        _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
-    _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
+    for (auto& _aggregate_evaluator : _aggregate_evaluators) {
+        RETURN_IF_ERROR(_aggregate_evaluator->open(state));
+    }
+    return Status::OK();
+}
 
+Status AggSinkOperatorX::_calc_aggregate_evaluators() {
+    _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
+    _is_merge = false;
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
 
@@ -818,23 +853,19 @@ Status AggSinkOperatorX::prepare(RuntimeState* state) {
                     (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
                     alignment_of_next_state * alignment_of_next_state;
         }
-    }
-    // check output type
-    if (_needs_finalize) {
-        RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
-                _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
+        if (_aggregate_evaluators[i]->is_merge()) {
+            _is_merge = true;
+        }
     }
     return Status::OK();
 }
 
-Status AggSinkOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
-
-    for (auto& _aggregate_evaluator : _aggregate_evaluators) {
-        RETURN_IF_ERROR(_aggregate_evaluator->open(state));
-        _aggregate_evaluator->set_version(state->be_exec_version());
+Status AggSinkOperatorX::_check_agg_fn_output() {
+    if (_needs_finalize) {
+        RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
+                cast_set<uint32_t>(_probe_expr_ctxs.size()), _aggregate_evaluators,
+                _agg_fn_output_row_descriptor));
     }
-
     return Status::OK();
 }
 
@@ -864,8 +895,13 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& local_state = get_local_state(state);
     auto& ss = *local_state.Base::_shared_state;
     RETURN_IF_ERROR(ss.reset_hash_table());
-    local_state._agg_arena_pool = ss.agg_arena_pool.get();
+    local_state._serialize_key_arena_memory_usage->set((int64_t)0);
     return Status::OK();
+}
+
+size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state, eos);
 }
 
 Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
@@ -880,8 +916,6 @@ Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-    Base::_mem_tracker->release(Base::_shared_state->mem_usage_record.used_in_state +
-                                Base::_shared_state->mem_usage_record.used_in_arena);
     return Base::close(state, exec_status);
 }
 

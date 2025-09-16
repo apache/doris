@@ -59,14 +59,15 @@ suite("test_export_basic", "p0") {
     
     def table_export_name = "test_export_basic"
     def table_load_name = "test_load_basic"
-    def outfile_path_prefix = """/tmp/test_export"""
+    def outfile_path_prefix = """/tmp/test_export_basic"""
+    def local_tvf_prefix = "tmp/test_export_basic"
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
     sql """
     CREATE TABLE IF NOT EXISTS ${table_export_name} (
         `id` int(11) NULL,
-        `name` string NULL,
+        `Name` string NULL,
         `age` int(11) NULL
         )
         PARTITION BY RANGE(id)
@@ -96,29 +97,13 @@ suite("test_export_basic", "p0") {
     qt_select_export """ SELECT * FROM ${table_export_name} t ORDER BY id; """
 
 
+    def machine_user_name = "root"
     def check_path_exists = { dir_path ->
-        File path = new File(dir_path)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${dir_path} already exists! """)
-        }
-    }
-
-    def check_file_amounts = { dir_path, amount ->
-        File path = new File(dir_path)
-        File[] files = path.listFiles()
-        assert files.length == amount
+        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
     }
 
     def delete_files = { dir_path ->
-        File path = new File(dir_path)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
+        deleteRemotePathOnAllBE(machine_user_name, dir_path)
     }
 
     def waiting_export = { the_db, export_label ->
@@ -135,9 +120,24 @@ suite("test_export_basic", "p0") {
         }
     }
 
+    def waiting_export_with_exception = { the_db, export_label, exception_msg ->
+        while (true) {
+            def res = sql """ show export from ${the_db} where label = "${export_label}" """
+            logger.info("export state: " + res[0][2])
+            if (res[0][2] == "FINISHED") {
+                throw new IllegalStateException("""export finished, do not contains exception: ${exception_msg}""")
+            } else if (res[0][2] == "CANCELLED") {
+                assertTrue(res[0][10].contains("${exception_msg}"))
+                break;
+            } else {
+                sleep(5000)
+            }
+        }
+    }
+
     // 1. basic test
     def uuid = UUID.randomUUID().toString()
-    def outFilePath = """${outfile_path_prefix}_${uuid}"""
+    def outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     def label = "label_${uuid}"
     try {
         // check export path
@@ -154,43 +154,35 @@ suite("test_export_basic", "p0") {
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id, name, age'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(150, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load1 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
@@ -200,9 +192,9 @@ suite("test_export_basic", "p0") {
         delete_files.call("${outFilePath}")
     }
 
-    // 2. test patition1
+    // 2. test partition1
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
         // check export path
@@ -220,43 +212,35 @@ suite("test_export_basic", "p0") {
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id, name, age'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(19, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load2 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
@@ -266,9 +250,9 @@ suite("test_export_basic", "p0") {
         delete_files.call("${outFilePath}")
     }
 
-    // 3. test patition2
+    // 3. test partition2
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
         // check export path
@@ -286,43 +270,35 @@ suite("test_export_basic", "p0") {
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id, name, age'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(50, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
@@ -332,9 +308,9 @@ suite("test_export_basic", "p0") {
         delete_files.call("${outFilePath}")
     }
 
-     // 4. test patition3 and where clause
+    // 4. test partition3 and where clause
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
         // check export path
@@ -352,46 +328,38 @@ suite("test_export_basic", "p0") {
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id, name, age'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(50, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
-        qt_select_load3 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
+        qt_select_load4 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
     
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
@@ -399,11 +367,11 @@ suite("test_export_basic", "p0") {
     }
 
     // 5. test order by and limit clause
-    uuid1 = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid1}"""
-    label1 = "label_${uuid1}"
-    uuid2 = UUID.randomUUID().toString()
-    label2 = "label_${uuid2}"
+    def uuid1 = UUID.randomUUID().toString()
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
+    def label1 = "label_${uuid1}"
+    def uuid2 = UUID.randomUUID().toString()
+    def label2 = "label_${uuid2}"
     try {
         // check export path
         check_path_exists.call("${outFilePath}")
@@ -432,9 +400,6 @@ suite("test_export_basic", "p0") {
         waiting_export.call(db, label1)
         waiting_export.call(db, label2)
 
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 2)
-
         // check show export correctness
         def res = sql """ show export where STATE = "FINISHED" order by JobId desc limit 2"""
         assertTrue(res[0][0] > res[1][0])
@@ -446,7 +411,7 @@ suite("test_export_basic", "p0") {
 
     // 6. test columns property
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
         // check export path
@@ -460,47 +425,39 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id, name",
+                "columns" = "id, Name",
                 "data_consistency" = "none"
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL
+            `Name` string NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id, name'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(67, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name} (id, Name)
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load6 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
@@ -512,7 +469,7 @@ suite("test_export_basic", "p0") {
 
     // 7. test columns property 2
     uuid = UUID.randomUUID().toString()
-    outFilePath = """${outfile_path_prefix}_${uuid}"""
+    outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
     label = "label_${uuid}"
     try {
         // check export path
@@ -531,9 +488,6 @@ suite("test_export_basic", "p0") {
             );
         """
         waiting_export.call(db, label)
-        
-        // check file amounts
-        check_file_amounts.call("${outFilePath}", 1)
 
         // check data correctness
         sql """ DROP TABLE IF EXISTS ${table_load_name} """
@@ -544,28 +498,23 @@ suite("test_export_basic", "p0") {
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
 
-        File[] files = new File("${outFilePath}").listFiles()
-        String file_path = files[0].getAbsolutePath()
-        streamLoad {
-            table "${table_load_name}"
-
-            set 'column_separator', ','
-            set 'columns', 'id'
-            set 'strict_mode', 'true'
-
-            file "${file_path}"
-            time 10000 // limit inflight 10s
-
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(67, json.NumberTotalRows)
-                assertEquals(0, json.NumberFilteredRows)
-            }
+        // use local() tvf to reload the data
+        def ipList = [:]
+        def portList = [:]
+        getBackendIpHeartbeatPort(ipList, portList)
+        ipList.each { beid, ip ->
+            logger.info("Begin to insert into ${table_load_name} from local()")
+            sql """
+                insert into ${table_load_name}
+                select * from local(
+                    "file_path" = "${local_tvf_prefix}/${table_export_name}_${uuid}/*",
+                    "backend_id" = "${beid}",
+                    "format" = "csv",
+                    "column_separator" = ","
+                );         
+            """ 
+            insert_res = sql "show last insert;"
+            logger.info("insert from local(), BE id = ${beid}, result: " + insert_res.toString())
         }
 
         qt_select_load7 """ SELECT * FROM ${table_load_name} t ORDER BY id; """
@@ -584,7 +533,7 @@ suite("test_export_basic", "p0") {
 
         // 1. first export
         uuid = UUID.randomUUID().toString()
-        outFilePath = """${outfile_path_prefix}_${uuid}"""
+        outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
         label = "label_${uuid}"
         // check export path
         check_path_exists.call("${outFilePath}")
@@ -641,6 +590,22 @@ suite("test_export_basic", "p0") {
         """
         waiting_export.call(label_db, label)
 
+        // test illegal column names
+        uuid = UUID.randomUUID().toString()
+        label = "label_${uuid}"
+
+        sql """
+            EXPORT TABLE ${label_db}.${table_load_name}
+            TO "file://${outFilePath}/"
+            PROPERTIES(
+                "label" = "${label}",
+                "columns" = "col1",
+                "format" = "csv",
+                "column_separator"=",",
+                "data_consistency" = "none"
+            );
+        """
+        waiting_export_with_exception(label_db, label, "Unknown column");
     } finally {
         try_sql("DROP TABLE IF EXISTS ${table_load_name}")
         delete_files.call("${outFilePath}")

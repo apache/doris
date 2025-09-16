@@ -21,6 +21,8 @@ suite ("unionDis") {
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS unionDis; """
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
             create table unionDis (
@@ -37,19 +39,18 @@ suite ("unionDis") {
     sql """insert into unionDis values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into unionDis values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view unionDis_mv as select empid, deptno from unionDis order by empid, deptno;")
+    createMV("create materialized view unionDis_mv as select empid as a1, deptno as a2 from unionDis order by empid, deptno;")
 
     sleep(3000)
 
     sql """insert into unionDis values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table unionDis with sync;"
+    sql """alter table unionDis modify column time_col set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from unionDis order by empid;")
-        contains "(unionDis)"
-    }
+    mv_rewrite_fail("select * from unionDis order by empid;", "unionDis_mv")
     order_qt_select_star "select * from unionDis order by empid;"
 
 
@@ -61,15 +62,12 @@ suite ("unionDis") {
     order_qt_select_mv "select * from (select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0) t order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from unionDis order by empid;")
-        contains "(unionDis)"
-    }
+
+    mv_rewrite_fail("select * from unionDis order by empid;", "unionDis_mv")
 
     explain {
         sql("select empid, deptno from unionDis where empid >1 union select empid, deptno from unionDis where empid <0 order by empid;")
         contains "(unionDis_mv)"
         notContains "(unionDis)"
     }
-
 }

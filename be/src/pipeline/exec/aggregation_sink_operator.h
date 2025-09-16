@@ -21,9 +21,10 @@
 
 #include "pipeline/exec/operator.h"
 #include "runtime/exec_env.h"
+#include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
 class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
@@ -36,6 +37,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
+    bool is_blockable() const override;
 
 protected:
     friend class AggSinkOperatorX;
@@ -81,12 +83,12 @@ protected:
     template <bool limit>
     Status _execute_with_serialized_key_helper(vectorized::Block* block);
     void _find_in_hash_table(vectorized::AggregateDataPtr* places,
-                             vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                             vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
-                                  vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                                  vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(vectorized::AggregateDataPtr* places,
                                         vectorized::Block* block, const std::vector<int>& key_locs,
-                                        vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
+                                        vectorized::ColumnRawPtrs& key_columns, uint32_t num_rows);
     size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
@@ -96,20 +98,21 @@ protected:
     Status _create_agg_status(vectorized::AggregateDataPtr data);
     size_t _memory_usage() const;
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
+
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
     RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _memory_usage_container = nullptr;
+    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
     bool _should_limit_output = false;
 
@@ -119,15 +122,27 @@ protected:
     vectorized::Block _preagg_block = vectorized::Block();
 
     AggregatedDataVariants* _agg_data = nullptr;
-    vectorized::Arena* _agg_arena_pool = nullptr;
+    vectorized::Arena _agg_arena_pool;
+    vectorized::Arena _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
+
+    int64_t _memory_usage_last_executing = 0;
 };
 
-class AggSinkOperatorX final : public DataSinkOperatorX<AggSinkLocalState> {
+class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {
 public:
-    AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+    AggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id, const TPlanNode& tnode,
                      const DescriptorTbl& descs, bool require_bucket_distribution);
+
+#ifdef BE_TEST
+    AggSinkOperatorX()
+            : DataSinkOperatorX<AggSinkLocalState>(1, 0, 2),
+              _is_first_phase(),
+              _is_colocate(),
+              _require_bucket_distribution() {}
+#endif
+
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -137,18 +152,16 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child_x
-                                              ->ignore_data_distribution()
-                           ? DataDistribution(ExchangeType::PASSTHROUGH)
+            return _needs_finalize
+                           ? DataDistribution(ExchangeType::NOOP)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate && _require_bucket_distribution
+        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
@@ -162,15 +175,24 @@ public:
 
     Status reset_hash_table(RuntimeState* state);
 
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
     using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;
     using DataSinkOperatorX<AggSinkLocalState>::get_local_state;
 
 protected:
+    MOCK_FUNCTION Status _init_probe_expr_ctx(RuntimeState* state);
+
+    MOCK_FUNCTION Status _init_aggregate_evaluators(RuntimeState* state);
+
+    MOCK_FUNCTION Status _calc_aggregate_evaluators();
+
+    MOCK_FUNCTION Status _check_agg_fn_output();
+
     using LocalState = AggSinkLocalState;
     friend class AggSinkLocalState;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
-    bool _can_short_circuit = false;
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
@@ -189,7 +211,6 @@ protected:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    size_t _external_agg_bytes_threshold;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     ObjectPool* _pool = nullptr;
@@ -204,8 +225,8 @@ protected:
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
     const bool _require_bucket_distribution;
-
     RowDescriptor _agg_fn_output_row_descriptor;
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

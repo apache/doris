@@ -34,11 +34,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/sync_point.h"
 #include "common/util.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "cpp/sync_point.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -85,7 +85,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv
     auto rs = std::make_shared<ResourceManager>(txn_kv);
     EXPECT_EQ(rs->init(), 0);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -220,18 +221,19 @@ TEST(ResourceTest, ModifyNodesIpTest) {
     auto ins = InstanceInfoPB {};
     create_args_to_add(&to_add, &to_del);
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("modify_nodes:get_instance",
-                      [](void* p) { *reinterpret_cast<TxnErrorCode*>(p) = TxnErrorCode::TXN_OK; });
-    sp->set_call_back("modify_nodes:get_instance_ret", [&](void* p) {
+    sp->set_call_back("modify_nodes:get_instance", [&](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_OK;
         ins.set_instance_id("test-resource-instance");
         ins.set_status(InstanceInfoPB::NORMAL);
-        auto c = ins.mutable_clusters()->Add();
+        auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
-        auto c1 = ins.mutable_clusters()->Add();
+        c->set_type(ClusterPB::COMPUTE);
+        auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
-        *reinterpret_cast<InstanceInfoPB*>(p) = ins;
+        c1->set_type(ClusterPB::COMPUTE);
+        *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
 
@@ -250,10 +252,10 @@ TEST(ResourceTest, ModifyNodesIpTest) {
     sp->clear_trace();
     sp->disable_processing();
 
-    sp->set_call_back("modify_nodes:get_instance",
-                      [](void* p) { *reinterpret_cast<TxnErrorCode*>(p) = TxnErrorCode::TXN_OK; });
-    sp->set_call_back("modify_nodes:get_instance_ret",
-                      [&](void* p) { *reinterpret_cast<InstanceInfoPB*>(p) = instance; });
+    sp->set_call_back("modify_nodes:get_instance", [&](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_OK;
+        *try_any_cast<InstanceInfoPB*>(args[1]) = instance;
+    });
     sp->enable_processing();
     create_args_to_del(&to_add, &to_del);
     // test cluster del node
@@ -280,18 +282,19 @@ TEST(ResourceTest, ModifyNodesHostTest) {
     auto ins = InstanceInfoPB {};
     create_args_to_add(&to_add, &to_del, true);
     auto sp = SyncPoint::get_instance();
-    sp->set_call_back("modify_nodes:get_instance",
-                      [](void* p) { *reinterpret_cast<TxnErrorCode*>(p) = TxnErrorCode::TXN_OK; });
-    sp->set_call_back("modify_nodes:get_instance_ret", [&](void* p) {
+    sp->set_call_back("modify_nodes:get_instance", [&](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_OK;
         ins.set_instance_id("test-resource-instance");
         ins.set_status(InstanceInfoPB::NORMAL);
-        auto c = ins.mutable_clusters()->Add();
+        auto* c = ins.mutable_clusters()->Add();
         c->set_cluster_name("cluster_name_1");
         c->set_cluster_id("cluster_id_1");
-        auto c1 = ins.mutable_clusters()->Add();
+        c->set_type(ClusterPB::COMPUTE);
+        auto* c1 = ins.mutable_clusters()->Add();
         c1->set_cluster_name("cluster_name_2");
         c1->set_cluster_id("cluster_id_2");
-        *reinterpret_cast<InstanceInfoPB*>(p) = ins;
+        c1->set_type(ClusterPB::COMPUTE);
+        *try_any_cast<InstanceInfoPB*>(args[1]) = ins;
     });
     sp->enable_processing();
 
@@ -310,10 +313,10 @@ TEST(ResourceTest, ModifyNodesHostTest) {
     sp->clear_trace();
     sp->disable_processing();
 
-    sp->set_call_back("modify_nodes:get_instance",
-                      [](void* p) { *reinterpret_cast<TxnErrorCode*>(p) = TxnErrorCode::TXN_OK; });
-    sp->set_call_back("modify_nodes:get_instance_ret",
-                      [&](void* p) { *reinterpret_cast<InstanceInfoPB*>(p) = instance; });
+    sp->set_call_back("modify_nodes:get_instance", [&](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_OK;
+        *try_any_cast<InstanceInfoPB*>(args[1]) = instance;
+    });
     sp->enable_processing();
     create_args_to_del(&to_add, &to_del, true);
     r = meta_service->resource_mgr()->modify_nodes("test-resource-instance", to_add, to_del);
@@ -333,17 +336,21 @@ TEST(ResourceTest, ModifyNodesHostTest) {
 
 // test restart meta service
 TEST(ResourceTest, RestartResourceManager) {
-    auto sp = cloud::SyncPoint::get_instance();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "test";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     auto txn_kv = create_txn_kv();
@@ -354,6 +361,25 @@ TEST(ResourceTest, RestartResourceManager) {
         create_instance(meta_service.get(), "test_instance_id_2");
         create_cluster(meta_service.get(), "test_instance_id", "cluster_id", "cluster_name",
                        ClusterPB::SQL);
+
+        ASSERT_FALSE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
+
+        // instance_2 enable multi version status
+        std::unique_ptr<Transaction> txn;
+        std::string instance_info_value;
+        InstanceInfoPB instance_info;
+        std::string key = instance_key("test_instance_id_2");
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &instance_info_value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(instance_info.ParseFromString(instance_info_value));
+
+        instance_info.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+        txn->put(key, instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        auto [code, msg] = meta_service->resource_mgr()->refresh_instance("test_instance_id_2");
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
     }
 
     {
@@ -372,6 +398,8 @@ TEST(ResourceTest, RestartResourceManager) {
             ASSERT_EQ(code, TxnErrorCode::TXN_OK) << msg;
             ASSERT_EQ(info.name(), "test_instance_id_2name");
         }
+
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
     }
     sp->disable_processing();
     sp->clear_all_call_backs();
@@ -379,17 +407,25 @@ TEST(ResourceTest, RestartResourceManager) {
 
 // test add/drop cluster
 TEST(ResourceTest, AddDropCluster) {
-    auto sp = cloud::SyncPoint::get_instance();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
+    sp->set_call_back("resource_manager::set_safe_drop_time",
+                      [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
@@ -414,22 +450,26 @@ TEST(ResourceTest, AddDropCluster) {
 }
 
 TEST(ResourceTest, InitScanRetry) {
-    auto sp = cloud::SyncPoint::get_instance();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key_id",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 1; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key_ret",
-                      [](void* p) { *reinterpret_cast<int*>(p) = 0; });
-    sp->set_call_back("decrypt_ak_sk:get_encryption_key",
-                      [](void* p) { *reinterpret_cast<std::string*>(p) = "test"; });
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    sp->set_call_back("decrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* key = try_any_cast<std::string*>(args[0]);
+        *key = "test";
+        auto* ret = try_any_cast<int*>(args[1]);
+        *ret = 0;
+    });
     sp->enable_processing();
 
     constexpr size_t NUM_BATCH_SIZE = 100;
     sp->set_call_back("ResourceManager:init:limit",
-                      [&](void* raw) { *reinterpret_cast<int*>(raw) = NUM_BATCH_SIZE; });
+                      [&](auto&& args) { *try_any_cast<int*>(args[0]) = NUM_BATCH_SIZE; });
 
     auto txn_kv = create_txn_kv();
     {
@@ -442,9 +482,9 @@ TEST(ResourceTest, InitScanRetry) {
 
     {
         size_t count = 0;
-        sp->set_call_back("ResourceManager:init:get_err", [&](void* raw) {
+        sp->set_call_back("ResourceManager:init:get_err", [&](auto&& args) {
             if (++count == 2) {
-                *reinterpret_cast<TxnErrorCode*>(raw) = TxnErrorCode::TXN_TOO_OLD;
+                *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
             }
         });
         auto meta_service = get_meta_service(txn_kv);

@@ -59,11 +59,44 @@ public abstract class PartitionDefinition {
     public PartitionDefinition(boolean ifNotExists, String partName) {
         this.ifNotExists = ifNotExists;
         this.partitionName = partName;
+        this.properties = Maps.newHashMap();
     }
 
     public PartitionDefinition withProperties(Map<String, String> properties) {
         this.properties = properties;
         return this;
+    }
+
+    public void setPartitionDataProperty(DataProperty partitionDataProperty) {
+        this.partitionDataProperty = partitionDataProperty;
+    }
+
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    public void setReplicaAllocation(ReplicaAllocation replicaAllocation) {
+        this.replicaAllocation = replicaAllocation;
+    }
+
+    public void setInMemory(boolean inMemory) {
+        isInMemory = inMemory;
+    }
+
+    public void setTabletType(TTabletType tabletType) {
+        this.tabletType = tabletType;
+    }
+
+    public void setVersionInfo(Long versionInfo) {
+        this.versionInfo = versionInfo;
+    }
+
+    public void setStoragePolicy(String storagePolicy) {
+        this.storagePolicy = storagePolicy;
+    }
+
+    public void setMutable(boolean mutable) {
+        isMutable = mutable;
     }
 
     public abstract AllPartitionDesc translateToCatalogStyle();

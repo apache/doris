@@ -21,33 +21,49 @@
 #include <mutex>
 
 #include "common/logging.h"
-#include "exprs/runtime_filter.h"
+#include "exec/rowid_fetcher.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime_filter/runtime_filter_consumer.h"
+#include "util/brpc_client_cache.h"
+#include "vec/exec/scan/file_scanner.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/spill/spill_stream_manager.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       std::string name) {
+                                                       const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
+void BasicSharedState::create_source_dependencies(int num_sources, int operator_id, int node_id,
+                                                  const std::string& name) {
+    source_deps.resize(num_sources, nullptr);
+    for (auto& source_dep : source_deps) {
+        source_dep = std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY");
+        source_dep->set_shared_state(this);
+    }
+}
+
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
+                                                     const std::string& name) {
     sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
 }
 
-void Dependency::_add_block_task(PipelineTask* task) {
-    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1] != task)
+void Dependency::_add_block_task(std::shared_ptr<PipelineTask> task) {
+    DCHECK(_blocked_task.empty() || _blocked_task[_blocked_task.size() - 1].lock() == nullptr ||
+           _blocked_task[_blocked_task.size() - 1].lock().get() != task.get())
             << "Duplicate task: " << task->debug_string();
     _blocked_task.push_back(task);
 }
@@ -57,7 +73,7 @@ void Dependency::set_ready() {
         return;
     }
     _watcher.stop();
-    std::vector<PipelineTask*> local_block_task {};
+    std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
         if (_ready) {
@@ -66,26 +82,30 @@ void Dependency::set_ready() {
         _ready = true;
         local_block_task.swap(_blocked_task);
     }
-    for (auto* task : local_block_task) {
-        task->wake_up();
+    for (auto task : local_block_task) {
+        if (auto t = task.lock()) {
+            std::unique_lock<std::mutex> lc(_task_lock);
+            THROW_IF_ERROR(t->wake_up(this));
+        }
     }
 }
 
-Dependency* Dependency::is_blocked_by(PipelineTask* task) {
+Dependency* Dependency::is_blocked_by(std::shared_ptr<PipelineTask> task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
     if (!ready && task) {
         _add_block_task(task);
+        start_watcher();
+        THROW_IF_ERROR(task->blocked(this));
     }
     return ready ? nullptr : this;
 }
 
 std::string Dependency::debug_string(int indentation_level) {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer,
-                   "{}this={}, {}: id={}, block task = {}, ready={}, _always_ready={}",
-                   std::string(indentation_level * 2, ' '), (void*)this, _name, _node_id,
-                   _blocked_task.size(), _ready, _always_ready);
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, block task = {}, ready={}, _always_ready={}",
+                   std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
+                   _ready, _always_ready);
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -96,23 +116,6 @@ std::string CountedFinishDependency::debug_string(int indentation_level) {
                    std::string(indentation_level * 2, ' '), _name, _node_id, _blocked_task.size(),
                    _ready, _always_ready, _counter);
     return fmt::to_string(debug_string_buffer);
-}
-
-std::string RuntimeFilterDependency::debug_string(int indentation_level) {
-    fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
-                   Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
-    return fmt::to_string(debug_string_buffer);
-}
-
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load();
-    if (!ready && task) {
-        _add_block_task(task);
-        task->_blocked_dep = this;
-    }
-    return ready ? nullptr : this;
 }
 
 void RuntimeFilterTimer::call_timeout() {
@@ -161,7 +164,7 @@ void RuntimeFilterTimerQueue::start() {
                 if (it.use_count() == 1) {
                     // `use_count == 1` means this runtime filter has been released
                 } else if (it->should_be_check_timeout()) {
-                    if (it->_parent->is_blocked_by(nullptr)) {
+                    if (it->force_wait_timeout() || it->_parent->is_blocked_by()) {
                         // This means runtime filter is not ready, so we call timeout or continue to poll this timer.
                         int64_t ms_since_registration = MonotonicMillis() - it->registration_time();
                         if (ms_since_registration > it->wait_time_ms()) {
@@ -192,12 +195,13 @@ void LocalExchangeSharedState::sub_running_source_operators() {
     std::unique_lock<std::mutex> lc(le_lock);
     if (exchanger->_running_source_operators.fetch_sub(1) == 1) {
         _set_always_ready();
+        exchanger->finalize();
     }
 }
 
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
-    mem_trackers.resize(num_instances, nullptr);
+    mem_counters.resize(num_instances, nullptr);
 }
 
 vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
@@ -216,10 +220,10 @@ vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
                         auto& data = *agg_method.hash_table;
                         bool has_null_key = data.has_null_key_data();
                         const auto size = data.size() - has_null_key;
-                        using KeyType = std::decay_t<decltype(agg_method.iterator->get_first())>;
+                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
 
-                        size_t num_rows = 0;
+                        uint32_t num_rows = 0;
                         auto iter = aggregate_data_container->begin();
                         {
                             while (iter != aggregate_data_container->end()) {
@@ -265,8 +269,8 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
                                               need_computes.data());
         }
 
-        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
-            for (int i = 0; i < rows; ++i) {
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
+            for (size_t i = 0; i < rows; ++i) {
                 computes[i] = computes[i] == res[i];
             }
         };
@@ -288,7 +292,8 @@ Status AggSharedState::reset_hash_table() {
                         auto& hash_table = *agg_method.hash_table;
                         using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.reset();
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
                         hash_table.for_each_mapped([&](auto& mapped) {
                             if (mapped) {
@@ -309,19 +314,30 @@ Status AggSharedState::reset_hash_table() {
                                  align_aggregate_states) *
                                         align_aggregate_states));
                         agg_method.hash_table.reset(new HashTableType());
-                        agg_arena_pool.reset(new vectorized::Arena);
                         return Status::OK();
                     }},
             agg_data->method_variant);
 }
 
-void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count_bits) {
-    partition_count_bits = spill_partition_count_bits;
-    partition_count = (1 << spill_partition_count_bits);
+void PartitionedAggSharedState::init_spill_params(size_t spill_partition_count) {
+    partition_count = spill_partition_count;
     max_partition_index = partition_count - 1;
 
     for (int i = 0; i < partition_count; ++i) {
         spill_partitions.emplace_back(std::make_shared<AggSpillPartition>());
+    }
+}
+
+void PartitionedAggSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& partition : spill_partitions) {
+        if (partition->spilling_stream_) {
+            partition->spilling_stream_->update_shared_profiles(source_profile);
+        }
+        for (auto& stream : partition->spill_streams_) {
+            if (stream) {
+                stream->update_shared_profiles(source_profile);
+            }
+        }
     }
 }
 
@@ -363,6 +379,14 @@ void PartitionedAggSharedState::close() {
     spill_partitions.clear();
 }
 
+void SpillSortSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {
+    for (auto& stream : sorted_streams) {
+        if (stream) {
+            stream->update_shared_profiles(source_profile);
+        }
+    }
+}
+
 void SpillSortSharedState::close() {
     // need to use CAS instead of only `if (!is_closed)` statement,
     // to avoid concurrent entry of close() both pass the if statement
@@ -377,10 +401,11 @@ void SpillSortSharedState::close() {
     sorted_streams.clear();
 }
 
-MultiCastSharedState::MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool,
-                                           int cast_sender_count)
+MultiCastSharedState::MultiCastSharedState(ObjectPool* pool, int cast_sender_count, int node_id)
         : multi_cast_data_streamer(std::make_unique<pipeline::MultiCastDataStreamer>(
-                  row_desc, pool, cast_sender_count, true)) {}
+                  pool, cast_sender_count, node_id)) {}
+
+void MultiCastSharedState::update_spill_stream_profiles(RuntimeProfile* source_profile) {}
 
 int AggSharedState::get_slot_column_id(const vectorized::AggFnEvaluator* evaluator) {
     auto ctxs = evaluator->input_exprs_ctxs();
@@ -395,6 +420,58 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
         aggregate_evaluators[i]->function()->destroy(data + offsets_of_aggregate_states[i]);
     }
     return Status::OK();
+}
+
+LocalExchangeSharedState::~LocalExchangeSharedState() = default;
+
+Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
+    if (ctxs.size() > build_not_ignore_null.size()) {
+        return Status::InternalError("build_not_ignore_null not initialized");
+    }
+
+    for (int i = 0; i < ctxs.size(); ++i) {
+        build_not_ignore_null[i] = build_not_ignore_null[i] || ctxs[i]->root()->is_nullable();
+    }
+
+    return Status::OK();
+}
+
+size_t SetSharedState::get_hash_table_size() const {
+    size_t hash_table_size = 0;
+    std::visit(
+            [&](auto&& arg) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    hash_table_size = arg.hash_table->size();
+                }
+            },
+            hash_table_variants->method_variant);
+    return hash_table_size;
+}
+
+Status SetSharedState::hash_table_init() {
+    std::vector<vectorized::DataTypePtr> data_types;
+    for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
+        auto& ctx = child_exprs_lists[0][i];
+        auto data_type = ctx->root()->data_type();
+        if (build_not_ignore_null[i]) {
+            data_type = vectorized::make_nullable(data_type);
+        }
+        data_types.emplace_back(std::move(data_type));
+    }
+    return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
+}
+
+void AggSharedState::refresh_top_limit(size_t row_id,
+                                       const vectorized::ColumnRawPtrs& key_columns) {
+    for (int j = 0; j < key_columns.size(); ++j) {
+        limit_columns[j]->insert_from(*key_columns[j], row_id);
+    }
+    limit_heap.emplace(limit_columns[0]->size() - 1, limit_columns, order_directions,
+                       null_directions);
+
+    limit_heap.pop();
+    limit_columns_min = limit_heap.top()._row_id;
 }
 
 } // namespace doris::pipeline

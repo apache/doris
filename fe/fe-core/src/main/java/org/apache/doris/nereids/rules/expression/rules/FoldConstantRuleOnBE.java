@@ -25,20 +25,27 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -56,7 +63,6 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -101,11 +107,13 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Constant evaluation of an expression.
@@ -123,6 +131,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                                 .isDebugSkipFoldConstant())
                         .whenCtx(FoldConstantRuleOnBE::isEnableFoldByBe)
                         .thenApply(FoldConstantRuleOnBE::foldByBE)
+                        .toRule(ExpressionRuleType.FOLD_CONSTANT_ON_BE)
         );
     }
 
@@ -161,7 +170,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             Expression root, Map<String, Expression> constMap, Map<String, Expression> resultMap) {
         for (Entry<String, Expression> entry : constMap.entrySet()) {
             if (entry.getValue().equals(root)) {
-                return resultMap.get(entry.getKey());
+                if (resultMap.containsKey(entry.getKey())) {
+                    return resultMap.get(entry.getKey());
+                } else {
+                    return root;
+                }
             }
         }
         List<Expression> newChildren = new ArrayList<>();
@@ -171,45 +184,23 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             if (newChild != child) {
                 hasNewChildren = true;
             }
-            newChildren.add(newChild);
+            if (!newChild.getDataType().equals(child.getDataType())) {
+                try {
+                    newChildren.add(newChild.castTo(child.getDataType()));
+                } catch (Exception e) {
+                    LOG.warn("expression of type {} cast to {} failed. ", newChild.getDataType(), child.getDataType());
+                    newChildren.add(newChild);
+                }
+            } else {
+                newChildren.add(newChild);
+            }
         }
         return hasNewChildren ? root.withChildren(newChildren) : root;
     }
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
             Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
-        if (expr.isConstant()) {
-            // Do not constant fold cast(null as dataType) because we cannot preserve the
-            // cast-to-types and that can lead to query failures, e.g., CTAS
-            if (expr instanceof Cast) {
-                if (((Cast) expr).child().isNullLiteral()) {
-                    return;
-                }
-                if (shouldSkipFold(((Cast) expr).child())) {
-                    return;
-                }
-            }
-            // skip literal expr
-            if (expr.isLiteral()) {
-                return;
-            }
-            // eg: avg_state(1) return is agg function serialize data
-            // and some type can't find a literal to represent.
-            // time type: need add a time literal in nereids
-            // IPv6 type: need get a library to output the compressed address format
-            if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
-                    || expr.getDataType().isVariantType() || expr.getDataType().isTimeLikeType()
-                    || expr.getDataType().isIPv6Type()) {
-                return;
-            }
-            // first need pass PlanTranslatorContext value,
-            // and ArrayItemReference translate, can't findColumnRef
-            // Match need give more info rather then as left child a NULL, in
-            // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
-            if (shouldSkipFold(expr) || (expr instanceof TableGeneratingFunction)
-                    || (expr instanceof ArrayItemReference) || (expr instanceof Match)) {
-                return;
-            }
+        if (expr.isConstant() && !expr.isLiteral() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
             Expr staleExpr;
@@ -233,41 +224,83 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         }
     }
 
-    // if sleep(5) will cause rpc timeout
+    // Some expressions should not do constant folding
     private static boolean shouldSkipFold(Expression expr) {
-        if (expr instanceof Sleep) {
-            Expression param = expr.child(0);
-            if (param instanceof Cast) {
-                param = param.child(0);
-            }
-            if (param instanceof NumericLiteral) {
-                return ((NumericLiteral) param).getDouble() >= 5.0;
-            }
-        } else if (expr instanceof BoundFunction
-                && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
-            // FIXME: remove this when we fixed serde of Geo types
-            LOG.warn("GeoFunction {} now don't support constant fold on BE",
-                    ((BoundFunction) expr).getName());
+        // Frontend can not represent those types
+        if (expr.getDataType().isAggStateType() || expr.getDataType().isObjectType()
+                || expr.getDataType().isVariantType() || expr.getDataType().isTimeType()
+                || expr.getDataType().isIPv6Type() || expr.getDataType().isJsonType()) {
             return true;
         }
+
+        // Frontend can not represent geo types
+        if (expr instanceof BoundFunction && ((BoundFunction) expr).getName().toLowerCase().startsWith("st_")) {
+            return true;
+        }
+
+        // Skip those function to avoid incorrect binary data processing during constant folding
+        if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction) {
+            return true;
+        }
+
+        // TableGeneratingFunction need pass PlanTranslatorContext value
+        if (expr instanceof TableGeneratingFunction) {
+            return true;
+        }
+
+        // ArrayItemReference translate can't findColumnRef
+        if (expr instanceof ArrayItemReference) {
+            return true;
+        }
+
+        // Match need give more info rather then as left child a NULL, in
+        // match_phrase_prefix/MATCH_PHRASE/MATCH_PHRASE/MATCH_ANY
+        if (expr instanceof Match) {
+            return true;
+        }
+
+        // Score function depends on query context and should not be folded to constant.
+        // It needs runtime evaluation with proper search context for relevance scoring.
+        if (expr instanceof Score) {
+            return true;
+        }
+
+        // sleep will cause rpc timeout
+        if (expr instanceof Sleep) {
+            return true;
+        }
+
+        // Do not constant fold cast(null as dataType) because we cannot preserve the
+        // cast-to-types and that can lead to query failures, e.g., CTAS
+        if (expr instanceof Cast && ((Cast) expr).child().isNullLiteral()) {
+            return true;
+        }
+
+        // This kind of function is often used to change the attributes of columns.
+        // Folding will make it impossible to construct columns such as nullable(1).
+        if (expr instanceof Nullable || expr instanceof NonNullable) {
+            return true;
+        }
+
         return false;
     }
 
     private static Map<String, Expression> evalOnBE(Map<String, Map<String, TExpr>> paramMap,
             Map<String, Expression> constMap, ConnectContext context) {
-
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (backendIds.isEmpty()) {
-                throw new UserException("No alive backends");
+                LOG.warn("no available backend ids for folding constant on BE");
+                return Collections.emptyMap();
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
             TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
-            queryGlobals.setNowString(TimeUtils.DATETIME_FORMAT.format(LocalDateTime.now()));
+            queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
@@ -277,8 +310,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
 
             TQueryOptions tQueryOptions = new TQueryOptions();
-            tQueryOptions.setRepeatMaxNum(context.getSessionVariable().repeatMaxNum);
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
+            tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
+            tQueryOptions.setNewVersionUnixTimestamp(true);
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
             tParams.setVecExec(true);
@@ -288,7 +322,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
             Future<PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress,
                     tParams);
+            long beFoldStartTime = 0L;
+            if (context.getSessionVariable().enableProfile()) {
+                beFoldStartTime = TimeUtils.getStartTimeMs();
+            }
             PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
+            if (context.getExecutor() != null && context.getSessionVariable().enableProfile()) {
+                context.getExecutor().getSummaryProfile().sumBeFoldTime(TimeUtils.getStartTimeMs() - beFoldStartTime);
+            }
 
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
@@ -340,7 +381,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isBooleanType()) {
             int num = resultContent.getUint32ValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) == 1);
+                Literal literal = BooleanLiteral.of(resultContent.getUint32Value(i) != 0);
                 res.add(literal);
             }
         } else if (type.isTinyIntType()) {
@@ -380,25 +421,23 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int num = resultContent.getFloatValueCount();
             for (int i = 0; i < num; ++i) {
                 float value = resultContent.getFloatValue(i);
-                Literal literal = null;
                 if (Float.isNaN(value)) {
-                    literal = new NullLiteral(type);
+                    return Collections.emptyList();
                 } else {
-                    literal = new FloatLiteral(value);
+                    Literal literal = new FloatLiteral(value);
+                    res.add(literal);
                 }
-                res.add(literal);
             }
         } else if (type.isDoubleType()) {
             int num = resultContent.getDoubleValueCount();
             for (int i = 0; i < num; ++i) {
                 double value = resultContent.getDoubleValue(i);
-                Literal literal = null;
                 if (Double.isNaN(value)) {
-                    literal = new NullLiteral(type);
+                    return Collections.emptyList();
                 } else {
-                    literal = new DoubleLiteral(value);
+                    Literal literal = new DoubleLiteral(value);
+                    res.add(literal);
                 }
-                res.add(literal);
             }
         } else if (type.isDecimalV2Type()) {
             int num = resultContent.getBytesValueCount();
@@ -477,8 +516,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int childCount = resultContent.getChildElementCount();
             List<Literal> allLiterals = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                allLiterals.addAll(getResultExpression(arrayType.getItemType(),
-                        resultContent.getChildElement(i)));
+                List<Literal> resultExpression = getResultExpression(arrayType.getItemType(),
+                        resultContent.getChildElement(i));
+                // If any child element couldn't fold, stop folding this Array.
+                if (resultExpression.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allLiterals.addAll(resultExpression);
             }
             int offsetCount = resultContent.getChildOffsetCount();
             if (offsetCount == 1) {
@@ -502,17 +546,30 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             List<Literal> allKeys = new ArrayList<>();
             List<Literal> allValues = new ArrayList<>();
             for (int i = 0; i < childCount; i = i + 2) {
-                allKeys.addAll(getResultExpression(mapType.getKeyType(),
-                        resultContent.getChildElement(i)));
-                allValues.addAll(getResultExpression(mapType.getValueType(),
-                        resultContent.getChildElement(i + 1)));
+                // If any key or value couldn't fold, stop folding this Map.
+                List<Literal> key = getResultExpression(mapType.getKeyType(),
+                        resultContent.getChildElement(i));
+                if (key.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allKeys.addAll(key);
+                List<Literal> value = getResultExpression(mapType.getValueType(),
+                        resultContent.getChildElement(i + 1));
+                if (value.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allValues.addAll(value);
             }
             int offsetCount = resultContent.getChildOffsetCount();
             if (offsetCount == 1) {
-                MapLiteral mapLiteral = new MapLiteral(allKeys, allValues, mapType);
+                Map<Literal, Literal> map = new LinkedHashMap<>();
+                AtomicInteger pos = new AtomicInteger(0);
+                allKeys.forEach(k -> map.put(k, allValues.get(pos.getAndIncrement())));
+                MapLiteral mapLiteral = new MapLiteral(map, mapType);
                 res.add(mapLiteral);
             } else {
                 for (int i = 0; i < offsetCount; ++i) {
+                    Map<Literal, Literal> map = new LinkedHashMap<>();
                     List<Literal> keyLiteral = new ArrayList<>();
                     List<Literal> valueLiteral = new ArrayList<>();
                     int startOffset = (int) ((i == 0) ? 0 : resultContent.getChildOffset(i - 1));
@@ -521,7 +578,9 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                         keyLiteral.add(allKeys.get(off));
                         valueLiteral.add(allValues.get(off));
                     }
-                    MapLiteral mapLiteral = new MapLiteral(keyLiteral, valueLiteral, mapType);
+                    AtomicInteger pos = new AtomicInteger(0);
+                    keyLiteral.forEach(k -> map.put(k, valueLiteral.get(pos.getAndIncrement())));
+                    MapLiteral mapLiteral = new MapLiteral(map, mapType);
                     res.add(mapLiteral);
                 }
             }
@@ -530,8 +589,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             int childCount = resultContent.getChildElementCount();
             List<List<Literal>> allFields = new ArrayList<>();
             for (int i = 0; i < childCount; ++i) {
-                allFields.add(getResultExpression(structType.getFields().get(i).getDataType(),
-                        resultContent.getChildElement(i)));
+                List<Literal> resultExpression = getResultExpression(structType.getFields().get(i).getDataType(),
+                        resultContent.getChildElement(i));
+                // If any field couldn't fold, stop folding this Struct.
+                if (resultExpression.isEmpty()) {
+                    return Collections.emptyList();
+                }
+                allFields.add(resultExpression);
             }
             for (int i = 0; i < allFields.get(0).size(); ++i) {
                 List<Literal> fields = new ArrayList<>();

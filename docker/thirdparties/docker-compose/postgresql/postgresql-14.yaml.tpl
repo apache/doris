@@ -26,20 +26,13 @@ services:
     ports:
       - ${DOCKER_PG_14_EXTERNAL_PORT}:5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres && psql -U postgres -c 'SELECT 1 FROM doris_test.deadline;'" ]
       interval: 5s
       timeout: 60s
       retries: 120
     volumes:
       - ./data/data/:/var/lib/postgresql/data/
       - ./init:/docker-entrypoint-initdb.d
-    networks:
-      - doris--postgres
-  doris--postgres--hello-world:
-    image: hello-world
-    depends_on:
-      doris--postgres:
-        condition: service_healthy
     networks:
       - doris--postgres
 

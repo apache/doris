@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
@@ -76,15 +77,21 @@ public:
     Status load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                          std::vector<segment_v2::SegmentSharedPtr>* segments);
 
-    Status load_segment(int64_t seg_id, segment_v2::SegmentSharedPtr* segment);
+    Status load_segment(int64_t seg_id, OlapReaderStatistics* read_stats,
+                        segment_v2::SegmentSharedPtr* segment);
 
     Status get_segments_size(std::vector<size_t>* segments_size);
 
-    Status get_inverted_index_size(size_t* index_size);
+    Status get_inverted_index_size(int64_t* index_size) override;
 
     [[nodiscard]] virtual Status add_to_binlog() override;
 
-    Status calc_local_file_crc(uint32_t* crc_value, int64_t* file_count);
+    Status calc_file_crc(uint32_t* crc_value, int64_t* file_count);
+
+    Status show_nested_index_file(rapidjson::Value* rowset_value,
+                                  rapidjson::Document::AllocatorType& allocator);
+
+    Status get_segment_num_rows(std::vector<uint32_t>* segment_rows);
 
 protected:
     BetaRowset(const TabletSchemaSPtr& schema, const RowsetMetaSharedPtr& rowset_meta,
@@ -92,8 +99,6 @@ protected:
 
     // init segment groups
     Status init() override;
-
-    Status do_load(bool use_cache) override;
 
     void do_close() override;
 
@@ -104,6 +109,9 @@ protected:
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
+
+    DorisCallOnce<Status> _load_segment_rows_once;
+    std::vector<uint32_t> _segments_rows;
 };
 
 } // namespace doris

@@ -17,24 +17,29 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-
-#include <cstdint>
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 
 CL_NS_USE(index)
 
 namespace doris::segment_v2 {
 
-class PrefixQuery {
+class PrefixQuery : public Query {
 public:
-    PrefixQuery() = default;
-    virtual ~PrefixQuery() = default;
+    PrefixQuery(SearcherPtr searcher, IndexQueryContextPtr context);
+    ~PrefixQuery() override = default;
 
-    static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
-                                 const std::string& prefix,
-                                 std::vector<CL_NS(index)::Term*>& prefix_terms,
-                                 int32_t max_expansions = 50);
+    void add(const InvertedIndexQueryInfo& query_info) override;
+    void search(roaring::Roaring& roaring) override;
+
+    void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+                          const std::string& prefix, std::vector<std::string>& prefix_terms,
+                          int32_t max_expansions = 50);
+
+private:
+    SearcherPtr _searcher;
+    IndexQueryContextPtr _context;
+
+    UnionTermIterPtr _lead1;
 };
 
 } // namespace doris::segment_v2

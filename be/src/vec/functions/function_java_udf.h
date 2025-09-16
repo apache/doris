@@ -24,8 +24,6 @@
 
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <ostream>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -33,7 +31,6 @@
 #include "util/jni-util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -44,7 +41,7 @@ namespace doris::vectorized {
 class JavaUdfPreparedFunction : public PreparedFunctionImpl {
 public:
     using execute_call_back = std::function<Status(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, size_t result,
+                                                   const ColumnNumbers& arguments, uint32_t result,
                                                    size_t input_rows_count)>;
 
     explicit JavaUdfPreparedFunction(const execute_call_back& func, const std::string& name)
@@ -54,12 +51,11 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return callback_function(context, block, arguments, result, input_rows_count);
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 
 private:
     execute_call_back callback_function;
@@ -87,7 +83,7 @@ public:
     const DataTypePtr& get_return_type() const override { return _return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
-                                const ColumnNumbers& arguments, size_t result) const override {
+                                const ColumnNumbers& arguments, uint32_t result) const override {
         return std::make_shared<JavaUdfPreparedFunction>(
                 [this](auto&& PH1, auto&& PH2, auto&& PH3, auto&& PH4, auto&& PH5) {
                     return JavaFunctionCall::execute_impl(
@@ -101,11 +97,13 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const;
+                        uint32_t result, size_t input_rows_count) const;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
     bool is_use_default_implementation_for_constants() const override { return true; }
+
+    bool is_udf_function() const override { return true; }
 
 private:
     const TFunction& fn_;

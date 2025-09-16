@@ -23,10 +23,9 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryProfile;
@@ -74,22 +73,31 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
-        LOG.info("New profile processing API, query {}", DebugUtil.printId(profile.query_id));
-
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
         if (executionProfile == null) {
-            LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
+            // When auto_profile_threshold_ms is not -1, this branch will be very common.
+            // So this log is set to debug level.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Could not find execution profile, query {} be {}",
+                        DebugUtil.printId(profile.query_id), address.toString());
+            }
             return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
                     + DebugUtil.printId(profile.query_id));
         }
 
-        // Update profile may cost a lot of time, use a seperate pool to deal with it.
-        writeProfileExecutor.submit(new Runnable() {
-            @Override
-            public void run() {
-                executionProfile.updateProfile(profile, address, isDone);
-            }
-        });
+        // Update profile may cost a lot of time, use a separate pool to deal with it.
+        try {
+            writeProfileExecutor.submit(new Runnable() {
+                @Override
+                public void run() {
+                    executionProfile.updateProfile(profile, address, isDone);
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to submit profile write task, query {} be {}",
+                                DebugUtil.printId(profile.query_id), address.toString());
+            return new Status(TStatusCode.INTERNAL_ERROR, "Failed to submit profile write task");
+        }
 
         return Status.OK;
     }
@@ -122,10 +130,11 @@ public final class QeProcessorImpl implements QeProcessor {
         if (result != null) {
             throw new UserException("queryId " + queryId + " already exists");
         }
-
         // Should add the execution profile to profile manager, BE will report the profile to FE and FE
         // will update it in ProfileManager
-        ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        if (info.coord.getQueryOptions().enable_profile) {
+            ProfileManager.getInstance().addExecutionProfile(info.getCoord().getExecutionProfile());
+        }
     }
 
     @Override
@@ -167,18 +176,13 @@ public final class QeProcessorImpl implements QeProcessor {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
             }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(queryId);
-            if (executionProfile != null) {
-                executionProfile.setQueryFinishTime(System.currentTimeMillis());
-                if (queryInfo.connectContext != null) {
-                    long autoProfileThresholdMs = queryInfo.connectContext
-                            .getSessionVariable().getAutoProfileThresholdMs();
-                    if (autoProfileThresholdMs > 0 && System.currentTimeMillis() - queryInfo.getStartExecTime()
-                            < autoProfileThresholdMs) {
-                        ProfileManager.getInstance().removeProfile(executionProfile.getSummaryProfile().getProfileId());
-                    }
-                }
+
+            // Here we shuold use query option instead of ConnectContext,
+            // because for the coordinator of load task, it does not have ConnectContext.
+            if (queryInfo.getCoord().getQueryOptions().enable_profile) {
+                ProfileManager.getInstance().markExecutionProfileFinished(queryId);
             }
+
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
@@ -238,9 +242,16 @@ public final class QeProcessorImpl implements QeProcessor {
             // with profile in a single rpc, this will make FE ignore the exec status and may lead to bug in query
             // like insert into select.
             if (params.isSetBackendId() && params.isSetDone()) {
+                LOG.info("Receive profile {} report from {}, isDone {}, fragments {}",
+                        DebugUtil.printId(params.getQueryProfile().getQueryId()), beAddr.toString(),
+                        params.isDone(), params.getQueryProfile().fragment_id_to_profile.size());
+
                 Backend backend = Env.getCurrentSystemInfo().getBackend(params.getBackendId());
-                boolean isDone = params.isDone();
-                if (backend != null) {
+                if (backend == null) {
+                    LOG.warn("Invalid report profile req, backend {} not found, query id: {}",
+                            params.getBackendId(), DebugUtil.printId(params.getQueryProfile().getQueryId()));
+                } else {
+                    boolean isDone = params.isDone();
                     // the process status is ignored by design.
                     // actually be does not care the process status of profile on fe.
                     processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
@@ -251,26 +262,6 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
-        if (params.isSetProfile() || params.isSetLoadChannelProfile()) {
-            LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                    params.backend_num, beAddr);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("params: {}", params);
-            }
-            ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(params.query_id);
-            if (executionProfile != null) {
-                // Update profile may cost a lot of time, use a seperate pool to deal with it.
-                writeProfileExecutor.submit(new Runnable() {
-                    @Override
-                    public void run() {
-                        executionProfile.updateProfile(params);
-                    }
-                });
-            } else {
-                LOG.info("Could not find execution profile with query id {}", DebugUtil.printId(params.query_id));
-            }
-        }
         final TReportExecStatusResult result = new TReportExecStatusResult();
 
         if (params.isSetReportWorkloadRuntimeStatus()) {
@@ -373,11 +364,11 @@ public final class QeProcessorImpl implements QeProcessor {
             return -1;
         }
 
-        public TokenState getQueueStatus() {
+        public String getQueueStatus() {
             if (coord.getQueueToken() != null) {
-                return coord.getQueueToken().getTokenState();
+                return coord.getQueueToken().getQueueMsg();
             }
-            return null;
+            return "";
         }
     }
 }

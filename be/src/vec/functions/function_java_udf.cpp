@@ -19,13 +19,10 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "jni.h"
 #include "runtime/user_function_cache.h"
 #include "util/jni-util.h"
-#include "vec/columns/column.h"
-#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/exec/jni_connector.h"
 
@@ -42,11 +39,9 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
 
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+        SCOPED_TIMER(context->get_udf_execute_timer());
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
         context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
 
@@ -93,13 +88,13 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
 }
 
 Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t num_rows) const {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-
+    SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(JniConnector::to_java_table(&block, num_rows, arguments, input_table));
     auto input_table_schema = JniConnector::parse_table_schema(&block, arguments, true);
@@ -107,26 +102,27 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
             {"meta_address", std::to_string((long)input_table.get())},
             {"required_fields", input_table_schema.first},
             {"columns_types", input_table_schema.second}};
-    jobject input_map = JniUtil::convert_to_java_map(env, input_params);
+    jobject input_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, input_params, &input_map));
     auto output_table_schema = JniConnector::parse_table_schema(&block, {result}, true);
     std::string output_nullable =
             block.get_by_position(result).type->is_nullable() ? "true" : "false";
     std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                               {"required_fields", output_table_schema.first},
                                               {"columns_types", output_table_schema.second}};
-    jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+    jobject output_map = nullptr;
+    RETURN_IF_ERROR(JniUtil::convert_to_java_map(env, output_params, &output_map));
     long output_address = env->CallLongMethod(jni_ctx->executor, jni_ctx->executor_evaluate_id,
                                               input_map, output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
-    env->DeleteLocalRef(input_map);
-    env->DeleteLocalRef(output_map);
-
+    env->DeleteGlobalRef(input_map);
+    env->DeleteGlobalRef(output_map);
+    RETURN_ERROR_IF_EXC(env);
     return JniConnector::fill_block(&block, {result}, output_address);
 }
 
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
+    auto* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.

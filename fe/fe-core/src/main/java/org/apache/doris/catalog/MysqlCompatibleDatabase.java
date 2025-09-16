@@ -17,10 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
@@ -41,11 +40,6 @@ public abstract class MysqlCompatibleDatabase extends Database {
      */
     protected abstract void initTables();
 
-    @Override
-    public void unregisterTable(String name) {
-        // Do nothing
-    }
-
     /**
      * MysqlCompatibleDatabase will not be persisted to bdb.
      * It will be constructed everytime the fe starts. See
@@ -57,15 +51,7 @@ public abstract class MysqlCompatibleDatabase extends Database {
     }
 
     /**
-     * MysqlCompatibleDatabase should not be read from bdb.
-     */
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        throw new IOException("Not support.");
-    }
-
-    /**
-     * This method must be re-implemented since {@link Env#createView(CreateViewStmt)}
+     * This method must be re-implemented since {@link Env#createView(CreateViewCommand)}
      * will call this method. And create view should not succeed under this database.
      */
     @Override

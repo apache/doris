@@ -41,11 +41,11 @@ public class GroupBitXor extends NullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(SmallIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(TinyIntType.INSTANCE).args(TinyIntType.INSTANCE)
     );
 
     /**
@@ -66,6 +66,11 @@ public class GroupBitXor extends NullableAggregateFunction
         super("group_bit_xor", distinct, alwaysNullable, child);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private GroupBitXor(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     protected List<DataType> intermediateTypes() {
         return ImmutableList.of(IntegerType.INSTANCE);
@@ -77,12 +82,12 @@ public class GroupBitXor extends NullableAggregateFunction
     @Override
     public GroupBitXor withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new GroupBitXor(distinct, alwaysNullable, children.get(0));
+        return new GroupBitXor(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupBitXor(distinct, alwaysNullable, children.get(0));
+        return new GroupBitXor(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

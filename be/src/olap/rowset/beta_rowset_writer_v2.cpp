@@ -31,8 +31,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
-#include "gutil/strings/substitute.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
@@ -58,7 +56,7 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-        : _segment_creator(_context, _seg_files), _streams(streams) {}
+        : _segment_creator(_context, _seg_files, _idx_files), _streams(streams) {}
 
 BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 
@@ -81,11 +79,20 @@ Status BetaRowsetWriterV2::create_file_writer(uint32_t segment_id, io::FileWrite
     return Status::OK();
 }
 
-Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
-                                       TabletSchemaSPtr flush_schema) {
+Status BetaRowsetWriterV2::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
+    bool ok = false;
     for (const auto& stream : _streams) {
-        RETURN_IF_ERROR(stream->add_segment(_context.partition_id, _context.index_id,
-                                            _context.tablet_id, segment_id, segstat, flush_schema));
+        auto st = stream->add_segment(_context.partition_id, _context.index_id, _context.tablet_id,
+                                      segment_id, segstat);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to add segment " << segment_id << " to stream "
+                         << stream->stream_id();
+        }
+        ok = ok || st.ok();
+    }
+    if (!ok) {
+        return Status::InternalError("failed to add segment {} of tablet {} to any replicas",
+                                     segment_id, _context.tablet_id);
     }
     return Status::OK();
 }

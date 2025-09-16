@@ -20,6 +20,7 @@
 #include <butil/fast_rand.h>
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/descriptors.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 
 #include <cstdint>
 #include <functional>
@@ -32,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -44,6 +46,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class MemTracker;
 class SlotDescriptor;
 class TExprNode;
@@ -88,18 +91,37 @@ public:
         return _proto_schema;
     }
 
-    bool is_partial_update() const { return _is_partial_update; }
+    UniqueKeyUpdateModePB unique_key_update_mode() const { return _unique_key_update_mode; }
+
+    bool is_partial_update() const {
+        return _unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT;
+    }
+    bool is_fixed_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS;
+    }
+    bool is_flexible_partial_update() const {
+        return _unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS;
+    }
+
     std::set<std::string> partial_update_input_columns() const {
         return _partial_update_input_columns;
+    }
+    PartialUpdateNewRowPolicyPB partial_update_new_key_policy() const {
+        return _partial_update_new_row_policy;
     }
     std::string auto_increment_coulumn() const { return _auto_increment_column; }
     int32_t auto_increment_column_unique_id() const { return _auto_increment_column_unique_id; }
     void set_timestamp_ms(int64_t timestamp_ms) { _timestamp_ms = timestamp_ms; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
+    void set_nano_seconds(int32_t nano_seconds) { _nano_seconds = nano_seconds; }
+    int32_t nano_seconds() const { return _nano_seconds; }
     void set_timezone(std::string timezone) { _timezone = timezone; }
     std::string timezone() const { return _timezone; }
     bool is_strict_mode() const { return _is_strict_mode; }
+    int32_t sequence_map_col_uid() const { return _sequence_map_col_uid; }
     std::string debug_string() const;
+
+    Status init_unique_key_update_mode(const TOlapTableSchemaParam& tschema);
 
 private:
     int64_t _db_id;
@@ -110,13 +132,17 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
-    bool _is_partial_update = false;
+    UniqueKeyUpdateModePB _unique_key_update_mode {UniqueKeyUpdateModePB::UPSERT};
+    PartialUpdateNewRowPolicyPB _partial_update_new_row_policy {
+            PartialUpdateNewRowPolicyPB::APPEND};
     std::set<std::string> _partial_update_input_columns;
     bool _is_strict_mode = false;
     std::string _auto_increment_column;
     int32_t _auto_increment_column_unique_id;
     int64_t _timestamp_ms = 0;
+    int32_t _nano_seconds {0};
     std::string _timezone;
+    int32_t _sequence_map_col_uid {-1};
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -139,6 +165,8 @@ struct VOlapTablePartition {
     bool is_mutable;
     // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
+    int total_replica_num = 0;
+    int load_required_replica_num = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
@@ -214,22 +242,23 @@ public:
                     auto& column = block->get_by_position(_distributed_slot_loc).column;
                     auto val = column->get_data_at(row);
                     if (val.data != nullptr) {
-                        hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
+                        hash_val = RawValue::zlib_crc32(val.data, val.size,
+                                                        slot_desc->type()->get_primitive_type(),
                                                         hash_val);
                     } else {
                         hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                     }
                 }
-                return hash_val % partition.num_buckets;
+                return cast_set<uint32_t>(hash_val % partition.num_buckets);
             };
         } else { // random distribution
             compute_function = [](vectorized::Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
                     // for compatible with old version, just do random
-                    return butil::fast_rand() % partition.num_buckets;
+                    return cast_set<uint32_t>(butil::fast_rand() % partition.num_buckets);
                 }
-                return partition.load_tablet_idx % partition.num_buckets;
+                return cast_set<uint32_t>(partition.load_tablet_idx % partition.num_buckets);
             };
         }
 
@@ -242,7 +271,7 @@ public:
                 auto* partition = partitions[index];
                 if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
-                    tablet_indexes[index] = it->second; // tablet
+                    tablet_indexes[index] = cast_set<uint32_t>(it->second); // tablet
                 } else {
                     // compute and save in buffer
                     (*partition_tablets_buffer)[partition] = tablet_indexes[index] =
@@ -306,7 +335,7 @@ private:
             _partitions_map;
 
     bool _is_in_partition = false;
-    uint32_t _mem_usage = 0;
+    size_t _mem_usage = 0;
     // only works when using list partition, the resource is owned by _partitions
     VOlapTablePartition* _default_partition = nullptr;
 
@@ -412,4 +441,5 @@ private:
     std::unordered_map<int64_t, NodeInfo> _nodes;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

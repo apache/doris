@@ -18,12 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -38,9 +40,14 @@ import java.util.List;
 public class ArrayPosition extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+    public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(ArrayType.of(new AnyDataType(0)), new FollowToAnyDataType(0))
+    );
+
+    public static final List<FunctionSignature> MIN_COMMON_TYPE_SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(ArrayType.of(new AnyDataType(0)), new AnyDataType(0))
     );
 
     /**
@@ -50,13 +57,30 @@ public class ArrayPosition extends ScalarFunction
         super("array_position", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayPosition(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayPosition withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new ArrayPosition(children.get(0), children.get(1));
+        return new ArrayPosition(getFunctionParams(children));
+    }
+
+    /**
+     * array_position needs to find the position of the sub-elements in the array.
+     * so the element type must be comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException("array_position does not support complex types: " + toSql());
+        }
     }
 
     @Override
@@ -71,6 +95,13 @@ public class ArrayPosition extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (getArgument(0).getDataType().isArrayType()
+                &&
+                ((ArrayType) getArgument(0).getDataType()).getItemType()
+                        .isSameTypeForComplexTypeParam(getArgument(1).getDataType())) {
+            // return least common type
+            return MIN_COMMON_TYPE_SIGNATURES;
+        }
+        return FOLLOW_DATATYPE_SIGNATURE;
     }
 }

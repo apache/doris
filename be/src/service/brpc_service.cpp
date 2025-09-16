@@ -41,6 +41,7 @@ namespace brpc {
 
 DECLARE_uint64(max_body_size);
 DECLARE_int64(socket_max_unwritten_bytes);
+DECLARE_bool(usercode_in_pthread);
 
 } // namespace brpc
 
@@ -48,6 +49,9 @@ namespace doris {
 
 BRpcService::BRpcService(ExecEnv* exec_env) : _exec_env(exec_env), _server(new brpc::Server()) {
     // Set config
+    if (config::brpc_usercode_in_pthread) {
+        brpc::FLAGS_usercode_in_pthread = true;
+    }
     brpc::FLAGS_max_body_size = config::brpc_max_body_size;
     brpc::FLAGS_socket_max_unwritten_bytes =
             config::brpc_socket_max_unwritten_bytes != -1
@@ -75,12 +79,15 @@ Status BRpcService::start(int port, int num_threads) {
     if (num_threads != -1) {
         options.num_threads = num_threads;
     }
+    options.idle_timeout_sec = config::brpc_idle_timeout_sec;
 
     if (config::enable_https) {
         auto sslOptions = options.mutable_ssl_options();
         sslOptions->default_cert.certificate = config::ssl_certificate_path;
         sslOptions->default_cert.private_key = config::ssl_private_key_path;
     }
+
+    options.has_builtin_services = config::enable_brpc_builtin_services;
 
     butil::EndPoint point;
     if (butil::str2endpoint(BackendOptions::get_service_bind_address(), port, &point) < 0) {

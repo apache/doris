@@ -47,13 +47,18 @@ public class Cosh extends ScalarFunction
         super("cosh", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Cosh(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Cosh withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cosh(children.get(0));
+        return new Cosh(getFunctionParams(children));
     }
 
     @Override

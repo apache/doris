@@ -32,12 +32,17 @@ namespace vectorized {
 class Block;
 class VExprContext;
 
-class VSlotRef final : public VExpr {
+class VSlotRef MOCK_REMOVE(final) : public VExpr {
     ENABLE_FACTORY_CREATOR(VSlotRef);
 
 public:
     VSlotRef(const TExprNode& node);
     VSlotRef(const SlotDescriptor* desc);
+#ifdef BE_TEST
+    VSlotRef() = default;
+    void set_column_id(int column_id) { _column_id = column_id; }
+    void set_slot_id(int slot_id) { _slot_id = slot_id; }
+#endif
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -50,7 +55,17 @@ public:
 
     int column_id() const { return _column_id; }
 
-    int slot_id() const { return _slot_id; }
+    MOCK_FUNCTION int slot_id() const { return _slot_id; }
+
+    bool equals(const VExpr& other) override;
+
+    size_t estimate_memory(const size_t rows) override { return 0; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    MOCK_FUNCTION const std::string& column_name() const { return *_column_name; }
 
 private:
     int _slot_id;

@@ -20,7 +20,9 @@ name: Build Extensions
 
 on:
   pull_request:
-
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]
 concurrency:
   group: ${{ github.ref }} (Build Extensions)
   cancel-in-progress: true
@@ -29,6 +31,12 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     outputs:
       broker_changes: ${{ steps.filter.outputs.broker_changes }}
       docs_changes: ${{ steps.filter.outputs.docs_changes }}
@@ -67,7 +75,7 @@ jobs:
         run: |
           pushd thirdparty
           branch="${{ github.base_ref }}"
-          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' ]]; then
+          if [[ -z "${branch}" ]] || [[ "${branch}" == 'master' || "${branch}" == 'branch-3.0' || "${branch}" == 'branch-2.1' ]]; then
             curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-linux-x86_64.tar.xz \
               -o doris-thirdparty-prebuilt-linux-x86_64.tar.xz
           else

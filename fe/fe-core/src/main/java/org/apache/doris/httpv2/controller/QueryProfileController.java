@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
@@ -56,6 +56,15 @@ public class QueryProfileController extends BaseController {
         }
         profile = profile.replaceAll("\n", "</br>");
         profile = profile.replaceAll(" ", "&nbsp;&nbsp;");
+        return ResponseEntityBuilder.ok(profile);
+    }
+
+    @RequestMapping(path = "/query_profile/text/{" + ID + "}", method = RequestMethod.GET)
+    public Object text_profile(@PathVariable(value = ID) String id) {
+        String profile = ProfileManager.getInstance().getProfile(id);
+        if (profile == null) {
+            return ResponseEntityBuilder.okWithCommonError("ID " + id + " does not exist");
+        }
         return ResponseEntityBuilder.ok(profile);
     }
 

@@ -32,8 +32,8 @@
 #include "common/status.h"
 #include "util/bitmap.h"
 #include "util/runtime_profile.h"
-#include "util/spinlock.h"
 #include "util/uid_util.h"
+#include "vec/common/custom_allocator.h"
 
 namespace google::protobuf {
 template <typename Element>
@@ -121,7 +121,7 @@ public:
 
 protected:
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
-                             std::unordered_map<int64_t, std::vector<uint32_t>>& tablet_to_rowidxs,
+                             std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
                              PTabletWriterAddBlockResult* response);
 
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
@@ -136,18 +136,15 @@ protected:
                            int64_t tablet_id, Status error) const;
     void _build_tablet_to_rowidxs(
             const PTabletWriterAddBlockRequest& request,
-            std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>*
+            std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>*
                     tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
     TabletsChannelKey _key;
 
-    // make execute sequence
+    // protect _state change. open and close. when add_batch finished, lock to change _next_seqs also
     std::mutex _lock;
-
-    SpinLock _tablet_writers_lock;
-
     enum State {
         kInitialized,
         kOpened,
@@ -173,8 +170,10 @@ protected:
     // currently it's OK.
     Status _close_status;
 
-    // tablet_id -> TabletChannel
+    // tablet_id -> TabletChannel. it will only be changed in open() or inc_open()
     std::unordered_map<int64_t, std::unique_ptr<BaseDeltaWriter>> _tablet_writers;
+    // protect _tablet_writers
+    std::mutex _tablet_writers_lock;
     // broken tablet ids.
     // If a tablet write fails, it's id will be added to this set.
     // So that following batch will not handle this tablet anymore.

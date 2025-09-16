@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_with_view") {
 
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -36,17 +38,16 @@ suite ("mv_with_view") {
     sql """insert into d_table select 1,1,1,'a';"""
     sql """insert into d_table select 2,2,2,'b';"""
 
-    createMV("create materialized view k312 as select k3,k1,k2 from d_table;")
+    createMV("create materialized view k312 as select k3 as a1,k1 as a2,k2 as a3 from d_table;")
 
     sql """insert into d_table select 3,-3,null,'c';"""
 
     sql "analyze table d_table with sync;"
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from d_table order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select * from d_table order by k1;", "k312")
     qt_select_star "select * from d_table order by k1;"
 
     sql """
@@ -56,10 +57,7 @@ suite ("mv_with_view") {
     sql """
         create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
     """
-    explain {
-        sql("select * from v_k312 order by k1;")
-        contains "(k312)"
-    }
+    mv_rewrite_success("select * from v_k312 order by k1;", "k312")
     qt_select_mv "select * from v_k312 order by k1;"
 
     sql """
@@ -69,17 +67,11 @@ suite ("mv_with_view") {
     sql """
         create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
     """
-    explain {
-        sql("select * from v_k124 order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
     qt_select_mv "select * from v_k124 order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from d_table order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select * from d_table order by k1;", "k312")
 
     sql """
         drop view if exists v_k312;
@@ -88,10 +80,7 @@ suite ("mv_with_view") {
     sql """
         create view v_k312 as select k1,k3,k2 from d_table where k3 = 1;
     """
-    explain {
-        sql("select * from v_k312 order by k1;")
-        contains "(k312)"
-    }
+    mv_rewrite_success("select * from v_k312 order by k1;", "k312")
 
     sql """
         drop view if exists v_k124;
@@ -100,8 +89,5 @@ suite ("mv_with_view") {
     sql """
         create view v_k124 as select k1,k2,k4 from d_table where k1 = 1;
     """
-    explain {
-        sql("select * from v_k124 order by k1;")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select * from v_k124 order by k1;", "k312")
 }

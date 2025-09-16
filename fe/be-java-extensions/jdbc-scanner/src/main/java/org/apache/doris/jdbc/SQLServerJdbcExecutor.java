@@ -38,15 +38,13 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     }
 
     @Override
-    protected boolean abortReadConnection(Connection connection, ResultSet resultSet)
+    protected void abortReadConnection(Connection connection, ResultSet resultSet)
             throws SQLException {
         if (!resultSet.isAfterLast()) {
             // Abort connection before closing. Without this, the SQLServer driver
             // attempts to drain the connection by reading all the results.
             connection.abort(MoreExecutors.directExecutor());
-            return true;
         }
-        return false;
     }
 
     @Override

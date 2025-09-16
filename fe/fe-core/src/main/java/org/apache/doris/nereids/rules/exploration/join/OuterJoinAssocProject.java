@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
@@ -56,7 +57,6 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
     // Pair<bottomJoin, topJoin>
     // newBottomJoin Type = topJoin Type, newTopJoin Type = bottomJoin Type
     public static Set<Pair<JoinType, JoinType>> VALID_TYPE_PAIR_SET = ImmutableSet.of(
-            Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.INNER_JOIN),
             Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN),
             Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.LEFT_OUTER_JOIN));
 
@@ -100,17 +100,19 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                     /* ********** new Plan ********** */
                     LogicalJoin newBottomJoin = topJoin.withChildrenNoContext(b, c, null);
                     newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
+                    newBottomJoin = JoinUtils.adjustJoinConjunctsNullable(newBottomJoin);
 
                     Set<ExprId> topUsedExprIds = new HashSet<>();
                     topProject.getProjects().forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     bottomJoin.getHashJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
                     bottomJoin.getOtherJoinConjuncts().forEach(e -> topUsedExprIds.addAll(e.getInputSlotExprIds()));
-                    Plan left = CBOUtils.newProject(topUsedExprIds, a);
+                    Plan left = CBOUtils.newProjectIfNeeded(topUsedExprIds, a);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newBottomJoin);
 
                     LogicalJoin newTopJoin = bottomJoin.withChildrenNoContext(left, right, null);
                     newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     setReorderContext(newTopJoin, newBottomJoin);
+                    newTopJoin = JoinUtils.adjustJoinConjunctsNullable(newTopJoin);
 
                     return topProject.withChildren(newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_ASSOC_PROJECT);

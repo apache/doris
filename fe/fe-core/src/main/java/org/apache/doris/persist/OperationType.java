@@ -27,12 +27,14 @@ public class OperationType {
     // OP_LOCAL_EOF is only for local edit log, to indicate the end of a edit log run.
     public static final short OP_LOCAL_EOF = -1;
     public static final short OP_SAVE_NEXTID = 0;
-    public static final short OP_CREATE_DB = 1;
+    @Deprecated
+    public static final short OP_CREATE_DB = 1; // deprecated, use OP_NEW_CREATE_DB instead
     public static final short OP_DROP_DB = 2;
     public static final short OP_ALTER_DB = 3;
     public static final short OP_ERASE_DB = 4;
     public static final short OP_RECOVER_DB = 5;
     public static final short OP_RENAME_DB = 6;
+    public static final short OP_NEW_CREATE_DB = 7;
 
     // 10~19 110~119 210~219 ...
     public static final short OP_CREATE_TABLE = 10;
@@ -54,6 +56,7 @@ public class OperationType {
     public static final short OP_REPLACE_TEMP_PARTITION = 210;
     public static final short OP_BATCH_MODIFY_PARTITION = 211;
     public static final short OP_REPLACE_TABLE = 212;
+    public static final short OP_BRANCH_OR_TAG = 213;
 
     // 20~29 120~129 220~229 ...
     @Deprecated
@@ -230,9 +233,9 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
-    // create sync job
+    @Deprecated
     public static final short OP_CREATE_SYNC_JOB = 234;
-    // update sync job state
+    @Deprecated
     public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
@@ -298,20 +301,6 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    @Deprecated
-    public static final short OP_CREATE_MTMV_JOB = 330;
-    @Deprecated
-    public static final short OP_DROP_MTMV_JOB = 331;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_JOB = 332;
-    @Deprecated
-    public static final short OP_CREATE_MTMV_TASK = 340;
-    @Deprecated
-    public static final short OP_DROP_MTMV_TASK = 341;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_TASK = 342;
-    @Deprecated
-    public static final short OP_ALTER_MTMV_STMT = 345;
     public static final short OP_ADD_CONSTRAINT = 346;
     public  static final short OP_DROP_CONSTRAINT = 347;
 
@@ -412,6 +401,18 @@ public class OperationType {
     public static final short OP_DROP_PLSQL_PACKAGE = 474;
 
     public static final short OP_ALTER_ROLE = 475;
+
+    // dictionary 480~489
+    public static final short OP_CREATE_DICTIONARY = 480;
+    public static final short OP_DROP_DICTIONARY = 481;
+    public static final short OP_DICTIONARY_INC_VERSION = 482;
+    public static final short OP_DICTIONARY_DEC_VERSION = 483;
+
+    // index policy 490 ~ 499
+    public static final short OP_CREATE_INDEX_POLICY = 490;
+    public static final short OP_DROP_INDEX_POLICY = 491;
+
+    public static final short OP_OPERATE_KEY = 492;
 
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;

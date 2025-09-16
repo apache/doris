@@ -22,7 +22,8 @@ suite("check_before_quit", "nonConcurrent,p0") {
     List<Object> beRow = be_result.get(0)
     String beHost = beRow.get(1).toString().trim()
     String bePort =  beRow.get(4).toString().trim()
-    logger.info("get be host and port:" + beHost + " " + bePort)
+    String beBrpcPort = beRow.get(5).toString().trim()
+    logger.info("get be host and port:" + beHost + " " + bePort + ", BrpcPort:" + beBrpcPort)
 
     //NOTE: this suite is used to check whether workload group's query queue works correctly when all query finished
     long beginTime = System.currentTimeMillis();
@@ -95,24 +96,57 @@ suite("check_before_quit", "nonConcurrent,p0") {
             }
         }
         return metricValues
-    }
+    } }
 
-    }
+    def getVar = { String data, String name -> {
+        def varValues = []
+        data.eachLine { line ->
+            line = line.trim()
+
+            // Skip comment lines
+            if (line.startsWith('#')) return
+
+            // Regular expression to match metric lines
+            def matcher = (line =~ /^(\w+)\s:\s(.+)$/)
+
+            if (matcher) {
+                def varName = matcher[0][1]
+                def varValue = matcher[0][2]
+                if (varName == name) {
+                    varValues << varValue
+                }
+            }
+        }
+        return varValues
+    } }
+
     beginTime = System.currentTimeMillis();
     timeoutMs = 30 * 1000 // 30s
     clear = false
 
-    def command = "curl http://${beHost}:${bePort}/metrics"
+    def command_metrics = "curl http://${beHost}:${bePort}/metrics"
+    def command_vars = "curl http://${beHost}:${beBrpcPort}/vars"
+    def command_load_channels = "curl http://${beHost}:${bePort}/api/load_channels"
+    def command_load_streams = "curl http://${beHost}:${bePort}/api/load_streams"
     while ((System.currentTimeMillis() - beginTime) < timeoutMs) {
         clear = true
-        logger.info("executing command: ${command}")
-        def process = command.execute()
-        def outputStream = new StringBuffer()
-        def errorStream = new StringBuffer()
-        process.consumeProcessOutput(outputStream, errorStream)
-        def code = process.waitFor()
-        def metrics = outputStream.toString()
-        logger.info("Request BE metrics: code=" + code + ", err=" + errorStream.toString())
+        logger.info("executing command: ${command_metrics}")
+        def process_metrics = command_metrics.execute()
+        def outputStream_metrics = new StringBuffer()
+        def errorStream_metrics = new StringBuffer()
+        process_metrics.consumeProcessOutput(outputStream_metrics, errorStream_metrics)
+        def code_metrics = process_metrics.waitFor()
+        def metrics = outputStream_metrics.toString()
+        logger.info("Request BE metrics: code=" + code_metrics + ", err=" + errorStream_metrics.toString())
+
+        logger.info("executing command: ${command_vars}")
+        def process_vars = command_vars.execute()
+        def outputStream_vars = new StringBuffer()
+        def errorStream_vars = new StringBuffer()
+        process_vars.consumeProcessOutput(outputStream_vars, errorStream_vars)
+        def code_vars = process_vars.waitFor()
+        def vars = outputStream_vars.toString()
+        logger.info("Request BE vars: code=" + code_vars + ", err=" + errorStream_vars.toString())
 
         def hasSpillData = getPrometheusMetric(metrics, "doris_be_spill_disk_has_spill_data")
         logger.info("has spill temporary files :${hasSpillData}")
@@ -141,11 +175,213 @@ suite("check_before_quit", "nonConcurrent,p0") {
             }
         }
 
+        def doris_be_load_channel_count = getPrometheusMetric(metrics, "doris_be_load_channel_count")
+        logger.info("doris_be_load_channel_count :${doris_be_load_channel_count}")
+        for (int i = 0; i < doris_be_load_channel_count.size(); i++) {
+            if (0 != Integer.valueOf(doris_be_load_channel_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_count = getVar(vars, "load_stream_count")
+        logger.info("load_stream_count :${load_stream_count}")
+        for (int i = 0; i < load_stream_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_writer_count = getVar(vars, "load_stream_writer_count")
+        logger.info("load_stream_writer_count :${load_stream_writer_count}")
+        for (int i = 0; i < load_stream_writer_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_writer_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
+        def load_stream_file_writer_count = getVar(vars, "load_stream_file_writer_count")
+        logger.info("load_stream_file_writer_count :${load_stream_file_writer_count}")
+        for (int i = 0; i < load_stream_file_writer_count.size(); i++) {
+            if (0 != Integer.valueOf(load_stream_file_writer_count.get(i))) {
+                clear = false;
+                break;
+            }
+        }
+
         if (clear) {
             break
         }
 
+        logger.info("executing command: ${command_load_channels}")
+        def process_load_channels = command_load_channels.execute()
+        def outputStream_load_channels = new StringBuffer()
+        def errorStream_load_channels = new StringBuffer()
+        process_load_channels.consumeProcessOutput(outputStream_load_channels, errorStream_load_channels)
+        def code_load_channels = process_load_channels.waitFor()
+        def load_channels = outputStream_load_channels.toString()
+        logger.info("Request BE load_channels: code=" + code_load_channels + ", err=" + errorStream_load_channels.toString())
+        logger.info("load_channels: " + load_channels);
+
+        logger.info("executing command: ${command_load_streams}")
+        def process_load_streams = command_load_streams.execute()
+        def outputStream_load_streams = new StringBuffer()
+        def errorStream_load_streams = new StringBuffer()
+        process_load_streams.consumeProcessOutput(outputStream_load_streams, errorStream_load_streams)
+        def code_load_streams = process_load_streams.waitFor()
+        def load_streams = outputStream_load_streams.toString()
+        logger.info("Request BE load_streams: code=" + code_load_streams + ", err=" + errorStream_load_streams.toString())
+        logger.info("load_streams: " + load_streams);
+
         Thread.sleep(2000)
     }
+
+    // check create table sql
+    List<List<Object>> allDataBases = sql "show databases;"
+    logger.info("show all databases: ${allDataBases}")
+
+    def num = allDataBases.size()
+    def failureList = []
+
+    sql "set enable_decimal256 = true;"
+    sql "set enable_variant_flatten_nested = true;"
+    sql """
+        ADMIN SET ALL FRONTENDS CONFIG ('enable_inverted_index_v1_for_variant' = 'true');
+    """
+
+    for (int i = 0; i < num; i++) {
+        def db = allDataBases[i][0]
+        if (db == "__internal_schema" || db == "information_schema" || db == "mysql") {
+            continue
+        }
+        List<List<Object>> allTables = sql "show tables from ${db}"
+        logger.info("show all tables: ${allTables}")
+        for (int j = 0; j < allTables.size(); j++) {
+            def tbl = allTables[j][0]
+            def createTableSql = ""
+            try {
+                // cloud mode not allowed to set light_schema_change = true
+                if (!isCloudMode()) {
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                    if (createTableSql[0][1].contains("CREATE TABLE")) {
+                        try {
+                            sql " ALTER TABLE ${db}.${tbl} SET (\"light_schema_change\" = \"true\") "
+                        } catch (Exception alterEx) {
+                            logger.warn("Failed to alter table ${db}.${tbl} to set light_schema_change: ${alterEx.getMessage()}")
+                            failureList << [
+                                operation: "ALTER TABLE",
+                                target: "${tbl}", 
+                                error: alterEx.getMessage()
+                            ]
+                        }
+                    }
+                    createTableSql = sql "show create table ${db}.${tbl}"
+                }
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    try {
+                        createTableSql = sql "show create materialized view ${db}.${tbl}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        } else {
+                            logger.info(e2.getMessage())
+                            failureList << [
+                                operation: "SHOW CREATE MATERIALIZED VIEW", 
+                                target: "${db}.${tbl}", 
+                                error: e2.getMessage()
+                            ]
+                            continue
+                        }
+                    }
+                    logger.info("create materialized view sql: ${createTableSql}")
+                } else {
+                    logger.warn("Failed to show create table ${db}.${tbl}: ${e.getMessage()}")
+                    failureList << [
+                        operation: "SHOW CREATE TABLE",
+                        target: "${db}.${tbl}", 
+                        error: e.getMessage()
+                    ]
+                    continue
+                }
+            }
+
+            try {
+                if (createTableSql[0][1].contains("CREATE VIEW")) {
+                    sql "drop view if exists ${tbl}"
+                } else if (createTableSql[0][1].contains("CREATE MATERIALIZED VIEW")) {
+                    sql "drop materialized view if exists ${tbl}"
+                } else {
+                    sql "drop table if exists ${tbl}"
+                    // only re create table, because the table which view depends may be dropped,
+                    // so recreate view may fail
+                    try {
+                        if (createTableSql[0][1].contains("agg_state<")) {
+                            logger.info("Skipping table ${tbl} because it contains agg_state column type")
+                            continue
+                        }
+
+                        sql(createTableSql[0][1])
+                        def createTableSqlResult = sql "show create table ${tbl}"
+
+                        def eraseReplicationAllocationProperty = { String sql ->
+                            def result = sql.replaceAll(/(,\s*)?"replication_allocation"\s*=\s*"tag\.location\.default:\s*[^"]*"(,\s*|\s*\))/, '$2')
+                            result = result.replaceAll(/PROPERTIES\s*\(\s*,/, 'PROPERTIES (')
+                            result = result.replaceAll(/,(\s*,)+/, ',')
+                            return result.trim()
+                        }
+                        createTableSql = eraseReplicationAllocationProperty(createTableSql[0][1])
+                        createTableSqlResult = eraseReplicationAllocationProperty(createTableSqlResult[0][1])
+                        
+                        logger.info("target: ${createTableSqlResult}, origin: ${createTableSql}")
+
+                        if (createTableSqlResult.trim() != createTableSql.trim()) {
+                            failureList << [
+                                operation: "CREATE TABLE", 
+                                target: "${tbl}", 
+                                expected: createTableSql.trim(),
+                                actual: createTableSqlResult.trim()
+                            ]
+                        }
+                    } catch (Exception recreateEx) {
+                        logger.warn("Failed to recreate table ${tbl}: ${recreateEx.getMessage()}")
+                        failureList << [
+                            operation: "RECREATE TABLE", 
+                            target: "${tbl}", 
+                            sql: createTableSql,
+                            error: recreateEx.getMessage()
+                        ]
+                    }
+                }
+            } catch (Exception dropEx) {
+                logger.warn("Failed during drop operation for ${tbl}: ${dropEx.getMessage()}")
+                failureList << [
+                    operation: "DROP", 
+                    target: "${tbl}", 
+                    error: dropEx.getMessage()
+                ]
+            }
+        }
+    }
+
+    if (failureList.size() > 0) {
+        logger.error("Total failures: ${failureList.size()}")
+        failureList.eachWithIndex { failure, idx ->
+            logger.error("Failure #${idx + 1}:")
+            failure.each { key, value ->
+                if (key == "expected" || key == "actual" || key == "sql") {
+                    logger.error("  ${key}:\n${value}")
+                } else {
+                    logger.error("  ${key}: ${value}")
+                }
+            }
+        }
+        logger.error("Found ${failureList.size()} failures during database recreation checks")
+    } else {
+        clear = true
+    }
+
     assertTrue(clear)
 }

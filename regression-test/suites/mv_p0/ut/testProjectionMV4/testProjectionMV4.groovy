@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testProjectionMV4") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ DROP TABLE IF EXISTS emps; """
 
     sql """
@@ -32,40 +34,32 @@ suite ("testProjectionMV4") {
         """
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
 
     def result = "null"
 
-    createMV("create materialized view emps_mv as select name, deptno, salary from emps;")
+    createMV("create materialized view emps_mv as select name as a1, deptno as a2, salary as a3 from emps;")
 
+    sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
     sql "analyze table emps with sync;"
+    sql """alter table emps modify column time_col set stats ('row_count'='6');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
-
 
     qt_select_mv "select name from emps where deptno > 1 and salary > 1 order by name;"
 
-    explain {
-        sql("select empid from emps where deptno > 1 and empid > 1 order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select empid from emps where deptno > 1 and empid > 1 order by empid;", "emps_mv")
     qt_select_base "select empid from emps where deptno > 1 and empid > 1 order by empid;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
 
-    explain {
-        sql("select empid from emps where deptno > 1 and empid > 1 order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
+
+    mv_rewrite_fail("select empid from emps where deptno > 1 and empid > 1 order by empid;", "emps_mv")
 }

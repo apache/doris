@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
+import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
@@ -55,8 +56,6 @@ import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TSyncLoadForTabletsRequest;
 import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletStatResult;
-import org.apache.doris.thrift.TTransmitDataParams;
-import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
@@ -133,11 +132,6 @@ public class GenericPoolTest {
         @Override
         public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) {
             return new TCancelPlanFragmentResult();
-        }
-
-        @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) {
-            return new TTransmitDataResult();
         }
 
         @Override
@@ -274,6 +268,11 @@ public class GenericPoolTest {
         @Override
         public TGetRealtimeExecStatusResponse getRealtimeExecStatus(TGetRealtimeExecStatusRequest request)
                 throws TException {
+            return null;
+        }
+
+        @Override
+        public TDictionaryStatusList getDictionaryStatus(List<Long> dictionaryIds) throws TException {
             return null;
         }
     }

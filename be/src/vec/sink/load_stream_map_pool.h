@@ -49,7 +49,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/tablet_info.h"
-#include "gutil/ref_counted.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
@@ -65,27 +64,26 @@
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class LoadStreamStub;
 
 class LoadStreamMapPool;
-
-using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 
 class LoadStreamMap {
 public:
     LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
                   LoadStreamMapPool* pool);
 
-    std::shared_ptr<Streams> get_or_create(int64_t dst_id, bool incremental = false);
+    std::shared_ptr<LoadStreamStubs> get_or_create(int64_t dst_id, bool incremental = false);
 
-    std::shared_ptr<Streams> at(int64_t dst_id);
+    std::shared_ptr<LoadStreamStubs> at(int64_t dst_id);
 
     bool contains(int64_t dst_id);
 
-    void for_each(std::function<void(int64_t, const Streams&)> fn);
+    void for_each(std::function<void(int64_t, LoadStreamStubs&)> fn);
 
-    Status for_each_st(std::function<Status(int64_t, const Streams&)> fn);
+    Status for_each_st(std::function<Status(int64_t, LoadStreamStubs&)> fn);
 
     void save_tablets_to_commit(int64_t dst_id, const std::vector<PTabletID>& tablets_to_commit);
 
@@ -98,7 +96,16 @@ public:
 
     // send CLOSE_LOAD to all streams, return ERROR if any.
     // only call this method after release() returns true.
-    Status close_load(bool incremental);
+    void close_load(bool incremental);
+
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> get_streams_for_node() {
+        decltype(_streams_for_node) snapshot;
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            snapshot = _streams_for_node;
+        }
+        return snapshot;
+    }
 
 private:
     const UniqueId _load_id;
@@ -106,7 +113,7 @@ private:
     const int _num_streams;
     std::atomic<int> _use_cnt;
     std::mutex _mutex;
-    std::unordered_map<int64_t, std::shared_ptr<Streams>> _streams_for_node;
+    std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>> _streams_for_node;
     LoadStreamMapPool* _pool = nullptr;
     std::shared_ptr<IndexToTabletSchema> _tablet_schema_for_index;
     std::shared_ptr<IndexToEnableMoW> _enable_unique_mow_for_index;
@@ -138,3 +145,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

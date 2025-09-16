@@ -17,17 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,10 +48,11 @@ import java.util.List;
  * Prepared Statement
  */
 public class PrepareCommand extends Command {
-    private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    private static final Logger LOG = LogManager.getLogger(PrepareCommand.class);
 
     private final List<Placeholder> placeholders = new ArrayList<>();
     private final LogicalPlan logicalPlan;
+    private final int maxPlaceholderCount = 65536;
 
     private final String name;
 
@@ -98,19 +109,34 @@ public class PrepareCommand extends Command {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<String> labels = getLabels();
+        if (labels.size() >= maxPlaceholderCount) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_PS_MANY_PARAM);
+        }
+        StatementContext statementContext = ctx.getStatementContext();
+        statementContext.setPrepareStage(true);
+        List<Slot> slots;
+        if (logicalPlan instanceof Command) {
+            if (logicalPlan instanceof InsertIntoTableCommand
+                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
+                throw new org.apache.doris.common.UserException("Only support prepare Group Commit without label");
+            }
+            ResultSetMetaData md = ((Command) logicalPlan).getResultSetMetaData();
+            slots = Lists.newArrayList();
+            for (Column c : md.getColumns()) {
+                slots.add(new SlotReference(c.getName(), DataType.fromCatalogType(c.getType())));
+            }
+        } else {
+            slots = executor.planPrepareStatementSlots();
+        }
         // register prepareStmt
         if (LOG.isDebugEnabled()) {
             LOG.debug("add prepared statement {}, isBinaryProtocol {}",
                     name, ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE);
         }
-        if (logicalPlan instanceof InsertIntoTableCommand
-                    && ((InsertIntoTableCommand) logicalPlan).getLabelName().isPresent()) {
-            throw new org.apache.doris.common.UserException("Only support prepare InsertStmt without label now");
-        }
         ctx.addPreparedStatementContext(name,
                 new PreparedStatementContext(this, ctx, ctx.getStatementContext(), name));
-        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
-            executor.sendStmtPrepareOK((int) ctx.getStmtId(), labels);
+        if (ctx.getCommand() == MysqlCommand.COM_STMT_PREPARE && !ctx.isProxy()) {
+            executor.sendStmtPrepareOK(Integer.parseInt(name), labels, slots);
         }
     }
 
@@ -121,5 +147,10 @@ public class PrepareCommand extends Command {
 
     public PrepareCommand withPlaceholders(List<Placeholder> placeholders) {
         return new PrepareCommand(this.name, this.logicalPlan, placeholders, this.originalStmt);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.PREPARE;
     }
 }

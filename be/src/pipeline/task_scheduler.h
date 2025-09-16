@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -28,49 +28,76 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/ref_counted.h"
 #include "pipeline_task.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_group/workload_group.h"
+#include "task_queue.h"
 #include "util/thread.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class ExecEnv;
 class ThreadPool;
-
-namespace pipeline {
-class TaskQueue;
-} // namespace pipeline
 } // namespace doris
 
 namespace doris::pipeline {
 
+class HybridTaskScheduler;
 class TaskScheduler {
 public:
-    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
-                  CgroupCpuCtl* cgroup_cpu_ctl)
-            : _task_queue(std::move(task_queue)),
-              _shutdown(false),
-              _name(std::move(name)),
-              _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    virtual ~TaskScheduler();
 
-    ~TaskScheduler();
+    virtual Status submit(PipelineTaskSPtr task);
 
-    Status schedule_task(PipelineTask* task);
+    virtual Status start();
 
-    Status start();
+    virtual void stop();
 
-    void stop();
-
-    std::vector<int> thread_debug_info() { return _fix_thread_pool->debug_info(); }
+    virtual std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() {
+        return {{_name, _fix_thread_pool->debug_info()}};
+    }
 
 private:
-    std::unique_ptr<ThreadPool> _fix_thread_pool;
-    std::shared_ptr<TaskQueue> _task_queue;
-    std::vector<bool> _markers;
-    bool _shutdown;
-    std::string _name;
-    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    friend class HybridTaskScheduler;
 
-    void _do_work(size_t index);
+    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _name(std::move(name)),
+              _task_queue(core_num),
+              _num_threads(core_num),
+              _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
+    TaskScheduler() : _task_queue(0), _num_threads(0) {}
+    std::string _name;
+    std::unique_ptr<ThreadPool> _fix_thread_pool;
+
+    MultiCoreTaskQueue _task_queue;
+    bool _need_to_stop = false;
+    bool _shutdown = false;
+    const int _num_threads;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
+
+    void _do_work(int index);
+};
+
+class HybridTaskScheduler MOCK_REMOVE(final) : public TaskScheduler {
+public:
+    HybridTaskScheduler(int core_num, std::string name,
+                        std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _blocking_scheduler(core_num * 2, name + "_blocking_scheduler", cgroup_cpu_ctl),
+              _simple_scheduler(core_num, name + "_simple_scheduler", cgroup_cpu_ctl) {}
+
+    Status submit(PipelineTaskSPtr task) override;
+
+    Status start() override;
+
+    void stop() override;
+
+    std::vector<std::pair<std::string, std::vector<int>>> thread_debug_info() override {
+        return {_blocking_scheduler.thread_debug_info()[0],
+                _simple_scheduler.thread_debug_info()[0]};
+    }
+
+private:
+    TaskScheduler _blocking_scheduler;
+    TaskScheduler _simple_scheduler;
 };
 } // namespace doris::pipeline

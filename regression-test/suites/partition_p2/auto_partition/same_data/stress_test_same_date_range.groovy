@@ -24,11 +24,12 @@ import java.io.File
 suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     sql """ADMIN SET FRONTEND CONFIG ('max_auto_partition_num' = '10000000')"""
+    sql """ADMIN SET FRONTEND CONFIG ('enable_cloud_txn_lazy_commit' = 'true')"""
 
     // get doris-db from s3
     def dirPath = context.file.parent
     def fileName = "doris-dbgen"
-    def fileUrl = "http://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
+    def fileUrl = "http://${getS3BucketName()}.${getS3Endpoint()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
     if (!Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
@@ -162,12 +163,12 @@ suite("stress_test_same_date_range", "p2,nonConcurrent") {
 
     def row_count_range = sql """select count(*) from ${tb_name2};"""
     def partition_res_range = sql """show partitions from ${tb_name2};"""
-    assertTrue(row_count_range[0][0] == partition_res_range.size)
+    assertEquals(row_count_range[0][0], partition_res_range.size())
     def part_context = []
 
-    for (int i = 0; i < partition_res_range.size; i++) {
+    for (int i = 0; i < partition_res_range.size(); i++) {
         part_context.add(partition_res_range[i][6])
     }
     def part_context_unique = part_context.clone().unique()
-    assertTrue(part_context.size == part_context_unique.size)
+    assertEquals(part_context.size(), part_context_unique.size())
 }

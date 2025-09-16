@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -31,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 
-public class LockTablesStmt extends StatementBase {
+public class LockTablesStmt extends StatementBase implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(LockTablesStmt.class);
 
     private List<LockTable> lockTables;
@@ -41,13 +40,11 @@ public class LockTablesStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
+    public void analyze() throws UserException {
+        super.analyze();
         for (LockTable lockTable : lockTables) {
             TableName tableName = lockTable.getTableName();
-            tableName.analyze(analyzer);
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(tableName.getDb());
-            db.getTableOrAnalysisException(tableName.getTbl());
+            tableName.analyze();
 
             // check auth
             if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(

@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -38,6 +38,7 @@ import java.util.Map;
 public class AddColumnClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(AddColumnClause.class);
     private ColumnDef columnDef;
+    private String sql;
     // Column position
     private ColumnPosition colPos;
     // if rollupName is null, add to column to base index.
@@ -68,13 +69,26 @@ public class AddColumnClause extends AlterTableClause {
         this.properties = properties;
     }
 
+    // for nereids
+    public AddColumnClause(String sql, Column column, ColumnPosition colPos, String rollupName,
+            Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
+        this.sql = sql;
+        this.column = column;
+        this.colPos = colPos;
+        this.rollupName = rollupName;
+        this.properties = properties;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, DdlException {
+    public void analyze() throws AnalysisException, DdlException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
         if (tableName != null) {
-            Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+            TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrDdlException(tableName.getCtl())
+                    .getDbOrDdlException(tableName.getDb())
                     .getTableOrDdlException(tableName.getTbl());
             if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.AGG_KEYS
                     && columnDef.getAggregateType() == null) {
@@ -122,19 +136,27 @@ public class AddColumnClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("ADD COLUMN ").append(columnDef.toSql());
-        if (colPos != null) {
-            sb.append(" ").append(colPos.toSql());
+        if (sql != null) {
+            return sql;
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append("ADD COLUMN ").append(columnDef.toSql());
+            if (colPos != null) {
+                sb.append(" ").append(colPos.toSql());
+            }
+            if (rollupName != null) {
+                sb.append(" IN `").append(rollupName).append("`");
+            }
+            return sb.toString();
         }
-        if (rollupName != null) {
-            sb.append(" IN `").append(rollupName).append("`");
-        }
-        return sb.toString();
     }
 
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public void setColumn(Column column) {
+        this.column = column;
     }
 }

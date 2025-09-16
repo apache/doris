@@ -62,7 +62,6 @@ suite("fold_constant") {
     qt_select "select 10.0/0, 0.0/10"
 
     sql """ set enable_fold_constant_by_be = true; """
-    sql """ set experimental_enable_nereids_planner = false; """
     qt_select_coalesce_bool "select coalesce(true);"
     qt_select_coalesce_tinyint "select coalesce(cast(1 as tinyint));"
     qt_select_coalesce_smallint "select coalesce(cast(1 as smallint))"

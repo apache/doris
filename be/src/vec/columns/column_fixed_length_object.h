@@ -21,6 +21,7 @@
 
 #include <cstddef>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -49,7 +50,7 @@ private:
               _data(src._data.begin(), src._data.end()) {}
 
 public:
-    const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
+    std::string get_name() const override { return "ColumnFixedLengthObject"; }
 
     size_t size() const override { return _item_count; }
 
@@ -105,11 +106,13 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return {_data.data() + n * _item_size, _item_size};
+        return Field::create_field<TYPE_STRING>(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res.assign_string(_data.data() + n * _item_size, _item_size);
+        res = Field::create_field<TYPE_STRING>(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     StringRef get_data_at(size_t n) const override {
@@ -117,6 +120,7 @@ public:
     }
 
     void insert(const Field& x) override {
+        DCHECK_EQ(vectorized::get<const String&>(x).length(), _item_size);
         insert_data(vectorized::get<const String&>(x).data(), _item_size);
     }
 
@@ -169,13 +173,11 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                          char const*& begin) const override {
         char* pos = arena.alloc_continue(_item_size, begin);
-        memcpy(pos, &_data[n * _item_size], _item_size);
-        return {pos, _item_size};
+        return {pos, serialize_impl(pos, n)};
     }
 
     const char* deserialize_and_insert_from_arena(const char* pos) override {
-        insert_data(pos, _item_size);
-        return pos + _item_size;
+        return pos + deserialize_impl(pos);
     }
 
     void update_hash_with_value(size_t n, SipHash& hash) const override {
@@ -185,14 +187,19 @@ public:
     ColumnPtr filter(const IColumn::Filter& filter, ssize_t result_size_hint) const override {
         column_match_filter_size(size(), filter.size());
         auto res = create(_item_size);
-        res->resize(result_size_hint);
-
-        for (size_t i = 0, pos = 0; i < filter.size(); i++) {
+        size_t column_size = size();
+        if (result_size_hint > 0) {
+            res->reserve(result_size_hint);
+        }
+        res->resize(column_size);
+        size_t pos = 0;
+        for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
                 memcpy(&res->_data[pos * _item_size], &_data[i * _item_size], _item_size);
                 pos++;
             }
         }
+        res->resize(pos);
         return res;
     }
 
@@ -208,7 +215,7 @@ public:
         return pos;
     }
 
-    ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
+    MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         if (limit == 0) {
             limit = size();
         } else {
@@ -225,39 +232,6 @@ public:
         return res;
     }
 
-    ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
-        size_t size = _item_count;
-        column_match_offsets_size(size, offsets.size());
-        auto res = doris::vectorized::ColumnFixedLengthObject::create(_item_size);
-        if (0 == size) {
-            return res;
-        }
-        res->resize(offsets.back());
-        typename Self::Container& res_data = res->get_data();
-
-        IColumn::Offset prev_offset = 0;
-        for (size_t i = 0; i < size; ++i) {
-            size_t size_to_replicate = offsets[i] - prev_offset;
-            for (size_t j = 0; j < size_to_replicate; ++j) {
-                memcpy(&res_data[(prev_offset + j) * _item_size], &_data[i * _item_size],
-                       _item_size);
-            }
-            prev_offset = offsets[i];
-        }
-
-        return res;
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
-
     size_t byte_size() const override { return _data.size(); }
 
     size_t item_size() const { return _item_size; }
@@ -269,6 +243,11 @@ public:
     }
 
     size_t allocated_bytes() const override { return _data.allocated_bytes(); }
+
+    bool has_enough_capacity(const IColumn& src) const override {
+        const auto& src_col = assert_cast<const ColumnFixedLengthObject&>(src);
+        return _data.capacity() - _data.size() > src_col.size();
+    }
 
     //NOTICE: here is replace: this[self_row] = rhs[row]
     //But column string is replaced all when self_row = 0
@@ -292,8 +271,7 @@ public:
         memcpy(_data.data() + old_size, data + begin_offset, total_mem_size);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) override {
         if (UNLIKELY(num == 0)) {
             return;
         }
@@ -302,12 +280,21 @@ public:
         resize(old_count + num);
         auto* dst = _data.data() + old_count * _item_size;
         for (size_t i = 0; i < num; i++) {
-            auto* src = data_array + start_offset_array[i];
-            uint32_t len = len_array[i];
             dst += i * _item_size;
-            memcpy(dst, src, len);
+            memcpy(dst, strings[i].data, strings[i].size);
         }
     }
+
+    size_t deserialize_impl(const char* pos) override {
+        insert_data(pos, _item_size);
+        return _item_size;
+    }
+    size_t serialize_impl(char* pos, const size_t row) const override {
+        memcpy(pos, &_data[row * _item_size], _item_size);
+        return _item_size;
+    }
+
+    size_t serialize_size_at(size_t row) const override { return sizeof(_item_size); }
 
 protected:
     size_t _item_size;

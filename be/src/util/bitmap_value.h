@@ -29,6 +29,7 @@
 #include <memory>
 #include <new>
 #include <numeric>
+#include <queue>
 #include <roaring/roaring.hh>
 #include <set>
 #include <stdexcept>
@@ -38,7 +39,6 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
-#include "gutil/integral_types.h"
 #include "udf/udf.h"
 #include "util/coding.h"
 #include "vec/common/pod_array.h"
@@ -665,12 +665,62 @@ public:
      * pointer).
      */
     static Roaring64Map fastunion(size_t n, const Roaring64Map** inputs) {
-        Roaring64Map ans;
-        // not particularly fast
-        for (size_t lcv = 0; lcv < n; ++lcv) {
-            ans |= *(inputs[lcv]);
+        struct pq_entry {
+            phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator iterator;
+            phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator end;
+        };
+
+        struct pq_comp {
+            bool operator()(const pq_entry& lhs, const pq_entry& rhs) const {
+                auto left_key = lhs.iterator->first;
+                auto right_key = rhs.iterator->first;
+                // We compare in the opposite direction than normal because priority
+                // queues normally order from largest to smallest, but we want
+                // smallest to largest.
+                return left_key > right_key;
+            }
+        };
+
+        std::priority_queue<pq_entry, std::vector<pq_entry>, pq_comp> pq;
+
+        for (auto i = 0; i < n; ++i) {
+            const auto& roaring = inputs[i]->roarings;
+            if (roaring.begin() != roaring.end()) {
+                pq.push({roaring.begin(), roaring.end()});
+            }
         }
-        return ans;
+
+        std::vector<const roaring::api::roaring_bitmap_t*> group_bitmaps;
+        Roaring64Map result;
+        while (!pq.empty()) {
+            auto group_key = pq.top().iterator->first;
+            group_bitmaps.clear();
+
+            while (!pq.empty()) {
+                auto candidate_current_iter = pq.top().iterator;
+                auto candidate_end_iter = pq.top().end;
+
+                auto candidate_key = candidate_current_iter->first;
+                const auto& candidate_bitmap = candidate_current_iter->second;
+
+                if (candidate_key != group_key) {
+                    break;
+                }
+
+                group_bitmaps.push_back(&candidate_bitmap.roaring);
+                pq.pop();
+                ++candidate_current_iter;
+                if (candidate_current_iter != candidate_end_iter) {
+                    pq.push({candidate_current_iter, candidate_end_iter});
+                }
+            }
+            auto* inner_result = roaring::api::roaring_bitmap_or_many(group_bitmaps.size(),
+                                                                      group_bitmaps.data());
+            result.roarings.insert(result.roarings.end(),
+                                   std::make_pair(group_key, roaring::Roaring(inner_result)));
+        }
+
+        return result;
     }
 
     friend class Roaring64MapSetBitForwardIterator;
@@ -1252,8 +1302,7 @@ public:
         std::vector<const detail::Roaring64Map*> bitmaps;
         std::vector<uint64_t> single_values;
         std::vector<const SetContainer<uint64_t>*> sets;
-        for (int i = 0; i < values.size(); ++i) {
-            auto* value = values[i];
+        for (const auto* value : values) {
             switch (value->_type) {
             case EMPTY:
                 break;
@@ -1280,7 +1329,9 @@ public:
                 _bitmap->add(_sv);
                 break;
             case BITMAP:
-                *_bitmap |= detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                for (const auto* bitmap : bitmaps) {
+                    *_bitmap |= *bitmap;
+                }
                 break;
             case SET: {
                 *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
@@ -1315,6 +1366,7 @@ public:
                     _bitmap->add(v);
                 }
                 _type = BITMAP;
+                _set.clear();
                 break;
             case SET: {
                 break;
@@ -1907,7 +1959,12 @@ public:
         case BitmapTypeCode::BITMAP64_V2:
             _type = BITMAP;
             _is_shared = false;
-            _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+            try {
+                _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+            } catch (const std::runtime_error& e) {
+                LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
+                return false;
+            }
             break;
         case BitmapTypeCode::SET: {
             _type = SET;
@@ -1915,6 +1972,7 @@ public:
             uint8_t count = *src;
             ++src;
             CHECK(count <= SET_TYPE_THRESHOLD) << "bitmap value with incorrect set count";
+            _set.reserve(count);
             for (uint8_t i = 0; i != count; ++i, src += sizeof(uint64_t)) {
                 _set.insert(decode_fixed64_le(reinterpret_cast<const uint8_t*>(src)));
             }
@@ -2517,8 +2575,7 @@ public:
             }
             break;
         case BitmapValue::BitmapDataType::SET: {
-            LOG(FATAL) << "BitmapValue with set do not support move";
-            break;
+            throw Exception(Status::FatalError("BitmapValue with set do not support move"));
         }
         default:
             break;

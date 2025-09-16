@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -72,5 +73,10 @@ public class ShowCreateProcedureCommand extends Command implements NoForward {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowCreateProcedureCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SHOW;
     }
 }

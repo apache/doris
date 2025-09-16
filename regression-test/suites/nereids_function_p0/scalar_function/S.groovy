@@ -85,6 +85,8 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_seconds_diff_DateTime_DateTimeV2_notnull "select seconds_diff(kdtm, kdtmv2s1) from fn_test_not_nullable order by kdtm, kdtmv2s1"
 	qt_sql_sign_Double "select sign(kdbl) from fn_test order by kdbl"
 	qt_sql_sign_Double_notnull "select sign(kdbl) from fn_test_not_nullable order by kdbl"
+	qt_sql_signbit_Double "select signbit(kdbl) from fn_test order by kdbl"
+	qt_sql_signbit_Double_notnull "select signbit(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_sin_Double "select sin(kdbl) from fn_test order by kdbl"
 	qt_sql_sin_Double_notnull "select sin(kdbl) from fn_test_not_nullable order by kdbl"
 	qt_sql_sleep_Integer "select sleep(0.1) from fn_test order by kint"
@@ -97,26 +99,11 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_sm3sum_Varchar_notnull "select sm3sum(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_sm3sum_String "select sm3sum(kstr) from fn_test order by kstr"
 	qt_sql_sm3sum_String_notnull "select sm3sum(kstr) from fn_test_not_nullable order by kstr"
+	
 	sql "select sm4_decrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	test {
-        sql "select sm4_decrypt_v2(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-        exception "Incorrect parameter count in the call to native function 'sm4_decrypt'"
-    }
 	sql "select sm4_decrypt(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	test {
-        sql "select sm4_decrypt_v2(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-        exception "Incorrect parameter count in the call to native function 'sm4_decrypt'"
-    }
 	sql "select sm4_decrypt(kstr, kstr) from fn_test order by kstr, kstr"
-	test {
-        sql "select sm4_decrypt_v2(kstr, kstr) from fn_test order by kstr, kstr"
-        exception "Incorrect parameter count in the call to native function 'sm4_decrypt'"
-    }
 	sql "select sm4_decrypt(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-	test {
-        sql "select sm4_decrypt_v2(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-        exception "Incorrect parameter count in the call to native function 'sm4_decrypt'"
-    }
 	sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_decrypt(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
@@ -125,34 +112,11 @@ suite("nereids_scalar_fn_S") {
 	sql "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_decrypt(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test order by kstr, kstr, kstr"
 	sql "select sm4_decrypt(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test_not_nullable order by kstr, kstr, kstr"
-	sql "select sm4_decrypt_v2(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_decrypt_v2(kvchrs1, kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_decrypt_v2(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
-	sql "select sm4_decrypt_v2(kstr, kstr, kstr) from fn_test_not_nullable order by kstr, kstr, kstr"
-	sql "select sm4_decrypt_v2(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_decrypt_v2(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_decrypt_v2(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test order by kstr, kstr, kstr"
-	sql "select sm4_decrypt_v2(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test_not_nullable order by kstr, kstr, kstr"
+
 	sql "select sm4_encrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	test {
-        sql "select sm4_encrypt_v2(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-        exception "Incorrect parameter count in the call to native function 'sm4_encrypt'"
-    }
 	sql "select sm4_encrypt(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	test {
-        sql "select sm4_encrypt_v2(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-        exception "Incorrect parameter count in the call to native function 'sm4_encrypt'"
-    }
 	sql "select sm4_encrypt(kstr, kstr) from fn_test order by kstr, kstr"
-	test {
-        sql "select sm4_encrypt_v2(kstr, kstr) from fn_test order by kstr, kstr"
-        exception "Incorrect parameter count in the call to native function 'sm4_encrypt'"
-    }
 	sql "select sm4_encrypt(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-	test {
-        sql "select sm4_encrypt_v2(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-        exception "Incorrect parameter count in the call to native function 'sm4_encrypt'"
-    }
 	sql "select sm4_encrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_encrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_encrypt(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
@@ -161,16 +125,10 @@ suite("nereids_scalar_fn_S") {
 	sql "select sm4_encrypt(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
 	sql "select sm4_encrypt(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test order by kstr, kstr, kstr"
 	sql "select sm4_encrypt(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test_not_nullable order by kstr, kstr, kstr"
-	sql "select sm4_encrypt_v2(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_encrypt_v2(kvchrs1, kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_encrypt_v2(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
-	sql "select sm4_encrypt_v2(kstr, kstr, kstr) from fn_test_not_nullable order by kstr, kstr, kstr"
-	sql "select sm4_encrypt_v2(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_encrypt_v2(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
-	sql "select sm4_encrypt_v2(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test order by kstr, kstr, kstr"
-	sql "select sm4_encrypt_v2(kstr, kstr, kstr, 'SM4_128_ECB') from fn_test_not_nullable order by kstr, kstr, kstr"
+
 	sql "select space(10) from fn_test order by kint"
 	sql "select space(10) from fn_test_not_nullable order by kint"
+	sql """select k from (select length(space(number)) k from numbers("number" = "10"))t;""" // before #44919 will crash
 	qt_sql_split_part_Varchar_Varchar_Integer "select split_part(kvchrs1, ' ', 1) from fn_test order by kvchrs1"
 	qt_sql_split_part_Varchar_Varchar_Integer_notnull "select split_part(kvchrs1, ' ', 1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_split_part_String_String_Integer "select split_part(kstr, ' ', 1) from fn_test order by kstr"

@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("bitmapUnionIn") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS bitmapUnionIn; """
@@ -30,38 +32,31 @@ suite ("bitmapUnionIn") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",1);"""
     sql """insert into bitmapUnionIn values("2020-01-02",2,"b",2);"""
 
-    createMV("create materialized view bitmapUnionIn_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from bitmapUnionIn group by user_id;")
+    createMV("create materialized view bitmapUnionIn_mv as select user_id as a1, bitmap_union(to_bitmap(tag_id)) from bitmapUnionIn group by user_id;")
 
     sleep(3000)
 
     sql """insert into bitmapUnionIn values("2020-01-01",1,"a",2);"""
 
     sql "analyze table bitmapUnionIn with sync;"
+    sql """alter table bitmapUnionIn modify column time_col set stats ('row_count'='3');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from bitmapUnionIn order by time_col;")
-        contains "(bitmapUnionIn)"
-    }
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
     order_qt_select_star "select * from bitmapUnionIn order by time_col,tag_id;"
 
-    explain {
-        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
-        contains "(bitmapUnionIn_mv)"
-    }
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
     order_qt_select_mv "select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from bitmapUnionIn order by time_col;")
-        contains "(bitmapUnionIn)"
-    }
 
-    explain {
-        sql("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;")
-        contains "(bitmapUnionIn_mv)"
-    }
+    mv_rewrite_fail("select * from bitmapUnionIn order by time_col;", "bitmapUnionIn_mv")
+
+    mv_rewrite_success("select user_id, bitmap_union_count(to_bitmap(tag_id)) a from bitmapUnionIn group by user_id having a>1 order by a;",
+            "bitmapUnionIn_mv")
 }

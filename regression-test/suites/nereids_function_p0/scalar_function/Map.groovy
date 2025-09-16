@@ -286,5 +286,32 @@ suite("nereids_scalar_fn_map") {
     order_qt_map_contains_value_tint_date_notnull   """ select map_contains_value(km_tint_date, kdt) from fn_test_not_nullable """
     order_qt_map_contains_value_tint_dtm_notnull    """ select map_contains_value(km_tint_dtm, kdtm) from fn_test_not_nullable """
 
+    // map constructor function tests - bugfix for CreateMap with args not deducible
+    sql """ set enable_fold_constant_by_be=true;"""
+    sql """ set debug_skip_fold_constant=false;"""
+    qt_map_constructor_basic "select map('name', 'John', 'age', 30, 'city', 'NY', 'zip', 10001)"
+    qt_map_constructor_string_values "select map('key1', 'value1', 'key2', 'value2', 'key3', 'value3')"
+    qt_map_constructor_mixed_types "select map('string_key', 'string_value', 'int_key', 12345, 'float_key', 3.14159)"
+    qt_map_constructor_large_numbers "select map('small', 100, 'medium', 10000, 'large', 100000, 'very_large', 1000000)"
+    qt_map_constructor_json_strings "select map('{\"name\":\"John\"}', '{\"age\":30}', '{\"city\":\"NY\"}', '{\"zip\":10001}')"
+    qt_map_constructor_nested_json "select map('{\"user\":{\"name\":\"John\",\"age\":30}}', '{\"address\":{\"city\":\"NY\",\"zip\":10001}}')"
+    qt_map_constructor_special_chars "select map('key with spaces', 'value with spaces', 'key-with-dashes', 'value-with-dashes')"
+    qt_map_constructor_unicode "select map('中文键', '中文值', 'key_中文', 'value_中文')"
+    qt_map_constructor_empty_strings "select map('empty_key', '', 'key_empty', 'value', 'empty_both', '')"
+    qt_map_constructor_null_values "select map('null_key', null, 'key_null', 'value', 'both_null', null)"
+    qt_map_constructor_boolean_values "select map('true_key', true, 'false_key', false, 'mixed_key', 123)"
+    qt_map_constructor_decimal_values "select map('decimal_key', 123.456, 'integer_key', 789, 'mixed_decimal', 10001.0)"
+    qt_map_constructor_date_values "select map('date_key', '2023-01-01', 'datetime_key', '2023-01-01 12:00:00', 'string_key', 'text')"
+    qt_map_constructor_array_values "select map('array_key', '[1,2,3]', 'string_key', 'text', 'number_key', 10001)"
+    qt_map_constructor_object_values "select map('object_key', '{\"nested\":\"value\"}', 'simple_key', 'simple_value')"
+    qt_map_constructor_long_strings "select map('long_key', 'this is a very long string value that should not be truncated', 'short_key', 'short')"
+    qt_map_constructor_numeric_strings "select map('numeric_string', '10001', 'actual_number', 10001, 'mixed', 'text')"
+    qt_map_constructor_escape_chars "select map('quoted_key', 'value with \"quotes\"', 'backslash_key', 'value with \\ backslash')"
+    qt_map_constructor_whitespace "select map('  spaced_key  ', '  spaced_value  ', 'normal_key', 'normal_value')"
+
+    qt_sql "select map('{\"name\":\"John\"}', '{\"age\":30}', '{\"city\":\"NY\"}', '{\"zip\":10001}')"
+    qt_sql "select map('zip', 10001, 'code', 10002, 'number', 10003)"
+    qt_sql "select map('postal_code', 10001, 'area_code', 10002, 'zip_plus_4', 10003)"
+    qt_sql "select map('{\"zip\":10001}', '{\"city\":\"NY\"}', '{\"code\":10002}', '{\"state\":\"NY\"}')"
 
 }

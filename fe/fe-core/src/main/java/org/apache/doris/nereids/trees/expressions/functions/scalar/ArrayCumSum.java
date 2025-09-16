@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -47,6 +48,7 @@ public class ArrayCumSum extends ScalarFunction
         implements ExplicitlyCastableSignature, ComputePrecisionForArrayItemAgg, UnaryExpression, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(TinyIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(SmallIntType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).args(ArrayType.of(IntegerType.INSTANCE)),
@@ -55,8 +57,7 @@ public class ArrayCumSum extends ScalarFunction
             FunctionSignature.ret(ArrayType.of(DecimalV3Type.WILDCARD)).args(ArrayType.of(DecimalV3Type.WILDCARD)),
             FunctionSignature.ret(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT))
                     .args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE)),
-            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(DoubleType.INSTANCE))
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE)).args(ArrayType.of(FloatType.INSTANCE))
     );
 
     /**
@@ -66,13 +67,32 @@ public class ArrayCumSum extends ScalarFunction
         super("array_cum_sum", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayCumSum(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_cum_sum needs to calculate the sum of the elements in the array.
+     * so the element type must be numeric, boolean or string.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (child(0).getDataType().isArrayType()
+                && !((ArrayType) child(0).getDataType()).getItemType().canBeCalculatedInArray()) {
+            throw new AnalysisException("array_cum_sum does not support type "
+            + child(0).getDataType().toString()
+            + ", expression is " + toSql());
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayCumSum withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayCumSum(children.get(0));
+        return new ArrayCumSum(getFunctionParams(children));
     }
 
     @Override

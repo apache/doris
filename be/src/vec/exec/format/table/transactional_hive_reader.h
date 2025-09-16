@@ -17,24 +17,21 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
-#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
-#include <utility>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "table_format_reader.h"
-#include "util/runtime_profile.h"
-#include "vec/columns/column_dictionary.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 class SlotDescriptor;
 class TFileRangeDesc;
@@ -43,7 +40,6 @@ class TFileScanRangeParams;
 namespace io {
 struct IOContext;
 } // namespace io
-struct TypeDescriptor;
 
 namespace vectorized {
 class Block;
@@ -51,13 +47,13 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
-class TransactionalHiveReader : public TableFormatReader {
+class TransactionalHiveReader : public TableFormatReader, public TableSchemaChangeHelper {
     ENABLE_FACTORY_CREATOR(TransactionalHiveReader);
 
 public:
     struct AcidRowID {
         int64_t original_transaction;
-        int32_t bucket;
+        int64_t bucket;
         int64_t row_id;
 
         struct Hash {
@@ -65,7 +61,7 @@ public:
                 size_t hash_value = 0;
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.original_transaction) +
                               0x9e3779b9 + (hash_value << 6) + (hash_value >> 2);
-                hash_value ^= std::hash<int32_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
+                hash_value ^= std::hash<int64_t> {}(transactional_row_id.bucket) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);
                 hash_value ^= std::hash<int64_t> {}(transactional_row_id.row_id) + 0x9e3779b9 +
                               (hash_value << 6) + (hash_value >> 2);
@@ -86,19 +82,16 @@ public:
     TransactionalHiveReader(std::unique_ptr<GenericReader> file_format_reader,
                             RuntimeProfile* profile, RuntimeState* state,
                             const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                            io::IOContext* io_ctx);
+                            io::IOContext* io_ctx, FileMetaCache* meta_cache);
     ~TransactionalHiveReader() override = default;
 
-    Status init_row_filters(const TFileRangeDesc& range) override;
+    Status init_row_filters() final;
 
-    Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
-
-    Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
-                       std::unordered_set<std::string>* missing_cols) override;
+    Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
 
     Status init_reader(
             const std::vector<std::string>& column_names,
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+            const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
             const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
@@ -111,16 +104,10 @@ private:
         RuntimeProfile::Counter* delete_files_read_time = nullptr;
     };
 
-    RuntimeProfile* _profile = nullptr;
-    RuntimeState* _state = nullptr;
-    const TFileScanRangeParams& _params;
-    const TFileRangeDesc& _range;
     TransactionalHiveProfile _transactional_orc_profile;
     AcidRowIDSet _delete_rows;
     std::unique_ptr<IColumn::Filter> _delete_rows_filter_ptr;
     std::vector<std::string> _col_names;
-
-    io::IOContext* _io_ctx = nullptr;
 };
 
 inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
@@ -137,4 +124,5 @@ inline bool operator<(const TransactionalHiveReader::AcidRowID& lhs,
 }
 
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

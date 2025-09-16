@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_nvl") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """ drop table if exists dwd;"""
 
     sql """
@@ -42,30 +44,21 @@ suite ("test_nvl") {
     sql """insert into dwd(id) values(2);"""
 
     sql """analyze table dwd with sync;"""
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select nvl(id,0) from dwd order by 1;"
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select ifnull(id,0) from dwd order by 1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
+
 
     sql """ drop materialized view dwd_mv on dwd;
     """
@@ -74,27 +67,14 @@ suite ("test_nvl") {
             create materialized view dwd_mv as  select ifnull(id,0) from dwd;
     """)
 
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select nvl(id,0) from dwd order by 1;"
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
     qt_select_mv "select ifnull(id,0) from dwd order by 1;"
 
     sql """set enable_stats=false;"""
-    explain {
-        sql("select nvl(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
+    mv_rewrite_success("select nvl(id,0) from dwd order by 1;", "dwd_mv")
 
-    explain {
-        sql("select ifnull(id,0) from dwd order by 1;")
-        contains "(dwd_mv)"
-    }
-
+    mv_rewrite_success("select ifnull(id,0) from dwd order by 1;", "dwd_mv")
 }

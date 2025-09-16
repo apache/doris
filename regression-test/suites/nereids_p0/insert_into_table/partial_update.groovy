@@ -24,7 +24,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
 
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect( context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
             sql "use ${db};"
 
             sql "set enable_nereids_dml=true;"
@@ -56,7 +56,7 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
             qt_1 """ select * from ${tableName} order by id; """
             test {
                 sql """insert into ${tableName} values(2,400),(1,200),(4,400)"""
-                exception "You must explicitly specify the columns to be updated when updating partial columns using the INSERT statement."
+                exception "Column count doesn't match value count"
             }
             sql "set enable_unique_key_partial_update=false;"
             sql "sync;"
@@ -179,13 +179,12 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             sql """insert into ${tableName5} values(1,"kevin",18,"shenzhen",400,"2023-07-01 12:00:00");"""
             qt_5 """select * from ${tableName5} order by id;"""
-            sql "set enable_insert_strict = true;"
             sql "set enable_unique_key_partial_update=true;"
+            sql """set partial_update_new_key_behavior="ERROR";"""
             sql "sync;"
-            // partial update using insert stmt in strict mode, the max_filter_ratio is always 0
             test {
                 sql """ insert into ${tableName5}(id,balance,last_access_time) values(1,500,"2023-07-03 12:00:01"),(3,23,"2023-07-03 12:00:02"),(18,9999999,"2023-07-03 12:00:03"); """
-                exception "Insert has filtered data in strict mode"
+                exception "[E-7003]Can't append new rows in partial update when partial_update_new_key_behavior is ERROR"
             }
             qt_5 """select * from ${tableName5} order by id;"""
             sql "set enable_unique_key_partial_update=false;"
@@ -281,7 +280,6 @@ suite("nereids_partial_update_native_insert_stmt", "p0") {
 
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict = false;"
-            sql "set enable_fallback_to_original_planner=true;"
             sql "sync;"
         }
     }

@@ -26,6 +26,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace pipeline {
@@ -55,25 +56,33 @@ private:
 
     /// Index of current row in child_row_block_.
     int _child_row_idx;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
-class UnionSinkOperatorX final : public DataSinkOperatorX<UnionSinkLocalState> {
+class UnionSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<UnionSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<UnionSinkLocalState>;
 
     friend class UnionSinkLocalState;
-    UnionSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
-                       const DescriptorTbl& descs);
+    UnionSinkOperatorX(int child_id, int sink_id, int dest_id, ObjectPool* pool,
+                       const TPlanNode& tnode, const DescriptorTbl& descs);
+#ifdef BE_TEST
+    UnionSinkOperatorX(int child_size, int cur_child_id, int first_materialized_child_idx)
+            : _first_materialized_child_idx(first_materialized_child_idx),
+              _cur_child_id(cur_child_id),
+              _child_size(child_size) {}
+#endif
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      DataSinkOperatorX<UnionSinkLocalState>::_name);
     }
 
+    MOCK_FUNCTION const RowDescriptor& row_descriptor() { return _row_descriptor; }
+
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
@@ -89,6 +98,27 @@ public:
             return ss;
         }
     }
+
+    bool require_shuffled_data_distribution() const override {
+        return _followed_by_shuffled_operator;
+    }
+
+    DataDistribution required_data_distribution() const override {
+        if (_child->is_serial_operator() && _followed_by_shuffled_operator) {
+            return DataDistribution(ExchangeType::HASH_SHUFFLE, _distribute_exprs);
+        }
+        if (_child->is_serial_operator()) {
+            return DataDistribution(ExchangeType::PASSTHROUGH);
+        }
+        return DataDistribution(ExchangeType::NOOP);
+    }
+
+    void set_low_memory_mode(RuntimeState* state) override {
+        auto& local_state = get_local_state(state);
+        local_state._shared_state->data_queue.set_low_memory_mode();
+    }
+
+    bool is_shuffled_operator() const override { return _followed_by_shuffled_operator; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -107,6 +137,7 @@ private:
     const RowDescriptor _row_descriptor;
     const int _cur_child_id;
     const int _child_size;
+    const std::vector<TExpr> _distribute_exprs;
     int children_count() const { return _child_size; }
     bool is_child_passthrough(int child_idx) const {
         DCHECK_LT(child_idx, _child_size);
@@ -120,7 +151,7 @@ private:
         if (input_block->rows() > 0) {
             vectorized::MutableBlock mblock =
                     vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                               _row_descriptor);
+                                                                               row_descriptor());
             vectorized::Block res;
             RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
             RETURN_IF_ERROR(mblock.merge(res));
@@ -131,6 +162,7 @@ private:
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
         auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state._expr_timer);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {
@@ -145,4 +177,5 @@ private:
 };
 
 } // namespace pipeline
+#include "common/compile_check_end.h"
 } // namespace doris

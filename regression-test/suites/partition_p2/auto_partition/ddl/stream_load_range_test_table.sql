@@ -43,7 +43,7 @@ CREATE TABLE `stream_load_range_test_table`(
 auto partition by range (date_trunc(`col1`, 'day'))
 (
 )
-DISTRIBUTED BY HASH(`col1`) BUCKETS 10
+DISTRIBUTED BY HASH(`col1`) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );

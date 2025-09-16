@@ -29,7 +29,7 @@ using std::string;
 using std::stringstream;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty
     if (!deserialize(src)) {
@@ -194,7 +194,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
             encode_fixed32_le(ptr, num_non_zero_registers);
             ptr += 4;
 
-            for (uint32_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            for (uint16_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
                 if (_registers[i] == 0) {
                     continue;
                 }
@@ -354,7 +354,8 @@ int64_t HyperLogLog::estimate_cardinality() const {
     if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
-        estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
+        estimate = num_streams *
+                   log(static_cast<double>(num_streams) / static_cast<double>(num_zero_registers));
     } else if (num_streams == 16384 && estimate < 72000) {
         // when Linear Couint change to HyperLogLog according to HyperLogLog Correction,
         // there are relatively large fluctuations, we fixed the problem refer to redis.
@@ -366,44 +367,5 @@ int64_t HyperLogLog::estimate_cardinality() const {
     }
     return (int64_t)(estimate + 0.5);
 }
-
-void HllSetResolver::parse() {
-    // skip LengthValueType
-    char* pdata = _buf_ref;
-    _set_type = (HllDataType)pdata[0];
-    char* sparse_data = nullptr;
-    switch (_set_type) {
-    case HLL_DATA_EXPLICIT:
-        // first byte : type
-        // second～five byte : hash values's number
-        // five byte later : hash value
-        _explicit_num = (ExplicitLengthValueType)(pdata[sizeof(SetTypeValueType)]);
-        _explicit_value =
-                (uint64_t*)(pdata + sizeof(SetTypeValueType) + sizeof(ExplicitLengthValueType));
-        break;
-    case HLL_DATA_SPARSE:
-        // first byte : type
-        // second ～（2^HLL_COLUMN_PRECISION)/8 byte : bitmap mark which is not zero
-        // 2^HLL_COLUMN_PRECISION)/8 ＋ 1以后value
-        _sparse_count = (SparseLengthValueType*)(pdata + sizeof(SetTypeValueType));
-        sparse_data = pdata + sizeof(SetTypeValueType) + sizeof(SparseLengthValueType);
-        for (int i = 0; i < *_sparse_count; i++) {
-            auto* index = (SparseIndexType*)sparse_data;
-            sparse_data += sizeof(SparseIndexType);
-            auto* value = (SparseValueType*)sparse_data;
-            _sparse_map[*index] = *value;
-            sparse_data += sizeof(SetTypeValueType);
-        }
-        break;
-    case HLL_DATA_FULL:
-        // first byte : type
-        // second byte later : hll register value
-        _full_value_position = pdata + sizeof(SetTypeValueType);
-        break;
-    default:
-        // HLL_DATA_EMPTY
-        break;
-    }
-}
-
+#include "common/compile_check_end.h"
 } // namespace doris

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PartitionPrunerV2Base.UniqueId;
@@ -33,29 +34,24 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 import lombok.Data;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
     public static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
-    private final ReadWriteLock readWriteLock;
+    private final MonitoredReentrantReadWriteLock readWriteLock;
     private long lastUpdateTimestamp;
     private long nextPartitionId;
     private final Map<Long, PartitionItem> idToPartitionItem;
     private final Map<String, Long> partitionNameToIdMap;
+    private Map<String, Long> partitionNameToLastModifiedMap;
     private final Map<Long, String> partitionIdToNameMap;
 
     private Map<Long, List<UniqueId>> idToUniqueIdsMap;
@@ -68,25 +64,17 @@ public class TablePartitionValues {
     private Map<UniqueId, Range<ColumnBound>> singleUidToColumnRangeMap;
 
     public TablePartitionValues() {
-        readWriteLock = new ReentrantReadWriteLock();
+        readWriteLock = new MonitoredReentrantReadWriteLock();
         lastUpdateTimestamp = 0;
         nextPartitionId = 0;
         idToPartitionItem = new HashMap<>();
         partitionNameToIdMap = new HashMap<>();
+        partitionNameToLastModifiedMap = new HashMap<>();
         partitionIdToNameMap = new HashMap<>();
     }
 
-    public TablePartitionValues(List<String> partitionNames, List<List<String>> partitionValues, List<Type> types) {
-        this();
-        addPartitions(partitionNames, partitionValues, types);
-    }
-
-    public TablePartitionValues(List<String> partitionNames, List<Type> types) {
-        this();
-        addPartitions(partitionNames, types);
-    }
-
-    public void addPartitions(List<String> partitionNames, List<List<String>> partitionValues, List<Type> types) {
+    public void addPartitions(List<String> partitionNames, List<List<String>> partitionValues, List<Type> types,
+            List<Long> partitionLastUpdateTimestamp) {
         Preconditions.checkState(partitionNames.size() == partitionValues.size());
         List<String> addPartitionNames = new ArrayList<>();
         List<PartitionItem> addPartitionItems = new ArrayList<>();
@@ -100,15 +88,11 @@ public class TablePartitionValues {
                 addPartitionNames.add(partitionNames.get(i));
                 addPartitionItems.add(toListPartitionItem(partitionValues.get(i), types));
             }
+            partitionNameToLastModifiedMap.put(partitionNames.get(i), partitionLastUpdateTimestamp.get(i));
         }
         cleanPartitions();
 
         addPartitionItems(addPartitionNames, addPartitionItems, types);
-    }
-
-    public void addPartitions(List<String> partitionNames, List<Type> types) {
-        addPartitions(partitionNames,
-                partitionNames.stream().map(this::getHivePartitionValues).collect(Collectors.toList()), types);
     }
 
     private void addPartitionItems(List<String> partitionNames, List<PartitionItem> partitionItems, List<Type> types) {
@@ -137,29 +121,16 @@ public class TablePartitionValues {
         partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
     }
 
-    public void dropPartitions(List<String> partitionNames, List<Type> types) {
-        partitionNames.forEach(p -> {
-            Long removedPartition = partitionNameToIdMap.get(p);
-            if (removedPartition != null) {
-                idToPartitionItem.remove(removedPartition);
-            }
-        });
-        List<String> remainingPartitionNames = new ArrayList<>();
-        List<PartitionItem> remainingPartitionItems = new ArrayList<>();
-        partitionNameToIdMap.forEach((partitionName, partitionId) -> {
-            remainingPartitionNames.add(partitionName);
-            remainingPartitionItems.add(idToPartitionItem.get(partitionId));
-        });
-        cleanPartitions();
-        addPartitionItems(remainingPartitionNames, remainingPartitionItems, types);
-    }
-
     public long getLastUpdateTimestamp() {
         return lastUpdateTimestamp;
     }
 
     public void setLastUpdateTimestamp(long lastUpdateTimestamp) {
         this.lastUpdateTimestamp = lastUpdateTimestamp;
+    }
+
+    public Map<String, Long> getPartitionNameToLastModifiedMap() {
+        return partitionNameToLastModifiedMap;
     }
 
     public Lock readLock() {
@@ -197,35 +168,15 @@ public class TablePartitionValues {
         }
     }
 
-    private List<String> getHivePartitionValues(String partitionName) {
-        // Partition name will be in format: nation=cn/city=beijing
-        // parse it to get values "cn" and "beijing"
-        return Arrays.stream(partitionName.split("/")).map(part -> {
-            String[] kv = part.split("=");
-            Preconditions.checkState(kv.length == 2, partitionName);
-            String partitionValue;
-            try {
-                // hive partition value maybe contains special characters like '=' and '/'
-                partitionValue = URLDecoder.decode(kv[1], StandardCharsets.UTF_8.name());
-            } catch (UnsupportedEncodingException e) {
-                // It should not be here
-                throw new RuntimeException(e);
-            }
-            return partitionValue;
-        }).collect(Collectors.toList());
-    }
 
     @Data
     public static class TablePartitionKey {
+        // use local db/table name here
+        // because these names are only used to compare with local names
         private final String dbName;
         private final String tblName;
         // not in key
         private List<Type> types;
-
-        public TablePartitionKey(String dbName, String tblName) {
-            this.dbName = dbName;
-            this.tblName = tblName;
-        }
 
         public TablePartitionKey(String dbName, String tblName, List<Type> types) {
             this.dbName = dbName;

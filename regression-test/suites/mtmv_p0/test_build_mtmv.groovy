@@ -101,6 +101,21 @@ suite("test_build_mtmv") {
     logger.info("showDataResult: " + showDataResult.toString())
     assertTrue(showDataResult.toString().contains("${mvName}"))
 
+    // show full tables
+    def showFullTablesResult = sql """SHOW FULL TABLES WHERE Table_type = 'BASE TABLE';"""
+    logger.info("showFullTablesResult: " + showFullTablesResult.toString())
+    assertTrue(showFullTablesResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectViewsResult = sql """ SELECT * from INFORMATION_SCHEMA.VIEWS;"""
+    logger.info("selectViewsResult: " + selectViewsResult.toString())
+    assertFalse(selectViewsResult.toString().contains("${mvName}"))
+
+    // views should not contains mtmv
+    def selectTablesResult = sql """ SELECT * from INFORMATION_SCHEMA.TABLES;"""
+    logger.info("selectTablesResult: " + selectTablesResult.toString())
+    assertTrue(selectTablesResult.toString().contains("${mvName}"))
+
     // if not exist
     try {
         sql """
@@ -187,7 +202,7 @@ suite("test_build_mtmv") {
         AS
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
-    jobName = getJobName("regression_test_mtmv_p0", mvName);
+    def jobName = getJobName("regression_test_mtmv_p0", mvName);
     println jobName
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
@@ -405,6 +420,7 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
+    String querySql = "SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id";
     // alter
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -412,12 +428,12 @@ suite("test_build_mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
-        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        ${querySql};
     """
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // alter refreshMethod
     sql """
         alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE;
@@ -425,7 +441,7 @@ suite("test_build_mtmv") {
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // alter refreshTrigger
     sql """
         alter MATERIALIZED VIEW ${mvName} REFRESH ON MANUAL;
@@ -433,7 +449,7 @@ suite("test_build_mtmv") {
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // alter refreshMethod refreshTrigger
     sql """
         alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE ON MANUAL;
@@ -441,13 +457,13 @@ suite("test_build_mtmv") {
     jobName = getJobName("regression_test_mtmv_p0", mvName);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvName}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // alter mv property
     sql """
         alter Materialized View ${mvName} set("grace_period"="3333");
     """
     order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvName}")
     // not allow use mv modify property of table
     if (!isCloudMode()) {
         try {
@@ -467,7 +483,7 @@ suite("test_build_mtmv") {
     jobName = getJobName("regression_test_mtmv_p0", mvNameRenamed);
     waitingMTMVTaskFinished(jobName)
     order_qt_select "SELECT * FROM ${mvNameRenamed}"
-
+    mv_rewrite_success_without_check_chosen("""${querySql}""", "${mvNameRenamed}")
     sql """
         DROP MATERIALIZED VIEW ${mvNameRenamed}
     """
@@ -500,12 +516,12 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
-    println jobs
-    assertEquals(jobs.get(0).get(0), 0);
-    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
-    println tasks
-    assertEquals(tasks.get(0).get(0), 0);
+    def jobs = sql """select * from jobs("type"="mv")  where MvName= '${mvName}'"""
+    log.info(jobs.toString())
+    assertEquals(0, jobs.size());
+    def tasks = sql """select * from tasks("type"="mv") where MvName = '${mvName}'"""
+    log.info(tasks.toString())
+    assertEquals(0, tasks.size());
 
     // test bitmap
     sql """drop table if exists `${tableName}`"""

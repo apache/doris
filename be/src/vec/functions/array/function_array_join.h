@@ -19,12 +19,12 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
 struct NameArrayJoin {
     static constexpr auto name = "array_join";
 };
@@ -39,14 +39,14 @@ public:
     static size_t _get_number_of_arguments() { return 0; }
 
     static DataTypePtr get_return_type(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0]))
+        DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << "first argument for function: array_join should be DataTypeArray"
                 << " and arguments[0] is " << arguments[0]->get_name();
-        DCHECK(is_string_or_fixed_string(arguments[1]))
+        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: array_join should be DataTypeString"
                 << ", and arguments[1] is " << arguments[1]->get_name();
         if (arguments.size() > 2) {
-            DCHECK(is_string_or_fixed_string(arguments[2]))
+            DCHECK(is_string_type(arguments[2]->get_primitive_type()))
                     << "third argument for function: array_join should be DataTypeString"
                     << ", and arguments[2] is " << arguments[2]->get_name();
         }
@@ -54,7 +54,7 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -77,10 +77,10 @@ public:
 
         auto nested_type = data_type_array->get_nested_type();
         auto dest_column_ptr = ColumnString::create();
-        DCHECK(dest_column_ptr != nullptr);
+        DCHECK(dest_column_ptr);
 
-        auto res_val = _execute_by_type(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
-                                        sep_str, null_replace_str, nested_type, dest_column_ptr);
+        auto res_val = _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data,
+                                       sep_str, null_replace_str, dest_column_ptr.get());
         if (!res_val) {
             return Status::RuntimeError(fmt::format(
                     "execute failed or unsupported types for function {}({},{},{})", "array_join",
@@ -117,58 +117,12 @@ private:
         return;
     }
 
-    template <typename ColumnType>
-    static bool _execute_number(const IColumn& src_column,
-                                const ColumnArray::Offsets64& src_offsets,
-                                const UInt8* src_null_map, const std::string& sep_str,
-                                const std::string& null_replace_str, DataTypePtr& nested_type,
-                                ColumnString* dest_column_ptr) {
-        using NestType = typename ColumnType::value_type;
-        bool is_decimal = IsDecimalNumber<NestType>;
-
-        const ColumnType* src_data_concrete = reinterpret_cast<const ColumnType*>(&src_column);
-        if (!src_data_concrete) {
-            return false;
-        }
-
-        size_t prev_src_offset = 0;
-        for (auto curr_src_offset : src_offsets) {
-            std::string result_str;
-            bool is_first_elem = true;
-            for (size_t j = prev_src_offset; j < curr_src_offset; ++j) {
-                if (src_null_map && src_null_map[j]) {
-                    if (null_replace_str.size() == 0) {
-                        continue;
-                    } else {
-                        _fill_result_string(null_replace_str, sep_str, result_str, is_first_elem);
-                        continue;
-                    }
-                }
-
-                if (is_decimal) {
-                    DecimalV2Value decimal_value =
-                            (DecimalV2Value)(int128_t(src_data_concrete->get_data()[j]));
-                    std::string decimal_str = decimal_value.to_string();
-                    _fill_result_string(decimal_str, sep_str, result_str, is_first_elem);
-                } else {
-                    std::string elem_str = remove_nullable(nested_type)->to_string(src_column, j);
-                    _fill_result_string(elem_str, sep_str, result_str, is_first_elem);
-                }
-            }
-
-            dest_column_ptr->insert_data(result_str.c_str(), result_str.size());
-            prev_src_offset = curr_src_offset;
-        }
-
-        return true;
-    }
-
     static bool _execute_string(const IColumn& src_column,
                                 const ColumnArray::Offsets64& src_offsets,
                                 const UInt8* src_null_map, const std::string& sep_str,
                                 const std::string& null_replace_str,
                                 ColumnString* dest_column_ptr) {
-        const ColumnString* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
+        const ColumnString* src_data_concrete = assert_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
             return false;
         }
@@ -197,73 +151,7 @@ private:
         }
         return true;
     }
-
-    static bool _execute_by_type(const IColumn& src_column,
-                                 const ColumnArray::Offsets64& src_offsets,
-                                 const UInt8* src_null_map, const std::string& sep_str,
-                                 const std::string& null_replace_str, DataTypePtr& nested_type,
-                                 ColumnString* dest_column_ptr) {
-        bool res = false;
-        WhichDataType which(remove_nullable(nested_type));
-        if (which.is_uint8()) {
-            res = _execute_number<ColumnUInt8>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int8()) {
-            res = _execute_number<ColumnInt8>(src_column, src_offsets, src_null_map, sep_str,
-                                              null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int16()) {
-            res = _execute_number<ColumnInt16>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int32()) {
-            res = _execute_number<ColumnInt32>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int64()) {
-            res = _execute_number<ColumnInt64>(src_column, src_offsets, src_null_map, sep_str,
-                                               null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_int128()) {
-            res = _execute_number<ColumnInt128>(src_column, src_offsets, src_null_map, sep_str,
-                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_float32()) {
-            res = _execute_number<ColumnFloat32>(src_column, src_offsets, src_null_map, sep_str,
-                                                 null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_float64()) {
-            res = _execute_number<ColumnFloat64>(src_column, src_offsets, src_null_map, sep_str,
-                                                 null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date()) {
-            res = _execute_number<ColumnDate>(src_column, src_offsets, src_null_map, sep_str,
-                                              null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_time()) {
-            res = _execute_number<ColumnDateTime>(src_column, src_offsets, src_null_map, sep_str,
-                                                  null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_v2()) {
-            res = _execute_number<ColumnDateV2>(src_column, src_offsets, src_null_map, sep_str,
-                                                null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_date_time_v2()) {
-            res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, src_null_map, sep_str,
-                                                    null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal32()) {
-            res = _execute_number<ColumnDecimal32>(src_column, src_offsets, src_null_map, sep_str,
-                                                   null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal64()) {
-            res = _execute_number<ColumnDecimal64>(src_column, src_offsets, src_null_map, sep_str,
-                                                   null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal128v3()) {
-            res = _execute_number<ColumnDecimal128V3>(src_column, src_offsets, src_null_map,
-                                                      sep_str, null_replace_str, nested_type,
-                                                      dest_column_ptr);
-        } else if (which.is_decimal256()) {
-            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
-                                                    null_replace_str, nested_type, dest_column_ptr);
-        } else if (which.is_decimal128v2()) {
-            res = _execute_number<ColumnDecimal128V2>(src_column, src_offsets, src_null_map,
-                                                      sep_str, null_replace_str, nested_type,
-                                                      dest_column_ptr);
-        } else if (which.is_string()) {
-            res = _execute_string(src_column, src_offsets, src_null_map, sep_str, null_replace_str,
-                                  dest_column_ptr);
-        }
-        return res;
-    }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

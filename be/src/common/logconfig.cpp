@@ -31,10 +31,67 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 static bool logging_initialized = false;
 
 static std::mutex logging_mutex;
+
+// Implement the custom log format: I20250118 10:53:06.239614 1318521 timezone_utils.cpp:115] Preloaded653 timezones.
+struct StdoutLogSink : google::LogSink {
+    void send(google::LogSeverity severity, const char* /*full_filename*/,
+              const char* base_filename, int line, const google::LogMessageTime& time,
+              const char* message, std::size_t message_len) override {
+        // 1.  Convert log severity to corresponding character (I/W/E/F)
+        char severity_char;
+        switch (severity) {
+        case google::GLOG_INFO:
+            severity_char = 'I';
+            break;
+        case google::GLOG_WARNING:
+            severity_char = 'W';
+            break;
+        case google::GLOG_ERROR:
+            severity_char = 'E';
+            break;
+        case google::GLOG_FATAL:
+            severity_char = 'F';
+            break;
+        default:
+            severity_char = '?';
+            break;
+        }
+        // Set output formatting flags
+        std::cout << std::setfill('0');
+
+        // 1. Log severity (I/W/E/F)
+        std::cout << severity_char;
+
+        // 2. Date (YYYYMMDD)
+        // Note: tm_year is years since 1900, tm_mon is 0-based (0-11)
+        std::cout << std::setw(4) << (time.year() + 1900) << std::setw(2) << std::setfill('0')
+                  << (time.month() + 1) << std::setw(2) << std::setfill('0') << time.day();
+
+        // 3. Time (HH:MM:SS.ffffff)
+        std::cout << " " << std::setw(2) << std::setfill('0') << time.hour() << ":" << std::setw(2)
+                  << std::setfill('0') << time.min() << ":" << std::setw(2) << std::setfill('0')
+                  << time.sec() << "." << std::setw(6) << std::setfill('0') << time.usec();
+
+        // 4. Process ID
+        std::cout << " " << getpid();
+
+        // 5. Filename and line number
+        std::cout << " " << base_filename << ":" << line << "] ";
+
+        // 6. Log message
+        std::cout.write(message, message_len);
+
+        // Add newline and flush
+        std::cout << std::endl;
+    }
+};
+
+static StdoutLogSink stdout_log_sink;
 
 static bool iequals(const std::string& a, const std::string& b) {
     unsigned int sz = a.size();
@@ -49,21 +106,40 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
-void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void*) {
-    // Add prefix "RuntimeLogger ".
-    s << "RuntimeLogger ";
-    // Same as in fe.log
-    // The following is same as default log format. eg:
-    // I20240605 15:25:15.677153 1763151 wal_manager.cpp:481] msg...
+// if custom_date_time_format = false, same format as in be.log
+// The following is same as default log format. eg:
+// I20240605 15:25:15.677153 1763151 wal_manager.cpp:481] msg...
+template <bool add_runtime_logger_prefix = false, bool custom_date_time_format = false>
+void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void* arg) {
+    if constexpr (add_runtime_logger_prefix) {
+        // Add prefix "RuntimeLogger ".
+        s << "RuntimeLogger ";
+    }
     s << l.severity[0];
-    s << std::setw(4) << 1900 + l.time.year();
-    s << std::setw(2) << 1 + l.time.month();
-    s << std::setw(2) << l.time.day();
-    s << ' ';
-    s << std::setw(2) << l.time.hour() << ':';
-    s << std::setw(2) << l.time.min() << ':';
-    s << std::setw(2) << l.time.sec() << ".";
-    s << std::setw(6) << l.time.usec();
+
+    // Add a space if custom_date_time_format.
+    if constexpr (custom_date_time_format) {
+        s << ' ';
+    }
+
+    std::tm tm_time = {};
+    tm_time.tm_year = l.time.year();
+    tm_time.tm_mon = l.time.month();
+    tm_time.tm_mday = l.time.day();
+    tm_time.tm_hour = l.time.hour();
+    tm_time.tm_min = l.time.min();
+    tm_time.tm_sec = l.time.sec();
+
+    if constexpr (custom_date_time_format) {
+        s << std::put_time(&tm_time, config::sys_log_custom_date_time_format.c_str());
+        if (!config::sys_log_custom_date_time_ms_format.empty()) {
+            s << fmt::format(config::sys_log_custom_date_time_ms_format, l.time.usec() / 1000);
+        }
+    } else {
+        s << std::put_time(&tm_time, "%Y%m%d %H:%M:%S");
+        s << "." << std::setw(6) << l.time.usec();
+    }
+
     s << ' ';
     s << std::setfill(' ') << std::setw(5);
     s << l.thread_id << std::setfill('0');
@@ -80,10 +156,13 @@ bool init_glog(const char* basename) {
 
     bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
     if (log_to_console) {
-        if (config::enable_file_logger) {
-            FLAGS_alsologtostderr = true;
+        if (doris::config::enable_file_logger) {
+            // will output log to be.info and output log to stdout
+            google::AddLogSink(&stdout_log_sink);
         } else {
-            FLAGS_logtostderr = true;
+            // enable_file_logger is false, will only output log to stdout
+            // Not output to stderr because be.out will output log to stderr
+            FLAGS_logtostdout = true;
         }
     }
 
@@ -173,10 +252,18 @@ bool init_glog(const char* basename) {
     }
 
     if (log_to_console) {
-        // Only add prefix if log output to stderr
-        google::InitGoogleLogging(basename, &custom_prefix);
+        // Add prefix if log output to stderr
+        if (config::sys_log_enable_custom_date_time_format) {
+            google::InitGoogleLogging(basename, &custom_prefix<true, true>);
+        } else {
+            google::InitGoogleLogging(basename, &custom_prefix<true, false>);
+        }
     } else {
-        google::InitGoogleLogging(basename);
+        if (config::sys_log_enable_custom_date_time_format) {
+            google::InitGoogleLogging(basename, &custom_prefix<false, true>);
+        } else {
+            google::InitGoogleLogging(basename);
+        }
     }
 
     logging_initialized = true;
@@ -186,6 +273,7 @@ bool init_glog(const char* basename) {
 
 void shutdown_logging() {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
+    google::RemoveLogSink(&stdout_log_sink);
     google::ShutdownGoogleLogging();
 }
 
@@ -205,4 +293,5 @@ void update_logging(const std::string& name, const std::string& value) {
     }
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

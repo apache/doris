@@ -56,7 +56,12 @@ public class MaxBy extends NullableAggregateFunction
     }
 
     private MaxBy(boolean distinct, boolean alwaysNullable, Expression arg0, Expression arg1) {
-        super("max_by", false, false, arg0, arg1);
+        super("max_by", false, alwaysNullable, arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private MaxBy(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -72,12 +77,12 @@ public class MaxBy extends NullableAggregateFunction
     @Override
     public MaxBy withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MaxBy(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new MaxBy(getFunctionParams(distinct, children));
     }
 
     @Override
     public MaxBy withAlwaysNullable(boolean alwaysNullable) {
-        return new MaxBy(distinct, alwaysNullable, children.get(0), children.get(1));
+        return new MaxBy(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

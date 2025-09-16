@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,10 +35,12 @@ public class BinlogConfigCache {
     private static final Logger LOG = LogManager.getLogger(BinlogConfigCache.class);
 
     private Map<Long, BinlogConfig> dbTableBinlogEnableMap; // db or table all use id
+    private Map<Long, TableIf.TableType> tableTypeMap;
     private ReentrantReadWriteLock lock;
 
     public BinlogConfigCache() {
         dbTableBinlogEnableMap = new HashMap<Long, BinlogConfig>();
+        tableTypeMap = new HashMap<Long, TableIf.TableType>();
         lock = new ReentrantReadWriteLock();
     }
 
@@ -93,35 +96,71 @@ public class BinlogConfigCache {
 
         lock.writeLock().lock();
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
-            if (db == null) {
-                LOG.warn("db not found. dbId: {}", dbId);
-                return null;
-            }
-
-            Table table = db.getTableNullable(tableId);
-            if (table == null) {
-                LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
-                return null;
-            }
-            if (!(table instanceof OlapTable)) {
-                LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
-                return null;
-            }
-
-            OlapTable olapTable = (OlapTable) table;
-            tableBinlogConfig = olapTable.getBinlogConfig();
-            // get table binlog config, when table modify binlogConfig
-            // it create a new binlog, not update inplace, so we don't need to clone
-            // binlogConfig
-            dbTableBinlogEnableMap.put(tableId, tableBinlogConfig);
-            return tableBinlogConfig;
+            loadTableBinlogConfig(dbId, tableId);
+            return dbTableBinlogEnableMap.get(tableId); // null if not exists
         } catch (Exception e) {
             LOG.warn("fail to get table. db: {}, table id: {}", dbId, tableId);
             return null;
         } finally {
             lock.writeLock().unlock();
         }
+    }
+
+    private void loadTableBinlogConfig(long dbId, long tableId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            LOG.warn("db not found. dbId: {}", dbId);
+            return;
+        }
+
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
+            return;
+        }
+        if (!(table instanceof OlapTable)) { // MTMV is an instance of OlapTable
+            LOG.warn("table is not olap table. db: {}, table id: {}", db.getFullName(), tableId);
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) table;
+        // get table binlog config, when table modify binlogConfig
+        // it create a new binlog, not update inplace, so we don't need to clone
+        // binlogConfig
+        dbTableBinlogEnableMap.put(tableId, olapTable.getBinlogConfig());
+        tableTypeMap.put(tableId, table.getType());
+    }
+
+    public boolean isAsyncMvTable(long dbId, long tableId) {
+        lock.readLock().lock();
+        TableIf.TableType tableType = tableTypeMap.get(tableId);
+        lock.readLock().unlock();
+        if (tableType != null) {
+            return tableType == TableIf.TableType.MATERIALIZED_VIEW;
+        }
+
+        lock.writeLock().lock();
+        try {
+            loadTableBinlogConfig(dbId, tableId);
+            return tableTypeMap.get(tableId) == TableIf.TableType.MATERIALIZED_VIEW;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isTemporaryTable(long dbId, long tableId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            LOG.warn("db not found. dbId: {}", dbId);
+            return false;
+        }
+
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            LOG.warn("fail to get table. db: {}, table id: {}", db.getFullName(), tableId);
+            return false;
+        }
+        return table.isTemporary();
     }
 
     public boolean isEnableTable(long dbId, long tableId) {

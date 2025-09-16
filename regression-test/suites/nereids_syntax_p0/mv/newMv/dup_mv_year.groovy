@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("dup_mv_year") {
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql "set pre_materialized_view_rewrite_strategy = NOT_IN_RBO"
     sql """ DROP TABLE IF EXISTS dup_mv_year; """
 
     sql """
@@ -33,42 +35,32 @@ suite ("dup_mv_year") {
     sql "insert into dup_mv_year select 2,'2013-12-31','2013-12-31 01:02:03';"
     sql "insert into dup_mv_year select 3,'2023-12-31','2023-12-31 01:02:03';"
 
-    createMV "create materialized view k12y as select k1,year(k2) from dup_mv_year;"
+    createMV "create materialized view k12y as select k1 as a1,year(k2) as a2 from dup_mv_year;"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     sql "analyze table dup_mv_year with sync;"
+    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
+
     sql """set enable_stats=false;"""
 
 
-    explain {
-        sql("select k1,year(k2) from dup_mv_year order by k1;")
-        contains "(k12y)"
-    }
+    mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
     order_qt_select_mv "select k1,year(k2) from dup_mv_year order by k1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,year(k2) from dup_mv_year order by k1;")
-        contains "(k12y)"
-    }
+    mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
 
-    createMV "create materialized view k13y as select k1,year(k3) from dup_mv_year;"
+    createMV "create materialized view k13y as select k1 as a3,year(k3) as a4 from dup_mv_year;"
 
     sql "insert into dup_mv_year select 4,'2033-12-31','2033-12-31 01:02:03';"
     Thread.sleep(1000)
 
     order_qt_select_star "select * from dup_mv_year order by k1;"
 
-    explain {
-        sql("select year(k3) from dup_mv_year order by k1;")
-        contains "(k13y)"
-    }
+    mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
     order_qt_select_mv_sub "select year(k3) from dup_mv_year order by k1;"
 
     sql """set enable_stats=false;"""
-    explain {
-        sql("select year(k3) from dup_mv_year order by k1;")
-        contains "(k13y)"
-    }
+    mv_rewrite_success("select year(k3) from dup_mv_year order by k1;", "k13y")
 }

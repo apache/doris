@@ -24,6 +24,9 @@ import org.slf4j.LoggerFactory
 enum NodeType {
     FE,
     BE,
+    // cloud
+    MS,
+    RECYCLER,
 }
 
 class DebugPoint {
@@ -100,6 +103,28 @@ class DebugPoint {
     def enableDebugPointForAllBEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllBEs({ host, port ->
             logger.info("enable debug point ${name} with params ${params} for BE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
+            enableDebugPoint(host, port, NodeType.BE, name, params)
+        })
+    }
+
+    /* Enable specific debug point for major BE node in cluster */
+    def enableDebugPointForMajorBEs(String name, Map<String, String> params = null) {
+        def skip_flag = false
+        operateDebugPointForAllBEs({ host, port ->
+            logger.info("enable debug point ${name} with params ${params} for BE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
+            if (!skip_flag) {
+                skip_flag = true
+                logger.info("skip for BE $host:$port")
+                return
+            }
             enableDebugPoint(host, port, NodeType.BE, name, params)
         })
     }
@@ -108,6 +133,10 @@ class DebugPoint {
     def disableDebugPointForAllBEs(String name) {
         operateDebugPointForAllBEs { host, port ->
             logger.info("disable debug point ${name} for BE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
             disableDebugPoint(host, port, NodeType.BE, name)
         }
     }
@@ -116,6 +145,10 @@ class DebugPoint {
     def clearDebugPointsForAllBEs() {
         operateDebugPointForAllBEs { host, port ->
             logger.info("clear debug point for BE $host:$port")
+            if (port == -1) {
+                logger.info("skip for BE $host:$port")
+                return
+            }
             clearDebugPoints(host, port, NodeType.BE)
         }
     }
@@ -134,6 +167,10 @@ class DebugPoint {
     def enableDebugPointForAllFEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllFEs({ host, port ->
             logger.info("enable debug point ${name} with params ${params} for FE $host:$port")
+            if (port == -1) {
+                logger.info("skip for FE $host:$port")
+                return
+            }
             enableDebugPoint(host, port, NodeType.FE, name, params)
         })
     }
@@ -141,6 +178,10 @@ class DebugPoint {
     def disableDebugPointForAllFEs(String name) {
         operateDebugPointForAllFEs { host, port ->
             logger.info("disable debug point ${name} for FE $host:$port")
+            if (port == -1) {
+                logger.info("skip for FE $host:$port")
+                return
+            }
             disableDebugPoint(host, port, NodeType.FE, name)
         }
     }
@@ -148,6 +189,10 @@ class DebugPoint {
     def clearDebugPointsForAllFEs() {
         operateDebugPointForAllFEs { host, port ->
             logger.info("clear debug point for FE $host:$port")
+            if (port == -1) {
+                logger.info("skip for FE $host:$port")
+                return
+            }
             clearDebugPoints(host, port, NodeType.FE)
         }
     }

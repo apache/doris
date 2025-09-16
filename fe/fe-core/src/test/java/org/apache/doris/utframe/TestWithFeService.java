@@ -18,32 +18,10 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.CreateCatalogStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateFunctionStmt;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreatePolicyStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateTableAsSelectStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.CreateViewStmt;
-import org.apache.doris.analysis.DropDbStmt;
-import org.apache.doris.analysis.DropPolicyStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.RecoverTableStmt;
-import org.apache.doris.analysis.ShowCreateFunctionStmt;
-import org.apache.doris.analysis.ShowCreateTableStmt;
-import org.apache.doris.analysis.ShowFunctionsStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
@@ -56,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.nereids.CascadesContext;
@@ -66,22 +43,40 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -94,7 +89,6 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -108,7 +102,6 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
@@ -128,7 +121,7 @@ import java.util.UUID;
  * an example.
  * This class use {@link TestInstance} in JUnit5 to do initialization and cleanup stuff. Unlike
  * deprecated legacy combination-based implementation {@link UtFrameUtils}, we use an inherit-manner,
- * thus we could wrap common logic in this base class. It's more easy to use.
+ * thus we could wrap common logic in this base class. It's easier to use.
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
  * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
@@ -140,23 +133,23 @@ public abstract class TestWithFeService {
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
+    // make it default to enable_advance_next_id
+    protected boolean enableAdvanceNextId = Config.enable_advance_next_id;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
-    private static final MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
-        @Mock
-        public Set<Integer> getEnableNereidsRules() {
-            return ImmutableSet.of();
-        }
-    };
-
     @BeforeAll
     public final void beforeAll() throws Exception {
+        // this.enableAdvanceNextId may be reset by children classes
+        Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
+        FeConstants.disableWGCheckerForUT = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
+        Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
         runBeforeAll();
     }
 
@@ -217,11 +210,6 @@ public abstract class TestWithFeService {
         return statementContext;
     }
 
-    protected  <T extends StatementBase> T createStmt(String showSql)
-            throws Exception {
-        return (T) parseAndAnalyzeStmt(showSql, connectContext);
-    }
-
     protected CascadesContext createCascadesContext(String sql) {
         StatementContext statementCtx = createStatementCtx(sql);
         return MemoTestUtils.createCascadesContext(statementCtx, sql);
@@ -240,7 +228,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
         connectContext.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -252,7 +239,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
@@ -270,7 +256,6 @@ public abstract class TestWithFeService {
         CascadesContext cascadesContext = createCascadesContext(sql, ctx);
         cascadesContext.newAnalyzer().analyze();
         ctx.getSessionVariable().setDisableNereidsRules(String.join(",", originDisableRules));
-        cascadesContext.toMemo();
         LogicalPlan plan = (LogicalPlan) cascadesContext.getRewritePlan();
         LogicalPlanAdapter adapter = new LogicalPlanAdapter(plan, cascadesContext.getStatementContext());
         adapter.setViewDdlSqls(cascadesContext.getStatementContext().getViewDdlSqls());
@@ -281,7 +266,6 @@ public abstract class TestWithFeService {
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
-        ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
@@ -289,57 +273,26 @@ public abstract class TestWithFeService {
         return ctx;
     }
 
-    // Parse an origin stmt and analyze it. Return a StatementBase instance.
-    protected StatementBase parseAndAnalyzeStmt(String originStmt) throws Exception {
-        return parseAndAnalyzeStmt(originStmt, connectContext);
+    protected LogicalPlan parseStmt(String originStmt) throws Exception {
+        return parseStmt(originStmt, connectContext);
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
-    protected StatementBase parseAndAnalyzeStmt(String originStmt, ConnectContext ctx) throws Exception {
+    protected LogicalPlan parseStmt(String originStmt, ConnectContext ctx) throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(ctx.getEnv(), ctx);
-        StatementBase statementBase = null;
+        NereidsParser parser = new NereidsParser();
+        LogicalPlan statementBase = null;
         try {
-            statementBase = SqlParserUtils.getFirstStmt(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
+            statementBase = parser.parseSingle(originStmt);
+        } catch (Exception e) {
+            System.err.println("parse failed: " + e.getMessage());
+            if (e.getMessage() == null) {
                 throw e;
             } else {
-                throw new AnalysisException(errorMessage, e);
+                throw new AnalysisException(e.getMessage(), e);
             }
         }
-        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
-        statementBase.analyze(analyzer);
         return statementBase;
-    }
-
-    // for analyzing multi statements
-    protected List<StatementBase> parseAndAnalyzeStmts(String originStmt) throws Exception {
-        System.out.println("begin to parse stmts: " + originStmt);
-        SqlScanner input = new SqlScanner(new StringReader(originStmt),
-                connectContext.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
-        List<StatementBase> statementBases = null;
-        try {
-            statementBases = SqlParserUtils.getMultiStmts(parser);
-        } catch (AnalysisException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            System.err.println("parse failed: " + errorMessage);
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        }
-        for (StatementBase stmt : statementBases) {
-            stmt.analyze(analyzer);
-        }
-        return statementBases;
     }
 
     protected String generateRandomFeRunningDir(Class testSuiteClass) {
@@ -412,7 +365,7 @@ public abstract class TestWithFeService {
     protected void createDorisCluster()
             throws InterruptedException, NotInitException, IOException, DdlException, EnvVarNotSetException,
             FeStartException {
-        createDorisCluster(runningDir, backendNum());
+        createDorisClusterWithMultiTag(runningDir, backendNum());
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
@@ -425,24 +378,11 @@ public abstract class TestWithFeService {
             bes.add(createBackend("127.0.0.1", feRpcPort));
         }
         System.out.println("after create backend");
-        checkBEHeartbeat(bes);
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
         // Thread.sleep(2000);
         System.out.println("after create backend2");
-    }
-
-    private void checkBEHeartbeat(List<Backend> bes) throws InterruptedException {
-        int maxTry = Config.heartbeat_interval_second + 2;
-        boolean allAlive = false;
-        while (maxTry-- > 0 && !allAlive) {
-            Thread.sleep(1000);
-            boolean hasDead = false;
-            for (Backend be : bes) {
-                if (!be.isAlive()) {
-                    hasDead = true;
-                }
-            }
-            allAlive = !hasDead;
-        }
     }
 
     // Create multi backends with different host for unit test.
@@ -452,14 +392,45 @@ public abstract class TestWithFeService {
             InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1"
         // to make cluster running well.
-        FeConstants.runningUnitTest = true;
+        if (backendNum > 1) {
+            FeConstants.runningUnitTest = true;
+        }
         int feRpcPort = startFEServer(runningDir);
         List<Backend> bes = Lists.newArrayList();
+        System.out.println("start create backend, backend num " + backendNum);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
             bes.add(createBackend(host, feRpcPort));
         }
-        checkBEHeartbeat(bes);
+        System.out.println("after create backend");
+        if (!checkBEHeartbeat(bes)) {
+            System.out.println("Some backends dead, all backends: " + bes);
+        }
+        System.out.println("after create backend2");
+    }
+
+    protected boolean checkBEHeartbeat(List<Backend> bes) {
+        return checkBEHeartbeatStatus(bes, true);
+    }
+
+    protected boolean checkBELostHeartbeat(List<Backend> bes) {
+        return checkBEHeartbeatStatus(bes, false);
+    }
+
+    private boolean checkBEHeartbeatStatus(List<Backend> bes, boolean isAlive) {
+        int maxTry = Config.heartbeat_interval_second + 2;
+        while (maxTry-- > 0) {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                // no exception
+            }
+            if (bes.stream().allMatch(be -> be.isAlive() == isAlive)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     protected Backend addNewBackend() throws IOException, InterruptedException {
@@ -499,8 +470,8 @@ public abstract class TestWithFeService {
         Backend be = new Backend(Env.getCurrentEnv().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setPathHash(be.getId());
-        diskInfo1.setTotalCapacityB(10L << 30);
-        diskInfo1.setAvailableCapacityB(5L << 30);
+        diskInfo1.setTotalCapacityB(10L << 40);
+        diskInfo1.setAvailableCapacityB(5L << 40);
         diskInfo1.setDataUsedCapacityB(480000);
         diskInfo1.setPathHash(be.getId());
         Map<String, DiskInfo> disks = Maps.newHashMap();
@@ -587,68 +558,91 @@ public abstract class TestWithFeService {
                 && connectContext.getState().getErrorCode() == null) {
             return stmtExecutor;
         } else {
+            // throw new IllegalStateException(connectContext.getState().getErrorMessage());
             return null;
+        }
+    }
+
+    public void executeSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
+        }
+    }
+
+    public void executeNereidsSql(String queryStr) throws Exception {
+        connectContext.getState().reset();
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(queryStr, 0));
+        connectContext.setStatementContext(statementContext);
+        statementContext.setConnectContext(connectContext);
+
+        LogicalPlan plan = new NereidsParser().parseSingle(queryStr);
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(plan, statementContext);
+        logicalPlanAdapter.setOrigStmt(statementContext.getOriginStatement());
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, logicalPlanAdapter);
+        stmtExecutor.execute();
+        if (connectContext.getState().getStateType() == QueryState.MysqlStateType.ERR
+                || connectContext.getState().getErrorCode() != null) {
+            throw new IllegalStateException(connectContext.getState().getErrorMessage());
         }
     }
 
     public void createDatabase(String db) throws Exception {
         String createDbStmtStr = "CREATE DATABASE " + db;
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
+    }
+
+    public void createDatabaseAndUse(String db) throws Exception {
+        createDatabase(db);
+        useDatabase(db);
     }
 
     public void createDatabaseWithSql(String createDbSql) throws Exception {
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbSql);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbSql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbSql);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     public void dropDatabase(String db) throws Exception {
-        String createDbStmtStr = "DROP DATABASE " + db;
-        DropDbStmt createDbStmt = (DropDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Env.getCurrentEnv().dropDb(createDbStmt);
+        String dropDbStmtStr = "DROP DATABASE " + db;
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbStmtStr);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public void dropDatabaseWithSql(String dropDbSql) throws Exception {
-        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
-        Env.getCurrentEnv().dropDb(dropDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(dropDbSql);
+        if (logicalPlan instanceof DropDatabaseCommand) {
+            ((DropDatabaseCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public void useDatabase(String dbName) {
         connectContext.setDatabase(dbName);
     }
 
-    protected ShowResultSet showCreateTable(String sql) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateFunction(String sql) throws Exception {
-        ShowCreateFunctionStmt stmt = (ShowCreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showFunctions(String sql) throws Exception {
-        ShowFunctionsStmt stmt = (ShowFunctionsStmt) parseAndAnalyzeStmt(sql);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
-    protected ShowResultSet showCreateTableByName(String table) throws Exception {
-        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt("show create table " + table);
-        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
-        return executor.execute();
-    }
-
     public void createTable(String sql) throws Exception {
-        createTable(sql, false);
+        createTable(sql, true);
     }
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_mysql_broker_table = true;
-            createTables(enableNerieds, sql);
+            createTables(sql);
         } catch (Exception e) {
             e.printStackTrace();
             throw e;
@@ -656,30 +650,36 @@ public abstract class TestWithFeService {
     }
 
     public void dropTable(String table, boolean force) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(
-                "drop table " + table + (force ? " force" : "") + ";", connectContext);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+        String sql;
+        if (force) {
+            sql = "drop table " + table;
+        } else {
+            sql = "drop table if exists " + table;
+        }
+        dropTableWithSql(sql);
     }
 
-    public void dropTableWithSql(String dropTableSql) throws Exception {
-        DropTableStmt dropTableStmt = (DropTableStmt) parseAndAnalyzeStmt(dropTableSql);
-        Env.getCurrentEnv().dropTable(dropTableStmt);
+    public void dropTableWithSql(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropTableCommand) {
+            ((DropTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     public void recoverTable(String table) throws Exception {
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) parseAndAnalyzeStmt(
-                "recover table " + table + ";", connectContext);
-        Env.getCurrentEnv().recoverTable(recoverTableStmt);
-    }
-
-    public void createTableAsSelect(String sql) throws Exception {
-        CreateTableAsSelectStmt createTableAsSelectStmt = (CreateTableAsSelectStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createTableAsSelect(createTableAsSelectStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        RecoverTableCommand command = (RecoverTableCommand) nereidsParser.parseSingle(table);
+        Env.getCurrentEnv().recoverTable(command.getDbName(), command.getTblName(), command.getNewTableName(), command.getTableId());
     }
 
     public void createCatalog(String sql) throws Exception {
-        CreateCatalogStmt stmt = (CreateCatalogStmt) parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().getCatalogMgr().createCatalog(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        if (logicalPlan instanceof CreateCatalogCommand) {
+            ((CreateCatalogCommand) logicalPlan).run(connectContext, null);
+        }
     }
 
     public CatalogIf getCatalog(String name) throws Exception {
@@ -687,29 +687,18 @@ public abstract class TestWithFeService {
     }
 
     public void createTables(String... sqls) throws Exception {
-        createTables(false, sqls);
+        createTablesAndReturnPlans(sqls);
     }
 
-    public void createTables(boolean enableNereids, String... sqls) throws Exception {
-        createTablesAndReturnPlans(enableNereids, sqls);
-    }
-
-    public List<LogicalPlan> createTablesAndReturnPlans(boolean enableNereids, String... sqls) throws Exception {
+    public List<LogicalPlan> createTablesAndReturnPlans(String... sqls) throws Exception {
         List<LogicalPlan> logicalPlans = new ArrayList<>();
-        if (enableNereids) {
-            for (String sql : sqls) {
-                NereidsParser nereidsParser = new NereidsParser();
-                LogicalPlan parsed = nereidsParser.parseSingle(sql);
-                logicalPlans.add(parsed);
-                StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-                if (parsed instanceof CreateTableCommand) {
-                    ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
-                }
-            }
-        } else {
-            for (String sql : sqls) {
-                CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql);
-                Env.getCurrentEnv().createTable(stmt);
+        for (String sql : sqls) {
+            NereidsParser nereidsParser = new NereidsParser();
+            LogicalPlan parsed = nereidsParser.parseSingle(sql);
+            logicalPlans.add(parsed);
+            StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+            if (parsed instanceof CreateTableCommand) {
+                ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
             }
         }
         updateReplicaPathHash();
@@ -717,18 +706,21 @@ public abstract class TestWithFeService {
     }
 
     public void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createView(createViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     protected void createPolicy(String sql) throws Exception {
-        CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().createPolicy(createPolicyStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     public void createFunction(String sql) throws Exception {
-        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().createFunction(createFunctionStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        CreateFunctionCommand command = (CreateFunctionCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
     public void addConstraint(String sql) throws Exception {
@@ -748,23 +740,36 @@ public abstract class TestWithFeService {
     }
 
     protected void dropPolicy(String sql) throws Exception {
-        DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
-        Env.getCurrentEnv().getPolicyMgr().dropPolicy(stmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        DropRowPolicyCommand command = (DropRowPolicyCommand) nereidsParser.parseSingle(sql);
+        TableNameInfo tableNameInfo = command.getTableNameInfo();
+        DropPolicyLog dropPolicyLog = new DropPolicyLog(tableNameInfo.getCtl(), tableNameInfo.getDb(),
+                tableNameInfo.getTbl(), PolicyTypeEnum.ROW, command.getPolicyName(), command.getUser(), command.getRoleName());
+        Env.getCurrentEnv().getPolicyMgr().dropPolicy(dropPolicyLog, command.isIfExists());
     }
 
     protected void createSqlBlockRule(String sql) throws Exception {
+        NereidsParser parser = new NereidsParser();
+        CreateSqlBlockRuleCommand command = (CreateSqlBlockRuleCommand) parser.parseSingle(sql);
         Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+                .createSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
+                command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
+                command.getGlobal(), command.getEnable()), command.isIfNotExists());
     }
 
     protected void alterSqlBlockRule(String sql) throws Exception {
+        NereidsParser parser = new NereidsParser();
+        AlterSqlBlockRuleCommand command = (AlterSqlBlockRuleCommand) parser.parseSingle(sql);
         Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+                .alterSqlBlockRule(new SqlBlockRule(command.getRuleName(), command.getSql(), command.getSqlHash(),
+                command.getPartitionNum(), command.getTabletNum(), command.getCardinality(),
+                command.getGlobal(), command.getEnable()));
     }
 
     protected void dropSqlBlockRule(String sql) throws Exception {
-        Env.getCurrentEnv().getSqlBlockRuleMgr()
-                .dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+        NereidsParser parser = new NereidsParser();
+        DropSqlBlockRuleCommand command = (DropSqlBlockRuleCommand) parser.parseSingle(sql);
+        Env.getCurrentEnv().getSqlBlockRuleMgr().dropSqlBlockRule(command.getRuleNames(), command.isIfExists());
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
@@ -789,37 +794,80 @@ public abstract class TestWithFeService {
         UserIdentity user = new UserIdentity(userName, host);
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
-        connectContext.setQualifiedUser(userName);
     }
 
     protected void addUser(String userName, boolean ifNotExists) throws Exception {
-        CreateUserStmt createUserStmt = (CreateUserStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'", connectContext);
-        DdlExecutor.execute(Env.getCurrentEnv(), createUserStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "create user " + (ifNotExists ? "if not exists " : "") + userName + "@'%'";
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateUserCommand) {
+            ((CreateUserCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
-    protected void addRollup(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
-        // waiting alter job state: finished AND table state: normal
-        checkAlterJob();
-        Thread.sleep(100);
+    protected void createRole(String roleName) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "CREATE ROLE " + roleName;
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateRoleCommand) {
+            ((CreateRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantRole(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantRoleCommand) {
+            ((GrantRoleCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    protected void grantPriv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof GrantTablePrivilegeCommand) {
+            ((GrantTablePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     protected void alterTableSync(String sql) throws Exception {
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().alterTable(alterTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterTableCommand) {
+            ((AlterTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
         Thread.sleep(100);
     }
 
     protected void createMv(String sql) throws Exception {
-        CreateMaterializedViewStmt createMaterializedViewStmt =
-                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createMaterializedView(createMaterializedViewStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateMaterializedViewCommand) {
+            ((CreateMaterializedViewCommand) parsed).run(connectContext, stmtExecutor);
+        }
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
     }
+
+    protected void alterMv(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AlterMTMVCommand) {
+            ((AlterMTMVCommand) parsed).run(connectContext, stmtExecutor);
+        }
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(1000);
+    }
+
 
     protected void createMvByNereids(String sql) throws Exception {
         new MockUp<EditLog>() {

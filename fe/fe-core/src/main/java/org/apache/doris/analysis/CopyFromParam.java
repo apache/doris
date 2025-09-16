@@ -67,6 +67,16 @@ public class CopyFromParam {
         this.fileFilterExpr = whereExpr;
     }
 
+    public CopyFromParam(StageAndPattern stageAndPattern, List<Expr> exprList, Expr fileFilterExpr,
+                         List<String> fileColumns, List<Expr> columnMappingList, List<String> targetColumns) {
+        this.stageAndPattern = stageAndPattern;
+        this.exprList = exprList;
+        this.fileFilterExpr = fileFilterExpr;
+        this.fileColumns = fileColumns;
+        this.columnMappingList = columnMappingList;
+        this.targetColumns = targetColumns;
+    }
+
     public void analyze(String fullDbName, TableName tableName, boolean useDeleteSign, String fileType)
             throws AnalysisException {
         if (exprList == null && fileFilterExpr == null && !useDeleteSign) {
@@ -147,10 +157,16 @@ public class CopyFromParam {
             }
         } else {
             for (int i = 0; i < targetColumns.size(); i++) {
-                BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
-                        new SlotRef(null, targetColumns.get(i)),
-                        new SlotRef(null, fileColumns.get(i)));
-                columnMappingList.add(binaryPredicate);
+                // If file column name equals target column name, don't need to add to
+                // columnMapping List. Otherwise it will result in invalidation of strict
+                // mode. Because if the src data is an expr, strict mode judgment will
+                // not be performed.
+                if (!fileColumns.get(i).equalsIgnoreCase(targetColumns.get(i))) {
+                    BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ,
+                            new SlotRef(null, targetColumns.get(i)),
+                            new SlotRef(null, fileColumns.get(i)));
+                    columnMappingList.add(binaryPredicate);
+                }
             }
         }
     }

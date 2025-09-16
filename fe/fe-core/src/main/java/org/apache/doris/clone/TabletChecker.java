@@ -17,8 +17,6 @@
 
 package org.apache.doris.clone;
 
-import org.apache.doris.analysis.AdminCancelRepairTableStmt;
-import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
@@ -40,6 +39,8 @@ import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.trees.plans.commands.AdminCancelRepairTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
@@ -77,6 +78,7 @@ public class TabletChecker extends MasterDaemon {
             put("added", new AtomicLong(0L));
             put("in_sched", new AtomicLong(0L));
             put("not_ready", new AtomicLong(0L));
+            put("exceed_limit", new AtomicLong(0L));
         }
     };
 
@@ -197,7 +199,7 @@ public class TabletChecker extends MasterDaemon {
      * If a tablet is not healthy, a TabletInfo will be created and sent to TabletScheduler for repairing.
      */
     @Override
-    protected void runAfterCatalogReady() {
+    public void runAfterCatalogReady() {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
         if (pendingNum > Config.max_scheduling_tablets
@@ -223,6 +225,7 @@ public class TabletChecker extends MasterDaemon {
         public long addToSchedulerTabletNum = 0;
         public long tabletInScheduler = 0;
         public long tabletNotReady = 0;
+        public long tabletExceedLimit = 0;
     }
 
     private enum LoopControlStatus {
@@ -343,10 +346,12 @@ public class TabletChecker extends MasterDaemon {
         tabletCountByStatus.get("added").set(counter.addToSchedulerTabletNum);
         tabletCountByStatus.get("in_sched").set(counter.tabletInScheduler);
         tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
+        tabletCountByStatus.get("exceed_limit").set(counter.tabletExceedLimit);
 
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
+        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{},"
+                + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+                counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
@@ -357,6 +362,7 @@ public class TabletChecker extends MasterDaemon {
             return LoopControlStatus.CONTINUE;
         }
         boolean prioPartIsHealthy = true;
+        boolean isUniqKeyMergeOnWrite = tbl.isUniqKeyMergeOnWrite();
         /*
          * Tablet in SHADOW index can not be repaired of balanced
          */
@@ -369,26 +375,25 @@ public class TabletChecker extends MasterDaemon {
                     continue;
                 }
 
-                Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                        infoService, partition.getVisibleVersion(),
+                TabletHealth tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()), aliveBeIds);
 
-                if (statusWithPrio.first == TabletStatus.HEALTHY) {
+                if (tabletHealth.status == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
                     tablet.setLastStatusCheckTime(startTime);
                     continue;
-                } else if (statusWithPrio.first == TabletStatus.UNRECOVERABLE) {
+                } else if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                     // This tablet is not recoverable, do not set it into tablet scheduler
                     // all UNRECOVERABLE tablet can be seen from "show proc '/statistic'"
                     counter.unhealthyTabletNum++;
                     continue;
                 } else if (isInPrios) {
-                    statusWithPrio.second = TabletSchedCtx.Priority.VERY_HIGH;
+                    tabletHealth.priority = TabletSchedCtx.Priority.VERY_HIGH;
                     prioPartIsHealthy = false;
                 }
 
                 counter.unhealthyTabletNum++;
-                if (!tablet.readyToBeRepaired(infoService, statusWithPrio.second)) {
+                if (!tablet.readyToBeRepaired(infoService, tabletHealth.priority)) {
                     continue;
                 }
 
@@ -399,15 +404,17 @@ public class TabletChecker extends MasterDaemon {
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
-                tabletCtx.setTabletStatus(statusWithPrio.first);
-                tabletCtx.setPriority(statusWithPrio.second);
+                tabletCtx.setTabletHealth(tabletHealth);
+                tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                if (res == AddResult.DISABLED) {
                     LOG.info("tablet scheduler return: {}. stop tablet checker", res.name());
                     return LoopControlStatus.BREAK_OUT;
                 } else if (res == AddResult.ADDED) {
                     counter.addToSchedulerTabletNum++;
+                } else if (res == AddResult.REPLACE_ADDED || res == AddResult.LIMIT_EXCEED) {
+                    counter.tabletExceedLimit++;
                 }
             }
         } // indices
@@ -484,25 +491,25 @@ public class TabletChecker extends MasterDaemon {
     }
 
     /*
-     * handle ADMIN REPAIR TABLE stmt send by user.
+     * handle ADMIN REPAIR TABLE command send by user.
      * This operation will add specified tables into 'prios', and tablets of this table will be set VERY_HIGH
      * when being scheduled.
      */
-    public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
+    public void repairTable(AdminRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo = getRepairTabletInfo(
-                stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
-        addPrios(repairTabletInfo, stmt.getTimeoutS() * 1000);
+                command.getDbName(), command.getTblName(), command.getPartitions());
+        addPrios(repairTabletInfo, command.getTimeoutS() * 1000);
         LOG.info("repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     /*
-     * handle ADMIN CANCEL REPAIR TABLE stmt send by user.
+     * handle ADMIN CANCEL REPAIR TABLE command send by user.
      * This operation will remove the specified partitions from 'prios'
      */
-    public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
+    public void cancelRepairTable(AdminCancelRepairTableCommand command) throws DdlException {
         RepairTabletInfo repairTabletInfo
-                = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+                = getRepairTabletInfo(command.getDbName(), command.getTblName(), command.getPartitions());
         removePrios(repairTabletInfo);
         LOG.info("cancel repair database: {}, table: {}, partition: {}",
                 repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);

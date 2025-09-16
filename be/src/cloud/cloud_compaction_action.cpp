@@ -28,6 +28,7 @@
 #include <thread>
 #include <utility>
 
+#include "absl/strings/substitute.h"
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_compaction_action.h"
 #include "cloud/cloud_cumulative_compaction.h"
@@ -36,7 +37,6 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/substitute.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -62,7 +62,7 @@ const static std::string HEADER_JSON = "application/json";
 CloudCompactionAction::CloudCompactionAction(CompactionActionType ctype, ExecEnv* exec_env,
                                              CloudStorageEngine& engine, TPrivilegeHier::type hier,
                                              TPrivilegeType::type ptype)
-        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _type(ctype) {}
+        : HttpHandlerWithAuth(exec_env, hier, ptype), _engine(engine), _compaction_type(ctype) {}
 
 /// check param and fetch tablet_id & table_id from req
 static Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint64_t* table_id) {
@@ -149,10 +149,19 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
         compaction_type != PARAM_COMPACTION_FULL) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
-
-    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
+    bool sync_delete_bitmap = compaction_type != PARAM_COMPACTION_FULL;
+    CloudTabletSPtr tablet =
+            DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id, false, sync_delete_bitmap));
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
+    }
+
+    if (compaction_type == PARAM_COMPACTION_BASE) {
+        tablet->set_last_base_compaction_schedule_time(UnixMillis());
+    } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+        tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+    } else if (compaction_type == PARAM_COMPACTION_FULL) {
+        tablet->set_last_full_compaction_schedule_time(UnixMillis());
     }
 
     LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
@@ -167,8 +176,7 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
               << " table id: " << table_id;
     *json_result =
-            "{\"status\": \"Success\", \"msg\": \"compaction task is successfully triggered. Table "
-            "id: " +
+            R"({"status": "Success", "msg": "compaction task is successfully triggered. Table id: )" +
             std::to_string(table_id) + ". Tablet id: " + std::to_string(tablet_id) + "\"}";
     return Status::OK();
 }
@@ -201,7 +209,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "cumulative";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
 
@@ -210,7 +218,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "base";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
 
@@ -219,12 +227,11 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             compaction_type = "full";
             run_status = true;
             *json_result =
-                    strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                    absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
         }
         // not running any compaction
-        *json_result =
-                strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+        *json_result = absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
     }
     LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id;
     return Status::OK();
@@ -233,7 +240,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
 void CloudCompactionAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
-    if (_type == CompactionActionType::SHOW_INFO) {
+    if (_compaction_type == CompactionActionType::SHOW_INFO) {
         std::string json_result;
         Status st = _handle_show_compaction(req, &json_result);
         if (!st.ok()) {
@@ -241,7 +248,7 @@ void CloudCompactionAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
-    } else if (_type == CompactionActionType::RUN_COMPACTION) {
+    } else if (_compaction_type == CompactionActionType::RUN_COMPACTION) {
         std::string json_result;
         Status st = _handle_run_compaction(req, &json_result);
         if (!st.ok()) {

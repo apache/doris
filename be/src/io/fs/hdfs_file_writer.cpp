@@ -31,7 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
@@ -45,11 +45,15 @@
 #include "util/jni-util.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_file_writer_total("hdfs_file_writer_total_num");
 bvar::Adder<uint64_t> hdfs_bytes_written_total("hdfs_file_writer_bytes_written");
 bvar::Adder<uint64_t> hdfs_file_created_total("hdfs_file_writer_file_created");
 bvar::Adder<uint64_t> inflight_hdfs_file_writer("inflight_hdfs_file_writer");
+bvar::Adder<uint64_t> hdfs_file_writer_async_close_queuing("hdfs_file_writer_async_close_queuing");
+bvar::Adder<uint64_t> hdfs_file_writer_async_close_processing(
+        "hdfs_file_writer_async_close_processing");
 
 static constexpr size_t MB = 1024 * 1024;
 #ifndef USE_LIBHDFS3
@@ -75,17 +79,20 @@ public:
     HdfsWriteMemUsageRecorder() = default;
     ~HdfsWriteMemUsageRecorder() = default;
     size_t max_usage() const {
-        return static_cast<size_t>(max_jvm_heap_size() *
+        return static_cast<size_t>(static_cast<double>(max_jvm_heap_size()) *
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
     Status acquire_memory(size_t memory_size, int try_time) {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
         return Status::OK();
 #else
+        if (!config::enable_hdfs_mem_limiter) {
+            return Status::OK();
+        }
         auto unit = config::hdfs_jni_write_sleep_milliseconds;
         std::default_random_engine rng = make_random_engine();
-        std::uniform_int_distribution<uint32_t> u(unit, 2 * unit);
-        std::uniform_int_distribution<uint32_t> u2(2 * unit, 4 * unit);
+        std::uniform_int_distribution<int64_t> u(unit, 2 * unit);
+        std::uniform_int_distribution<int64_t> u2(2 * unit, 4 * unit);
         auto duration_ms =
                 try_time < (config::hdfs_jni_write_max_retry_time / 2) ? u(rng) : u2(rng);
         std::unique_lock lck {cur_memory_latch};
@@ -106,6 +113,9 @@ public:
     void release_memory(size_t memory_size) {
 #if defined(USE_LIBHDFS3) || defined(BE_TEST)
 #else
+        if (!config::enable_hdfs_mem_limiter) {
+            return;
+        }
         std::unique_lock lck {cur_memory_latch};
         size_t origin_size = cur_memory_comsuption;
         cur_memory_comsuption -= memory_size;
@@ -116,7 +126,11 @@ public:
     }
 
 private:
-    size_t max_jvm_heap_size() const { return JniUtil::get_max_jni_heap_memory_size(); }
+    // clang-format off
+    size_t max_jvm_heap_size() const {
+        return JniUtil::get_max_jni_heap_memory_size();
+    }
+    // clang-format on
     [[maybe_unused]] std::size_t cur_memory_comsuption {0};
     std::mutex cur_memory_latch;
     std::condition_variable cv;
@@ -132,13 +146,7 @@ HdfsFileWriter::HdfsFileWriter(Path path, std::shared_ptr<HdfsHandler> handler, 
           _fs_name(std::move(fs_name)),
           _sync_file_data(opts ? opts->sync_file_data : true),
           _batch_buffer(MB * config::hdfs_write_batch_buffer_size_mb) {
-    if (config::enable_file_cache && opts != nullptr && opts->write_file_cache) {
-        _cache_builder = std::make_unique<FileCacheAllocatorBuilder>(FileCacheAllocatorBuilder {
-                opts ? opts->is_cold_data : false, opts ? opts->file_cache_expiration : 0,
-                BlockFileCache::hash(_path.filename().native()),
-                FileCacheFactory::instance()->get_by_path(
-                        BlockFileCache::hash(_path.filename().native()))});
-    }
+    init_cache_builder(opts, _path);
     hdfs_file_writer_total << 1;
 
     TEST_SYNC_POINT("HdfsFileWriter");
@@ -224,8 +232,13 @@ Status HdfsFileWriter::close(bool non_block) {
         _state = State::ASYNC_CLOSING;
         _async_close_pack = std::make_unique<AsyncCloseStatusPack>();
         _async_close_pack->future = _async_close_pack->promise.get_future();
-        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func(
-                [&]() { _async_close_pack->promise.set_value(_close_impl()); });
+        hdfs_file_writer_async_close_queuing << 1;
+        return ExecEnv::GetInstance()->non_block_close_thread_pool()->submit_func([&]() {
+            hdfs_file_writer_async_close_queuing << -1;
+            hdfs_file_writer_async_close_processing << 1;
+            _async_close_pack->promise.set_value(_close_impl());
+            hdfs_file_writer_async_close_processing << -1;
+        });
     }
     _st = _close_impl();
     _state = State::CLOSED;
@@ -346,8 +359,11 @@ Status HdfsFileWriter::append_hdfs_file(std::string_view content) {
         {
             TEST_INJECTION_POINT_CALLBACK("HdfsFileWriter::append_hdfs_file_delay");
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_write_latency);
+            int64_t max_to_write = content.size();
+            tSize to_write = static_cast<tSize>(std::min(
+                    max_to_write, static_cast<int64_t>(std::numeric_limits<tSize>::max())));
             written_bytes = SYNC_POINT_HOOK_RETURN_VALUE(
-                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), content.size()),
+                    hdfsWrite(_hdfs_handler->hdfs_fs, _hdfs_file, content.data(), to_write),
                     "HdfsFileWriter::append_hdfs_file::hdfsWrite", content);
             {
                 TEST_INJECTION_POINT_RETURN_WITH_VALUE(
@@ -392,7 +408,6 @@ Status HdfsFileWriter::_append(std::string_view content) {
         if (_batch_buffer.full()) {
             auto error_msg = fmt::format("invalid batch buffer status, capacity {}, size {}",
                                          _batch_buffer.capacity(), _batch_buffer.size());
-            DCHECK(false) << error_msg;
             return Status::InternalError(error_msg);
         }
         size_t append_size = _batch_buffer.append(content);
@@ -453,5 +468,6 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
     inflight_hdfs_file_writer << 1;
     return std::make_unique<HdfsFileWriter>(std::move(path), handler, hdfs_file, fs_name, opts);
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

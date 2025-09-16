@@ -33,7 +33,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -41,6 +40,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -104,20 +104,19 @@ public:
         std::shared_ptr<CollectionInState> state = std::make_shared<CollectionInState>();
         context->set_function_state(scope, state);
 
-        auto* col_desc = context->get_arg_type(0);
-        DataTypePtr args_type = DataTypeFactory::instance().create_data_type(*col_desc, false);
+        DataTypePtr args_type = remove_nullable(context->get_arg_type(0));
         MutableColumnPtr args_column_ptr = args_type->create_column();
 
         for (int i = 1; i < num_args; i++) {
             // FE should make element type consistent and
             // equalize the length of the elements in struct
             const auto& const_column_ptr = context->get_constant_col(i);
-            if (const_column_ptr == nullptr) {
-                break;
-            }
+            // Types like struct, array, and map only support constant expressions.
+            DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
-                auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);
+                const auto* null_col =
+                        vectorized::check_and_get_column<vectorized::ColumnNullable>(col.get());
                 if (null_col->has_null()) {
                     state->null_in_set = true;
                 } else {
@@ -129,7 +128,7 @@ public:
         }
         ColumnPtr column_ptr = std::move(args_column_ptr);
         // make collection ref into set
-        int col_size = column_ptr->size();
+        auto col_size = column_ptr->size();
         for (size_t i = 0; i < col_size; i++) {
             state->args_set.insert({column_ptr, i});
         }
@@ -138,7 +137,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto in_state = reinterpret_cast<CollectionInState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
@@ -161,7 +160,7 @@ public:
         if (materialized_column_not_null->is_nullable()) {
             materialized_column_not_null = assert_cast<ColumnPtr>(
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                            materialized_column_not_null)
+                            materialized_column_not_null.get())
                             ->get_nested_column_ptr());
         }
 
@@ -192,3 +191,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

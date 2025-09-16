@@ -20,6 +20,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/config.h"
 #include "olap/delta_writer.h"
 #include "runtime/thread_context.h"
 
@@ -29,7 +30,7 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
     _rowset_builder = std::make_unique<CloudRowsetBuilder>(engine, req, profile);
-    _query_thread_context.init_unlocked();
+    _resource_ctx = thread_context()->resource_ctx();
 }
 
 CloudDeltaWriter::~CloudDeltaWriter() = default;
@@ -47,7 +48,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
         }
 
         tasks.emplace_back([writer] {
-            SCOPED_ATTACH_TASK(writer->query_thread_context());
+            SCOPED_ATTACH_TASK(writer->resource_context());
             std::lock_guard<bthread::Mutex> lock(writer->_mtx);
             if (writer->_is_init || writer->_is_cancelled) {
                 return Status::OK();
@@ -61,7 +62,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
 }
 
 Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const std::vector<uint32_t>& row_idxs) {
+                               const DorisVector<uint32_t>& row_idxs) {
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }
@@ -108,12 +109,32 @@ const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
 
 Status CloudDeltaWriter::commit_rowset() {
     std::lock_guard<bthread::Mutex> lock(_mtx);
+
+    // Handle empty rowset (no data written)
     if (!_is_init) {
-        // No data to write, but still need to write a empty rowset kv to keep version continuous
-        RETURN_IF_ERROR(_rowset_builder->init());
-        RETURN_IF_ERROR(_rowset_builder->build_rowset());
+        return _commit_empty_rowset();
     }
-    return _engine.meta_mgr().commit_rowset(*rowset_meta());
+
+    // Handle normal rowset with data
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
+}
+
+Status CloudDeltaWriter::_commit_empty_rowset() {
+    // If skip writing empty rowset metadata is enabled,
+    // we do not prepare rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        rowset_builder()->set_skip_writing_rowset_metadata(true);
+    }
+
+    RETURN_IF_ERROR(_rowset_builder->init());
+    RETURN_IF_ERROR(_rowset_builder->build_rowset());
+
+    // If skip writing empty rowset metadata is enabled, we do not commit rowset to meta service.
+    if (config::skip_writing_empty_rowset_metadata) {
+        return Status::OK();
+    }
+    // write a empty rowset kv to keep version continuous
+    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
 Status CloudDeltaWriter::set_txn_related_delete_bitmap() {

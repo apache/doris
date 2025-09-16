@@ -26,24 +26,20 @@
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_count_by_enum(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const bool result_is_nullable) {
-    if (argument_types.size() < 1) {
-        LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
-                                    argument_types.size(), name);
-        return nullptr;
-    }
+                                                             const bool result_is_nullable,
+                                                             const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 1024);
 
-    auto type = argument_types[0].get();
+    const auto* type = argument_types[0].get();
     if (type->is_nullable()) {
         type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
     }
 
-    WhichDataType which(*type);
-
-    if (which.is_string()) {
+    if (is_string_type(type->get_primitive_type())) {
         return std::make_shared<AggregateFunctionCountByEnum<AggregateFunctionCountByEnumData>>(
                 argument_types);
     }

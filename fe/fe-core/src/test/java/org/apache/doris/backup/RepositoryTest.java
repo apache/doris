@@ -17,11 +17,11 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.ShowRepositoriesStmt;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -36,6 +36,7 @@ import mockit.MockUp;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.DataInputStream;
@@ -80,6 +81,13 @@ public class RepositoryTest {
                 return "127.0.0.1";
             }
         };
+        new Expectations() {
+            {
+                fileSystem.getStorageProperties();
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         new MockUp<BrokerMgr>() {
             @Mock
@@ -103,7 +111,7 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testInit() {
+    public void testInit() throws UserException {
         new Expectations() {
             {
                 fileSystem.globList(anyString, (List<RemoteFile>) any);
@@ -114,7 +122,6 @@ public class RepositoryTest {
                         return Status.OK;
                     }
                 };
-
                 fileSystem.directUpload(anyString, anyString);
                 minTimes = 0;
                 result = Status.OK;
@@ -275,13 +282,6 @@ public class RepositoryTest {
     }
 
     @Test
-    public void testGetInfo() {
-        repo = new Repository(10000, "repo", false, location, fileSystem);
-        List<String> infos = repo.getInfo();
-        Assert.assertTrue(infos.size() == ShowRepositoriesStmt.TITLE_NAMES.size());
-    }
-
-    @Test
     public void testGetSnapshotInfo() {
         new Expectations() {
             {
@@ -317,13 +317,14 @@ public class RepositoryTest {
         }
     }
 
+    @Ignore("wait support")
     @Test
-    public void testPersist() {
+    public void testPersist() throws UserException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put("bos_endpoint", "http://gz.bcebos.com");
         properties.put("bos_accesskey", "a");
         properties.put("bos_secret_accesskey", "b");
-        RemoteFileSystem fs = FileSystemFactory.get(brokerName, StorageBackend.StorageType.BROKER, properties);
+        RemoteFileSystem fs = FileSystemFactory.get(StorageProperties.createPrimary(properties));
         repo = new Repository(10000, "repo", false, location, fs);
 
         File file = new File("./Repository");
@@ -352,6 +353,7 @@ public class RepositoryTest {
 
     @Test
     public void testPathNormalize() {
+
         String newLoc = "bos://cmy_bucket/bos_repo/";
         repo = new Repository(10000, "repo", false, newLoc, fileSystem);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");

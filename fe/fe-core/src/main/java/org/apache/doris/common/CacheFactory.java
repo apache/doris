@@ -46,7 +46,7 @@ import java.util.concurrent.ExecutorService;
  */
 public class CacheFactory {
 
-    private OptionalLong expireAfterWriteSec;
+    private OptionalLong expireAfterAccessSec;
     private OptionalLong refreshAfterWriteSec;
     private long maxSize;
     private boolean enableStats;
@@ -56,12 +56,12 @@ public class CacheFactory {
     private Ticker ticker;
 
     public CacheFactory(
-            OptionalLong expireAfterWriteSec,
+            OptionalLong expireAfterAccessSec,
             OptionalLong refreshAfterWriteSec,
             long maxSize,
             boolean enableStats,
             Ticker ticker) {
-        this.expireAfterWriteSec = expireAfterWriteSec;
+        this.expireAfterAccessSec = expireAfterAccessSec;
         this.refreshAfterWriteSec = refreshAfterWriteSec;
         this.maxSize = maxSize;
         this.enableStats = enableStats;
@@ -98,8 +98,8 @@ public class CacheFactory {
         Caffeine<Object, Object> builder = Caffeine.newBuilder();
         builder.maximumSize(maxSize);
 
-        if (expireAfterWriteSec.isPresent()) {
-            builder.expireAfterWrite(Duration.ofSeconds(expireAfterWriteSec.getAsLong()));
+        if (expireAfterAccessSec.isPresent()) {
+            builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSec.getAsLong()));
         }
         if (refreshAfterWriteSec.isPresent()) {
             builder.refreshAfterWrite(Duration.ofSeconds(refreshAfterWriteSec.getAsLong()));

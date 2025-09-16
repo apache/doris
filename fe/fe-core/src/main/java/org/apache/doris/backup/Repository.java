@@ -17,28 +17,28 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -135,6 +135,10 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("fs")
     private PersistentFileSystem fileSystem;
 
+    public PersistentFileSystem getFileSystem() {
+        return fileSystem;
+    }
+
     private Repository() {
         // for persist
     }
@@ -155,7 +159,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, TimeUtils.DATETIME_FORMAT_WITH_HYPHEN);
+                    + TimeUtils.longToTimeString(createTime, TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
         }
     }
 
@@ -195,141 +199,12 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public static Repository read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_137) {
-            Repository repo = new Repository();
-            repo.readFields(in);
-            return repo;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
-        }
+        return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
     }
 
-    @Override
-    public void gsonPostProcess() {
-        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
-        if (this.fileSystem.properties.containsKey(PersistentFileSystem.STORAGE_TYPE)) {
-            type = StorageBackend.StorageType.valueOf(
-                    this.fileSystem.properties.get(PersistentFileSystem.STORAGE_TYPE));
-            this.fileSystem.properties.remove(PersistentFileSystem.STORAGE_TYPE);
-        }
-        this.fileSystem = FileSystemFactory.get(this.fileSystem.getName(),
-                type,
-                this.fileSystem.getProperties());
-    }
-
-    public long getId() {
-        return id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public boolean isReadOnly() {
-        return isReadOnly;
-    }
-
-    public String getLocation() {
-        return location;
-    }
-
-    public String getErrorMsg() {
-        return errMsg;
-    }
-
-    public PersistentFileSystem getRemoteFileSystem() {
-        return fileSystem;
-    }
-
-    public long getCreateTime() {
-        return createTime;
-    }
-
-    // create repository dir and repo info file
-    public Status initRepository() {
-        if (FeConstants.runningUnitTest) {
-            return Status.OK;
-        }
-
-        // A temporary solution is to delete all stale snapshots before creating an S3 repository
-        // so that we can add regression tests about backup/restore.
-        //
-        // TODO: support hdfs/brokers
-        if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
-            String deleteStaledSnapshots = fileSystem.getProperties()
-                    .getOrDefault(CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, "false");
-            if (deleteStaledSnapshots.equalsIgnoreCase("true")) {
-                // delete with prefix:
-                // eg. __palo_repository_repo_name/
-                String snapshotPrefix = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name));
-                LOG.info("property {} is set, delete snapshots with prefix: {}",
-                        CreateRepositoryStmt.PROP_DELETE_IF_EXISTS, snapshotPrefix);
-                Status st = fileSystem.deleteDirectory(snapshotPrefix);
-                if (!st.ok()) {
-                    return st;
-                }
-            }
-        }
-
-        String repoInfoFilePath = assembleRepoInfoFilePath();
-        // check if the repo is already exist in remote
-        List<RemoteFile> remoteFiles = Lists.newArrayList();
-        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
-        if (!st.ok()) {
-            return st;
-        }
-        if (remoteFiles.size() == 1) {
-            RemoteFile remoteFile = remoteFiles.get(0);
-            if (!remoteFile.isFile()) {
-                return new Status(ErrCode.COMMON_ERROR, "the existing repo info is not a file");
-            }
-
-            // exist, download and parse the repo info file
-            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
-            try {
-                st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
-                if (!st.ok()) {
-                    return st;
-                }
-
-                byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
-                String json = new String(bytes, StandardCharsets.UTF_8);
-                JSONObject root = (JSONObject) JSONValue.parse(json);
-                if (name.compareTo((String) root.get("name")) != 0) {
-                    return new Status(ErrCode.COMMON_ERROR,
-                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
-                                + (String) root.get("name") + "' from " + repoInfoFilePath);
-                }
-                name = (String) root.get("name");
-                createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
-                if (createTime == -1) {
-                    return new Status(ErrCode.COMMON_ERROR,
-                            "failed to parse create time of repository: " + root.get("create_time"));
-                }
-
-                return Status.OK;
-            } catch (IOException e) {
-                return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
-            } finally {
-                File localFile = new File(localFilePath);
-                localFile.delete();
-            }
-
-        } else if (remoteFiles.size() > 1) {
-            return new Status(ErrCode.COMMON_ERROR,
-                    "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
-        } else {
-            // repo is already exist, get repo info
-            JSONObject root = new JSONObject();
-            root.put("name", name);
-            root.put("create_time", TimeUtils.longToTimeString(createTime));
-            String repoInfoContent = root.toString();
-            return fileSystem.directUpload(repoInfoContent, repoInfoFilePath);
-        }
-    }
-
+    //todo why only support alter S3 properties
     public Status alterRepositoryS3Properties(Map<String, String> properties) {
-        if (fileSystem instanceof S3FileSystem) {
+        if (this.fileSystem instanceof S3FileSystem) {
             Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
             oldProperties.remove(S3Properties.ACCESS_KEY);
             oldProperties.remove(S3Properties.SECRET_KEY);
@@ -359,23 +234,138 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
+    @Override
+    public void gsonPostProcess() {
+        try {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(storageProperties);
+        } catch (StoragePropertiesException exception) {
+            LOG.warn("Failed to create file system for repository: {}, error: {}, roll back to broker"
+                    + " filesystem", name, exception.getMessage());
+            BrokerProperties brokerProperties = BrokerProperties.of(this.fileSystem.name, this.fileSystem.properties);
+            this.fileSystem = FileSystemFactory.get(brokerProperties);
+        }
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public boolean isReadOnly() {
+        return isReadOnly;
+    }
+
+    public String getLocation() {
+        if (null == fileSystem) {
+            return location;
+        }
+        try {
+            if (null == fileSystem.getStorageProperties()) {
+                return location;
+            } else {
+                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
+            }
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getErrorMsg() {
+        return errMsg;
+    }
+
+    public PersistentFileSystem getRemoteFileSystem() {
+        return fileSystem;
+    }
+
+    public long getCreateTime() {
+        return createTime;
+    }
+
+    // create repository dir and repo info file
+    public Status initRepository() {
+        if (FeConstants.runningUnitTest) {
+            return Status.OK;
+        }
+
+        String repoInfoFilePath = assembleRepoInfoFilePath();
+        // check if the repo is already exist in remote
+        List<RemoteFile> remoteFiles = Lists.newArrayList();
+        Status st = fileSystem.globList(repoInfoFilePath, remoteFiles);
+        if (!st.ok()) {
+            return st;
+        }
+        if (remoteFiles.size() == 1) {
+            RemoteFile remoteFile = remoteFiles.get(0);
+            if (!remoteFile.isFile()) {
+                return new Status(ErrCode.COMMON_ERROR, "the existing repo info is not a file");
+            }
+
+            // exist, download and parse the repo info file
+            String localFilePath = BackupHandler.BACKUP_ROOT_DIR + "/tmp_info_" + allocLocalFileSuffix();
+            try {
+                st = fileSystem.downloadWithFileSize(repoInfoFilePath, localFilePath, remoteFile.getSize());
+                if (!st.ok()) {
+                    return st;
+                }
+
+                byte[] bytes = Files.readAllBytes(Paths.get(localFilePath));
+                String json = new String(bytes, StandardCharsets.UTF_8);
+                JSONObject root = (JSONObject) JSONValue.parse(json);
+                if (name.compareTo((String) root.get("name")) != 0) {
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "Invalid repository __repo_info, expected repo '" + name + "', but get name '"
+                                    + (String) root.get("name") + "' from " + repoInfoFilePath);
+                }
+                name = (String) root.get("name");
+                createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
+                if (createTime == -1) {
+                    return new Status(ErrCode.COMMON_ERROR,
+                            "failed to parse create time of repository: " + root.get("create_time"));
+                }
+
+                return Status.OK;
+            } catch (IOException e) {
+                return new Status(ErrCode.COMMON_ERROR, "failed to read repo info file: " + e.getMessage());
+            } finally {
+                File localFile = new File(localFilePath);
+                localFile.delete();
+            }
+
+        } else if (remoteFiles.size() > 1) {
+            return new Status(ErrCode.COMMON_ERROR,
+                    "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
+        } else {
+            // repo is already exist, get repo info
+            JSONObject root = new JSONObject();
+            root.put("name", name);
+            root.put("create_time", TimeUtils.longToTimeString(createTime));
+            String repoInfoContent = root.toString();
+            return fileSystem.directUpload(repoInfoContent, repoInfoFilePath);
+        }
+    }
+
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
-        return Joiner.on(PATH_DELIMITER).join(location,
+        return Joiner.on(PATH_DELIMITER).join(getLocation(),
                 joinPrefix(PREFIX_REPO, name),
                 FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
-        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        return Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 jobInfoFileNameWithTimestamp(createTime));
     }
@@ -383,7 +373,7 @@ public class Repository implements Writable, GsonPostProcessable {
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 joinPrefix(PREFIX_DB, info.getDbId()),
@@ -402,7 +392,7 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getRepoPath(String label, String childPath) {
-        String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+        String path = Joiner.on(PATH_DELIMITER).join(getLocation(), joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),
                 DIR_SNAPSHOT_CONTENT,
                 childPath);
@@ -418,6 +408,9 @@ public class Repository implements Writable, GsonPostProcessable {
     // Check if this repo is available.
     // If failed to connect this repo, set errMsg and return false.
     public boolean ping() {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         // for s3 sdk, the headObject() method does not support list "dir",
         // so we check FILE_REPO_INFO instead.
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
@@ -586,23 +579,9 @@ public class Repository implements Writable, GsonPostProcessable {
             if (!st.ok()) {
                 return st;
             }
-        } else if (fileSystem instanceof S3FileSystem || fileSystem instanceof AzureFileSystem) {
+        } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
-            }
-            st = fileSystem.delete(finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-
-            // upload final file
-            st = fileSystem.upload(localFilePath, finalRemotePath);
-            if (!st.ok()) {
-                return st;
-            }
-        } else if (fileSystem instanceof DFSFileSystem) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("hdfs get md5sum of file: {}. final remote path: {}", localFilePath, finalRemotePath);
             }
             st = fileSystem.delete(finalRemotePath);
             if (!st.ok()) {
@@ -655,7 +634,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         // 2. download
         status = fileSystem.downloadWithFileSize(remoteFilePathWithChecksum, localFilePath,
-                    remoteFiles.get(0).getSize());
+                remoteFiles.get(0).getSize());
         if (!status.ok()) {
             return status;
         }
@@ -865,15 +844,5 @@ public class Repository implements Writable, GsonPostProcessable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        name = Text.readString(in);
-        isReadOnly = in.readBoolean();
-        location = Text.readString(in);
-        fileSystem = PersistentFileSystem.read(in);
-        createTime = in.readLong();
     }
 }

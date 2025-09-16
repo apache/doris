@@ -21,6 +21,8 @@ suite("test_union") {
         SET enable_fallback_to_original_planner=false;
         set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
     """
+    String suiteName = "nereids_union_test_union"
+    String viewName = "${suiteName}_view"
     def db = "nereids_test_query_db"
     sql "use ${db}"
 
@@ -177,14 +179,14 @@ suite("test_union") {
     // test_union_bug
     // PALO-3617
     qt_union36 """select * from (select 1 as a, 2 as b union select 3, 3) c where a = 1"""
-    sql """drop view if exists nullable"""
-    sql """CREATE VIEW `nullable` AS SELECT `a`.`k1` AS `n1`, `b`.`k2` AS `n2` 
+    sql """drop view if exists ${viewName}"""
+    sql """CREATE VIEW `${viewName}` AS SELECT `a`.`k1` AS `n1`, `b`.`k2` AS `n2` 
            FROM `${db}`.`baseall` a LEFT OUTER JOIN 
            `${db}`.`bigtable` b ON `a`.`k1` = `b`.`k1` + 10
            WHERE `b`.`k2` IS NULL"""
-    order_qt_union37 """select n1 from nullable union all select n2 from nullable"""
-    qt_union38 """(select n1 from nullable) union all (select n2 from nullable order by n1) order by n1"""
-    qt_union39 """(select n1 from nullable) union all (select n2 from nullable) order by n1"""
+    order_qt_union37 """select n1 from ${viewName} union all select n2 from ${viewName}"""
+    qt_union38 """(select n1 from ${viewName}) union all (select n2 from ${viewName} order by n1) order by n1"""
+    qt_union39 """(select n1 from ${viewName}) union all (select n2 from ${viewName}) order by n1"""
 
 
     // test_union_different_column
@@ -239,11 +241,12 @@ suite("test_union") {
         }
     }
     // cast类型
-    def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
-       order by k1, k2"""
-    def res6 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1} order by k2)
-       order by k1, k2"""
-    check2_doris(res5, res6)
+    // cast date/dateime to int is not supported anymore
+    // def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
+    //    order by k1, k2"""
+    // def res6 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1} order by k2)
+    //    order by k1, k2"""
+    // check2_doris(res5, res6)
     def res7 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1}) order by k1, k2"""
 
     def res8 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k10 as int) from ${tbName1} order by k2) order

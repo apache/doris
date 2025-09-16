@@ -16,14 +16,17 @@
 // under the License.
 
 suite("test_plugins_download", "external,hive,external_docker,external_docker_hive") {
-    def host_ips = new ArrayList()
-    String[][] backends = sql """ show backends """
-    for (def b in backends) {
-        host_ips.add(b[1])
+    String enabled = context.config.otherConfigs.get("enableTrinoConnectorTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def host_ips = new ArrayList()
+        String[][] backends = sql """ show backends """
+        for (def b in backends) {
+            host_ips.add(b[1])
+        }
+        String [][] frontends = sql """ show frontends """
+        for (def f in frontends) {
+            host_ips.add(f[1])
+        }
+        dispatchTrinoConnectors(host_ips.unique())
     }
-    String [][] frontends = sql """ show frontends """
-    for (def f in frontends) {
-        host_ips.add(f[1])
-    }
-    dispatchTrinoConnectors(host_ips.unique())
 }

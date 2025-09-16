@@ -36,7 +36,6 @@ namespace doris {
 
 class ObjectPool;
 class RuntimeState;
-struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -46,7 +45,9 @@ struct ColumnWithTypeAndName;
 
 class VIcebergTableWriter final : public AsyncResultWriter {
 public:
-    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VIcebergTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                        std::shared_ptr<pipeline::Dependency> dep,
+                        std::shared_ptr<pipeline::Dependency> fin_dep);
 
     ~VIcebergTableWriter() = default;
 
@@ -62,7 +63,7 @@ private:
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
-                               const TypeDescriptor& source_type, int source_idx,
+                               const PrimitiveType& source_type, int source_idx,
                                std::unique_ptr<PartitionColumnTransform> partition_column_transform)
                 : _field(field),
                   _source_type(source_type),
@@ -72,7 +73,7 @@ private:
     public:
         const iceberg::PartitionField& field() const { return _field; }
 
-        const TypeDescriptor& source_type() const { return _source_type; }
+        const PrimitiveType& source_type() const { return _source_type; }
         int source_idx() const { return _source_idx; }
 
         const PartitionColumnTransform& partition_column_transform() const {
@@ -85,7 +86,7 @@ private:
 
     private:
         const iceberg::PartitionField& _field;
-        TypeDescriptor _source_type;
+        PrimitiveType _source_type;
         int _source_idx;
         std::unique_ptr<PartitionColumnTransform> _partition_column_transform;
     };
@@ -97,12 +98,12 @@ private:
     std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
 
     std::shared_ptr<VIcebergPartitionWriter> _create_partition_writer(
-            vectorized::Block& block, int position, const std::string* file_name = nullptr,
-            int file_name_index = 0);
+            vectorized::Block* transformed_block, int position,
+            const std::string* file_name = nullptr, int file_name_index = 0);
 
-    std::optional<PartitionData> _get_partition_data(vectorized::Block& block, int position);
+    PartitionData _get_partition_data(vectorized::Block* block, int position);
 
-    std::any _get_iceberg_partition_value(const TypeDescriptor& type_desc,
+    std::any _get_iceberg_partition_value(const PrimitiveType& type_desc,
                                           const ColumnWithTypeAndName& partition_column,
                                           int position);
 
@@ -114,7 +115,6 @@ private:
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
-    RuntimeProfile* _profile = nullptr;
 
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;
@@ -126,8 +126,6 @@ private:
             _partitions_to_writers;
 
     VExprContextSPtrs _write_output_vexpr_ctxs;
-
-    Block _transformed_block;
 
     size_t _row_count = 0;
 

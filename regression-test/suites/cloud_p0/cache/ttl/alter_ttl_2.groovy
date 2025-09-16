@@ -18,7 +18,16 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("alter_ttl_2") {
-    sql """ use @regression_cluster_name1 """
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="300") """
     String[][] backends = sql """ show backends """
     String backendId;
@@ -26,7 +35,7 @@ suite("alter_ttl_2") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -35,14 +44,14 @@ suite("alter_ttl_2") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/clear_file_cache"""
+    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
     logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
             uri url
-            op "post"
-            body "{\"sync\"=\"true\"}"
+            op "get"
+            body ""
             check check_func
         }
     }
@@ -66,14 +75,15 @@ suite("alter_ttl_2") {
         |PROPERTIES(
         |"exec_mem_limit" = "8589934592",
         |"load_parallelism" = "3")""".stripMargin()
-    
-    
+
+
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     def load_customer_ttl_once =  { String table ->
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
         // def table = "customer"
         // create table if not exists
         sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
         def loadLabel = table + "_" + uniqueID
         // load data from cos
         def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
@@ -161,8 +171,8 @@ suite("alter_ttl_2") {
             }
             assertTrue(flag1)
     }
-    // wait for ttl timeout
-    sleep(40000)
+    // the first load data ttl is 300，so need wait for 200s until the ttl timeout
+    sleep(200000)
     getMetricsMethod.call() {
         respCode, body ->
             assertEquals("${respCode}".toString(), "200")
@@ -181,5 +191,6 @@ suite("alter_ttl_2") {
                 }
             }
             assertTrue(flag1)
+    }
     }
 }

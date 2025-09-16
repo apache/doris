@@ -20,15 +20,11 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
-import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
-import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * If there are multiple distinct aggregate functions that cannot
@@ -40,9 +36,6 @@ import com.google.common.collect.ImmutableSet;
  * - group_concat -> MULTI_DISTINCT_GROUP_CONCAT
  */
 public class CheckMultiDistinct extends OneRewriteRuleFactory {
-    private final ImmutableSet<Class<? extends AggregateFunction>> supportedFunctions =
-            ImmutableSet.of(Count.class, Sum.class, Avg.class, GroupConcat.class);
-
     @Override
     public Rule build() {
         return logicalAggregate().then(agg -> checkDistinct(agg)).toRule(RuleType.CHECK_ANALYSIS);
@@ -52,10 +45,40 @@ public class CheckMultiDistinct extends OneRewriteRuleFactory {
         if (aggregate.getDistinctArguments().size() > 1) {
 
             for (AggregateFunction func : aggregate.getAggregateFunctions()) {
-                if (func.isDistinct() && !supportedFunctions.contains(func.getClass())) {
+                if (func.isDistinct() && !(func instanceof SupportMultiDistinct)) {
                     throw new AnalysisException(func.toString() + " can't support multi distinct.");
                 }
             }
+        }
+
+        boolean distinctMultiColumns = false;
+        for (AggregateFunction func : aggregate.getAggregateFunctions()) {
+            if (!func.isDistinct()) {
+                continue;
+            }
+            if (func.arity() <= 1) {
+                continue;
+            }
+            for (int i = 1; i < func.arity(); i++) {
+                if (!func.child(i).getInputSlots().isEmpty() && !(func.child(i) instanceof OrderExpression)) {
+                    // think about group_concat(distinct col_1, ',')
+                    distinctMultiColumns = true;
+                    break;
+                }
+            }
+            if (distinctMultiColumns) {
+                break;
+            }
+        }
+
+        long distinctFunctionNum = 0;
+        for (AggregateFunction aggregateFunction : aggregate.getAggregateFunctions()) {
+            distinctFunctionNum += aggregateFunction.isDistinct() ? 1 : 0;
+        }
+
+        if (distinctMultiColumns && distinctFunctionNum > 1) {
+            throw new AnalysisException(
+                    "The query contains multi count distinct or sum distinct, each can't have multi columns");
         }
         return aggregate;
     }
