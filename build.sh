@@ -651,6 +651,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
