@@ -62,9 +62,7 @@
 #pragma GCC diagnostic ignored "-Wshadow"
 #endif
 
-#define private public
 #include "runtime/exec_env.h"
-#undef private
 
 #ifdef __clang__
 #pragma clang diagnostic pop
@@ -618,7 +616,7 @@ private:
         }
 
         if (d.HasMember("repeat") && d["repeat"].IsInt64()) {
-            config.repeat = d["repeat"].GetInt64();
+            config.repeat = d["repeat"].GetInt();
         }
 
         if (d.HasMember("write_batch_size") && d["write_batch_size"].IsInt64()) {
@@ -1347,7 +1345,7 @@ private:
         job.stats.num_local_io_total = total_stats.num_local_io_total;
         job.stats.num_remote_io_total = total_stats.num_remote_io_total;
         job.stats.num_inverted_index_remote_io_total =
-                total_stats.num_inverted_index_remote_io_total;
+                total_stats.inverted_index_num_remote_io_total;
         job.stats.local_io_timer = total_stats.local_io_timer;
         job.stats.bytes_read_from_local = total_stats.bytes_read_from_local;
         job.stats.bytes_read_from_remote = total_stats.bytes_read_from_remote;
@@ -2239,14 +2237,17 @@ private:
 
 void init_exec_env() {
     auto* exec_env = doris::ExecEnv::GetInstance();
+    std::unique_ptr<doris::ThreadPool> s3_upload_pool;
     static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
                               .set_min_threads(256)
                               .set_max_threads(512)
-                              .build(&(exec_env->_s3_file_upload_thread_pool)));
-    exec_env->_file_cache_factory = new FileCacheFactory();
+                              .build(&s3_upload_pool));
+    exec_env->set_s3_file_upload_thread_pool(std::move(s3_upload_pool));
+
+    exec_env->set_file_cache_factory(new FileCacheFactory());
     std::vector<doris::CachePath> cache_paths;
     exec_env->init_file_cache_factory(cache_paths);
-    exec_env->_file_cache_open_fd_cache = std::make_unique<doris::io::FDCache>();
+    exec_env->set_file_cache_open_fd_cache(std::make_unique<doris::io::FDCache>());
 }
 
 int main(int argc, char* argv[]) {
