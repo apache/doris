@@ -39,7 +39,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'convert_tz'. always nullable because after convert the datetime may be out of range.
+ * ScalarFunction 'convert_tz'.
  */
 public class ConvertTz extends ScalarFunction
         implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullLiteral, PropagateNullable, Monotonic {

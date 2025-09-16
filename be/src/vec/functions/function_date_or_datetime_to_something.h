@@ -26,7 +26,51 @@
 
 namespace doris::vectorized {
 
-/// See DateTimeTransforms.h
+template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
+struct Transformer {
+    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            auto res = Transform::execute(vec_from[i]);
+            using RESULT_TYPE = std::decay_t<decltype(res)>;
+            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
+            DCHECK(((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
+                           .is_valid_date());
+        }
+    }
+};
+
+template <PrimitiveType FromPType, PrimitiveType ToPType, template <PrimitiveType> typename Impl>
+struct TransformerYear {
+    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            to_ptr[i] = Impl<FromPType>::execute(from_ptr[i]);
+        }
+    }
+};
+
+template <PrimitiveType FromType, PrimitiveType ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearImpl> {};
+
+template <PrimitiveType FromType, PrimitiveType ToType>
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
+
+// used in time_of/to_time functions
 template <typename ToDataType, typename Transform>
 class FunctionDateOrDateTimeToSomething : public IFunction {
 public:
@@ -89,6 +133,10 @@ public:
 
         return std::make_shared<typename PrimitiveTypeTraits<ToDataType::PType>::DataType>();
     }
+
+    // random value in nested for null row may be not valid date/datetime, which would cause false positive of
+    // out of range error.
+    bool need_replace_null_data_to_default() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {

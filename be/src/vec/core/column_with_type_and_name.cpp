@@ -92,7 +92,8 @@ void ColumnWithTypeAndName::to_pb_column_meta(PColumnMeta* col_meta) const {
     type->to_pb_column_meta(col_meta);
 }
 
-ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_to_default) const {
+ColumnWithTypeAndName ColumnWithTypeAndName::get_nested_of_nullable(
+        bool replace_null_data_to_default) const {
     if (type->is_nullable()) {
         auto nested_type =
                 assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type.get())
@@ -105,7 +106,8 @@ ColumnWithTypeAndName ColumnWithTypeAndName::get_nested(bool replace_null_data_t
                     assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             column_ptr.get());
             if (is_const) {
-                nested_column = ColumnConst::create(source_column->get_nested_column_ptr(), source_column->size());
+                nested_column = ColumnConst::create(source_column->get_nested_column_ptr(),
+                                                    source_column->size());
             } else {
                 nested_column = source_column->get_nested_column_ptr();
             }
