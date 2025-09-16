@@ -598,7 +598,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (!_row_bitmap.isEmpty() &&
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0)) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        RowRanges condition_row_ranges =
+                RowRanges::create_single(_row_bitmap.minimum(), _row_bitmap.maximum() + 1);
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
@@ -758,7 +759,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                     _opts.col_id_to_predicates.at(cid).get(), condition_row_ranges));
         }
 
-        pre_size = condition_row_ranges->count();
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
 
         DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
