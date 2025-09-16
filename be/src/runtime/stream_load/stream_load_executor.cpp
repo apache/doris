@@ -92,11 +92,10 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             // NOTE: Do not modify the error message here, for historical reasons,
             // some users may rely on this error message.
             if (ctx->need_commit_self) {
-                *status = Status::DataQualityError("too many filtered rows, {}, url: {}",
-                                                   state->get_first_error_msg(), ctx->error_url);
+                *status = Status::DataQualityError("too many filtered rows, url: {}",
+                                                   ctx->error_url);
             } else {
-                *status = Status::DataQualityError("too many filtered rows {}",
-                                                   state->get_first_error_msg());
+                *status = Status::DataQualityError("too many filtered rows");
             }
         }
 
@@ -107,6 +106,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             LOG(WARNING) << "fragment execute failed"
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
             ctx->number_loaded_rows = 0;
+            ctx->first_error_msg = state->get_first_error_msg();
             // cancel body_sink, make sender known it
             if (ctx->body_sink != nullptr) {
                 ctx->body_sink->cancel(status->to_string());
