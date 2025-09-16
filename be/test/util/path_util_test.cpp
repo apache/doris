@@ -105,42 +105,14 @@ TEST(TestPathUtil, file_extension_test) {
 // Helpers for plugin URL tests
 namespace {
 
-class DorisHomeGuard {
-public:
-    DorisHomeGuard() {
-        const char* original = std::getenv("DORIS_HOME");
-        if (original) {
-            original_doris_home_ = std::string(original);
-        }
-    }
-
-    ~DorisHomeGuard() {
-        if (!original_doris_home_.empty()) {
-            setenv("DORIS_HOME", original_doris_home_.c_str(), 1);
-        } else {
-            unsetenv("DORIS_HOME");
-        }
-    }
-
-    std::string create_temp_home() {
-        namespace fs = std::filesystem;
-        fs::path base = fs::temp_directory_path() / "doris_path_util_test";
-        fs::create_directories(base);
-        // ensure unique subdir per test run
-        fs::path home = base / std::to_string(reinterpret_cast<uintptr_t>(&base));
-        fs::create_directories(home);
-        // set DORIS_HOME
-        setenv("DORIS_HOME", home.string().c_str(), 1);
-        return home.string();
-    }
-
-private:
-    std::string original_doris_home_;
-};
-
 std::string create_temp_home() {
-    static DorisHomeGuard guard;
-    return guard.create_temp_home();
+    namespace fs = std::filesystem;
+    fs::path base = fs::temp_directory_path() / "doris_path_util_test";
+    fs::create_directories(base);
+    // ensure unique subdir per test run
+    fs::path home = base / std::to_string(reinterpret_cast<uintptr_t>(&base));
+    fs::create_directories(home);
+    return home.string();
 }
 
 void touch_file(const std::string& dir, const std::string& filename) {
@@ -153,14 +125,13 @@ void touch_file(const std::string& dir, const std::string& filename) {
 } // namespace
 
 TEST(TestPathUtil, get_real_plugin_url_absolute_passthrough) {
-    std::string _home = create_temp_home();
     // absolute style URLs containing ":/" should be returned as-is
     EXPECT_EQ(
             "http://example.com/a.jar",
-            path_util::get_real_plugin_url("http://example.com/a.jar", "/any/dir", "jdbc_drivers"));
+            path_util::get_real_plugin_url("http://example.com/a.jar", "/any/dir", "jdbc_drivers", ""));
     EXPECT_EQ(
             "file:///opt/driver/a.jar",
-            path_util::get_real_plugin_url("file:///opt/driver/a.jar", "/any/dir", "jdbc_drivers"));
+            path_util::get_real_plugin_url("file:///opt/driver/a.jar", "/any/dir", "jdbc_drivers", ""));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_prefers_new_default_when_exists) {
@@ -175,7 +146,7 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_prefers_new_default_when_
 
     std::string expected = "file://" + default_new + "/" + fname;
     EXPECT_EQ(expected,
-              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name, home));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_falls_back_to_old_default) {
@@ -190,7 +161,7 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_falls_back_to_old_default
 
     std::string expected = "file://" + default_old + "/" + fname;
     EXPECT_EQ(expected,
-              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name, home));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_old_even_if_missing) {
@@ -203,7 +174,7 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_old_even_if_missing) {
     // neither new nor old has the file; should still point to old default
     std::string expected = "file://" + default_old + "/" + fname;
     EXPECT_EQ(expected,
-              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name));
+              path_util::check_and_return_default_plugin_url(fname, default_new, plugin_name, home));
 }
 
 TEST(TestPathUtil, check_and_return_default_plugin_url_custom_config_dir) {
@@ -215,7 +186,7 @@ TEST(TestPathUtil, check_and_return_default_plugin_url_custom_config_dir) {
 
     std::string expected = "file://" + custom_dir + "/" + fname;
     EXPECT_EQ(expected,
-              path_util::check_and_return_default_plugin_url(fname, custom_dir, plugin_name));
+              path_util::check_and_return_default_plugin_url(fname, custom_dir, plugin_name, home));
 }
 
 TEST(TestPathUtil, get_real_plugin_url_relative_paths) {
@@ -228,7 +199,7 @@ TEST(TestPathUtil, get_real_plugin_url_relative_paths) {
     // When new default exists
     touch_file(default_new, fname);
     std::string expected_new = "file://" + default_new + "/" + fname;
-    EXPECT_EQ(expected_new, path_util::get_real_plugin_url(fname, default_new, plugin_name));
+    EXPECT_EQ(expected_new, path_util::get_real_plugin_url(fname, default_new, plugin_name, home));
 
     // When only old default exists
     std::string home2 = create_temp_home();
@@ -236,13 +207,13 @@ TEST(TestPathUtil, get_real_plugin_url_relative_paths) {
     std::string default_old2 = home2 + "/" + plugin_name;
     touch_file(default_old2, fname);
     std::string expected_old = "file://" + default_old2 + "/" + fname;
-    EXPECT_EQ(expected_old, path_util::get_real_plugin_url(fname, default_new2, plugin_name));
+    EXPECT_EQ(expected_old, path_util::get_real_plugin_url(fname, default_new2, plugin_name, home2));
 
     // When using a custom configured dir (not equal to default new path)
     std::string custom_dir = home + "/custom";
     touch_file(custom_dir, fname);
     std::string expected_custom = "file://" + custom_dir + "/" + fname;
-    EXPECT_EQ(expected_custom, path_util::get_real_plugin_url(fname, custom_dir, plugin_name));
+    EXPECT_EQ(expected_custom, path_util::get_real_plugin_url(fname, custom_dir, plugin_name, home));
 }
 
 } // namespace doris

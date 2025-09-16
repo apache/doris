@@ -69,20 +69,30 @@ std::string file_extension(const string& path) {
 }
 
 std::string get_real_plugin_url(const std::string& url, const std::string& plugin_dir_config_value,
-                                const std::string& plugin_dir_name) {
+                                const std::string& plugin_dir_name,
+                                const std::string& doris_home) {
     if (url.find(":/") == std::string::npos) {
-        return check_and_return_default_plugin_url(url, plugin_dir_config_value, plugin_dir_name);
+        return check_and_return_default_plugin_url(url, plugin_dir_config_value, plugin_dir_name, doris_home);
     }
     return url;
 }
 
 std::string check_and_return_default_plugin_url(const std::string& url,
                                                 const std::string& plugin_dir_config_value,
-                                                const std::string& plugin_dir_name) {
-    const char* doris_home = std::getenv("DORIS_HOME");
+                                                const std::string& plugin_dir_name,
+                                                const std::string& doris_home) {
+    std::string home_dir = doris_home;
+    if (home_dir.empty()) {
+        const char* env_home = std::getenv("DORIS_HOME");
+        if (env_home) {
+            home_dir = std::string(env_home);
+        } else {
+            return "file://" + plugin_dir_config_value + "/" + url;
+        }
+    }
 
-    std::string default_url = std::string(doris_home) + "/plugins/" + plugin_dir_name;
-    std::string default_old_url = std::string(doris_home) + "/" + plugin_dir_name;
+    std::string default_url = home_dir + "/plugins/" + plugin_dir_name;
+    std::string default_old_url = home_dir + "/" + plugin_dir_name;
 
     if (plugin_dir_config_value == default_url) {
         // If true, which means user does not set `jdbc_drivers_dir` and use the default one.

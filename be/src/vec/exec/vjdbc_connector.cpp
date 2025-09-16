@@ -128,7 +128,7 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
     JniLocalFrame jni_frame;
     {
         std::string driver_path = doris::path_util::get_real_plugin_url(
-                _conn_param.driver_path, doris::config::jdbc_drivers_dir, "jdbc_drivers");
+                _conn_param.driver_path, doris::config::jdbc_drivers_dir, "jdbc_drivers", "");
 
         TJdbcExecutorCtorParams ctor_params;
         ctor_params.__set_statement(_sql_str);
