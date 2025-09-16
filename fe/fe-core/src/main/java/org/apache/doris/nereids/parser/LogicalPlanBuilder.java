@@ -6233,14 +6233,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new AlterWorkloadGroupCommand(cgName, ctx.name.getText(), properties);
+        return new AlterWorkloadGroupCommand(cgName, stripQuotes(ctx.name.getText()), properties);
     }
 
     @Override
     public LogicalPlan visitAlterWorkloadPolicy(AlterWorkloadPolicyContext ctx) {
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new AlterWorkloadPolicyCommand(ctx.name.getText(), properties);
+        return new AlterWorkloadPolicyCommand(stripQuotes(ctx.name.getText()), properties);
     }
 
     @Override
@@ -6713,12 +6713,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDropWorkloadGroup(DropWorkloadGroupContext ctx) {
         String cgName = ctx.computeGroup == null ? "" : stripQuotes(ctx.computeGroup.getText());
-        return new DropWorkloadGroupCommand(cgName, ctx.name.getText(), ctx.EXISTS() != null);
+        return new DropWorkloadGroupCommand(cgName, stripQuotes(ctx.name.getText()), ctx.EXISTS() != null);
     }
 
     @Override
     public LogicalPlan visitDropWorkloadPolicy(DropWorkloadPolicyContext ctx) {
-        return new DropWorkloadPolicyCommand(ctx.name.getText(), ctx.EXISTS() != null);
+        return new DropWorkloadPolicyCommand(stripQuotes(ctx.name.getText()), ctx.EXISTS() != null);
     }
 
     @Override
@@ -7428,7 +7428,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitCreateWorkloadPolicy(CreateWorkloadPolicyContext ctx) {
-        String policyName = ctx.name.getText();
+        String policyName = stripQuotes(ctx.name.getText());
         boolean ifNotExists = ctx.IF() != null;
 
         List<WorkloadConditionMeta> conditions = new ArrayList<>();
