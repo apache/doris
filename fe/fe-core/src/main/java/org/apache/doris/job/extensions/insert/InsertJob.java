@@ -518,7 +518,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
             // comment
             jobInfo.add(getComment());
-            // tracking urls
+            // first error message
             List<String> firstErrorMsg = insertTaskQueue.stream()
                     .map(task -> {
                         if (StringUtils.isNotEmpty(task.getFirstErrorMsg())) {
