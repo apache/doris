@@ -458,8 +458,10 @@ Status VFileResultWriter::close(Status exec_status) {
         if (_written_rows_counter) {
             COUNTER_SET(_written_rows_counter, _written_rows);
             SCOPED_TIMER(_writer_close_timer);
+            st = _close_file_writer(true);
+        } else {
+            st = _close_file_writer(true);
         }
-        st = _close_file_writer(true);
     }
     return st;
 }

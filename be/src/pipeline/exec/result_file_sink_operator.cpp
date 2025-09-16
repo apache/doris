@@ -109,6 +109,12 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     return Status::OK();
 }
 
+Status ResultFileSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    return Base::open(state);
+}
+
 Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) {
     if (Base::_closed) {
         return Status::OK();

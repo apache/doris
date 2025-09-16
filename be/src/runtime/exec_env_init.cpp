@@ -408,6 +408,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
     S3ClientFactory::instance();
+    LOG(INFO) << "Begin exec S3ClientFactory::getClientConfiguration().";
+    // This will take a long time, indirectly causing slow S3 writing during the first execution
+    // after BE restart
+    S3ClientFactory::getClientConfiguration();
+    LOG(INFO) << "Exec S3ClientFactory::getClientConfiguration() done.";
     return Status::OK();
 }
 
