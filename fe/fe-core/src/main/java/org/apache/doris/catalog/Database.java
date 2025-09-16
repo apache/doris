@@ -423,15 +423,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             table.writeLock();
             try {
                 registerTable(table);
-                if (table.isTemporary()) {
-                    Env.getCurrentEnv().registerTempTableAndSession(table);
-                }
-                if (table instanceof MTMV) {
-                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
-                }
                 if (!isReplay) {
                     // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
+                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
                     Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
             } finally {
