@@ -200,6 +200,9 @@ public class AnalysisInfo implements Writable {
     @SerializedName("ep")
     public final boolean enablePartition;
 
+    @SerializedName("sql")
+    public String sql;
+
     public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,

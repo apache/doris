@@ -862,7 +862,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
+    public static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
                     findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_START_TIME)

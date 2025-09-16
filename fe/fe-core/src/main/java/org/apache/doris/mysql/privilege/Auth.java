@@ -82,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -1679,6 +1680,10 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    public Collection<Role> getRoles() {
+        return roleManager.getRoles().values();
     }
 
     // Used for creating table_privileges table in information_schema.

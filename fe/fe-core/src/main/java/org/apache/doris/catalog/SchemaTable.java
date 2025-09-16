@@ -832,7 +832,7 @@ public class SchemaTable extends Table {
                                     .column("TABLE_SCHEMA", ScalarType.createStringType())
                                     .column("TABLE_NAME", ScalarType.createStringType())
                                     .column("COLUMN_NAME", ScalarType.createStringType())
-                                    .column("STATE", ScalarType.createStringType())
+                                    .column("STATUS", ScalarType.createStringType())
                                     .column("PRIORITY", ScalarType.createStringType())
                                     .column("ERROR_CODE", ScalarType.createType(PrimitiveType.INT))
                                     .column("ERROR_MESSAGE", ScalarType.createStringType())

@@ -43,6 +43,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -86,6 +87,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.SyncMvMetrics;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -143,6 +145,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -465,6 +468,15 @@ public class MetadataGenerator {
             case analyze_job:
                 result = analyzeJobMetadataResult(schemaTableParams);
                 columnIndex = ANALYZE_JOB_COLUMN_TO_INDEX;
+            case analyze_task:
+                result = analyzeTaskMetadataResult(schemaTableParams);
+                columnIndex = ANALYZE_TASK_COLUMN_TO_INDEX;
+            case activity_auto_analyze:
+                result = activityAutoAnalyzeMetadataResult(schemaTableParams);
+                columnIndex = ACTIVITY_AUTO_ANALYZE_COLUMN_TO_INDEX;
+            case grants_to_roles:
+                result = grantsToRolesMetadataResult(schemaTableParams);
+                columnIndex = GRANTS_TO_ROLES_COLUMN_TO_INDEX;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -1502,6 +1514,201 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setLongVal(job.endTime));
             // DURATION_MS
             trow.addToColumnValue(new TCell().setLongVal(job.endTime - job.startTime));
+            dataBatch.add(trow);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult analyzeTaskMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> catalogConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_CATALOG");
+        List<Expression> schemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_SCHEMA");
+        List<Expression> tableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_NAME");
+        List<Expression> jobIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "JOB_ID");
+        List<Expression> taskIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TASK_ID");
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisJobInfoMap().values();
+        NavigableMap<Long, AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisTaskInfoMap();
+        for (AnalysisInfo job : jobs) {
+            long jobId = job.jobId;
+            if (FrontendConjunctsUtils.isFiltered(jobIdConjuncts, "JOB_ID", jobId)) {
+                continue;
+            }
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalog(job.catalogId);
+            if (catalog == null) {
+                continue;
+            }
+            String catalogName = catalog.getName();
+            if (FrontendConjunctsUtils.isFiltered(catalogConjuncts, "TABLE_CATALOG", catalogName)) {
+                continue;
+            }
+            Optional<? extends DatabaseIf<? extends TableIf>> optionalDb = catalog.getDb(job.dbId);
+            if (!optionalDb.isPresent()) {
+                continue;
+            }
+            DatabaseIf<? extends TableIf> db = optionalDb.get();
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(schemaConjuncts, "TABLE_SCHEMA", dbName)) {
+                continue;
+            }
+            Optional<? extends TableIf> optionalTable = db.getTable(job.tblId);
+            if (!optionalTable.isPresent()) {
+                continue;
+            }
+            TableIf table = optionalTable.get();
+            String tableName = table.getName();
+            if (FrontendConjunctsUtils.isFiltered(tableConjuncts, "TABLE_NAME", tableName)) {
+                continue;
+            }
+            List<Long> taskIds = job.taskIds;
+            for (Long taskId : taskIds) {
+                AnalysisInfo task = tasks.get(taskId);
+                if (task == null) {
+                    continue;
+                }
+                if (FrontendConjunctsUtils.isFiltered(taskIdConjuncts, "TASK_ID", taskId)) {
+                    continue;
+                }
+                TRow trow = new TRow();
+                // TASK_ID
+                trow.addToColumnValue(new TCell().setLongVal(taskId));
+                // JOB_ID
+                trow.addToColumnValue(new TCell().setLongVal(jobId));
+                // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(catalogName));
+                // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(dbName));
+                // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(tableName));
+                // COLUMN_NAME
+                trow.addToColumnValue(new TCell().setStringVal(task.colName));
+                // STATUS
+                trow.addToColumnValue(new TCell().setStringVal(task.state.name()));
+                // PRIORITY
+                trow.addToColumnValue(new TCell().setStringVal(task.priority.name()));
+                // ERROR_CODE
+                trow.addToColumnValue(new TCell().setIntVal(0));
+                // ERROR_MESSAGE
+                trow.addToColumnValue(new TCell().setStringVal(task.message));
+                // ERROR_SQL
+                trow.addToColumnValue(new TCell().setStringVal(task.sql));
+                // START_TIME
+                trow.addToColumnValue(new TCell().setLongVal(task.startTime));
+                // END_TIME
+                trow.addToColumnValue(new TCell().setLongVal(task.endTime));
+                // DURATION_MS
+                trow.addToColumnValue(new TCell().setLongVal(task.endTime - task.startTime));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult activityAutoAnalyzeMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TRow trow = new TRow();
+        // AUTO_ANALYZE_ENABLE
+        trow.addToColumnValue(new TCell().setBoolVal(StatisticsUtil.enableAutoAnalyze()));
+        // AUTO_ANALYZE_THREAD
+        trow.addToColumnValue(new TCell().setIntVal(Config.auto_analyze_simultaneously_running_task_num));
+        Pair<LocalTime, LocalTime> startEndTime = StatisticsUtil.findConfigFromGlobalSessionVar();
+        // AUTO_ANALYZE_START_TIME
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime==null?null:startEndTime.first.toString()));
+        // AUTO_ANALYZE_END_TIME
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime==null?null:startEndTime.second.toString()));
+        // AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD
+        trow.addToColumnValue(new TCell().setIntVal(StatisticsUtil.getAutoAnalyzeTableWidthThreshold()));
+        // AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD
+        trow.addToColumnValue(new TCell().setIntVal((int) StatisticsUtil.getTableStatsHealthThreshold()));
+        Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager().getAnalysisJobInfoMap().values();
+        long successJob = 0;
+        long failedJob = 0;
+        for (AnalysisInfo job:jobs) {
+            if (job.state == AnalysisState.FINISHED) {
+                successJob ++;
+            }
+            if (job.state == AnalysisState.FAILED) {
+                failedJob ++;
+            }
+        }
+        // SUCCESS_JOB
+        trow.addToColumnValue(new TCell().setLongVal(successJob));
+        // FAILED_JOB
+        trow.addToColumnValue(new TCell().setLongVal(failedJob));
+        Collection<AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager().getAnalysisTaskInfoMap().values();
+        long successTask = 0;
+        long failedTask = 0;
+        for (AnalysisInfo task:tasks) {
+            if (task.state == AnalysisState.FINISHED) {
+                successTask ++;
+            }
+            if (task.state == AnalysisState.FAILED) {
+                failedTask ++;
+            }
+        }
+        // SUCCESS_TASK
+        trow.addToColumnValue(new TCell().setLongVal(successTask));
+        // FAILED_TASK
+        trow.addToColumnValue(new TCell().setLongVal(failedTask));
+        // HIGH_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().highPriorityJobs.size()));
+        // MEDIUM_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().midPriorityJobs.size()));
+        // LOW_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().lowPriorityJobs.size()));
+        // VERY_LOW_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size()));
+        dataBatch.add(trow);
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult grantsToRolesMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> roleNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ROLE_NAME");
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Collection<Role> roles = Env.getCurrentEnv().getAuth().getRoles();
+        for (Role role : roles) {
+            String roleName = role.getRoleName();
+            if (FrontendConjunctsUtils.isFiltered(roleNameConjuncts, "ROLE_NAME", roleName)) {
+                continue;
+            }
+            TRow trow = new TRow();
+            // ROLE_NAME
+            trow.addToColumnValue(new TCell().setStringVal(roleName));
+            // OBJECT_CATALOG
+
+            // OBJECT_DATABASE
+            // OBJECT_NAME
+            // OBJECT_TYPE
+            // PRIVILEGE_TYPE
             dataBatch.add(trow);
         }
         result.setDataBatch(dataBatch);
