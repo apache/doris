@@ -463,7 +463,7 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     return Status::OK();
 }
 
-void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+ bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                        std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
@@ -482,7 +482,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 
     if (_close_load_cnt < _total_streams) {
         // do not return commit info if there is remaining streams.
-        return;
+        return false;
     }
 
     for (auto& [_, index_stream] : _index_streams_map) {
@@ -490,6 +490,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
     }
     LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
               << ", failed_tablet_num=" << failed_tablets->size();
+    return true;
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -680,9 +681,16 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        bool all_closed = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
-        brpc::StreamClose(id);
+        std::lock_guard<bthread::Mutex> lock_guard(_lock);
+        _closing_stream_ids.push_back(id);
+        if (all_closed) {
+            for (auto& closing_id : _closing_stream_ids) {
+                brpc::StreamClose(closing_id);
+                _closing_stream_ids.clear();
+            }
+        }
     } break;
     case PStreamHeader::GET_SCHEMA: {
         _report_schema(id, hdr);
