@@ -1081,16 +1081,23 @@ public class PropertyAnalyzer {
     }
 
     // analyzeCompressionType will parse the compression type from properties
-    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+    public static TCompressionType getCompressionTypeFromProperties(Map<String, String> properties)
+            throws AnalysisException {
         String compressionType = "";
         if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
             compressionType = properties.get(PROPERTIES_COMPRESSION);
-            properties.remove(PROPERTIES_COMPRESSION);
         } else {
             return stringToCompressionType(Config.default_compression_type);
         }
 
         return stringToCompressionType(compressionType);
+    }
+
+    // analyzeCompressionType will parse the compression type from properties
+    public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
+        TCompressionType compressionType = getCompressionTypeFromProperties(properties);
+        properties.remove(PROPERTIES_COMPRESSION);
+        return compressionType;
     }
 
     public static long alignTo4K(long size) {

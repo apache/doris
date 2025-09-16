@@ -571,7 +571,7 @@ public class TableProperty implements GsonPostProcessable {
 
     public TableProperty buildCompressionType() {
         try {
-            compressionType = PropertyAnalyzer.analyzeCompressionType(properties);
+            compressionType = PropertyAnalyzer.getCompressionTypeFromProperties(properties);
         } catch (AnalysisException e) {
             LOG.error("failed to analyze compression type", e);
             compressionType = TCompressionType.ZSTD;
