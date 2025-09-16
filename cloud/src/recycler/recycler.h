@@ -36,6 +36,7 @@
 #include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace brpc {
 class Server;
@@ -116,6 +117,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 enum class RowsetRecyclingState {
@@ -296,6 +298,9 @@ public:
     // scan and recycle useless partition version kv
     int recycle_versions();
 
+    // scan and recycle the orphan partitions
+    int recycle_orphan_partitions();
+
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
     int abort_timeout_txn();
@@ -347,6 +352,10 @@ public:
     int scan_and_statistics_versions();
 
     int scan_and_statistics_restore_jobs();
+
+    void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
+        accessor_map_.insert({std::string(id), std::move(accessor)});
+    }
 
 private:
     // returns 0 for success otherwise error
@@ -406,8 +415,11 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
+    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
                                      const RowsetMetaCloudPB& rowset_meta);
+
+    // Whether the instance has any snapshots, return 0 for success otherwise error.
+    int has_cluster_snapshots(bool* any);
 
 private:
     std::atomic_bool stopped_ {false};

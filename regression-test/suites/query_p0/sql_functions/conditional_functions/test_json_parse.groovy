@@ -45,6 +45,8 @@ suite("test_json_parse") {
     qt_parse_from_table_null "SELECT id, json_parse_error_to_null(json_str) FROM test_json_parse_table ORDER BY id;"
     qt_parse_from_table_value1 "SELECT id, json_parse_error_to_value(json_str) FROM test_json_parse_table ORDER BY id;"
     qt_parse_from_table_value2 "SELECT id, json_parse_error_to_value(json_str, json_value) FROM test_json_parse_table ORDER BY id;"
+    qt_parse_from_table_value3 "SELECT id, json_parse_error_to_value('{}', json_value) FROM test_json_parse_table ORDER BY id;"
+    qt_parse_from_table_value4 "SELECT id, json_parse_error_to_value('{invalied}', json_value) FROM test_json_parse_table ORDER BY id;"
 
     check_fold_consistency "json_parse_error_to_null('{\"key\": \"value\"}')"
     check_fold_consistency "json_parse_error_to_null('Invalid JSON')"

@@ -53,6 +53,7 @@ statementBase
     | supportedDmlStatement             #supportedDmlStatementAlias
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
+    | supportedOptimizeStatement        #supportedOptimizeStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
@@ -290,6 +291,13 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
+    ;
+
+supportedOptimizeStatement
+    : OPTIMIZE TABLE tableName=multipartIdentifier
+        (partitionSpec)?
+        (WHERE booleanExpression)?
+        properties=propertyClause                                                       #optimizeTable
     ;
 
 supportedDropStatement
@@ -1686,6 +1694,7 @@ constant
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | BINARY? STRING_LITERAL                                                                   #stringLiteral
+    | VARBINARY_LITERAL                                                                        #varbinaryLiteral
     | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
     | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
@@ -1760,6 +1769,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=VARBINARY
     | type=VARIANT
     | type=ALL
     ;
@@ -2056,6 +2066,7 @@ nonReserved
     | OFFSET
     | ONLY
     | OPEN
+    | OPTIMIZE
     | OPTIMIZED
     | PARAMETER
     | PARSED
@@ -2168,6 +2179,7 @@ nonReserved
     | UP
     | USER
     | VALUE
+    | VARBINARY
     | VARCHAR
     | VARIABLE
     | VARIABLES

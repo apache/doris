@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.IntegerChecker;
 import org.apache.doris.nereids.types.BooleanType;
@@ -24,6 +25,8 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -78,8 +81,25 @@ public class IntegerLiteralTest {
         d1 = new IntegerLiteral(-3);
         Assertions.assertTrue(((BooleanLiteral) d1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
 
+        // To integer like
+        d1 = new IntegerLiteral(127);
+        Expression expression = d1.uncheckedCastTo(TinyIntType.INSTANCE);
+        Assertions.assertInstanceOf(TinyIntLiteral.class, expression);
+        Assertions.assertEquals(127, (int) ((TinyIntLiteral) expression).getValue());
+        d1 = new IntegerLiteral(128);
+        IntegerLiteral finalD = d1;
+        Assertions.assertThrows(CastException.class, () -> finalD.checkedCastTo(TinyIntType.INSTANCE));
+        d1 = new IntegerLiteral(32767);
+        expression = d1.uncheckedCastTo(SmallIntType.INSTANCE);
+        Assertions.assertInstanceOf(SmallIntLiteral.class, expression);
+        Assertions.assertEquals(32767, (int) ((SmallIntLiteral) expression).getValue());
+        d1 = new IntegerLiteral(32768);
+        IntegerLiteral finalD1 = d1;
+        Assertions.assertThrows(CastException.class, () -> finalD1.checkedCastTo(SmallIntType.INSTANCE));
+
         // To float
-        Expression expression = d1.uncheckedCastTo(FloatType.INSTANCE);
+        d1 = new IntegerLiteral(-3);
+        expression = d1.uncheckedCastTo(FloatType.INSTANCE);
         Assertions.assertInstanceOf(FloatLiteral.class, expression);
         Assertions.assertEquals((float) -3, ((FloatLiteral) expression).getValue());
 

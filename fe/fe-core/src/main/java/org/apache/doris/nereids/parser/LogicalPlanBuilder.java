@@ -576,6 +576,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.DistributeType.JoinDistributeType;
@@ -716,6 +717,7 @@ import org.apache.doris.nereids.trees.plans.commands.KillConnectionCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillQueryCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LockTablesCommand;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
@@ -1060,12 +1062,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -3351,6 +3355,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Literal visitVarbinaryLiteral(DorisParser.VarbinaryLiteralContext ctx) {
+        String txt = ctx.VARBINARY_LITERAL().getText();
+        // Parse hex string from X'...' or X"..." format
+        String hexString;
+        char firstChar = Character.toUpperCase(txt.charAt(0));
+        if (firstChar == 'X' && txt.endsWith("'")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else if (firstChar == 'X' && txt.endsWith("\"")) {
+            hexString = txt.substring(2, txt.length() - 1);
+        } else {
+            throw new ParseException("Invalid varbinary literal format: " + txt);
+        }
+        return new VarBinaryLiteral(hexString);
+    }
+
+    @Override
     public Expression visitPlaceholder(DorisParser.PlaceholderContext ctx) {
         Placeholder parameter = new Placeholder(ConnectContext.get().getStatementContext().getNextPlaceholderId());
         tokenPosToParameters.put(ctx.start, parameter);
@@ -3397,7 +3417,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 values.add(items.get(i));
             }
         }
-        return new MapLiteral(typeCoercionItems(keys), typeCoercionItems(values));
+        List<Literal> castKeys = typeCoercionItems(keys);
+        List<Literal> castValues = typeCoercionItems(values);
+        Map<Literal, Literal> map = new LinkedHashMap<>();
+        AtomicInteger pos = new AtomicInteger(0);
+        castKeys.forEach(k -> map.put(k, castValues.get(pos.getAndIncrement())));
+        return new MapLiteral(map);
     }
 
     @Override
@@ -6955,6 +6980,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return ctx.catalog != null ? new UseCommand(ctx.catalog.getText(), ctx.database.getText())
                 : new UseCommand(ctx.database.getText());
+    }
+
+    @Override
+    public LogicalPlan visitOptimizeTable(DorisParser.OptimizeTableContext ctx) {
+        TableNameInfo tableName = new TableNameInfo(visitMultipartIdentifier(ctx.multipartIdentifier()));
+        Optional<PartitionNamesInfo> partitionNamesInfo = Optional.empty();
+        if (ctx.partitionSpec() != null) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+            partitionNamesInfo = Optional.of(new PartitionNamesInfo(partitionSpec.first, partitionSpec.second));
+        }
+        Optional<Expression> whereCondition = ctx.booleanExpression() == null
+                ? Optional.empty()
+                : Optional.of((Expression) visit(ctx.booleanExpression()));
+        Map<String, String> properties = ctx.properties == null
+                ? Maps.newHashMap()
+                : visitPropertyClause(ctx.properties);
+
+        return new OptimizeTableCommand(
+                tableName,
+                partitionNamesInfo,
+                whereCondition,
+                properties);
     }
 
     @Override

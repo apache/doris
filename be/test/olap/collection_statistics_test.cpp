@@ -630,4 +630,41 @@ TEST_F(CollectionStatisticsTest, FindSlotRefHandlesNullDirectCastAndNested) {
     EXPECT_EQ(find_slot_ref(bin), static_cast<vectorized::VSlotRef*>(slot_ref_nested.get()));
 }
 
+TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
+    using doris::TermInfoComparer;
+    using doris::segment_v2::TermInfo;
+
+    std::set<TermInfo, TermInfoComparer> terms;
+
+    TermInfo t1;
+    t1.term = std::string("banana");
+    t1.position = 2;
+
+    TermInfo t2;
+    t2.term = std::string("apple");
+    t2.position = 10;
+
+    TermInfo t3;
+    t3.term = std::string("cherry");
+    t3.position = 1;
+
+    TermInfo dup;
+    dup.term = std::string("banana");
+    dup.position = 100;
+
+    terms.insert(t1);
+    terms.insert(t2);
+    terms.insert(t3);
+    terms.insert(dup);
+
+    std::vector<std::string> ordered;
+    ordered.reserve(terms.size());
+    for (const auto& t : terms) {
+        ordered.push_back(t.get_single_term());
+    }
+
+    EXPECT_EQ(terms.size(), 3u);
+    EXPECT_THAT(ordered, ::testing::ElementsAre("apple", "banana", "cherry"));
+}
+
 } // namespace doris

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -68,7 +69,9 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -305,13 +308,27 @@ public class PlanChecker {
     }
 
     public PlanChecker rewrite() {
-        cascadesContext.withPlanProcess(true, () -> {
-            Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-            cascadesContext.toMemo();
-            cascadesContext.getStatementContext().setNeedPreMvRewrite(
-                    PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
-            collectTableInfoAndInitHook(cascadesContext);
-        });
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            cascadesContext.withPlanProcess(true, () -> {
+                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                cascadesContext.toMemo();
+                cascadesContext.getStatementContext().setNeedPreMvRewrite(
+                        PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
+                collectTableInfoAndInitHook(cascadesContext);
+            });
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when rewrite");
+            }
+        }
         return this;
     }
 
@@ -380,7 +397,22 @@ public class PlanChecker {
         LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
         LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
         statementContext.setParsedStatement(parsedPlanAdaptor);
-        planner.plan(parsedPlanAdaptor);
+
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            planner.plan(parsedPlanAdaptor);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
         return planner;
     }
 
@@ -693,7 +725,21 @@ public class PlanChecker {
         connectContext.setStatementContext(statementContext);
         LogicalPlanAdapter adapter = LogicalPlanAdapter.of(parsed);
         adapter.setIsExplain(new ExplainOptions(ExplainLevel.ALL_PLAN, false));
-        nereidsPlanner.plan(adapter);
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(adapter);
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when explain");
+            }
+        }
         consumer.accept(nereidsPlanner);
         return this;
     }
@@ -703,7 +749,21 @@ public class PlanChecker {
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
         NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
         connectContext.setStatementContext(statementContext);
-        nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        try {
+            nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
+        } finally {
+            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // other test cases
+            try {
+                VariableMgr.revertSessionValue(sessionVariable);
+                // origin value init
+                sessionVariable.setIsSingleSetVar(false);
+                sessionVariable.clearSessionOriginValue();
+            } catch (DdlException e) {
+                Assertions.fail("revert Session Value fail when plan");
+            }
+        }
         consumer.accept(nereidsPlanner);
         return this;
     }

@@ -464,50 +464,88 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     return Status::OK();
 }
 
-bool ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates) const {
+Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,
+                                     bool* matched) const {
+    *matched = true;
     if (_zone_map_index == nullptr) {
-        return true;
+        return Status::OK();
     }
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
-    return _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
-                                     col_predicates);
+    *matched = _zone_map_match_condition(*_segment_zone_map, min_value.get(), max_value.get(),
+                                         col_predicates);
+    return Status::OK();
 }
 
-bool ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
-                                                const int column_id) const {
+Status ColumnReader::prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                                  const int column_id, bool* pruned) const {
+    *pruned = false;
     if (_zone_map_index == nullptr) {
-        return false;
+        return Status::OK();
     }
 
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta_length));
-    RETURN_FALSE_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
+    RETURN_IF_ERROR(_parse_zone_map(*_segment_zone_map, min_value.get(), max_value.get()));
 
-    auto pruned = false;
     for (auto it = predicates.begin(); it != predicates.end();) {
         auto predicate = *it;
         if (predicate->column_id() == column_id &&
             predicate->is_always_true({min_value.get(), max_value.get()})) {
-            pruned = true;
+            *pruned = true;
             it = predicates.erase(it);
         } else {
             ++it;
         }
     }
-    return pruned;
+    return Status::OK();
 }
 
 Status ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map, WrapperField* min_value_container,
                                      WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
-        RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
-        RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
+        if (zone_map.has_negative_inf()) {
+            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
+                static auto constexpr float_neg_inf = -std::numeric_limits<float>::infinity();
+                min_value_container->set_raw_value(&float_neg_inf, sizeof(float_neg_inf));
+            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
+                static auto constexpr double_neg_inf = -std::numeric_limits<double>::infinity();
+                min_value_container->set_raw_value(&double_neg_inf, sizeof(double_neg_inf));
+            } else {
+                return Status::InternalError("invalid zone map with negative Infinity");
+            }
+        } else {
+            RETURN_IF_ERROR(min_value_container->from_string(zone_map.min()));
+        }
+
+        if (zone_map.has_nan()) {
+            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
+                static auto constexpr float_nan = std::numeric_limits<float>::quiet_NaN();
+                max_value_container->set_raw_value(&float_nan, sizeof(float_nan));
+            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
+                static auto constexpr double_nan = std::numeric_limits<double>::quiet_NaN();
+                max_value_container->set_raw_value(&double_nan, sizeof(double_nan));
+            } else {
+                return Status::InternalError("invalid zone map with NaN");
+            }
+        } else if (zone_map.has_positive_inf()) {
+            if (FieldType::OLAP_FIELD_TYPE_FLOAT == _meta_type) {
+                static auto constexpr float_pos_inf = std::numeric_limits<float>::infinity();
+                max_value_container->set_raw_value(&float_pos_inf, sizeof(float_pos_inf));
+            } else if (FieldType::OLAP_FIELD_TYPE_DOUBLE == _meta_type) {
+                static auto constexpr double_pos_inf = std::numeric_limits<double>::infinity();
+                max_value_container->set_raw_value(&double_pos_inf, sizeof(double_pos_inf));
+            } else {
+                return Status::InternalError("invalid zone map with positive Infinity");
+            }
+        } else {
+            RETURN_IF_ERROR(max_value_container->from_string(zone_map.max()));
+        }
     }
     // for compatible original Cond eval logic
     if (zone_map.has_null()) {

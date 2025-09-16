@@ -1541,7 +1541,7 @@ TEST(MetaServiceHttpTest, get_stage_response_sk) {
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
-    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter, nullptr);
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]);
@@ -1581,7 +1581,7 @@ TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
-    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter, nullptr);
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]);
@@ -1624,7 +1624,7 @@ TEST(MetaServiceHttpTest, get_instance_response_sk) {
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
-    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter, nullptr);
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]);
@@ -1667,7 +1667,7 @@ TEST(MetaServiceHttpTest, create_instance_request_sk) {
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
-    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter, nullptr);
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]) << '\n';
@@ -1705,7 +1705,7 @@ TEST(MetaServiceHttpTest, create_stage_request_sk) {
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
-    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter, nullptr);
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]) << '\n';

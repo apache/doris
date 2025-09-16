@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonRestMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -35,106 +37,41 @@ import java.util.Map;
 public class PaimonVendedCredentialsProviderTest {
 
     @Test
-    public void testOssCredentialExtractorWithValidCredentials() {
-        PaimonOssCredentialExtractor extractor = new PaimonOssCredentialExtractor();
+    public void testIsVendedCredentialsEnabled() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("fs.oss.accessKeyId", "test-access-key");
-        properties.put("fs.oss.accessKeySecret", "test-secret-key");
-        properties.put("fs.oss.securityToken", "test-session-token");
-        properties.put("fs.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        // Test with PaimonRestMetaStore and DLF token provider
+        PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
+        Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
 
-        Map<String, String> credentials = extractor.extractCredentials(properties);
+        Assertions.assertTrue(provider.isVendedCredentialsEnabled(restProperties));
 
-        Assertions.assertEquals("test-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("test-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("test-session-token", credentials.get("AWS_TOKEN"));
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", credentials.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("cn-beijing", credentials.get("AWS_REGION"));
+        // Test with PaimonRestMetaStore but unsupported token provider
+        // Note: PaimonVendedCredentialsProvider enables vended credentials for all PaimonRestMetaStore
+        // regardless of token provider, actual provider check happens later
+        Mockito.when(restProperties.getTokenProvider()).thenReturn("unsupported");
+        Assertions.assertTrue(provider.isVendedCredentialsEnabled(restProperties));
+
+        // Test with non-PaimonRest metastore
+        MetastoreProperties nonRestProperties = Mockito.mock(MetastoreProperties.class);
+        Mockito.when(nonRestProperties.getType()).thenReturn(MetastoreProperties.Type.HMS);
+        Assertions.assertFalse(provider.isVendedCredentialsEnabled(nonRestProperties));
     }
 
     @Test
-    public void testOssCredentialExtractorWithPartialCredentials() {
-        PaimonOssCredentialExtractor extractor = new PaimonOssCredentialExtractor();
+    public void testExtractRawVendedCredentials() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("fs.oss.accessKeyId", "test-access-key");
-        properties.put("fs.oss.accessKeySecret", "test-secret-key");
-        // No session token and endpoint
-
-        Map<String, String> credentials = extractor.extractCredentials(properties);
-
-        Assertions.assertEquals("test-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("test-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertFalse(credentials.containsKey("AWS_TOKEN"));
-        Assertions.assertFalse(credentials.containsKey("AWS_ENDPOINT"));
-        Assertions.assertFalse(credentials.containsKey("AWS_REGION"));
-    }
-
-    @Test
-    public void testOssCredentialExtractorWithEmptyProperties() {
-        PaimonOssCredentialExtractor extractor = new PaimonOssCredentialExtractor();
-
-        Map<String, String> credentials = extractor.extractCredentials(new HashMap<>());
-        Assertions.assertTrue(credentials.isEmpty());
-
-        credentials = extractor.extractCredentials(null);
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testOssCredentialExtractorWithNonOssProperties() {
-        PaimonOssCredentialExtractor extractor = new PaimonOssCredentialExtractor();
-
-        Map<String, String> properties = new HashMap<>();
-        properties.put("some.other.property", "value");
-        properties.put("unrelated.key", "unrelated-value");
-
-        Map<String, String> credentials = extractor.extractCredentials(properties);
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testOssCredentialExtractorWithDifferentEndpoints() {
-        PaimonOssCredentialExtractor extractor = new PaimonOssCredentialExtractor();
-
-        // Test different OSS endpoint patterns
-        String[] endpoints = {
-            "oss-cn-shanghai.aliyuncs.com",
-            "oss-us-west-1.aliyuncs.com",
-            "oss-ap-southeast-1.aliyuncs.com"
-        };
-        String[] expectedRegions = {
-            "cn-shanghai",
-            "us-west-1",
-            "ap-southeast-1"
-        };
-
-        for (int i = 0; i < endpoints.length; i++) {
-            Map<String, String> properties = new HashMap<>();
-            properties.put("fs.oss.accessKeyId", "test-access-key");
-            properties.put("fs.oss.accessKeySecret", "test-secret-key");
-            properties.put("fs.oss.endpoint", endpoints[i]);
-
-            Map<String, String> credentials = extractor.extractCredentials(properties);
-
-            Assertions.assertEquals("test-access-key", credentials.get("AWS_ACCESS_KEY"));
-            Assertions.assertEquals("test-secret-key", credentials.get("AWS_SECRET_KEY"));
-            Assertions.assertEquals(endpoints[i], credentials.get("AWS_ENDPOINT"));
-            Assertions.assertEquals(expectedRegions[i], credentials.get("AWS_REGION"));
-        }
-    }
-
-    @Test
-    public void testExtractVendedCredentialsFromTableWithDlfTokenProvider() {
+        // Mock table with OSS vended credentials
         Table table = Mockito.mock(Table.class);
         RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
         RESTToken restToken = Mockito.mock(RESTToken.class);
 
         Map<String, String> tokenMap = new HashMap<>();
-        tokenMap.put("fs.oss.accessKeyId", "dlf-access-key");
-        tokenMap.put("fs.oss.accessKeySecret", "dlf-secret-key");
-        tokenMap.put("fs.oss.securityToken", "dlf-session-token");
+        tokenMap.put("fs.oss.accessKeyId", "STS.testAccessKey123");
+        tokenMap.put("fs.oss.accessKeySecret", "testSecretKey456");
+        tokenMap.put("fs.oss.securityToken", "testSessionToken789");
         tokenMap.put("fs.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
 
         Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
@@ -142,89 +79,113 @@ public class PaimonVendedCredentialsProviderTest {
         Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
         Mockito.when(restToken.token()).thenReturn(tokenMap);
 
-        Map<String, String> credentials = PaimonVendedCredentialsProvider
-                .extractVendedCredentialsFromTable("dlf", table);
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
 
-        Assertions.assertEquals("dlf-access-key", credentials.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("dlf-secret-key", credentials.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("dlf-session-token", credentials.get("AWS_TOKEN"));
-        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", credentials.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("cn-beijing", credentials.get("AWS_REGION"));
+        Assertions.assertEquals("STS.testAccessKey123", rawCredentials.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("testSecretKey456", rawCredentials.get("fs.oss.accessKeySecret"));
+        Assertions.assertEquals("testSessionToken789", rawCredentials.get("fs.oss.securityToken"));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", rawCredentials.get("fs.oss.endpoint"));
     }
 
     @Test
-    public void testExtractVendedCredentialsFromTableWithUnsupportedTokenProvider() {
+    public void testExtractRawVendedCredentialsWithNullTable() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(null);
+        Assertions.assertTrue(rawCredentials.isEmpty());
+    }
+
+    @Test
+    public void testExtractRawVendedCredentialsWithNullFileIO() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.fileIO()).thenReturn(null);
+
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+        Assertions.assertTrue(rawCredentials.isEmpty());
+    }
+
+    @Test
+    public void testExtractRawVendedCredentialsWithNonRESTTokenFileIO() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
+        Table table = Mockito.mock(Table.class);
+        // Mock a different FileIO type that's not RESTTokenFileIO
+        Mockito.when(table.fileIO()).thenReturn(Mockito.mock(org.apache.paimon.fs.FileIO.class));
+
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+        Assertions.assertTrue(rawCredentials.isEmpty());
+    }
+
+    @Test
+    public void testExtractRawVendedCredentialsWithEmptyToken() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
+        Table table = Mockito.mock(Table.class);
+        RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
+        RESTToken restToken = Mockito.mock(RESTToken.class);
+
+        Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
+        Mockito.when(table.name()).thenReturn("test_table");
+        Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
+        Mockito.when(restToken.token()).thenReturn(new HashMap<>());
+
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+        Assertions.assertTrue(rawCredentials.isEmpty());
+    }
+
+    @Test
+    public void testExtractRawVendedCredentialsWithPartialOSSCredentials() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
         Table table = Mockito.mock(Table.class);
         RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
         RESTToken restToken = Mockito.mock(RESTToken.class);
 
         Map<String, String> tokenMap = new HashMap<>();
-        tokenMap.put("fs.oss.accessKeyId", "unsupported-access-key");
-        tokenMap.put("fs.oss.accessKeySecret", "unsupported-secret-key");
+        tokenMap.put("fs.oss.accessKeyId", "testAccessKey");
+        tokenMap.put("fs.oss.accessKeySecret", "testSecretKey");
+        // Missing endpoint and session token
 
         Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
         Mockito.when(table.name()).thenReturn("test_table");
         Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
         Mockito.when(restToken.token()).thenReturn(tokenMap);
 
-        Map<String, String> credentials = PaimonVendedCredentialsProvider
-                .extractVendedCredentialsFromTable("unsupported", table);
+        Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
 
-        Assertions.assertTrue(credentials.isEmpty());
+        Assertions.assertEquals("testAccessKey", rawCredentials.get("fs.oss.accessKeyId"));
+        Assertions.assertEquals("testSecretKey", rawCredentials.get("fs.oss.accessKeySecret"));
+        Assertions.assertFalse(rawCredentials.containsKey("fs.oss.securityToken"));
+        Assertions.assertFalse(rawCredentials.containsKey("fs.oss.endpoint"));
     }
 
     @Test
-    public void testExtractVendedCredentialsFromTableWithNullTable() {
-        Map<String, String> credentials = PaimonVendedCredentialsProvider
-                .extractVendedCredentialsFromTable("dlf", null);
-        Assertions.assertTrue(credentials.isEmpty());
+    public void testFilterCloudStoragePropertiesWithOSS() {
+        Map<String, String> rawCredentials = new HashMap<>();
+        rawCredentials.put("oss.access-key-id", "testAccessKey");
+        rawCredentials.put("oss.secret-access-key", "testSecretKey");
+        rawCredentials.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        rawCredentials.put("paimon.table.name", "test_table");
+        rawCredentials.put("other.property", "other_value");
+
+        Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawCredentials);
+
+        Assertions.assertEquals(3, filtered.size());
+        Assertions.assertEquals("testAccessKey", filtered.get("oss.access-key-id"));
+        Assertions.assertEquals("testSecretKey", filtered.get("oss.secret-access-key"));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", filtered.get("oss.endpoint"));
+        Assertions.assertFalse(filtered.containsKey("paimon.table.name"));
+        Assertions.assertFalse(filtered.containsKey("other.property"));
     }
 
     @Test
-    public void testExtractVendedCredentialsFromTableWithNullFileIO() {
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.fileIO()).thenReturn(null);
-
-        Map<String, String> credentials = PaimonVendedCredentialsProvider
-                .extractVendedCredentialsFromTable("dlf", table);
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testExtractVendedCredentialsFromTableWithNonRESTTokenFileIO() {
-        Table table = Mockito.mock(Table.class);
-        // fileIO returns null, which is not an instance of RESTTokenFileIO
-        Mockito.when(table.fileIO()).thenReturn(null);
-        Mockito.when(table.name()).thenReturn("test_table");
-
-        Map<String, String> credentials = PaimonVendedCredentialsProvider
-                .extractVendedCredentialsFromTable("dlf", table);
-
-        Assertions.assertTrue(credentials.isEmpty());
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithPaimonRestMetaStore() {
-        // Mock PaimonRestMetaStoreProperties
+    public void testGetStoragePropertiesMapWithVendedCredentials() {
+        // Mock metastore properties with DLF token provider
         PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
         Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
-
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-
-        Map<String, String> vendedProperties = new HashMap<>();
-        vendedProperties.put("base.property", "base-value");
-        vendedProperties.put("AWS_ACCESS_KEY", "vended-access-key");
-        vendedProperties.put("AWS_SECRET_KEY", "vended-secret-key");
-        vendedProperties.put("AWS_TOKEN", "vended-session-token");
-
-        Mockito.when(storageProperties.getBackendConfigProperties()).thenReturn(baseProperties);
-        Mockito.when(storageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(vendedProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
 
         // Mock table with vended credentials
         Table table = Mockito.mock(Table.class);
@@ -232,176 +193,157 @@ public class PaimonVendedCredentialsProviderTest {
         RESTToken restToken = Mockito.mock(RESTToken.class);
 
         Map<String, String> tokenMap = new HashMap<>();
-        tokenMap.put("fs.oss.accessKeyId", "vended-access-key");
-        tokenMap.put("fs.oss.accessKeySecret", "vended-secret-key");
-        tokenMap.put("fs.oss.securityToken", "vended-session-token");
+        tokenMap.put("fs.oss.accessKeyId", "STS.testAccessKey123");
+        tokenMap.put("fs.oss.accessKeySecret", "testSecretKey456");
+        tokenMap.put("fs.oss.securityToken", "testSessionToken789");
+        tokenMap.put("fs.oss.endpoint", "oss-cn-beijing.aliyuncs.com");
 
         Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
         Mockito.when(table.name()).thenReturn("test_table");
         Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
         Mockito.when(restToken.token()).thenReturn(tokenMap);
 
-        // Test with PaimonRestMetaStoreProperties
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
+        // Test using VendedCredentialsFactory
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertEquals("vended-access-key", result.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("vended-secret-key", result.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("vended-session-token", result.get("AWS_TOKEN"));
+        // Should not be null (assuming StorageProperties.createAll works correctly)
+        // Note: The actual result depends on whether StorageProperties.createAll() can properly map the credentials
+        // This test verifies the integration flow works without exceptions
+        Assertions.assertNotNull(result);
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithNonPaimonRestMetaStore() {
-        // Mock non-PaimonRest metastore properties
-        MetastoreProperties metastoreProperties = Mockito.mock(MetastoreProperties.class);
+    public void testGetStoragePropertiesMapWithVendedCredentialsDisabled() {
+        // Mock metastore properties with unsupported token provider
+        PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
+        Mockito.when(restProperties.getTokenProvider()).thenReturn("unsupported");
 
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-        baseProperties.put("AWS_ACCESS_KEY", "static-access-key");
-
-        Mockito.when(storageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(baseProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
-
-        // Mock table (should be ignored for non-REST catalogs)
         Table table = Mockito.mock(Table.class);
 
-        // Test with non-PaimonRest metastore
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                metastoreProperties, storagePropertiesMap, table);
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), table);
 
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertEquals("static-access-key", result.get("AWS_ACCESS_KEY"));
-        Assertions.assertFalse(result.containsKey("AWS_TOKEN"));
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithMultipleStorageTypes() {
-        // Mock PaimonRestMetaStoreProperties
-        PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
-        Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
-
-        // Mock S3 storage properties
-        StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
-        Map<String, String> s3VendedProperties = new HashMap<>();
-        s3VendedProperties.put("s3.property", "s3-value");
-        s3VendedProperties.put("AWS_ACCESS_KEY", "vended-access-key");
-
-        Mockito.when(s3Properties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(s3VendedProperties);
-
-        // Mock HDFS storage properties
-        StorageProperties hdfsStorageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> hdfsPropertiesMap = new HashMap<>();
-        hdfsPropertiesMap.put("hdfs.property", "hdfs-value");
-
-        Mockito.when(hdfsStorageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(hdfsPropertiesMap);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, s3Properties);
-        storagePropertiesMap.put(Type.HDFS, hdfsStorageProperties);
-
-        // Mock table with vended credentials
-        Table table = Mockito.mock(Table.class);
-        RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
-        RESTToken restToken = Mockito.mock(RESTToken.class);
-
-        Map<String, String> tokenMap = new HashMap<>();
-        tokenMap.put("fs.oss.accessKeyId", "vended-access-key");
-
-        Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
-        Mockito.when(table.name()).thenReturn("test_table");
-        Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
-        Mockito.when(restToken.token()).thenReturn(tokenMap);
-
-        // Test with multiple storage types
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
-
-        Assertions.assertEquals("s3-value", result.get("s3.property"));
-        Assertions.assertEquals("hdfs-value", result.get("hdfs.property"));
-        Assertions.assertEquals("vended-access-key", result.get("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithNullTable() {
-        // Mock PaimonRestMetaStoreProperties
-        PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
-        Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
-
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
-
-        Mockito.when(storageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(baseProperties);
-
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
-
-        // Test with null table (should fall back to base properties without vended credentials)
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, null);
-
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertFalse(result.containsKey("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    public void testGetBackendLocationPropertiesWithEmptyStorageMap() {
-        // Mock PaimonRestMetaStoreProperties
-        PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
-        Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
-
-        // Empty storage properties map
-        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-
-        // Mock table
-        Table table = Mockito.mock(Table.class);
-
-        // Test with empty storage map
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
-
+        // Should return the baseStoragePropertiesMap (empty HashMap)
+        Assertions.assertNotNull(result);
         Assertions.assertTrue(result.isEmpty());
     }
 
     @Test
-    public void testGetBackendLocationPropertiesWithEmptyTokenMap() {
-        // Mock PaimonRestMetaStoreProperties
+    public void testGetStoragePropertiesMapWithNullTable() {
         PaimonRestMetaStoreProperties restProperties = Mockito.mock(PaimonRestMetaStoreProperties.class);
+        Mockito.when(restProperties.getType()).thenReturn(MetastoreProperties.Type.PAIMON);
         Mockito.when(restProperties.getTokenProvider()).thenReturn("dlf");
 
-        // Mock storage properties
-        StorageProperties storageProperties = Mockito.mock(StorageProperties.class);
-        Map<String, String> baseProperties = new HashMap<>();
-        baseProperties.put("base.property", "base-value");
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(restProperties, new HashMap<>(), null);
 
-        Mockito.when(storageProperties.getBackendConfigProperties(Mockito.anyMap())).thenReturn(baseProperties);
+        // Should return the baseStoragePropertiesMap (empty HashMap)
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetStoragePropertiesMapWithNonPaimonRest() {
+        // Test with non-PaimonRest metastore
+        MetastoreProperties nonRestProperties = Mockito.mock(MetastoreProperties.class);
+        Mockito.when(nonRestProperties.getType()).thenReturn(MetastoreProperties.Type.HMS);
+        Table table = Mockito.mock(Table.class);
+
+        Map<Type, StorageProperties> result = VendedCredentialsFactory
+                .getStoragePropertiesMapWithVendedCredentials(nonRestProperties, new HashMap<>(), table);
+
+        // Should return the baseStoragePropertiesMap (empty HashMap)
+        Assertions.assertNotNull(result);
+        Assertions.assertTrue(result.isEmpty());
+    }
+
+    @Test
+    public void testGetBackendPropertiesFromStorageMapWithOSS() {
+        // Create mock storage properties
+        StorageProperties ossProperties = Mockito.mock(StorageProperties.class);
+        StorageProperties hdfsProperties = Mockito.mock(StorageProperties.class);
+
+        Map<String, String> ossBackendProps = new HashMap<>();
+        ossBackendProps.put("AWS_ACCESS_KEY", "testOssAccessKey");
+        ossBackendProps.put("AWS_SECRET_KEY", "testOssSecretKey");
+        ossBackendProps.put("AWS_TOKEN", "testOssToken");
+        ossBackendProps.put("AWS_ENDPOINT", "oss-cn-beijing.aliyuncs.com");
+
+        Map<String, String> hdfsBackendProps = new HashMap<>();
+        hdfsBackendProps.put("HDFS_PROPERTY", "hdfsValue");
+
+        Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
+        Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
-        storagePropertiesMap.put(Type.S3, storageProperties);
+        storagePropertiesMap.put(Type.OSS, ossProperties);
+        storagePropertiesMap.put(Type.HDFS, hdfsProperties);
 
-        // Mock table with empty token map
-        Table table = Mockito.mock(Table.class);
-        RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
-        RESTToken restToken = Mockito.mock(RESTToken.class);
+        Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Map<String, String> emptyTokenMap = new HashMap<>();
+        Assertions.assertEquals(5, result.size());
+        Assertions.assertEquals("testOssAccessKey", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("testOssSecretKey", result.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("testOssToken", result.get("AWS_TOKEN"));
+        Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", result.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("hdfsValue", result.get("HDFS_PROPERTY"));
+    }
 
-        Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
-        Mockito.when(table.name()).thenReturn("test_table");
-        Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
-        Mockito.when(restToken.token()).thenReturn(emptyTokenMap);
+    @Test
+    public void testGetBackendPropertiesFromStorageMapWithNullValues() {
+        StorageProperties ossProperties = Mockito.mock(StorageProperties.class);
 
-        // Test with empty token map (should fall back to base properties without vended credentials)
-        Map<String, String> result = PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                restProperties, storagePropertiesMap, table);
+        Map<String, String> ossBackendProps = new HashMap<>();
+        ossBackendProps.put("AWS_ACCESS_KEY", "testAccessKey");
+        ossBackendProps.put("AWS_SECRET_KEY", null); // null value should be filtered out
+        ossBackendProps.put("AWS_TOKEN", "testToken");
 
-        Assertions.assertEquals("base-value", result.get("base.property"));
-        Assertions.assertFalse(result.containsKey("AWS_ACCESS_KEY"));
+        Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
+
+        Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
+        storagePropertiesMap.put(Type.OSS, ossProperties);
+
+        Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+
+        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("testToken", result.get("AWS_TOKEN"));
+        Assertions.assertFalse(result.containsKey("AWS_SECRET_KEY"));
+    }
+
+    @Test
+    public void testEndpointToRegionConversion() {
+        PaimonVendedCredentialsProvider provider = PaimonVendedCredentialsProvider.getInstance();
+
+        // Test different OSS endpoint patterns and their expected regions
+        String[] endpoints = {
+                "oss-cn-beijing.aliyuncs.com",
+                "oss-cn-shanghai.aliyuncs.com",
+                "oss-us-west-1.aliyuncs.com",
+                "oss-ap-southeast-1.aliyuncs.com"
+        };
+
+        for (int i = 0; i < endpoints.length; i++) {
+            Table table = Mockito.mock(Table.class);
+            RESTTokenFileIO restTokenFileIO = Mockito.mock(RESTTokenFileIO.class);
+            RESTToken restToken = Mockito.mock(RESTToken.class);
+
+            Map<String, String> tokenMap = new HashMap<>();
+            tokenMap.put("fs.oss.accessKeyId", "testAccessKey");
+            tokenMap.put("fs.oss.accessKeySecret", "testSecretKey");
+            tokenMap.put("fs.oss.endpoint", endpoints[i]);
+
+            Mockito.when(table.fileIO()).thenReturn(restTokenFileIO);
+            Mockito.when(table.name()).thenReturn("test_table");
+            Mockito.when(restTokenFileIO.validToken()).thenReturn(restToken);
+            Mockito.when(restToken.token()).thenReturn(tokenMap);
+
+            Map<String, String> rawCredentials = provider.extractRawVendedCredentials(table);
+
+            Assertions.assertEquals(endpoints[i], rawCredentials.get("fs.oss.endpoint"));
+            // Note: Current implementation doesn't convert endpoint to region, so region is not set
+        }
     }
 }

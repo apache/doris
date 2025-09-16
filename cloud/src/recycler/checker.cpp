@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -51,7 +52,9 @@
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
+#ifdef ENABLE_HDFS_STORAGE_VAULT
 #include "recycler/hdfs_accessor.h"
+#endif
 #include "recycler/s3_accessor.h"
 #include "recycler/storage_vault_accessor.h"
 #ifdef UNIT_TEST
@@ -69,6 +72,8 @@ extern std::vector<std::string> recycle_whitelist;
 extern std::vector<std::string> recycle_blacklist;
 extern bool enable_inverted_check;
 } // namespace config
+
+using namespace std::chrono;
 
 Checker::Checker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
@@ -212,9 +217,27 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_txn_key_check) {
+                if (int ret = checker->do_txn_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_meta_rowset_key_check) {
+                if (int ret = checker->do_meta_rowset_key_check(); ret != 0) {
+                    success = false;
+                }
+            }
+
             if (config::enable_delete_bitmap_storage_optimize_v2_check) {
                 if (int ret = checker->do_delete_bitmap_storage_optimize_check(2 /*version*/);
                     ret != 0) {
+                    success = false;
+                }
+            }
+
+            if (config::enable_version_key_check) {
+                if (int ret = checker->do_version_key_check(); ret != 0) {
                     success = false;
                 }
             }
@@ -281,7 +304,6 @@ void Checker::lease_check_jobs() {
         }
     }
 }
-
 #define LOG_CHECK_INTERVAL_ALARM LOG(WARNING) << "Err for check interval: "
 void Checker::do_inspect(const InstanceInfoPB& instance) {
     std::string check_job_key = job_check_key({instance.instance_id()});
@@ -451,6 +473,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
         if (vault.has_hdfs_info()) {
+#ifdef ENABLE_HDFS_STORAGE_VAULT
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
             int ret = accessor->init();
             if (ret != 0) {
@@ -460,6 +483,10 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
             }
 
             accessor_map_.emplace(vault.id(), std::move(accessor));
+#else
+            LOG(ERROR) << "HDFS is disabled (via the ENABLE_HDFS_STORAGE_VAULT build option), "
+                       << "but HDFS storage vaults were detected";
+#endif
         } else if (vault.has_obj_info()) {
 #ifdef UNIT_TEST
             auto accessor = std::make_shared<MockAccessor>();
@@ -1771,7 +1798,6 @@ int InstanceChecker::do_mow_job_key_check() {
     } while (it->more() && !stopped());
     return 0;
 }
-
 int InstanceChecker::do_tablet_stats_key_check() {
     int ret = 0;
 
@@ -2047,6 +2073,85 @@ int InstanceChecker::scan_and_handle_kv(
     return ret;
 }
 
+int InstanceChecker::do_version_key_check() {
+    std::unique_ptr<RangeGetIterator> it;
+    std::string begin = table_version_key({instance_id_, 0, 0});
+    std::string end = table_version_key({instance_id_, INT64_MAX, 0});
+    bool check_res = true;
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+            return -1;
+        }
+        while (it->has_next() && !stopped()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            int64_t table_version = -1;
+            // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}
+            if (!txn->decode_atomic_int(v, &table_version)) {
+                LOG(WARNING) << "malformed table version value";
+                return -1;
+            }
+            auto table_id = std::get<int64_t>(std::get<0>(out[4]));
+            auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+            std::string partition_version_key_begin =
+                    partition_version_key({instance_id_, db_id, table_id, 0});
+            std::string partition_version_key_end =
+                    partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+            VersionPB partition_version_pb;
+
+            do {
+                std::unique_ptr<Transaction> txn;
+                TxnErrorCode err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG(WARNING) << "failed to create txn";
+                    return -1;
+                }
+                err = txn->get(partition_version_key_begin, partition_version_key_end, &it);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
+                    return -1;
+                }
+                while (it->has_next() && !stopped()) {
+                    auto [k, v] = it->next();
+                    // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}
+                    std::string_view k1 = k;
+                    k1.remove_prefix(1);
+                    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+                    decode_key(&k1, &out);
+                    if (!partition_version_pb.ParseFromArray(v.data(), v.size())) [[unlikely]] {
+                        LOG(WARNING) << "failed to parse partition VersionPB";
+                        return -1;
+                    }
+                    auto partition_id = std::get<int64_t>(std::get<0>(out[5]));
+                    int64_t partition_version = partition_version_pb.version();
+                    if (table_version < partition_version) {
+                        check_res = false;
+                        LOG(WARNING)
+                                << "table version is less than partition version,"
+                                << " table_id: " << table_id << "tablet_version: " << table_version
+                                << " partition_id: " << partition_id
+                                << " partition_version: " << partition_version;
+                    }
+                }
+                partition_version_key_begin = it->next_begin_key();
+            } while (it->more() && !stopped());
+        }
+        begin = it->next_begin_key(); // Update to next smallest key for iteration
+    } while (it->more() && !stopped());
+    return check_res ? 0 : -1;
+}
+
 int InstanceChecker::do_restore_job_check() {
     int64_t num_prepared = 0;
     int64_t num_committed = 0;
@@ -2095,6 +2200,7 @@ int InstanceChecker::do_restore_job_check() {
             LOG(WARNING) << "failed to get mow tablet job key, err=" << err;
             return -1;
         }
+
         if (!it->has_next()) {
             break;
         }
@@ -2148,6 +2254,381 @@ int InstanceChecker::do_restore_job_check() {
         }
     } while (it->more() && !stopped());
     return 0;
+}
+
+int InstanceChecker::check_txn_info_key(std::string_view key, std::string_view value) {
+    std::unordered_map<int64_t, std::string> txn_info_;
+    TxnLabelPB txn_label_pb;
+
+    auto handle_check_txn_label_key = [&](std::string_view key, std::string_view value) -> int {
+        TxnInfoPB txn_info_pb;
+        std::string_view k1 = key;
+        k1.remove_prefix(1);
+        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+        decode_key(&k1, &out);
+        // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}
+        if (!txn_info_pb.ParseFromArray(value.data(), value.size())) {
+            LOG(WARNING) << "failed to parse TxnInfoPB";
+            return -1;
+        }
+        auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
+        auto it = txn_info_.find(txn_id);
+        if (it == txn_info_.end()) {
+            return 0;
+        } else {
+            if (it->second != txn_info_pb.label()) {
+                LOG(WARNING) << "txn_info_pb's txn_label not same with txn_label_pb's txn_label,"
+                             << " txn_info_pb's txn_label: " << txn_info_pb.label()
+                             << " txn_label_pb meta: " << txn_label_pb.ShortDebugString();
+                return 1;
+            }
+        }
+        return 0;
+    };
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}
+    if (!txn_label_pb.ParseFromArray(value.data(), value.size() - VERSION_STAMP_LEN)) {
+        LOG(WARNING) << "failed to parse TxnLabelPB";
+        return -1;
+    }
+    auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+    auto label = std::get<std::string>(std::get<0>(out[4]));
+    // txn_id -> txn_label
+    for (const auto& txn_id : txn_label_pb.txn_ids()) {
+        txn_info_.insert({txn_id, label});
+    }
+    std::string txn_info_key_begin = txn_info_key({instance_id_, db_id, 0});
+    std::string txn_info_key_end = txn_info_key({instance_id_, db_id, INT64_MAX});
+    return scan_and_handle_kv(txn_info_key_begin, txn_info_key_end,
+                              [&](std::string_view k, std::string_view v) -> int {
+                                  return handle_check_txn_label_key(k, v);
+                              });
+}
+
+int InstanceChecker::check_txn_label_key(std::string_view key, std::string_view value) {
+    TxnInfoPB txn_info_pb;
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}
+    if (!txn_info_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse TxnInfoPB";
+        return -1;
+    }
+    auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
+    auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+    auto label = txn_info_pb.label();
+    std::string txn_label = txn_label_key({instance_id_, db_id, label});
+    std::string txn_label_val;
+    TxnLabelPB txn_label_pb;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    if (txn->get(txn_label, &txn_label_val) != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get txn label key, key=" << hex(txn_label);
+        return -1;
+    }
+    txn_label_pb.ParseFromString(txn_label_val);
+    auto txn_ids = txn_label_pb.txn_ids();
+    if (!std::count(txn_ids.begin(), txn_ids.end(), txn_id)) {
+        // clang-format off txn_info_pb
+        LOG(WARNING) << "txn_info_pb's txn_id not found in txn_label_pb info,"
+                     << " txn_id: " << txn_id
+                     << " txn_label_pb meta: " << txn_label_pb.ShortDebugString();
+        // clang-format on
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_txn_index_key(std::string_view key, std::string_view value) {
+    TxnInfoPB txn_info_pb;
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}
+    if (!txn_info_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse TxnInfoPB";
+        return -1;
+    }
+    auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
+    auto db_id = std::get<int64_t>(std::get<0>(out[3]));
+    /// get tablet id
+    std::string txn_index = txn_index_key({instance_id_, txn_id});
+    std::string txn_index_val;
+    TxnIndexPB txn_index_pb;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    if (txn->get(txn_index, &txn_index_val) != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get txn label key, key=" << hex(txn_index);
+        return -1;
+    }
+    txn_index_pb.ParseFromString(txn_index_val);
+    if (txn_index_pb.tablet_index().db_id() != db_id) {
+        // clang-format off txn_info_pb
+        LOG(WARNING) << "txn_index_pb's db_id not same with txn_info_pb's db_id,"
+                     << " txn_index_pb meta: " << txn_index_pb.ShortDebugString()
+                     << " txn_info_pb meta: " << txn_info_pb.ShortDebugString();
+        // clang-format on
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_txn_running_key(std::string_view key, std::string_view value) {
+    TxnRunningPB txn_running_pb;
+    int64_t current_time =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    if (!txn_running_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse TxnRunningPB";
+        return -1;
+    }
+    if (txn_running_pb.timeout_time() <= current_time) {
+        LOG(WARNING) << "txn_running_pb.timeout_time() is less than current_time,"
+                     << " but txn_running_key exists, "
+                     << " txn_running_pb meta: " << txn_running_pb.ShortDebugString();
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::do_txn_key_check() {
+    int ret = 0;
+
+    // check txn info key depend on txn label key
+    std::string begin = txn_label_key({instance_id_, 0, ""});
+    std::string end = txn_label_key({instance_id_, INT64_MAX, ""});
+    int64_t num_scanned = 0;
+    int64_t num_abnormal = 0;
+    LOG(INFO) << "begin check txn_label_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_info_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
+    });
+
+    if (ret == 1) {
+        LOG(WARNING) << "failed to check txn_info_key depending on txn_label_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to check txn label key and txn info key";
+        return -1;
+    }
+
+    // check txn label key depend on txn info key
+    begin = txn_info_key({instance_id_, 0, 0});
+    end = txn_info_key({instance_id_, INT64_MAX, 0});
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_label_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_label_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
+    });
+    if (ret == 1) {
+        LOG(WARNING) << "failed to check txn_label_key depending on txn_info_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to inverted check txn label key and txn info key";
+        return -1;
+    }
+    LOG(INFO) << "finish check txn_label_key and txn_info_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
+
+    // check txn index key depend on txn info key
+    begin = txn_info_key({instance_id_, 0, 0});
+    end = txn_info_key({instance_id_, INT64_MAX, 0});
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_index_key and txn_info_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_index_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
+    });
+    if (ret == 1) {
+        LOG(WARNING) << "failed to check txn_idx_key depending on txn_info_key, num_scanned="
+                     << num_scanned << ", num_abnormal=" << num_abnormal;
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to check txn index key";
+        return -1;
+    }
+    LOG(INFO) << "finish check txn_index_key and txn_info_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
+
+    // check txn running key
+    begin = txn_running_key({instance_id_, 0, 0});
+    end = txn_running_key({instance_id_, INT64_MAX, 0});
+    num_scanned = 0;
+    num_abnormal = 0;
+    LOG(INFO) << "begin check txn_running_key";
+    ret = scan_and_handle_kv(begin, end, [&, this](std::string_view k, std::string_view v) -> int {
+        num_scanned++;
+        int ret = check_txn_running_key(k, v);
+        if (ret == 1) {
+            num_abnormal++;
+        }
+        return ret;
+    });
+    if (ret == 1) {
+        LOG(WARNING) << "failed to check txn_running_key, num_scanned=" << num_scanned
+                     << ", num_abnormal=" << num_abnormal;
+        return 1;
+    } else if (ret == -1) {
+        LOG(WARNING) << "failed to check txn running key";
+        return -1;
+    }
+    LOG(INFO) << "finish check txn_running_key, num_scanned=" << num_scanned
+              << ", num_abnormal=" << num_abnormal;
+    return 0;
+}
+
+int InstanceChecker::check_meta_tmp_rowset_key(std::string_view key, std::string_view value) {
+    TxnInfoPB txn_info_pb;
+    std::string_view k1 = key;
+    k1.remove_prefix(1);
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    decode_key(&k1, &out);
+    // 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}
+    if (!txn_info_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse TxnInfoPB";
+        return -1;
+    }
+    /// get tablet id
+    auto txn_id = std::get<int64_t>(std::get<0>(out[4]));
+    std::string txn_index = txn_index_key({instance_id_, txn_id});
+    std::string txn_index_val;
+    TxnIndexPB txn_index_pb;
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to init txn";
+        return -1;
+    }
+    if (txn->get(txn_index, &txn_index_val) != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get txn index key, key=" << txn_index;
+        return -1;
+    }
+    txn_index_pb.ParseFromString(txn_index_val);
+    auto tablet_id = txn_index_pb.tablet_index().tablet_id();
+    std::string meta_tmp_rowset_key = meta_rowset_tmp_key({instance_id_, txn_id, tablet_id});
+    int is_key_exist = key_exist(txn_kv_.get(), meta_tmp_rowset_key);
+    if (is_key_exist == 1) {
+        if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_VISIBLE) {
+            // clang-format off
+            LOG(INFO) << "meta tmp rowset key not exist but txn status != TXN_STATUS_VISIBLE"
+                        << "meta tmp rowset key=" << meta_tmp_rowset_key
+                        << "txn_info=" << txn_info_pb.ShortDebugString();
+            // clang-format on
+            return 1;
+        }
+    } else if (is_key_exist == 0) {
+        if (txn_info_pb.status() != TxnStatusPB::TXN_STATUS_PREPARED) {
+            // clang-format off
+            LOG(INFO) << "meta tmp rowset key exist but txn status != TXN_STATUS_PREPARED"
+                        << "meta tmp rowset key=" << meta_tmp_rowset_key
+                        << "txn_info=" << txn_info_pb.ShortDebugString();
+            // clang-format on
+            return 1;
+        }
+    } else {
+        LOG(WARNING) << "failed to get key, key=" << meta_tmp_rowset_key;
+        return -1;
+    }
+    return 0;
+}
+
+int InstanceChecker::check_meta_rowset_key(std::string_view key, std::string_view value) {
+    RowsetMetaCloudPB meta_rowset_pb;
+    if (!meta_rowset_pb.ParseFromArray(value.data(), value.size())) {
+        LOG(WARNING) << "failed to parse RowsetMetaCloudPB";
+        return -1;
+    }
+    std::string tablet_index_key = meta_tablet_idx_key({instance_id_, meta_rowset_pb.tablet_id()});
+    if (key_exist(txn_kv_.get(), tablet_index_key) == 1) {
+        LOG(WARNING) << "rowset's tablet id not found in fdb"
+                     << "tablet_index_key: " << tablet_index_key
+                     << "rowset meta: " << meta_rowset_pb.ShortDebugString();
+        return 1;
+    }
+    return 0;
+}
+
+int InstanceChecker::do_meta_rowset_key_check() {
+    int ret = 0;
+
+    std::string begin = meta_rowset_key({instance_id_, 0, 0});
+    std::string end = meta_rowset_key({instance_id_, INT64_MAX, 0});
+    int64_t num_scanned = 0;
+    int64_t num_loss = 0;
+
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view k, std::string_view v) {
+        num_scanned++;
+        int ret = check_meta_rowset_key(k, v);
+        if (ret == 1) {
+            num_loss++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check meta rowset key,";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "meta rowset key may be loss, num_scanned=" << num_scanned
+                     << ", num_loss=" << num_loss;
+    }
+    LOG(INFO) << "meta rowset key check finish, num_scanned=" << num_scanned
+              << ", num_loss=" << num_loss;
+
+    begin = txn_info_key({instance_id_, 0, 0});
+    end = txn_info_key({instance_id_, INT64_MAX, 0});
+    num_scanned = 0;
+    num_loss = 0;
+
+    ret = scan_and_handle_kv(begin, end, [&](std::string_view k, std::string_view v) {
+        num_scanned++;
+        int ret = check_meta_tmp_rowset_key(k, v);
+        if (ret == 1) {
+            num_loss++;
+        }
+        return ret;
+    });
+    if (ret == -1) {
+        LOG(WARNING) << "failed to check tmp meta rowset key";
+        return -1;
+    } else if (ret == 1) {
+        LOG(WARNING) << "meta tmp rowset key may be loss, num_scanned=" << num_scanned
+                     << ", num_loss=" << num_loss;
+    }
+    LOG(INFO) << "meta tmp rowset key check finish, num_scanned=" << num_scanned
+              << ", num_loss=" << num_loss;
+
+    return ret;
 }
 
 } // namespace doris::cloud

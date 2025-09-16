@@ -18,18 +18,17 @@
 package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.common.Config;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 /**
- * use for date arithmetic, such as date_sub('2024-05-28', INTERVAL 1 day).
+ * use for literal in date arithmetic with interval >= 'day', such as date_sub('2024-05-28', INTERVAL 1 day).
  * if the first argument is string like literal and could cast to legal date literal,
- * then use date/dateV2 signature
+ * then use DateV2 signature rather than DatetimeV2 signature(usually in SIGNATURES).
+ * but won't add any signatures to SIGNATURES. normally there shou be a DateV2 signature in SIGNATURES.
  */
 @Developing
 public interface ComputeSignatureForDateArithmetic extends ComputeSignature {
@@ -42,13 +41,8 @@ public interface ComputeSignatureForDateArithmetic extends ComputeSignature {
                 String s = ((StringLikeLiteral) child(0)).getStringValue().trim();
                 // avoid use date/dateV2 signature for '2020-02-02 00:00:00'
                 if (s.length() <= 10) {
-                    new DateV2Literal(s);
-                    if (Config.enable_date_conversion) {
-                        return FunctionSignature.ret(DateV2Type.INSTANCE)
-                                .args(DateV2Type.INSTANCE, IntegerType.INSTANCE);
-                    } else {
-                        return FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE);
-                    }
+                    new DateV2Literal(s); // check legality
+                    return FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE);
                 }
             } catch (Exception e) {
                 // string like literal cannot cast to a legal date/dateV2 literal

@@ -242,6 +242,14 @@ void DeleteBitmapAction::handle(HttpRequest* req) {
         } else {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
+    } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_AGG_CACHE) {
+        std::string json_result;
+        Status st = _handle_show_agg_cache_delete_bitmap_count(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
     }
 }
 

@@ -199,6 +199,11 @@ suite("test_aggregate_histogram") {
             ${tableName}
     """
 
+    test {
+        sql """ SELECT hist(c_tinyint, c_tinyint) from histogram_test;""" 
+        exception "errCode = 2,"
+    }
+
     qt_select "SELECT * from ${tableCTAS1}"
     qt_select "SELECT * from ${tableCTAS2}"
 

@@ -20,7 +20,7 @@ suite("push_down_aggr_distinct_through_join_one_side_cust") {
     sql "set runtime_filter_mode=OFF"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set be_number_for_test=1"
-    sql "set DISABLE_NEREIDS_RULES='PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
+    sql "set DISABLE_NEREIDS_RULES='PRUNE_EMPTY_PARTITION, ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,CONSTANT_PROPAGATION'"
 
     sql """
         DROP TABLE IF EXISTS dwd_com_abtest_result_inc_ymds;

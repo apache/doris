@@ -113,7 +113,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     if (it == _segment->_column_uid_to_footer_ordinal.end()) {
         // no such column in this segment, return nullptr
         *column_reader = nullptr;
-        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
+                                                          col_uid);
     }
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
     {
@@ -180,7 +181,8 @@ Status ColumnReaderCache::get_path_column_reader(uint32_t col_uid,
     }
     // no such column in this segment, return nullptr
     *column_reader = nullptr;
-    return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+    return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
+                                                      col_uid);
 }
 
 #include "common/compile_check_end.h"

@@ -211,6 +211,8 @@ public:
     virtual bool is_udf_function() const { return false; }
 
     virtual bool can_push_down_to_index() const { return false; }
+
+    virtual bool is_blockable() const { return false; }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -470,6 +472,8 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
+
+    bool is_blockable() const override { return function->is_blockable(); }
 
 private:
     std::shared_ptr<IFunction> function;
