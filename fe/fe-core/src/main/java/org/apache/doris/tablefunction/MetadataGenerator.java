@@ -1251,6 +1251,34 @@ public class MetadataGenerator {
                 }
                 trow.addToColumnValue(new TCell().setIntVal(distributionInfo.getBucketNum())); // BUCKETS_NUM
                 trow.addToColumnValue(new TCell().setIntVal(olapTable.getPartitionNum())); // PARTITION_NUM
+
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                trow.addToColumnValue(new TCell().setStringVal(partitionInfo.getType().toString())); // PARTITION_METHOD
+
+                if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARTITION_EXPRESSION
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // PARTITION_KEY
+                    trow.addToColumnValue(new TCell().setStringVal("NULL")); // RANGE
+                } else {
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            partitionInfo.getDisplayPartitionColumns().toString())); // PARTITION_EXPRESSION
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            partitionInfo.getDisplayPartitionColumns().toString())); // PARTITION_KEY
+
+                    // Get range information from first partition
+                    Collection<Partition> allPartitions = olapTable.getAllPartitions();
+                    if (!allPartitions.isEmpty()) {
+                        Partition firstPartition = allPartitions.iterator().next();
+                        PartitionItem item = partitionInfo.getItem(firstPartition.getId());
+                        if (item != null) {
+                            trow.addToColumnValue(new TCell().setStringVal(item.getItemsSql())); // RANGE
+                        } else {
+                            trow.addToColumnValue(new TCell().setStringVal("NULL")); // RANGE
+                        }
+                    } else {
+                        trow.addToColumnValue(new TCell().setStringVal("NULL")); // RANGE
+                    }
+                }
                 dataBatch.add(trow);
             } finally {
                 olapTable.readUnlock();
@@ -1277,6 +1305,10 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal("")); // DISTRIBUTE_TYPE
             trow.addToColumnValue(new TCell().setIntVal(0)); // BUCKETS_NUM
             trow.addToColumnValue(new TCell().setIntVal(0)); // PARTITION_NUM
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_METHOD
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_EXPRESSION
+            trow.addToColumnValue(new TCell().setStringVal("")); // PARTITION_KEY
+            trow.addToColumnValue(new TCell().setStringVal("")); // RANGE
             dataBatch.add(trow);
         }
     }
