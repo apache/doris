@@ -46,21 +46,16 @@ public class SimplifyDecimalV3Comparison implements ExpressionPatternRuleFactory
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesType(ComparisonPredicate.class).then(SimplifyDecimalV3Comparison::simplify)
+                matchesType(ComparisonPredicate.class).then(this::simplify)
         );
     }
 
     /** simplify */
-    public static Expression simplify(ComparisonPredicate cp) {
+    public Expression simplify(ComparisonPredicate cp) {
         Expression left = cp.left();
         Expression right = cp.right();
 
-        if (left.getDataType() instanceof DecimalV3Type
-                && left instanceof Cast
-                && ((Cast) left).child().getDataType() instanceof DecimalV3Type
-                && ((DecimalV3Type) left.getDataType()).getScale()
-                >= ((DecimalV3Type) ((Cast) left).child().getDataType()).getScale()
-                && right instanceof DecimalV3Literal) {
+        if (canProcess(left, right)) {
             try {
                 return doProcess(cp, (Cast) left, (DecimalV3Literal) right);
             } catch (ArithmeticException e) {
@@ -71,7 +66,21 @@ public class SimplifyDecimalV3Comparison implements ExpressionPatternRuleFactory
         return cp;
     }
 
-    private static Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
+    private boolean canProcess(Expression left, Expression right) {
+        if (!(left.getDataType() instanceof DecimalV3Type
+                && left instanceof Cast
+                && left.child(0).getDataType() instanceof DecimalV3Type
+                && right instanceof DecimalV3Literal)) {
+            return false;
+        }
+
+        DecimalV3Type castType = (DecimalV3Type) left.getDataType();
+        DecimalV3Type castChildType = (DecimalV3Type) left.child(0).getDataType();
+
+        return castType.getRange() >= castChildType.getRange() && castType.getScale() >= castChildType.getScale();
+    }
+
+    private Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
         BigDecimal trailingZerosValue = right.getValue().stripTrailingZeros();
         int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(trailingZerosValue);
         int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(trailingZerosValue);
