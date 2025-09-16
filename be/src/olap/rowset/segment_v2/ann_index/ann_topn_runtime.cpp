@@ -22,16 +22,19 @@
 #include <string>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index_iterator.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/inverted_index_query_type.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/assert_cast.h"
 #include "vec/exprs/varray_literal.h"
+#include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/virtual_slot_ref.h"
@@ -40,6 +43,81 @@
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
+
+Result<vectorized::IColumn::Ptr> extract_query_vector(std::shared_ptr<vectorized::VExpr> arg_expr) {
+    if (arg_expr->is_constant() == false) {
+        return ResultError(Status::InvalidArgument("Ann topn expr must be constant, got\n{}",
+                                                   arg_expr->debug_string()));
+    }
+
+    // Accept either ArrayLiteral([..]) or CAST('..' AS Nullable(Array(Nullable(Float32))))
+    // First, check the expr node type for clarity.
+
+    bool is_array_literal =
+            std::dynamic_pointer_cast<vectorized::VArrayLiteral>(arg_expr) != nullptr;
+    bool is_cast_expr = std::dynamic_pointer_cast<vectorized::VCastExpr>(arg_expr) != nullptr;
+    if (!is_array_literal && !is_cast_expr) {
+        return ResultError(
+                Status::InvalidArgument("Constant must be ArrayLiteral or CAST to array, got\n{}",
+                                        arg_expr->debug_string()));
+    }
+
+    // We'll validate shape by inspecting the materialized constant column below.
+
+    std::shared_ptr<ColumnPtrWrapper> column_wrapper;
+    auto st = arg_expr->get_const_col(nullptr, &column_wrapper);
+    if (!st.ok()) {
+        return ResultError(Status::InvalidArgument("Failed to get constant column, error: {}",
+                                                   st.to_string()));
+    }
+
+    // Execute the constant array literal and extract its float elements into _query_array
+    vectorized::IColumn::Ptr col_ptr =
+            column_wrapper->column_ptr->convert_to_full_column_if_const();
+
+    // The expected runtime column layout for the literal is:
+    // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)
+    const vectorized::IColumn* top_col = col_ptr.get();
+    const vectorized::IColumn* array_holder_col = top_col;
+    // Handle outer Nullable and remember result nullability preference
+    if (auto* nullable_col =
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(*top_col)) {
+        if (nullable_col->has_null()) {
+            return ResultError(Status::InvalidArgument("Ann query vector cannot be NULL"));
+        }
+        array_holder_col = &nullable_col->get_nested_column();
+    }
+
+    // Must be an array column with single row
+    const auto* array_col =
+            vectorized::check_and_get_column<vectorized::ColumnArray>(*array_holder_col);
+    if (array_col == nullptr || array_col->size() != 1) {
+        return ResultError(Status::InvalidArgument(
+                "Ann topn expr constant should be an Array literal, got column: {}",
+                array_holder_col->get_name()));
+    }
+
+    // Fetch nested data column: Nullable(ColumnFloat32) or ColumnFloat32
+    const vectorized::IColumn& nested_data_any = array_col->get_data();
+    vectorized::IColumn::Ptr values_holder_col = array_col->get_data_ptr();
+    size_t value_count = array_col->get_offsets()[0];
+
+    if (value_count == 0) {
+        return ResultError(Status::InvalidArgument("Ann topn query vector cannot be empty"));
+    }
+
+    if (auto* value_nullable_col =
+                vectorized::check_and_get_column<vectorized::ColumnNullable>(nested_data_any)) {
+        if (value_nullable_col->has_null(0, value_count)) {
+            return ResultError(Status::InvalidArgument(
+                    "Ann topn query vector elements cannot contain NULL values"));
+        }
+        values_holder_col = value_nullable_col->get_nested_column_ptr();
+    }
+
+    return values_holder_col;
+}
+
 Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     RETURN_IF_ERROR(_order_by_expr_ctx->prepare(state, row_desc));
     RETURN_IF_ERROR(_order_by_expr_ctx->open(state));
@@ -54,13 +132,13 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
         |----------------
         |               |
         |               |
-        SlotRef         ArrayLiteral
+        SlotRef         CAST(String as Nullable<ArrayFloat>) OR ArrayLiteral
     */
     std::shared_ptr<vectorized::VirtualSlotRef> vir_slot_ref =
             std::dynamic_pointer_cast<vectorized::VirtualSlotRef>(_order_by_expr_ctx->root());
     DCHECK(vir_slot_ref != nullptr);
     if (vir_slot_ref == nullptr) {
-        return Status::InternalError(
+        return Status::InvalidArgument(
                 "root of order by expr of ann topn must be a vectorized::VirtualSlotRef, got\n{}",
                 _order_by_expr_ctx->root()->debug_string());
     }
@@ -71,27 +149,35 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
             std::dynamic_pointer_cast<vectorized::VectorizedFnCall>(vir_col_expr);
 
     if (distance_fn_call == nullptr) {
-        return Status::InternalError("Ann topn expr expect FuncationCall, got\n{}",
-                                     vir_col_expr->debug_string());
+        return Status::InvalidArgument("Ann topn expr expect FuncationCall, got\n{}",
+                                       vir_col_expr->debug_string());
     }
 
     std::shared_ptr<vectorized::VSlotRef> slot_ref =
             std::dynamic_pointer_cast<vectorized::VSlotRef>(distance_fn_call->children()[0]);
     if (slot_ref == nullptr) {
-        return Status::InternalError("Ann topn expr expect SlotRef, got\n{}",
-                                     distance_fn_call->children()[0]->debug_string());
+        return Status::InvalidArgument("Ann topn expr expect SlotRef, got\n{}",
+                                       distance_fn_call->children()[0]->debug_string());
     }
 
     // slot_ref->column_id() is acutually the columnd idx in block.
     _src_column_idx = slot_ref->column_id();
 
-    std::shared_ptr<vectorized::VArrayLiteral> array_literal =
-            std::dynamic_pointer_cast<vectorized::VArrayLiteral>(distance_fn_call->children()[1]);
-    if (array_literal == nullptr) {
-        return Status::InternalError("Ann topn expr expect ArrayLiteral, got\n{}",
-                                     distance_fn_call->children()[1]->debug_string());
+    if (distance_fn_call->children()[1]->is_constant() == false) {
+        return Status::InvalidArgument("Ann topn expr expect constant ArrayLiteral, got\n{}",
+                                       distance_fn_call->children()[1]->debug_string());
     }
-    _query_array = array_literal->get_column_ptr();
+
+    // Accept either ArrayLiteral([..]) or CAST('..' AS Nullable(Array(Nullable(Float32))))
+    // First, check the expr node type for clarity.
+    auto arg_expr = distance_fn_call->children()[1];
+
+    auto query_array_result = extract_query_vector(arg_expr);
+    if (!query_array_result.has_value()) {
+        return query_array_result.error();
+    }
+    _query_array = query_array_result.value();
+
     _user_params = state->get_vector_search_params();
 
     std::set<std::string> distance_func_names = {vectorized::L2DistanceApproximate::name,
@@ -121,27 +207,26 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
     DCHECK(ann_index_iterator_casted != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
     DCHECK(_order_by_expr_ctx->root() != nullptr);
-
-    const vectorized::ColumnConst* const_column =
-            assert_cast<const vectorized::ColumnConst*>(_query_array.get());
-    const vectorized::ColumnArray* column_array =
-            assert_cast<const vectorized::ColumnArray*>(const_column->get_data_column_ptr().get());
-    const vectorized::ColumnNullable* column_nullable =
-            assert_cast<const vectorized::ColumnNullable*>(column_array->get_data_ptr().get());
-    const vectorized::ColumnFloat32* cf32 = assert_cast<const vectorized::ColumnFloat32*>(
-            column_nullable->get_nested_column_ptr().get());
-
-    const float* query_value = cf32->get_data().data();
-    const size_t query_value_size = cf32->get_data().size();
-
-    std::unique_ptr<float[]> query_value_f32 = std::make_unique<float[]>(query_value_size);
-    for (size_t i = 0; i < query_value_size; ++i) {
-        query_value_f32[i] = static_cast<float>(query_value[i]);
+    size_t query_array_size = _query_array->size();
+    if (_query_array.get() == nullptr || query_array_size == 0) {
+        return Status::InternalError("Ann topn query vector is not initialized");
     }
 
+    // TODO:(zhiqiang) Maybe we can move this dimension check to prepare phase.
+
+    auto index_reader = ann_index_iterator_casted->get_reader(AnnIndexReaderType::ANN);
+    auto ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(index_reader);
+    DCHECK(ann_index_reader != nullptr);
+    if (ann_index_reader->get_dimension() != query_array_size) {
+        return Status::InvalidArgument(
+                "Ann topn query vector dimension {} does not match index dimension {}",
+                query_array_size, ann_index_reader->get_dimension());
+    }
+    const vectorized::ColumnFloat32* query =
+            assert_cast<const vectorized::ColumnFloat32*>(_query_array.get());
     segment_v2::AnnTopNParam ann_query_params {
-            .query_value = query_value_f32.get(),
-            .query_value_size = query_value_size,
+            .query_value = query->get_data().data(),
+            .query_value_size = query_array_size,
             .limit = _limit,
             ._user_params = _user_params,
             .roaring = roaring,
@@ -157,11 +242,9 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
 
     size_t num_results = ann_query_params.distance->size();
     auto result_column_float = vectorized::ColumnFloat32::create(num_results);
-
     for (size_t i = 0; i < num_results; ++i) {
         result_column_float->get_data()[i] = (*ann_query_params.distance)[i];
     }
-
     result_column = std::move(result_column_float);
     row_ids = std::move(ann_query_params.row_ids);
     ann_index_stats = *ann_query_params.stats;
