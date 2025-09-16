@@ -34,7 +34,7 @@ final String FILE_CACHE_QUERY_LIMIT_ENABLE_EVICT_FROM_OTHER_QUEUE_CHECK_FAILED_M
 // Constants for cache query features check
 final String FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX = "File cache features check failed: "
 final String BASE_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "base normal_queue_curr_size is 0"
-final String BASE_NORMAL_QUEUE_CURR_ELEMENTS_iS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "base normal_queue_curr_elements is 0"
+final String BASE_NORMAL_QUEUE_CURR_ELEMENTS_IS_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "base normal_queue_curr_elements is 0"
 final String TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total_hit_counts did not increase after cache operation"
 final String TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "total_read_counts did not increase after cache operation"
 final String INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "initial normal_queue_curr_size is not 0"
@@ -124,7 +124,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
     // brpc metrics will be updated at most 20 seconds
-    def totalWaitTime = 20
+    def totalWaitTime = 5
     def interval = 5
     def iterations = totalWaitTime / interval
 
@@ -193,7 +193,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
             where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
         logger.info("normal_queue_curr_elements result: " + baseNormalQueueCurrElementsResult)
         assertFalse(baseNormalQueueCurrElementsResult.size() == 0 || Double.valueOf(baseNormalQueueCurrElementsResult[0][0]) == 0.0,
-                BASE_NORMAL_QUEUE_CURR_ELEMENTS_iS_ZERO_MSG)
+                BASE_NORMAL_QUEUE_CURR_ELEMENTS_IS_ZERO_MSG)
 
         def baseNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
             where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
