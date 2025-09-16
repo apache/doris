@@ -966,6 +966,7 @@ identityOrFunction
 
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+        (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (partitionSpec)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
@@ -981,6 +982,7 @@ dataDesc
         (sequenceColumn=sequenceColClause)?
         (propertyClause)?
     | ((WITH)? mergeType)? DATA FROM TABLE sourceTableName=identifier
+        (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?
