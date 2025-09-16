@@ -213,11 +213,7 @@ Status MultiTablePipe::request_and_exec_plans() {
             return plan_status;
         }
 
-        if (_ctx->multi_table_put_result.__isset.params &&
-            !_ctx->multi_table_put_result.__isset.pipeline_params) {
-            return Status::Aborted("only support pipeline engine");
-        } else if (!_ctx->multi_table_put_result.__isset.params &&
-                   _ctx->multi_table_put_result.__isset.pipeline_params) {
+        if (_ctx->multi_table_put_result.__isset.pipeline_params) {
             st = exec_plans(exec_env, _ctx->multi_table_put_result.pipeline_params);
         } else {
             return Status::Aborted("too many or too few params are set in multi_table_put_result.");
