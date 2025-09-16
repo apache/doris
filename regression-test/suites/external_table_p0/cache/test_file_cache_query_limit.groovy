@@ -23,6 +23,7 @@ import org.awaitility.Awaitility;
 // Constants for backend configuration check
 final String BACKEND_CONFIG_CHECK_FAILED_PREFIX = "Backend configuration check failed: "
 final String ENABLE_FILE_CACHE_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "enable_file_cache is empty or not set to true"
+final String FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_background_monitor_interval_ms is empty or not set to true"
 final String FILE_CACHE_PATH_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "file_cache_path is empty or not configured"
 final String WEB_SERVER_PORT_CHECK_FAILED_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "webserver_port is empty or not configured"
 final String NORMAL_QUEUE_MAX_SIZE_LESS_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG = BACKEND_CONFIG_CHECK_FAILED_PREFIX + "normal_queue_max_size is less than file_cache_query_limit_bytes"
@@ -54,6 +55,8 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
         return
     }
 
+    sql """set enable_file_cache=true"""
+
     // Check backend configuration prerequisites
     // Note: This test case assumes a single backend scenario. Testing with single backend is logically equivalent
     // to testing with multiple backends having identical configurations, but simpler in logic.
@@ -62,10 +65,10 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertFalse(enableFileCacheResult.size() == 0 || !enableFileCacheResult[0][3].equalsIgnoreCase("true"),
             ENABLE_FILE_CACHE_CHECK_FAILED_MSG)
 
-    def fileCachePathResult = sql """show backend config like 'file_cache_path';"""
-    logger.info("file_cache_path configuration: " + fileCachePathResult)
-    assertFalse(fileCachePathResult.size() == 0 || fileCachePathResult[0][3] == null || fileCachePathResult[0][3].trim().isEmpty(),
-            FILE_CACHE_PATH_CHECK_FAILED_MSG)
+    def fileCacheBackgroundMonitorIntervalMsResult = sql """show backend config like 'file_cache_background_monitor_interval_ms';"""
+    logger.info("file_cache_background_monitor_interval_ms configuration: " + fileCacheBackgroundMonitorIntervalMsResult)
+    assertFalse(fileCacheBackgroundMonitorIntervalMsResult.size() == 0 || fileCacheBackgroundMonitorIntervalMsResult[0][3] == null ||
+            fileCacheBackgroundMonitorIntervalMsResult[0][3].trim().isEmpty(), FILE_CACHE_BACKGROUND_MONITOR_INTERVAL_CHECK_FAILED_MSG)
 
     String catalog_name = "test_file_cache_query_limit"
     String ex_db_name = "tpch1_parquet"
@@ -75,7 +78,6 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     int divisor = 4
     int queryCacheCapacity
 
-    sql """set enable_file_cache=true"""
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -124,8 +126,8 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     assertTrue(exitCode == 0, "File cache clear failed with exit code ${exitCode}. Error: ${errorOutput.toString()}")
 
     // brpc metrics will be updated at most 20 seconds
-    def totalWaitTime = 5
-    def interval = 5
+    def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
+    def interval = 1
     def iterations = totalWaitTime / interval
 
     // Waiting for file cache clearing
