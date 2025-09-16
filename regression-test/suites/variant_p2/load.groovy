@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 suite("load_p2", "variant_type,p2"){
-
+    boolean use_stream_load = true
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -48,6 +48,7 @@ suite("load_p2", "variant_type,p2"){
     }
 
     def create_table = {table_name, buckets="auto" ->
+        sql "set default_variant_max_subcolumns_count = 0"
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -70,7 +71,7 @@ suite("load_p2", "variant_type,p2"){
     }
 
     // Configuration for the number of threads
-    def numberOfThreads = 10 // Set this to your desired number of threads
+    def numberOfThreads = 20 // Set this to your desired number of threads
 
     // Executor service for managing threads
     def executorService = Executors.newFixedThreadPool(numberOfThreads)
@@ -141,11 +142,20 @@ suite("load_p2", "variant_type,p2"){
                     log.info("current hour: ${hour}")
                     def fileName = year + "-" + month + "-" + day + "-" + hour + ".json"
                     log.info("cuurent fileName: ${fileName}")
-                    // Submitting tasks to the executor service
-                    futures << executorService.submit({
-                        log.info("Loading file: ${fileName}")
-                        s3load_paral_wait.call(table_name, "JSON", "regression/github_events_dataset/${fileName}", 3)
-                    } as Runnable)
+                    if (use_stream_load) {
+                        def fileUrl = """${getS3Url() + '/regression/github_events_dataset/' + fileName}"""
+                        // Submitting tasks to the executor service
+                        futures << executorService.submit({
+                            log.info("Loading file: ${fileName}")
+                            load_json_data.call(table_name, fileUrl)
+                        } as Runnable)
+                    } else {
+                        // Submitting tasks to the executor service
+                        futures << executorService.submit({
+                            log.info("Loading file: ${fileName}")
+                            s3load_paral_wait.call(table_name, "JSON", "regression/github_events_dataset/${fileName}", 3)
+                        } as Runnable)
+                    }
                 }
             }
         }

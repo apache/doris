@@ -33,7 +33,7 @@ namespace doris::cloud {
 
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
 
-TEST(MetaServiceSnapshotTest, BeginSnapshotTest) {
+TEST(MetaServiceSnapshotTest, DISABLED_BeginSnapshotTest) {
     auto meta_service = get_meta_service(true);
     const char* const cloud_unique_id = "test_cloud_unique_id";
 

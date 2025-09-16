@@ -79,13 +79,15 @@ namespace doris::cloud {
 
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
-                                 std::shared_ptr<RateLimiter> rate_limiter) {
-    txn_kv_ = txn_kv;
-    resource_mgr_ = resource_mgr;
-    rate_limiter_ = rate_limiter;
+                                 std::shared_ptr<RateLimiter> rate_limiter,
+                                 std::shared_ptr<SnapshotManager> snapshot_manager)
+        : txn_kv_(std::move(txn_kv)),
+          resource_mgr_(std::move(resource_mgr)),
+          rate_limiter_(std::move(rate_limiter)),
+          txn_lazy_committer_(std::make_shared<TxnLazyCommitter>(txn_kv_)),
+          delete_bitmap_lock_white_list_(std::make_shared<DeleteBitmapLockWhiteList>()),
+          snapshot_manager_(std::move(snapshot_manager)) {
     rate_limiter_->init(this);
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
-    delete_bitmap_lock_white_list_ = std::make_shared<DeleteBitmapLockWhiteList>();
     delete_bitmap_lock_white_list_->init();
 }
 

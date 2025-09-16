@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.storage.exception.StoragePropertiesE
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -160,5 +162,18 @@ public class COSPropertiesTest {
                  "Both the access key and the secret key must be set.");
         origProps.remove("cos.access_key");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.cos.support", "true");
+        props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        COSProperties obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        props.put("cos.access_key", "myAccessKey");
+        props.put("cos.secret_key", "mySecretKey");
+        obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
     }
 }
