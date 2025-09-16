@@ -68,11 +68,6 @@ class Hdfs {
 
     List<String> downLoad(String prefix) {
         List<String> files = new ArrayList<>();
-        def systemTmpDir = new File(System.getProperty("java.io.tmpdir"))
-        def targetTmpFolder = new File(systemTmpDir,"doris-case"+prefix)
-        if (!targetTmpFolder.mkdir()) {
-            throw new IOException("create dir failed: ${targetTmpFolder}")
-        }
 
         try {
             String filepath = this.testRemoteDir + prefix + "*";
@@ -83,7 +78,7 @@ class Hdfs {
                 logger.info("${path}")
                 if (!fileStatus.isFile()) continue
                 FSDataInputStream fsDataInputStream = fs.open(path);
-                File localFile = new File(targetTmpFolder,path.getName());
+                File localFile = new File(localDataDir, path.getName());
                 FileOutputStream fileOutputStream = new FileOutputStream(localFile);
                 IOUtils.copy(fsDataInputStream, fileOutputStream);
                 files.add(localFile.getAbsolutePath());

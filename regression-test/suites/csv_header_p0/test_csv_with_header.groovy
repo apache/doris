@@ -18,6 +18,12 @@
 import org.apache.doris.regression.util.Hdfs
 
 suite("test_csv_with_header", "p0,external") {
+    // save load data in tmp dir.
+    def localDataDir = new File(new File(System.getProperty("java.io.tmpdir")), "doris-case"+UUID.randomUUID().toString().replaceAll("-", ""))
+    if (!localDataDir.mkdir()) {
+        throw new IOException("create dir failed: ${localDataDir}")
+    }
+
      //define format
     def format_csv = "csv"
     def format_csv_with_names = "csv_with_names"
@@ -126,7 +132,6 @@ suite("test_csv_with_header", "p0,external") {
         def hdfsFs = getHdfsFs()
         //[broker load] test normal
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        logger.info("${format_csv_file}")
         def remote_csv_file = uploadToHdfs("csv_header_p0/"+format_csv_file)
         def export_result = import_from_hdfs.call(testTable, label, remote_csv_file, format_csv, brokerName, hdfsUser, hdfsPasswd)
         check_import_result.call(label, testTable, expect_rows * 4)
@@ -169,11 +174,9 @@ suite("test_csv_with_header", "p0,external") {
         }
         
         def download_from_hdfs= {String label_path ->
-            def dataDir = "user/root/groovy/"
             String hdfsFs1 = context.config.otherConfigs.get("hdfsFs")
             String hdfsUser1 = context.config.otherConfigs.get("hdfsUser")
-            Hdfs hdfs = new Hdfs(hdfsFs1, hdfsUser1, dataDir)
-            logger.info("${label_path}")
+            Hdfs hdfs = new Hdfs(hdfsFs1, hdfsUser1, localDataDir.getAbsolutePath())
             return hdfs.downLoad(label_path)
         }
 
@@ -254,5 +257,7 @@ suite("test_csv_with_header", "p0,external") {
         result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names_and_types, currentTotalRows)
     }    
+
+    localDataDir.deleteDir()
 }
 
