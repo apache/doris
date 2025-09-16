@@ -168,7 +168,11 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
 Status ParallelScannerBuilder::_load() {
     _total_rows = 0;
     size_t idx = 0;
-    for (auto&& [tablet, version] : _tablets) {
+    bthread::Mutex bmtx;
+    std::vector<std::shared_ptr<std::promise<Status>>> proms;
+    proms.reserve(_tablets.size() * 50); // guest 50 rowsets per tablet
+    auto pool = ExecEnv::GetInstance()->scanner_scheduler()->get_remote_scan_thread_pool();
+    for (auto&& [tablet, _] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         _all_read_sources[tablet_id] = _read_sources[idx];
         const auto& read_source = _all_read_sources[tablet_id];
@@ -176,23 +180,37 @@ Status ParallelScannerBuilder::_load() {
         bool enable_segment_cache = _state->query_options().__isset.enable_segment_cache
                                             ? _state->query_options().enable_segment_cache
                                             : true;
+        // The rowset_id across different rs_splits is guaranteed to be unique
         for (auto& rs_split : read_source.rs_splits) {
             auto rowset = rs_split.rs_reader->rowset();
             RETURN_IF_ERROR(rowset->load());
-            const auto rowset_id = rowset->rowset_id();
-            SegmentCacheHandle segment_cache_handle;
+            auto prom = std::make_shared<std::promise<Status>>();
+            proms.emplace_back(prom);
 
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle,
-                    enable_segment_cache, false));
+            auto st = pool->submit_scan_task(SimplifiedScanTask(
+                    [esc = enable_segment_cache, rowset, &bmtx, p = std::move(prom), this] {
+                        SegmentCacheHandle sch;
+                        auto task_st = SegmentLoader::instance()->load_segments(
+                                std::dynamic_pointer_cast<BetaRowset>(rowset), &sch, esc, false);
+                        Defer defer([p, &task_st] { p->set_value(task_st); });
+                        if (!task_st.ok()) return;
 
-            for (const auto& segment : segment_cache_handle.get_segments()) {
-                _all_segments_rows[rowset_id].emplace_back(segment->num_rows());
+                        std::unique_lock lck(bmtx);
+                        for (const auto& segment : sch.get_segments()) {
+                            _all_segments_rows[rowset->rowset_id()].emplace_back(
+                                    segment->num_rows());
+                        }
+                        _total_rows += rowset->num_rows();
+                    },
+                    nullptr));
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to submit scan task, err=" << st;
+                return st;
             }
-            _total_rows += rowset->num_rows();
         }
         idx++;
     }
+    for (auto& p : proms) RETURN_IF_ERROR(p->get_future().get());
 
     _rows_per_scanner = _total_rows / _max_scanners_count;
     _rows_per_scanner = std::max<size_t>(_rows_per_scanner, _min_rows_per_scanner);
