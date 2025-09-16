@@ -347,7 +347,11 @@ public class NereidsLoadScanProvider {
             } else {
                 realColName = tblColumn.getName();
             }
-            if (importColumnDesc.getExpr() == null) {
+            if (importColumnDesc.getExpr() != null) {
+                if (tblColumn.getGeneratedColumnInfo() == null) {
+                    context.exprMap.put(realColName, importColumnDesc.getExpr());
+                }
+            } else {
                 Column slotColumn;
                 if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
