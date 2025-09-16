@@ -1368,6 +1368,16 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     };
 
+    auto clear_tablets = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
+                             int64_t tablet_id) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        txn->remove(key);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+
     config::use_delete_bitmap_lock_random_version = false;
     int64_t table_id = 111;
     remove_delete_bitmap_lock(meta_service.get(), table_id);
@@ -1434,8 +1444,10 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         config::delete_bitmap_lock_v2_white_list = version4 == 1 ? "" : "*";
         test_commit_compaction_job(table_id, 2, 3, tablet_id, TabletCompactionJobPB::BASE);
         ASSERT_EQ(res.status().code(), MetaServiceCode::LOCK_EXPIRED);
-        clear_rowsets(table_id);
+        clear_rowsets(tablet_id);
         clear_rowsets(new_tablet_id);
+        clear_tablets(table_id, 2, 3, tablet_id);
+        clear_tablets(table_id, 2, 3, new_tablet_id);
         remove_delete_bitmap_lock(meta_service.get(), table_id);
     }
 
@@ -4306,6 +4318,236 @@ TEST(MetaServiceJobTest, CancelSC) {
         ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
         ASSERT_TRUE(job_pb.ParseFromString(job_val));
         ASSERT_TRUE(job_pb.has_schema_change());
+    }
+}
+
+TEST(MetaServiceJobTest, IdempotentCompactionJob) {
+    auto meta_service = get_meta_service();
+    // meta_service->resource_mgr().reset(); // Do not use resource manager
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    brpc::Controller cntl;
+
+    auto test_commit_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
+                                          int64_t tablet_id, std::string job_id,
+                                          TabletCompactionJobPB::CompactionType type) {
+        FinishTabletJobRequest req;
+        FinishTabletJobResponse res;
+
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        compaction->set_base_compaction_cnt(10);
+        compaction->set_cumulative_compaction_cnt(20);
+        req.set_action(FinishTabletJobRequest::COMMIT);
+
+        auto tablet_meta_key =
+                meta_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string tablet_meta_val;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        doris::TabletMetaCloudPB tablet_meta_pb;
+        ASSERT_EQ(txn->get(tablet_meta_key, &tablet_meta_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_meta_pb.ParseFromString(tablet_meta_val));
+        tablet_meta_pb.set_cumulative_layer_point(50);
+        txn->put(tablet_meta_key, tablet_meta_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Create create tablet stats, compation job will will update stats
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        auto tablet_stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string tablet_stats_val;
+        TabletStatsPB tablet_stats_pb;
+        ASSERT_EQ(txn->get(tablet_stats_key, &tablet_stats_val), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(tablet_stats_pb.ParseFromString(tablet_stats_val));
+
+        std::mt19937 rng(std::chrono::system_clock::now().time_since_epoch().count());
+        std::uniform_int_distribution<int> dist(1, 10000); // Positive numbers
+
+        compaction->set_output_cumulative_point(tablet_stats_pb.cumulative_point() + dist(rng));
+        compaction->set_num_output_rows(dist(rng));
+        compaction->set_num_output_rowsets(dist(rng));
+        compaction->set_num_output_segments(dist(rng));
+        compaction->set_num_input_rows(dist(rng));
+        compaction->set_num_input_rowsets(dist(rng));
+        compaction->set_num_input_segments(dist(rng));
+        compaction->set_size_input_rowsets(dist(rng));
+        compaction->set_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
+        compaction->set_type(type);
+
+        tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_base_compaction_cnt(dist(rng));
+        tablet_stats_pb.set_cumulative_point(tablet_meta_pb.cumulative_layer_point());
+        // MUST let data stats be larger than input data size
+        tablet_stats_pb.set_num_rows(dist(rng) + compaction->num_input_rows());
+        tablet_stats_pb.set_data_size(dist(rng) + compaction->size_input_rowsets());
+        tablet_stats_pb.set_num_rowsets(dist(rng) + compaction->num_input_rowsets());
+        tablet_stats_pb.set_num_segments(dist(rng) + compaction->num_input_segments());
+        tablet_stats_pb.set_index_size(dist(rng) + compaction->index_size_input_rowsets());
+        tablet_stats_pb.set_segment_size(dist(rng) + compaction->segment_size_input_rowsets());
+
+        txn->put(tablet_stats_key, tablet_stats_pb.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Provide input and output rowset info
+        int64_t input_version_start = dist(rng);
+        int64_t input_version_end = input_version_start + 100;
+        compaction->add_input_versions(input_version_start);
+        compaction->add_input_versions(input_version_end);
+        compaction->add_output_versions(input_version_end);
+        compaction->add_output_rowset_ids("output rowset id");
+
+        // Input rowsets must exist, and more than 0
+        // Check number input rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 0); // zero existed rowsets
+        });
+
+        // Provide input rowset KVs, boundary test, 5 input rowsets
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        // clang-format off
+        std::vector<std::string> input_rowset_keys = {
+                meta_rowset_key({instance_id, tablet_id, input_version_start - 1}),
+                meta_rowset_key({instance_id, tablet_id, input_version_start}),
+                meta_rowset_key({instance_id, tablet_id, input_version_start + 1}),
+                meta_rowset_key({instance_id, tablet_id, (input_version_start + input_version_end) / 2}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end - 1}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end}),
+                meta_rowset_key({instance_id, tablet_id, input_version_end + 1}),
+        };
+        // clang-format on
+        std::vector<std::unique_ptr<std::string>> input_rowset_vals;
+        for (auto& i : input_rowset_keys) {
+            doris::RowsetMetaCloudPB rs_pb;
+            rs_pb.set_rowset_id(0);
+            rs_pb.set_rowset_id_v2(hex(i));
+            input_rowset_vals.emplace_back(new std::string(rs_pb.SerializeAsString()));
+            txn->put(i, *input_rowset_vals.back());
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Check number input rowsets
+        sp->set_call_back("process_compaction_job::loop_input_done", [](auto&& args) {
+            auto* num_input_rowsets = try_any_cast<int*>(args[0]);
+            ASSERT_EQ(*num_input_rowsets, 5);
+        });
+
+        int64_t txn_id = dist(rng);
+        compaction->add_txn_id(txn_id);
+
+        // Provide invalid output rowset meta
+        auto tmp_rowset_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        doris::RowsetMetaCloudPB tmp_rs_pb;
+        tmp_rs_pb.set_rowset_id(0);
+        auto tmp_rowset_val = tmp_rs_pb.SerializeAsString();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        // Provide txn_id in output rowset meta
+        tmp_rs_pb.set_txn_id(10086);
+        tmp_rowset_val = tmp_rs_pb.SerializeAsString();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(tmp_rowset_key, tmp_rowset_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                        &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        tablet_stats_val.clear();
+        ASSERT_EQ(txn->get(tablet_stats_key, &tablet_stats_val), TxnErrorCode::TXN_OK);
+        TabletStatsPB stats;
+        ASSERT_TRUE(stats.ParseFromString(tablet_stats_val));
+
+        // clang-format off
+        EXPECT_EQ(stats.base_compaction_cnt()      , tablet_stats_pb.base_compaction_cnt() + (req.job().compaction(0).type() == TabletCompactionJobPB::BASE));
+        EXPECT_EQ(stats.cumulative_compaction_cnt(), tablet_stats_pb.cumulative_compaction_cnt() + (req.job().compaction(0).type() == TabletCompactionJobPB::CUMULATIVE));
+        EXPECT_EQ(stats.cumulative_point()         , type == TabletCompactionJobPB::BASE ? 50 : req.job().compaction(0).output_cumulative_point());
+        EXPECT_EQ(stats.num_rows()                 , tablet_stats_pb.num_rows() + (req.job().compaction(0).num_output_rows() - req.job().compaction(0).num_input_rows()));
+        EXPECT_EQ(stats.data_size()                , tablet_stats_pb.data_size() + (req.job().compaction(0).size_output_rowsets() - req.job().compaction(0).size_input_rowsets()));
+        EXPECT_EQ(stats.num_rowsets()              , tablet_stats_pb.num_rowsets() + (req.job().compaction(0).num_output_rowsets() - req.job().compaction(0).num_input_rowsets()));
+        EXPECT_EQ(stats.num_segments()             , tablet_stats_pb.num_segments() + (req.job().compaction(0).num_output_segments() - req.job().compaction(0).num_input_segments()));
+        EXPECT_EQ(stats.index_size()               , tablet_stats_pb.index_size() + (req.job().compaction(0).index_size_output_rowsets() - req.job().compaction(0).index_size_input_rowsets()));
+        EXPECT_EQ(stats.segment_size()             , tablet_stats_pb.segment_size() + (req.job().compaction(0).segment_size_output_rowsets() - req.job().compaction(0).segment_size_input_rowsets()));
+        // clang-format on
+
+        // Check job removed, tablet meta updated
+        auto job_key = job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        std::string job_val;
+        ASSERT_EQ(txn->get(job_key, &job_val), TxnErrorCode::TXN_OK);
+        TabletJobInfoPB job_pb;
+        ASSERT_TRUE(job_pb.ParseFromString(job_val));
+        ASSERT_TRUE(job_pb.compaction().empty());
+        tablet_meta_val.clear();
+
+        // Check tmp rowset removed
+        ASSERT_EQ(txn->get(tmp_rowset_key, &tmp_rowset_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        // Check input rowsets removed, the largest version remains
+        for (int i = 1; i < input_rowset_keys.size() - 2; ++i) {
+            std::string val;
+            EXPECT_EQ(txn->get(input_rowset_keys[i], &val), TxnErrorCode::TXN_KEY_NOT_FOUND)
+                    << hex(input_rowset_keys[i]);
+        }
+        // Check recycle rowsets added
+        for (int i = 1; i < input_rowset_vals.size() - 1; ++i) {
+            doris::RowsetMetaCloudPB rs;
+            ASSERT_TRUE(rs.ParseFromString(*input_rowset_vals[i]));
+            auto key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
+            std::string val;
+            EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK) << hex(key);
+        }
+        // Check output rowset added
+        auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version_end});
+        std::string rowset_val;
+        EXPECT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK) << hex(rowset_key);
+    };
+    constexpr int64_t table_id = 1;
+    constexpr int64_t index_id = 2;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t tablet_id = 4;
+    auto type = TabletCompactionJobPB::BASE;
+    std::string job_id = "job_id1234";
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19,
+                             TabletCompactionJobPB::BASE, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    ASSERT_NO_FATAL_FAILURE(
+            test_commit_compaction_job(table_id, index_id, partition_id, tablet_id, job_id, type));
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19,
+                             TabletCompactionJobPB::BASE, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_TABLET_CACHE);
     }
 }
 
