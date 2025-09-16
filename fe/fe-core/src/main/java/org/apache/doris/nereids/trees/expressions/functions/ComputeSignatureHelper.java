@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -301,8 +302,12 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
