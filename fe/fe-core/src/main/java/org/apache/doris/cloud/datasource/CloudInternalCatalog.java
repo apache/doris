@@ -1008,25 +1008,27 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.warn("replay update cloud replica, unknown table {}", info.toString());
             return;
         }
+        LOG.debug("replay update a cloud replica {}", info);
 
-        olapTable.writeLock();
         try {
             unprotectUpdateCloudReplica(olapTable, info);
         } catch (Exception e) {
             LOG.warn("unexpected exception", e);
-        } finally {
-            olapTable.writeUnlock();
         }
     }
 
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
-        LOG.debug("replay update a cloud replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
         if (partition == null) {
             LOG.warn("replay update cloud replica, unknown partition {}, may be dropped", info.toString());
             return;
         }
+
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
+        if (materializedIndex == null) {
+            LOG.warn("replay update cloud replica, unknown index {}, may be dropped", info.toString());
+            return;
+        }
 
         try {
             if (info.getTabletId() != -1) {
