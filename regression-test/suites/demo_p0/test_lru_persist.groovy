@@ -46,7 +46,6 @@ import org.apache.doris.regression.suite.ClusterOptions
 
 suite('test_lru_persist', 'docker') {
     def options = new ClusterOptions()
-    
     options.feNum = 1
     options.beNum = 1
     options.msNum = 1
@@ -90,5 +89,39 @@ suite('test_lru_persist', 'docker') {
         logger.info("normalAfter: ${normalAfter}")
 
         assert normalBefore == normalAfter
+
+        // remove dump file
+        def rm_dump_ret = "rm -rf ${cachePath}/lru_dump_normal.tail".execute().text.trim()
+        cluster.startBackends(1)
+        sleep(5000)
+        def show_backend_ret = sql '''show backends'''
+        try {
+            logger.info("Backend details: ${show_backend_ret.toString()}")
+            if(show_backend_ret.size() > 0 && show_backend_ret[0].size() > 0) {
+                logger.info("alive: ${show_backend_ret[0][9].toString()}")
+            }
+            assert show_backend_ret[0][9].toString() == "true"
+        } catch(Exception e) {
+            logger.error("Failed to log backend info: ${e.message}")
+        }
+
+        sql '''select count(*) from tb1'''
+
+        sleep(10000)
+        cluster.stopBackends(1)
+
+        def rm_data_ret = new File(cachePath).eachFile { file ->
+            if (!file.name.startsWith("lru_") && file.name != "version" && file.name != "." && file.name != "..") {
+                if (file.isDirectory()) {
+                    file.deleteDir()
+                } else {
+                    file.delete()
+                }
+            }
+        }
+        cluster.startBackends(1)
+        sleep(5000)
+
+        sql '''select count(*) from tb1'''
     }
 }
