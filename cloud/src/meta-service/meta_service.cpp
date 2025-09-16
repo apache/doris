@@ -79,13 +79,15 @@ namespace doris::cloud {
 
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
-                                 std::shared_ptr<RateLimiter> rate_limiter) {
-    txn_kv_ = txn_kv;
-    resource_mgr_ = resource_mgr;
-    rate_limiter_ = rate_limiter;
+                                 std::shared_ptr<RateLimiter> rate_limiter,
+                                 std::shared_ptr<SnapshotManager> snapshot_manager)
+        : txn_kv_(std::move(txn_kv)),
+          resource_mgr_(std::move(resource_mgr)),
+          rate_limiter_(std::move(rate_limiter)),
+          txn_lazy_committer_(std::make_shared<TxnLazyCommitter>(txn_kv_)),
+          delete_bitmap_lock_white_list_(std::make_shared<DeleteBitmapLockWhiteList>()),
+          snapshot_manager_(std::move(snapshot_manager)) {
     rate_limiter_->init(this);
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
-    delete_bitmap_lock_white_list_ = std::make_shared<DeleteBitmapLockWhiteList>();
     delete_bitmap_lock_white_list_->init();
 }
 
@@ -731,6 +733,32 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     std::string key;
     std::string val;
     meta_tablet_key(key_info, &key);
+
+    err = txn->get(key, &val);
+    TEST_SYNC_POINT_CALLBACK("meta_service_test:get_meta_tablet_key_error", &err);
+    if (err == TxnErrorCode::TXN_OK) {
+        doris::TabletMetaCloudPB exists_tablet_meta;
+        if (!exists_tablet_meta.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("malformed tablet meta, unable to initialize, key={}", hex(key));
+            return;
+        }
+        if (exists_tablet_meta.tablet_id() == tablet_meta.tablet_id() &&
+            exists_tablet_meta.schema_version() == tablet_meta.schema_version()) {
+            // idempotent
+            code = MetaServiceCode::OK;
+            msg = fmt::format("tablet already exists, tablet_id={} schema_version={} key={}",
+                              tablet_id, tablet_meta.schema_version(), hex(key));
+            LOG(WARNING) << msg;
+            return;
+        }
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to get tablet key, key=" + hex(key);
+        LOG(WARNING) << msg;
+        return;
+    }
     if (!tablet_meta.SerializeToString(&val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = "failed to serialize tablet meta";

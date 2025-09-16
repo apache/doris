@@ -155,6 +155,7 @@ Status OlapScanner::prepare() {
     _score_runtime = local_state->_score_runtime;
 
     _score_runtime = local_state->_score_runtime;
+    // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use

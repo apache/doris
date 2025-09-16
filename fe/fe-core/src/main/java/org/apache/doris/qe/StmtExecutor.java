@@ -596,7 +596,8 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (context.getSessionVariable().enableProfile) {
+        // short circuit query should not dump changed session var since it will impact the performance.
+        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -913,6 +914,12 @@ public class StmtExecutor {
         // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
         // Only generate profile for NereidsPlanner.
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+
+        // If the query is short circuit, we should not update the profile,
+        // which will impact the performance of the short circuit query.
+        if (statementContext.isShortCircuitQuery()) {
             return false;
         }
 

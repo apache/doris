@@ -148,10 +148,13 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     bool eos = request->eos();
     if (!request->blocks().empty()) {
         for (int i = 0; i < request->blocks_size(); i++) {
-            // here const_cast is used to avoid an extra copy. Ultimately used in vdata_stream_recvr.h
-            // solely for the purpose of reading the data within it.
+            // Previously there was a const_cast here, but in our internal tests this occasionally caused a hard-to-reproduce core dump.
+            // We suspect it was caused by the const_cast, so we switched to making a copy here.
+            // In fact, for PBlock, most of the data resides in the PColumnMeta column_metas field, so the copy overhead is small.
+            // To make the intent explicit, we do not use
+            // std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>(request->blocks(i));
             std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
-            pblock_ptr->Swap(const_cast<PBlock*>(&request->blocks(i)));
+            pblock_ptr->CopyFrom(request->blocks(i));
             auto pass_done = [&]() -> ::google::protobuf::Closure** {
                 // If it is eos, no callback is needed, done can be nullptr
                 if (eos) {
@@ -175,9 +178,8 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     // old logic, for compatibility
     if (request->has_block()) {
-        // The use of const_cast here is to invoke non-const methods in gensrc.
-        std::unique_ptr<PBlock> pblock_ptr {
-                const_cast<PTransmitDataParams*>(request)->release_block()};
+        std::unique_ptr<PBlock> pblock_ptr = std::make_unique<PBlock>();
+        pblock_ptr->CopyFrom(request->block());
         RETURN_IF_ERROR(recvr->add_block(std::move(pblock_ptr), request->sender_id(),
                                          request->be_number(), request->packet_seq(),
                                          eos ? nullptr : done, wait_for_worker,
