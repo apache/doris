@@ -255,7 +255,7 @@ public class ShowLoadCommand extends ShowCommand {
             }
 
             for (Comparable element : loadInfo) {
-                oneInfo.add(element.toString());
+                oneInfo.add(String.valueOf(element));
             }
             rows.add(oneInfo);
         }

@@ -244,15 +244,6 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         ss << ", ErrorURL: N/A";
     }
 
-    if (document.HasMember("FirstErrorMsg")) {
-        const rapidjson::Value& first_error_msg = document["FirstErrorMsg"];
-        stream_load_item.__set_url(first_error_msg.GetString());
-        ss << ", FirstErrorMsg: " << first_error_msg.GetString();
-    } else {
-        stream_load_item.__set_url("N/A");
-        ss << ", FirstErrorMsg: N/A";
-    }
-
     if (document.HasMember("NumberTotalRows")) {
         const rapidjson::Value& total_rows = document["NumberTotalRows"];
         stream_load_item.__set_total_rows(total_rows.GetInt64());
@@ -299,6 +290,15 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         const rapidjson::Value& comment_value = document["Comment"];
         stream_load_item.__set_comment(comment_value.GetString());
         ss << ", Comment: " << comment_value.GetString();
+    }
+
+    if (document.HasMember("FirstErrorMsg")) {
+        const rapidjson::Value& first_error_msg = document["FirstErrorMsg"];
+        stream_load_item.__set_first_error_msg(first_error_msg.GetString());
+        ss << ", FirstErrorMsg: " << first_error_msg.GetString();
+    } else {
+        stream_load_item.__set_first_error_msg("N/A");
+        ss << ", FirstErrorMsg: N/A";
     }
 
     VLOG(1) << "parse json from rocksdb. " << ss.str();
