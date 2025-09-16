@@ -423,7 +423,9 @@ TEST_F(AnnIndexReaderTest, AnnIndexReaderRangeSearch) {
     for (size_t i = 0; i < iterations; ++i) {
         std::map<std::string, std::string> index_properties;
         index_properties["index_type"] = "hnsw";
-        index_properties["metric_type"] = "l2";
+        // Use canonical metric name and include required dimension property
+        index_properties["metric_type"] = "l2_distance";
+        index_properties["dim"] = "128";
         std::unique_ptr<doris::TabletIndex> index_meta = std::make_unique<doris::TabletIndex>();
         index_meta->_properties = index_properties;
         auto mock_index_file_reader = std::make_shared<MockIndexFileReader>();

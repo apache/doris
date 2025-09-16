@@ -316,6 +316,33 @@ TEST(AIFunctionTest, AIFilterTest) {
     ASSERT_EQ(prompt, "This is a valid sentence.");
 }
 
+TEST(AIFunctionTest, AIFilterExecuteTest) {
+    auto runtime_state = std::make_unique<MockRuntimeState>();
+    auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
+
+    std::vector<std::string> resources = {"mock_resource"};
+    std::vector<std::string> texts = {"This is a valid sentence."};
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(resources);
+    auto col_text = ColumnHelper::create_column<DataTypeString>(texts);
+
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_text), std::make_shared<DataTypeString>(), "text"});
+    block.insert({nullptr, std::make_shared<DataTypeBool>(), "result"});
+
+    ColumnNumbers arguments = {0, 1};
+    size_t result_idx = 2;
+
+    auto filter_func = FunctionAIFilter::create();
+    Status exec_status =
+            filter_func->execute_impl(ctx.get(), block, arguments, result_idx, texts.size());
+
+    const auto& res_col =
+            assert_cast<const ColumnUInt8&>(*block.get_by_position(result_idx).column);
+    UInt8 val = res_col.get_data()[0];
+    ASSERT_TRUE(val == 0);
+}
+
 TEST(AIFunctionTest, ResourceNotFound) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});

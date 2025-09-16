@@ -141,6 +141,11 @@ public class LocalJournal implements Journal {
     }
 
     @Override
+    public JournalCursor read(long fromKey, long toKey, boolean exitIfNotFound) {
+        return read(fromKey, toKey);
+    }
+
+    @Override
     public synchronized long write(JournalBatch batch) throws IOException {
         List<JournalBatch.Entity> entities = batch.getJournalEntities();
         for (JournalBatch.Entity entity : entities) {
