@@ -463,7 +463,7 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     return Status::OK();
 }
 
- bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                        std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
@@ -681,7 +681,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        bool all_closed = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        bool all_closed =
+                close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
         std::lock_guard<bthread::Mutex> lock_guard(_lock);
         _closing_stream_ids.push_back(id);
