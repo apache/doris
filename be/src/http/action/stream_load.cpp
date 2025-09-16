@@ -530,7 +530,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
     // only user set read_json_by_line to false, we will set it to false
-    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty() && 
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty() &&
         iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "false")) {
         request.__set_read_json_by_line(false);
     }

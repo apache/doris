@@ -365,8 +365,7 @@ Status NewJsonReader::_get_range_params() {
     }
 
     // (TODO Refrain) The default behavior of json load is unified to read_json_by_line,
-    // and this reading method configuration option will be removed in the future,
-    // being unified to read_json_by_line.
+    // and this reading method configuration option will be removed in the future
     if (_params.file_attributes.__isset.read_json_by_line) {
         _read_json_by_line = _params.file_attributes.read_json_by_line;
     }
@@ -558,7 +557,7 @@ Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
     RETURN_IF_ERROR(_open_file_reader(false));
-    if (_read_json_by_line) {
+    if (LIKELY(_read_json_by_line)) {
         RETURN_IF_ERROR(_open_line_reader());
     }
 
