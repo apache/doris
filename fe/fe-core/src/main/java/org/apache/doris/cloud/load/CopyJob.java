@@ -18,7 +18,6 @@
 package org.apache.doris.cloud.load;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,6 +37,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
@@ -107,10 +107,11 @@ public class CopyJob extends CloudBrokerLoadJob {
     }
 
     @Override
-    public void checkAndSetDataSourceInfo(Database db, List<DataDescription> dataDescriptions) throws DdlException {
+    public void checkAndSetDataSourceInfo(Database db, List<NereidsDataDescription> dataDescriptions)
+            throws DdlException {
         super.checkAndSetDataSourceInfo(db, dataDescriptions);
         // now, copy into only support one table
-        for (DataDescription dataDescription : dataDescriptions) {
+        for (NereidsDataDescription dataDescription : dataDescriptions) {
             properties.put(TABLE_NAME_KEY, dataDescription.getTableName());
         }
     }

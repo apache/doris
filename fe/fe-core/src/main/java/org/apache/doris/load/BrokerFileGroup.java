@@ -17,9 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -33,7 +30,6 @@ import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
@@ -44,7 +40,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsDataDescription;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
-import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileFormatType;
@@ -55,7 +50,6 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -87,14 +81,14 @@ public class BrokerFileGroup {
     private List<String> columnNamesFromPath;
     // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
     // this param will be recreated by data desc when the log replay
-    private List<ImportColumnDesc> columnExprList;
+    private List<NereidsImportColumnDesc> columnExprList;
     // this is only for hadoop function check
     private Map<String, Pair<String, List<String>>> columnToHadoopFunction;
     // filter the data from source directly
-    private Expr precedingFilterExpr;
+    private Expression precedingFilter;
     // filter the data which has been mapped and transformed
-    private Expr whereExpr;
-    private Expr deleteCondition;
+    private Expression whereExpr;
+    private Expression deleteCondition;
     private LoadTask.MergeType mergeType;
     // sequence column name
     private String sequenceCol;
@@ -115,22 +109,7 @@ public class BrokerFileGroup {
         this.columnNamesFromPath = dataDescription.getColumnsFromPath();
         this.columnExprList = dataDescription.getParsedColumnExprList();
         this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
-        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
-        this.whereExpr = dataDescription.getWhereExpr();
-        this.deleteCondition = dataDescription.getDeleteCondition();
-        this.mergeType = dataDescription.getMergeType();
-        this.sequenceCol = dataDescription.getSequenceCol();
-        this.filePaths = dataDescription.getFilePaths();
-        // use for cloud copy into
-        this.ignoreCsvRedundantCol = dataDescription.getIgnoreCsvRedundantCol();
-    }
-
-    public BrokerFileGroup(DataDescription dataDescription) {
-        this.fileFieldNames = dataDescription.getFileFieldNames();
-        this.columnNamesFromPath = dataDescription.getColumnsFromPath();
-        this.columnExprList = dataDescription.getParsedColumnExprList();
-        this.columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
-        this.precedingFilterExpr = dataDescription.getPrecdingFilterExpr();
+        this.precedingFilter = dataDescription.getPrecdingFilterExpr();
         this.whereExpr = dataDescription.getWhereExpr();
         this.deleteCondition = dataDescription.getDeleteCondition();
         this.mergeType = dataDescription.getMergeType();
@@ -141,8 +120,8 @@ public class BrokerFileGroup {
     }
 
     // NOTE: DBLock will be held
-    // This will parse the input DataDescription to list for BrokerFileInfo
-    public void parse(Database db, DataDescription dataDescription) throws DdlException {
+    // This will parse the input DataDescription to list for BrokerFileInf
+    public void parse(Database db, NereidsDataDescription dataDescription) throws DdlException {
         // tableId
         OlapTable olapTable = db.getOlapTableOrDdlException(dataDescription.getTableName());
         tableId = olapTable.getId();
@@ -156,12 +135,12 @@ public class BrokerFileGroup {
                     Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                     if (partition == null) {
                         throw new DdlException("Unknown partition '" + pName
-                                + "' in table '" + olapTable.getName() + "'");
+                            + "' in table '" + olapTable.getName() + "'");
                     }
                     // partition which need load data
                     if (partition.getState() == PartitionState.RESTORE) {
                         throw new DdlException("Table [" + olapTable.getName()
-                                + "], Partition[" + partition.getName() + "] is under restore");
+                            + "], Partition[" + partition.getName() + "] is under restore");
                     }
                     partitionIds.add(partition.getId());
                 }
@@ -245,32 +224,12 @@ public class BrokerFileGroup {
         return partitionIds;
     }
 
-    public Expr getPrecedingFilterExpr() {
-        return precedingFilterExpr;
-    }
-
-    public Expr getWhereExpr() {
-        return whereExpr;
-    }
-
-    public void setWhereExpr(Expr whereExpr) {
-        this.whereExpr = whereExpr;
-    }
-
     public List<String> getFilePaths() {
         return filePaths;
     }
 
     public List<String> getColumnNamesFromPath() {
         return columnNamesFromPath;
-    }
-
-    public List<ImportColumnDesc> getColumnExprList() {
-        return columnExprList;
-    }
-
-    public List<String> getFileFieldNames() {
-        return fileFieldNames;
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -283,10 +242,6 @@ public class BrokerFileGroup {
 
     public boolean isLoadFromTable() {
         return isLoadFromTable;
-    }
-
-    public Expr getDeleteCondition() {
-        return deleteCondition;
     }
 
     public LoadTask.MergeType getMergeType() {
@@ -326,10 +281,6 @@ public class BrokerFileGroup {
 
     public FileFormatProperties getFileFormatProperties() {
         return fileFormatProperties;
-    }
-
-    public boolean getIgnoreCsvRedundantCol() {
-        return ignoreCsvRedundantCol;
     }
 
     @Override
@@ -389,29 +340,10 @@ public class BrokerFileGroup {
         return sb.toString();
     }
 
-    public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
-        Expression deleteCondition = getDeleteCondition() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSqlWithoutTbl()).get(0)
-                : null;
-        Expression precedingFilter = getPrecedingFilterExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSqlWithoutTbl()).get(0)
-                : null;
-        Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
-                : null;
-        List<NereidsImportColumnDesc> importColumnDescs = null;
-        if (columnExprList != null && !columnExprList.isEmpty()) {
-            importColumnDescs = new ArrayList<>(columnExprList.size());
-            for (ImportColumnDesc desc : columnExprList) {
-                Expression expression = desc.getExpr() != null
-                        ? NereidsLoadUtils.parseExpressionSeq(desc.getExpr().toSqlWithoutTbl()).get(0)
-                        : null;
-                importColumnDescs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
-            }
-        }
+    public NereidsBrokerFileGroup getNereidsBrokerFileGroup() {
         return new NereidsBrokerFileGroup(tableId, isNegative, partitionIds, filePaths, fileSize, fileFieldNames,
-                columnNamesFromPath, importColumnDescs, columnToHadoopFunction, precedingFilter, whereExpr,
-                deleteCondition, mergeType, sequenceCol, srcTableId, isLoadFromTable, ignoreCsvRedundantCol,
-                fileFormatProperties);
+            columnNamesFromPath, this.columnExprList, columnToHadoopFunction, this.precedingFilter,
+            this.whereExpr, deleteCondition, mergeType, sequenceCol, srcTableId, isLoadFromTable,
+            ignoreCsvRedundantCol, fileFormatProperties);
     }
 }

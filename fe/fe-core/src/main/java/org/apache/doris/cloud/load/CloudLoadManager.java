@@ -99,7 +99,7 @@ public class CloudLoadManager extends LoadManager {
                 copyIntoInfo.isForce(),
                 copyIntoInfo.getUserName());
             loadJob.setJobProperties(copyIntoInfo.getProperties());
-            loadJob.checkAndSetDataSourceInfo(database, copyIntoInfo.getDataDescriptions());
+            loadJob.checkAndSetDataSourceInfo(database, copyIntoInfo.getNereidsDataDescriptions());
             loadJob.setTimeout(ConnectContext.get().getExecTimeoutS());
             createLoadJob(loadJob);
         } catch (MetaNotFoundException e) {
