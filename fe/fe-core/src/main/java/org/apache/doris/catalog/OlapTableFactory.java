@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelation;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import com.google.common.base.Preconditions;
@@ -62,8 +63,14 @@ public class OlapTableFactory {
     private BuildParams params;
 
 
-    public static TableType getOlapTableType() {
-        return TableType.OLAP;
+    public static TableType getTableType(CreateTableInfo createTableInfo) {
+        if (createTableInfo instanceof CreateMTMVInfo) {
+            return TableType.MATERIALIZED_VIEW;
+        } else if (createTableInfo instanceof CreateTableInfo) {
+            return TableType.OLAP;
+        } else {
+            throw new IllegalArgumentException("Invalid DDL statement: " + createTableInfo.toSql());
+        }
     }
 
     public static TableType getTableType(DdlStmt stmt) {
@@ -185,7 +192,17 @@ public class OlapTableFactory {
     }
 
     public OlapTableFactory withExtraParams(CreateTableInfo createTableInfo) {
-        return withIndexes(new TableIndexes(createTableInfo.getIndexes()));
+        boolean isMaterializedView = createTableInfo instanceof CreateMTMVInfo;
+        if (!isMaterializedView) {
+            return withIndexes(new TableIndexes(createTableInfo.getIndexes()));
+        } else {
+            CreateMTMVInfo createMTMVInfo = (CreateMTMVInfo) createTableInfo;
+            return withRefreshInfo(createMTMVInfo.getRefreshInfo())
+                .withQuerySql(createMTMVInfo.getQuerySql())
+                .withMvProperties(createMTMVInfo.getMvProperties())
+                .withMvPartitionInfo(createMTMVInfo.getMvPartitionInfo())
+                .withMvRelation(createMTMVInfo.getRelation());
+        }
     }
 
     public OlapTableFactory withExtraParams(DdlStmt stmt) {

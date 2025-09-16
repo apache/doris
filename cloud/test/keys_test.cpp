@@ -1247,6 +1247,14 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         EXPECT_EQ(db_id, decoded_db_id);
         EXPECT_EQ(table_id, decoded_table_id);
         EXPECT_EQ(partition_id, decoded_partition_id);
+
+        key_sv = encoded_partition_inverted_index_key;
+        EXPECT_EQ(decode_partition_inverted_index_key(&key_sv, &decoded_db_id, &decoded_table_id,
+                                                      &decoded_partition_id),
+                  0);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(partition_id, decoded_partition_id);
     }
 }
 

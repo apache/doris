@@ -24,6 +24,7 @@
 #include <memory>
 
 #include "cloud/cloud_base_compaction.h"
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
@@ -71,6 +72,9 @@ class CloudCompactionTest : public testing::Test {
             "creation_time": 1553765670,
             "num_segments": 3
         })";
+        _cluster_info = std::make_shared<CloudClusterInfo>();
+        _cluster_info->_is_in_standby = false;
+        ExecEnv::GetInstance()->_cluster_info = _cluster_info.get();
     }
     void TearDown() override {}
 
@@ -114,6 +118,7 @@ protected:
 
 public:
     CloudStorageEngine _engine;
+    std::shared_ptr<CloudClusterInfo> _cluster_info;
 };
 
 TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {

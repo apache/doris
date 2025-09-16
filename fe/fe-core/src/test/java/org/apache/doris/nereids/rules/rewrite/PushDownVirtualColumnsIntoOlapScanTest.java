@@ -71,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Test for PushDownVirtualColumnsIntoOlapScan rule.
@@ -309,8 +310,8 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
 
     @Test
     public void testSkipLambdaExpressions() {
-        // Test that expressions inside lambda functions are not optimized
-        // This is a simplified test since creating actual lambda expressions is complex
+        // Test that expressions containing lambda functions are completely skipped from optimization
+        // With the new logic, any expression tree containing lambda should not be optimized
 
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
 
@@ -326,11 +327,11 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         Add lambdaAdd = new Add(refA.toSlot(), xyAdd);
         Lambda lambda = new Lambda(ImmutableList.of("a"), lambdaAdd, ImmutableList.of(refA));
 
-        // Create two expression contain lambda
+        // Create two expressions containing lambda
         ArrayFilter arrayFilter = new ArrayFilter(lambda);
         ArrayMap arrayMap = new ArrayMap(lambda);
 
-        // Create filter
+        // Create filter with expressions containing lambda
         LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
                 ImmutableSet.of(new EqualTo(arrayFilter, arrayMap)), scan);
 
@@ -341,8 +342,7 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         // Test rule creation
         Assertions.assertEquals(2, rules.size());
 
-        // This test verifies the rule structure but actual lambda testing would require
-        // more complex expression trees with lambda functions
+        // This test verifies that expressions containing lambda are completely skipped
         boolean hasFilterScanRule = false;
         for (Rule r : rules) {
             if (r.getPattern().matchPlanTree(filter)) {
@@ -352,20 +352,10 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
         }
         Assertions.assertTrue(hasFilterScanRule, "Should have rule that matches filter->scan pattern");
 
+        // With the new logic, expressions containing lambda should NOT create any virtual columns
         PlanChecker.from(connectContext, filter)
                 .applyTopDown(rules)
-                .applyCustom(new ColumnPruning())
-                .matches(logicalOlapScan()
-                        .when(o -> o.getVirtualColumns().size() == 2)
-                        .when(o -> {
-                            for (NamedExpression virtualColumn : o.getVirtualColumns()) {
-                                Expression c = virtualColumn.child(0);
-                                if (!(c instanceof ArrayMap) && !c.equals(arr)) {
-                                    return false;
-                                }
-                            }
-                            return true;
-                        }));
+                .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
     }
 
     @Test
@@ -911,5 +901,261 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
                 new LessThan(newCompareExpr, new IntegerLiteral(10))
         );
         Assertions.assertEquals(expectConjuncts, resFilter.getConjuncts());
+    }
+
+    @Test
+    public void testCompleteSkipOfLambdaContainingExpressions() {
+        // Test that any expression tree containing lambda anywhere is completely skipped
+
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+        SlotReference y = (SlotReference) scan.getOutput().get(1);
+
+        // Create regular repeated expressions (should be optimized)
+        Add regularAdd1 = new Add(x, y);
+        Add regularAdd2 = new Add(x, y);
+
+        // Create lambda expression
+        Array arr = new Array(y);
+        ArrayItemReference refA = new ArrayItemReference("a", arr);
+        Add lambdaAdd = new Add(refA.toSlot(), x);
+        Lambda lambda = new Lambda(ImmutableList.of("a"), lambdaAdd, ImmutableList.of(refA));
+
+        // Create expressions that contain lambda at different levels
+        ArrayFilter arrayFilter1 = new ArrayFilter(lambda); // direct lambda usage
+        ArrayFilter arrayFilter2 = new ArrayFilter(lambda); // repeated lambda usage
+        Add nestedWithLambda = new Add(arrayFilter1, x); // lambda in nested expression
+
+        // Mix regular repeated expressions with lambda-containing expressions
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(regularAdd1, new IntegerLiteral(10)),  // should be optimized
+                        new LessThan(regularAdd2, new IntegerLiteral(100)),    // should be optimized
+                        new EqualTo(arrayFilter1, arrayFilter2),               // should NOT be optimized (contains lambda)
+                        new GreaterThan(nestedWithLambda, new IntegerLiteral(5)) // should NOT be optimized (contains lambda)
+                ), scan);
+
+        // Apply the rule
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        List<Rule> rules = rule.buildRules();
+
+        Plan result = PlanChecker.from(connectContext, filter)
+                .applyTopDown(rules)
+                .getPlan();
+
+        // Verify that only regular expressions without lambda are optimized
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> project = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(LogicalFilter.class, project.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) project.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+
+        // Should have exactly 1 virtual column for the regular Add expression
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias alias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertEquals(regularAdd1, alias.child()); // The regular Add(x, y) expression
+
+        // Verify that lambda-containing expressions are NOT replaced
+        boolean foundLambdaExpressions = resFilter.getConjuncts().stream()
+                .anyMatch(expr -> expr.anyMatch(e -> e instanceof ArrayFilter || e instanceof Lambda));
+        Assertions.assertTrue(foundLambdaExpressions,
+                "Lambda-containing expressions should remain unchanged in filter");
+    }
+
+    @Test
+    public void testLambdaInProjectExpressions() {
+        // Test that lambda-containing expressions in project are also skipped
+
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+        SlotReference y = (SlotReference) scan.getOutput().get(1);
+
+        // Create regular repeated expressions
+        Add regularAdd1 = new Add(x, y);
+        Add regularAdd2 = new Add(x, y);
+
+        // Create lambda expression used in project
+        Array arr = new Array(y);
+        ArrayItemReference refA = new ArrayItemReference("a", arr);
+        Add lambdaAdd = new Add(refA.toSlot(), x);
+        Lambda lambda = new Lambda(ImmutableList.of("a"), lambdaAdd, ImmutableList.of(refA));
+        ArrayMap arrayMap1 = new ArrayMap(lambda);
+        ArrayMap arrayMap2 = new ArrayMap(lambda); // repeated lambda expression
+
+        // Create filter with regular expressions
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(regularAdd1, new IntegerLiteral(10)),
+                        new LessThan(regularAdd2, new IntegerLiteral(100))
+                ), scan);
+
+        // Create project with lambda-containing expressions
+        List<NamedExpression> projects = ImmutableList.of(
+                new Alias(arrayMap1, "lambda_result1"),
+                new Alias(arrayMap2, "lambda_result2"),
+                new Alias(x, "x_col")
+        );
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project =
+                new LogicalProject<>(projects, filter);
+
+        // Apply the rule
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        List<Rule> rules = rule.buildRules();
+
+        Plan result = PlanChecker.from(connectContext, project)
+                .applyTopDown(rules)
+                .getPlan();
+
+        // Verify optimization results
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> resProject = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(LogicalFilter.class, resProject.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) resProject.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+
+        // Should have exactly 1 virtual column for the regular Add expression
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias alias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertEquals(regularAdd1, alias.child());
+
+        // Verify that lambda expressions in project are NOT replaced
+        boolean foundLambdaInProject = resProject.getProjects().stream()
+                .anyMatch(expr -> expr.anyMatch(e -> e instanceof ArrayMap || e instanceof Lambda));
+        Assertions.assertTrue(foundLambdaInProject,
+                "Lambda-containing expressions should remain unchanged in project");
+    }
+
+    @Test
+    public void testNestedLambdaExpressions() {
+        // Test deeply nested expressions containing lambda are completely skipped
+
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+        SlotReference y = (SlotReference) scan.getOutput().get(1);
+
+        // Create regular repeated expressions
+        Add regularAdd1 = new Add(x, y);
+        Add regularAdd2 = new Add(x, y);
+
+        // Create deeply nested expression with lambda
+        Array arr = new Array(y);
+        ArrayItemReference refA = new ArrayItemReference("a", arr);
+        Lambda lambda = new Lambda(ImmutableList.of("a"), new Add(refA.toSlot(), x), ImmutableList.of(refA));
+        ArrayFilter arrayFilter = new ArrayFilter(lambda);
+
+        // Create complex nested expression containing lambda
+        Multiply complexWithLambda1 = new Multiply(
+                new Add(arrayFilter, x),
+                new IntegerLiteral(2)
+        );
+        Multiply complexWithLambda2 = new Multiply(
+                new Add(arrayFilter, x),
+                new IntegerLiteral(2)
+        ); // repeated complex expression with lambda
+
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(regularAdd1, new IntegerLiteral(10)),    // should be optimized
+                        new LessThan(regularAdd2, new IntegerLiteral(100)),      // should be optimized
+                        new GreaterThan(complexWithLambda1, new IntegerLiteral(5)), // should NOT be optimized
+                        new LessThan(complexWithLambda2, new IntegerLiteral(50))    // should NOT be optimized
+                ), scan);
+
+        // Apply the rule
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        List<Rule> rules = rule.buildRules();
+
+        Plan result = PlanChecker.from(connectContext, filter)
+                .applyTopDown(rules)
+                .getPlan();
+
+        // Verify results
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> project = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(LogicalFilter.class, project.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) project.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+
+        // Should have exactly 1 virtual column for the regular Add expression only
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias alias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertEquals(regularAdd1, alias.child());
+
+        // Verify that nested lambda expressions remain unchanged
+        boolean foundComplexLambdaExpressions = resFilter.getConjuncts().stream()
+                .anyMatch(expr -> expr.anyMatch(e -> e instanceof Multiply
+                    && e.anyMatch(inner -> inner instanceof ArrayFilter)));
+        Assertions.assertTrue(foundComplexLambdaExpressions,
+                "Complex expressions containing lambda should remain unchanged");
+    }
+
+    @Test
+    public void testMixedExpressionsWithAndWithoutLambda() {
+        // Test comprehensive scenario mixing lambda and non-lambda expressions
+
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+        SlotReference y = (SlotReference) scan.getOutput().get(1);
+
+        // Regular repeated expressions (should be optimized)
+        Add regularAdd1 = new Add(x, y);
+        Add regularAdd2 = new Add(x, y);
+        Multiply regularMult1 = new Multiply(x, new IntegerLiteral(3));
+        Multiply regularMult2 = new Multiply(x, new IntegerLiteral(3));
+
+        // Lambda expressions (should NOT be optimized)
+        Array arr = new Array(y);
+        ArrayItemReference refA = new ArrayItemReference("a", arr);
+        Lambda lambda = new Lambda(ImmutableList.of("a"), new Add(refA.toSlot(), x), ImmutableList.of(refA));
+        ArrayFilter lambdaExpr1 = new ArrayFilter(lambda);
+        ArrayFilter lambdaExpr2 = new ArrayFilter(lambda); // repeated but contains lambda
+
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(
+                        new GreaterThan(regularAdd1, new IntegerLiteral(10)),      // optimizable
+                        new LessThan(regularAdd2, new IntegerLiteral(100)),        // optimizable
+                        new GreaterThan(regularMult1, new IntegerLiteral(5)),      // optimizable
+                        new LessThan(regularMult2, new IntegerLiteral(50)),        // optimizable
+                        new EqualTo(lambdaExpr1, lambdaExpr2)                      // NOT optimizable (lambda)
+                ), scan);
+
+        // Apply the rule
+        PushDownVirtualColumnsIntoOlapScan rule = new PushDownVirtualColumnsIntoOlapScan();
+        List<Rule> rules = rule.buildRules();
+
+        Plan result = PlanChecker.from(connectContext, filter)
+                .applyTopDown(rules)
+                .getPlan();
+
+        // Verify results
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> project = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(LogicalFilter.class, project.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) project.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+
+        // Should have exactly 2 virtual columns for the two regular repeated expressions
+        Assertions.assertEquals(2, resScan.getVirtualColumns().size());
+
+        // Check that virtual columns contain the expected regular expressions
+        Set<Expression> virtualColumnExprs = resScan.getVirtualColumns().stream()
+                .map(vc -> ((Alias) vc).child())
+                .collect(Collectors.toSet());
+
+        Assertions.assertTrue(virtualColumnExprs.contains(regularAdd1) || virtualColumnExprs.contains(regularAdd2));
+        Assertions.assertTrue(virtualColumnExprs.contains(regularMult1) || virtualColumnExprs.contains(regularMult2));
+
+        // Verify that lambda expressions remain in filter
+        boolean hasLambdaInFilter = resFilter.getConjuncts().stream()
+                .anyMatch(expr -> expr.anyMatch(e -> e instanceof ArrayFilter));
+        Assertions.assertTrue(hasLambdaInFilter, "Lambda expressions should remain in filter unchanged");
     }
 }

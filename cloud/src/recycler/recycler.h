@@ -36,6 +36,7 @@
 #include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace brpc {
 class Server;
@@ -116,6 +117,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 enum class RowsetRecyclingState {
@@ -295,6 +297,9 @@ public:
 
     // scan and recycle useless partition version kv
     int recycle_versions();
+
+    // scan and recycle the orphan partitions
+    int recycle_orphan_partitions();
 
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
