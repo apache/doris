@@ -2694,21 +2694,13 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             const auto& index_result_bitmap =
                     inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
             auto index_result_column = vectorized::ColumnUInt8::create();
+
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
             vec_match_pred.resize(block->rows());
             roaring::BulkContext bulk_context;
-
-            if (sel_rowid_idx == nullptr) {
-                for (uint32_t i = 0; i < select_size; i++) {
-                    auto rowid = _block_rowids[i];
-                    vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
-                }
-            } else {
-                for (uint32_t i = 0; i < select_size; i++) {
-                    auto rowid = _block_rowids[sel_rowid_idx[i]];
-                    vec_match_pred[sel_rowid_idx[i]] =
-                            index_result_bitmap->containsBulk(bulk_context, rowid);
-                }
+            for (uint32_t i = 0; i < select_size; i++) {
+                auto rowid = sel_rowid_idx ? _block_rowids[sel_rowid_idx[i]] : _block_rowids[i];
+                vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
             }
 
             DCHECK(block->rows() == vec_match_pred.size());
