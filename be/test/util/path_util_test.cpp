@@ -105,20 +105,42 @@ TEST(TestPathUtil, file_extension_test) {
 // Helpers for plugin URL tests
 namespace {
 
+class DorisHomeGuard {
+public:
+    DorisHomeGuard() {
+        const char* original = std::getenv("DORIS_HOME");
+        if (original) {
+            original_doris_home_ = std::string(original);
+        }
+    }
+
+    ~DorisHomeGuard() {
+        if (!original_doris_home_.empty()) {
+            setenv("DORIS_HOME", original_doris_home_.c_str(), 1);
+        } else {
+            unsetenv("DORIS_HOME");
+        }
+    }
+
+    std::string create_temp_home() {
+        namespace fs = std::filesystem;
+        fs::path base = fs::temp_directory_path() / "doris_path_util_test";
+        fs::create_directories(base);
+        // ensure unique subdir per test run
+        fs::path home = base / std::to_string(reinterpret_cast<uintptr_t>(&base));
+        fs::create_directories(home);
+        // set DORIS_HOME
+        setenv("DORIS_HOME", home.string().c_str(), 1);
+        return home.string();
+    }
+
+private:
+    std::string original_doris_home_;
+};
+
 std::string create_temp_home() {
-    namespace fs = std::filesystem;
-    fs::path base = fs::temp_directory_path() / "doris_path_util_test";
-    fs::create_directories(base);
-    // ensure unique subdir per test run
-    fs::path home = base / std::to_string(reinterpret_cast<uintptr_t>(&base));
-    fs::create_directories(home);
-    // set DORIS_HOME
-#ifdef __APPLE__
-    setenv("DORIS_HOME", home.string().c_str(), 1);
-#else
-    setenv("DORIS_HOME", home.string().c_str(), 1);
-#endif
-    return home.string();
+    static DorisHomeGuard guard;
+    return guard.create_temp_home();
 }
 
 void touch_file(const std::string& dir, const std::string& filename) {
