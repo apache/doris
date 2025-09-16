@@ -348,7 +348,7 @@ public class NereidsLoadScanProvider {
                 realColName = tblColumn.getName();
             }
             if (importColumnDesc.getExpr() != null) {
-                if (tblColumn.getGeneratedColumnInfo() == null) {
+                if (tblColumn.getGeneratedColumnInfo() == null && !context.exprMap.containsKey(realColName)) {
                     context.exprMap.put(realColName, importColumnDesc.getExpr());
                 }
             } else {
