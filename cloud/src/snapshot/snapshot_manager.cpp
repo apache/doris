@@ -67,7 +67,9 @@ int SnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
     return 0;
 }
 
-int SnapshotManager::recycle_snapshot_meta_and_data(StorageVaultAccessor* accessor,
+int SnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id,
+                                                    std::string_view resource_id,
+                                                    StorageVaultAccessor* accessor,
                                                     Versionstamp snapshot_version,
                                                     const SnapshotPB& snapshot_pb) {
     return 0;

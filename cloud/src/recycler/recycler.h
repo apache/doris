@@ -235,6 +235,9 @@ public:
                               std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
+    std::string_view instance_id() const { return instance_id_; }
+    const InstanceInfoPB& instance_info() const { return instance_info_; }
+
     // returns 0 for success otherwise error
     int init();
 
@@ -426,7 +429,8 @@ private:
     int has_cluster_snapshots(bool* any);
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(Versionstamp snapshot_version,
+    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                       Versionstamp snapshot_version,
                                        const SnapshotPB& snapshot_pb);
 
 private:

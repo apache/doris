@@ -23,32 +23,18 @@
 #include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include <algorithm>
-#include <chrono>
-#include <cstddef>
-#include <cstdint>
 #include <cstdlib>
 #include <string>
-#include <string_view>
-#include <utility>
 
-#include "common/config.h"
-#include "common/defer.h"
-#include "common/encryption_util.h"
-#include "common/logging.h"
-#include "common/stopwatch.h"
 #include "common/util.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
-#include "meta-store/codec.h"
 #include "meta-store/keys.h"
-#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "recycler/checker.h"
 #include "recycler/recycler.h"
-#include "recycler/util.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
@@ -57,15 +43,10 @@ int InstanceRecycler::recycle_cluster_snapshots() {
     return snapshot_manager_->recycle_snapshots(this);
 }
 
-int InstanceRecycler::recycle_snapshot_meta_and_data(Versionstamp snapshot_version,
+int InstanceRecycler::recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                                     Versionstamp snapshot_version,
                                                      const SnapshotPB& snapshot_pb) {
-    if (instance_info_.resource_ids_size() == 0) {
-        LOG(WARNING) << "instance has no resources, cannot recycle snapshot data"
-                     << ", instance_id=" << instance_id_;
-        return -1;
-    }
-
-    auto it = accessor_map_.find(instance_info_.resource_ids(0));
+    auto it = accessor_map_.find(resource_id);
     if (it == accessor_map_.end()) {
         LOG(WARNING) << "no accessor for resource, cannot recycle snapshot data"
                      << ", instance_id=" << instance_id_
@@ -73,8 +54,8 @@ int InstanceRecycler::recycle_snapshot_meta_and_data(Versionstamp snapshot_versi
         return -1;
     }
 
-    return snapshot_manager_->recycle_snapshot_meta_and_data(it->second.get(), snapshot_version,
-                                                             snapshot_pb);
+    return snapshot_manager_->recycle_snapshot_meta_and_data(
+            instance_id_, resource_id, it->second.get(), snapshot_version, snapshot_pb);
 }
 
 int InstanceRecycler::has_cluster_snapshots(bool* any) {
