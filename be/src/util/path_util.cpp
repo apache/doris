@@ -69,10 +69,10 @@ std::string file_extension(const string& path) {
 }
 
 std::string get_real_plugin_url(const std::string& url, const std::string& plugin_dir_config_value,
-                                const std::string& plugin_dir_name,
-                                const std::string& doris_home) {
+                                const std::string& plugin_dir_name, const std::string& doris_home) {
     if (url.find(":/") == std::string::npos) {
-        return check_and_return_default_plugin_url(url, plugin_dir_config_value, plugin_dir_name, doris_home);
+        return check_and_return_default_plugin_url(url, plugin_dir_config_value, plugin_dir_name,
+                                                   doris_home);
     }
     return url;
 }
