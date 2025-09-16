@@ -727,11 +727,13 @@ public class SchemaTable extends Table {
                                     .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE_STALE_DATA", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("MANUAL_REFRESHES_ON_AUTO", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("MANUAL_REFRESHES_ON_PARTITIONS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MANUAL_REFRESHES_ON_PARTITIONS",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("MANUAL_REFRESHES_ON_COMPLETE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AUTO_REFRESHES_ON_SCHEDULE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AUTO_REFRESHES_ON_COMMIT", ScalarType.createType(PrimitiveType.BIGINT))
@@ -784,7 +786,8 @@ public class SchemaTable extends Table {
                                     .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
@@ -819,7 +822,7 @@ public class SchemaTable extends Table {
                                     .column("FINISHED_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
                                     .column("RUNNING_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
                                     .column("FAILED_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
-                                    .column("ROOT_FAILED_TASK_ID",ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ROOT_FAILED_TASK_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                                     .column("END_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                                     .column("DURATION_MS", ScalarType.createType(PrimitiveType.BIGINT))
@@ -847,8 +850,10 @@ public class SchemaTable extends Table {
                                     .column("AUTO_ANALYZE_THREAD", ScalarType.createType(PrimitiveType.INT))
                                     .column("AUTO_ANALYZE_START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                                     .column("AUTO_ANALYZE_END_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
-                                    .column("AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD", ScalarType.createType(PrimitiveType.INT))
-                                    .column("AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD", ScalarType.createType(PrimitiveType.INT))
+                                    .column("AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD",
+                                            ScalarType.createType(PrimitiveType.INT))
+                                    .column("AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD",
+                                            ScalarType.createType(PrimitiveType.INT))
                                     .column("SUCCESS_JOB", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("FAILED_JOB", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SUCCESS_TASK", ScalarType.createType(PrimitiveType.BIGINT))

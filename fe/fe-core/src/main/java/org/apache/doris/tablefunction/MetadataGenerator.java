@@ -107,7 +107,6 @@ import org.apache.doris.statistics.AnalysisState;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
@@ -271,7 +270,8 @@ public class MetadataGenerator {
         ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX = asyncMviewStatusBuilder.build();
 
         Builder<String, Integer> activityAsyncMviewBuilder = new Builder();
-        List<Column> activityAsyncMviewBuilderColList = SchemaTable.TABLE_MAP.get("activity_async_mview").getFullSchema();
+        List<Column> activityAsyncMviewBuilderColList = SchemaTable.TABLE_MAP.get("activity_async_mview")
+                .getFullSchema();
         for (int i = 0; i < activityAsyncMviewBuilderColList.size(); i++) {
             activityAsyncMviewBuilder.put(activityAsyncMviewBuilderColList.get(i).getName().toLowerCase(), i);
         }
@@ -299,7 +299,8 @@ public class MetadataGenerator {
         ACTIVITY_SYNC_MVIEW_COLUMN_TO_INDEX = activitySyncMviewBuilder.build();
 
         Builder<String, Integer> analyzeTableLevelStatusBuilder = new Builder();
-        List<Column> analyzeTableLevelStatusBuilderColList = SchemaTable.TABLE_MAP.get("analyze_table_level_status").getFullSchema();
+        List<Column> analyzeTableLevelStatusBuilderColList = SchemaTable.TABLE_MAP.get("analyze_table_level_status")
+                .getFullSchema();
         for (int i = 0; i < analyzeTableLevelStatusBuilderColList.size(); i++) {
             analyzeTableLevelStatusBuilder.put(analyzeTableLevelStatusBuilderColList.get(i).getName().toLowerCase(), i);
         }
@@ -449,39 +450,50 @@ public class MetadataGenerator {
                 result = viewDependencyMetadataResult(schemaTableParams);
                 columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
                 break;
-            case VIEW_DEPENDENCY1:
+            case ASYNC_MVIEW_STATUS:
                 result = asyncMviewStatusMetadataResult(schemaTableParams);
                 columnIndex = ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
-            case VIEW_DEPENDENCY2:
+                break;
+            case ACTIVITY_ASYNC_MVIEW:
                 result = activityAsyncMviewMetadataResult(schemaTableParams);
                 columnIndex = ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
-            case task:
+                break;
+            case MVIEW_TASKS:
                 result = mviewTasksMetadataResult(schemaTableParams);
                 columnIndex = MVIEW_TASKS_COLUMN_TO_INDEX;
-            case sync_mview:
+                break;
+            case SYNC_MVIEW_STATUS:
                 result = syncMviewStatusMetadataResult(schemaTableParams);
                 columnIndex = SYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
-            case acvitity_sync_mview:
+                break;
+            case ACTIVITY_SYNC_MVIEW:
                 result = activitySyncMviewMetadataResult(schemaTableParams);
                 columnIndex = ACTIVITY_SYNC_MVIEW_COLUMN_TO_INDEX;
-            case analyze_table_level_status:
+                break;
+            case ANALYZE_TABLE_LEVEL_STATUS:
                 result = analyzeTableLevelStatusMetadataResult(schemaTableParams);
                 columnIndex = ANALYZE_TABLE_LEVEL_STATUS_COLUMN_TO_INDEX;
-            case analyze_job:
+                break;
+            case ANALYZE_JOB:
                 result = analyzeJobMetadataResult(schemaTableParams);
                 columnIndex = ANALYZE_JOB_COLUMN_TO_INDEX;
-            case analyze_task:
+                break;
+            case ANALYZE_TASK:
                 result = analyzeTaskMetadataResult(schemaTableParams);
                 columnIndex = ANALYZE_TASK_COLUMN_TO_INDEX;
-            case activity_auto_analyze:
+                break;
+            case ACTIVITY_AUTO_ANALYZE:
                 result = activityAutoAnalyzeMetadataResult(schemaTableParams);
                 columnIndex = ACTIVITY_AUTO_ANALYZE_COLUMN_TO_INDEX;
-            case grants_to_roles:
+                break;
+            case GRANTS_TO_ROLES:
                 result = grantsToRolesMetadataResult(schemaTableParams);
                 columnIndex = GRANTS_TO_ROLES_COLUMN_TO_INDEX;
-            case grants_to_users:
+                break;
+            case GRANTS_TO_USERS:
                 result = grantsToUsersMetadataResult(schemaTableParams);
                 columnIndex = GRANTS_TO_USERS_COLUMN_TO_INDEX;
+                break;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -913,7 +925,8 @@ public class MetadataGenerator {
                         LOG.warn(e.getMessage(), e);
                         continue;
                     }
-                    List<String> needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(mtmvRefreshContext,mtmv.getRelation().getBaseTablesOneLevel());
+                    List<String> needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                            mtmvRefreshContext, mtmv.getRelation().getBaseTablesOneLevel());
                     trow.addToColumnValue(new TCell().setBoolVal(CollectionUtils.isEmpty(needRefreshPartitions)));
                     // UNSYNC_PARTITIONS_IN_ASYNC_MVIEW
                     trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(needRefreshPartitions)));
@@ -929,7 +942,8 @@ public class MetadataGenerator {
                     }
                     trow.addToColumnValue(new TCell().setStringVal(schedulePeriod));
                     // PARTITION_TYPE
-                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getMvPartitionInfo().getPartitionType().name()));
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(mtmv.getMvPartitionInfo().getPartitionType().name()));
                     // ROW_COUNT
                     trow.addToColumnValue(new TCell().setLongVal(mtmv.getRowCount()));
                     // PARTITION_COUNT
@@ -1087,7 +1101,7 @@ public class MetadataGenerator {
                     }
                     MTMVJob mtmvJob = MTMVJobManager.getJobByMTMV(mtmv);
                     List<MTMVTask> mtmvTasks = mtmvJob.queryAllTasks();
-                    for (MTMVTask mtmvTask:mtmvTasks) {
+                    for (MTMVTask mtmvTask : mtmvTasks) {
                         long taskId = mtmvTask.getTaskId();
                         if (FrontendConjunctsUtils.isFiltered(taskIdConjuncts, "TASK_ID", taskId)) {
                             continue;
@@ -1104,10 +1118,12 @@ public class MetadataGenerator {
                         // ASYNC_MVIEW_NAME
                         trow.addToColumnValue(new TCell().setStringVal(tableName));
                         // TYPE
-                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getTaskContext().getTriggerMode().getDisplayName()));
+                        trow.addToColumnValue(
+                                new TCell().setStringVal(mtmvTask.getTaskContext().getTriggerMode().getDisplayName()));
                         // METHOD
                         MTMVTaskRefreshMode refreshMode = mtmvTask.getRefreshMode();
-                        trow.addToColumnValue(new TCell().setStringVal(refreshMode==null?"":refreshMode.getDisplayName()));
+                        trow.addToColumnValue(
+                                new TCell().setStringVal(refreshMode == null ? "" : refreshMode.getDisplayName()));
                         // CREATE_TIME
                         // todo long datetime
                         trow.addToColumnValue(new TCell().setLongVal(mtmvTask.getCreateTimeMs()));
@@ -1182,7 +1198,7 @@ public class MetadataGenerator {
                         continue;
                     }
                     Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
-                    for (Entry<String,Long> entry : indexNameToId.entrySet()) {
+                    for (Entry<String, Long> entry : indexNameToId.entrySet()) {
                         long mviewId = entry.getValue();
                         String mviewName = entry.getKey();
                         if (mviewId == olapTable.getBaseIndexId()) {
@@ -1248,7 +1264,7 @@ public class MetadataGenerator {
                     }
                     Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
                     Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
-                    for (Entry<String,Long> entry : indexNameToId.entrySet()) {
+                    for (Entry<String, Long> entry : indexNameToId.entrySet()) {
                         long mviewId = entry.getValue();
                         String mviewName = entry.getKey();
                         if (mviewId == olapTable.getBaseIndexId()) {
@@ -1279,7 +1295,8 @@ public class MetadataGenerator {
                         // REWRITE_SUCCESS
                         trow.addToColumnValue(new TCell().setLongVal(syncMvMetrics.getRewriteSuccess().getValue()));
                         // REWRITE_SUCCESS_WITH_HINT
-                        trow.addToColumnValue(new TCell().setLongVal(syncMvMetrics.getRewriteSuccessWithHint().getValue()));
+                        trow.addToColumnValue(
+                                new TCell().setLongVal(syncMvMetrics.getRewriteSuccessWithHint().getValue()));
                         // REWRITE_FAILURE
                         Long cboRejected = syncMvMetrics.getRewriteFailureCboRejected().getValue();
                         Long withHint = syncMvMetrics.getRewriteFailureWithHint().getValue();
@@ -1341,7 +1358,7 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setBoolVal(canAutoAnalyze.first));
                     trow.addToColumnValue(new TCell().setStringVal(canAutoAnalyze.second));
                     List<String> analyzedColumnNames = Lists.newArrayList();
-                    String lowestHealthRateColumnName= "";
+                    String lowestHealthRateColumnName = "";
                     double lowestHealthRate = StatisticsUtil.MAX_HEALTH_RATE;
                     int totalColumnCount = 0;
                     if (table instanceof OlapTable) {
@@ -1354,7 +1371,7 @@ public class MetadataGenerator {
                                 continue;
                             }
                             List<Column> columns = entry.getValue();
-                            for (Column column:columns) {
+                            for (Column column : columns) {
                                 totalColumnCount += 1;
                                 boolean isUnsupportedType = StatisticsUtil.isUnsupportedType(column.getType());
                                 if (!isUnsupportedType) {
@@ -1371,7 +1388,7 @@ public class MetadataGenerator {
                         }
                     } else {
                         List<Column> columns = table.getColumns();
-                        for (Column column:columns) {
+                        for (Column column : columns) {
                             totalColumnCount += 1;
                             boolean isUnsupportedType = StatisticsUtil.isUnsupportedType(column.getType());
                             if (!isUnsupportedType) {
@@ -1386,7 +1403,7 @@ public class MetadataGenerator {
                         }
                     }
                     trow.addToColumnValue(new TCell().setIntVal(totalColumnCount));
-                    trow.addToColumnValue(new TCell().setIntVal(totalColumnCount- analyzedColumnNames.size()));
+                    trow.addToColumnValue(new TCell().setIntVal(totalColumnCount - analyzedColumnNames.size()));
                     trow.addToColumnValue(new TCell().setIntVal(analyzedColumnNames.size()));
                     trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(analyzedColumnNames)));
                     trow.addToColumnValue(new TCell().setDoubleVal(lowestHealthRate));
@@ -1500,6 +1517,8 @@ public class MetadataGenerator {
                         break;
                     case FINISHED:
                         finishedNum++;
+                        break;
+                    default:
                         break;
                 }
             }
@@ -1637,9 +1656,9 @@ public class MetadataGenerator {
         trow.addToColumnValue(new TCell().setIntVal(Config.auto_analyze_simultaneously_running_task_num));
         Pair<LocalTime, LocalTime> startEndTime = StatisticsUtil.findConfigFromGlobalSessionVar();
         // AUTO_ANALYZE_START_TIME
-        trow.addToColumnValue(new TCell().setStringVal(startEndTime==null?null:startEndTime.first.toString()));
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime == null ? null : startEndTime.first.toString()));
         // AUTO_ANALYZE_END_TIME
-        trow.addToColumnValue(new TCell().setStringVal(startEndTime==null?null:startEndTime.second.toString()));
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime == null ? null : startEndTime.second.toString()));
         // AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD
         trow.addToColumnValue(new TCell().setIntVal(StatisticsUtil.getAutoAnalyzeTableWidthThreshold()));
         // AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD
@@ -1647,12 +1666,12 @@ public class MetadataGenerator {
         Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager().getAnalysisJobInfoMap().values();
         long successJob = 0;
         long failedJob = 0;
-        for (AnalysisInfo job:jobs) {
+        for (AnalysisInfo job : jobs) {
             if (job.state == AnalysisState.FINISHED) {
-                successJob ++;
+                successJob++;
             }
             if (job.state == AnalysisState.FAILED) {
-                failedJob ++;
+                failedJob++;
             }
         }
         // SUCCESS_JOB
@@ -1662,12 +1681,12 @@ public class MetadataGenerator {
         Collection<AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager().getAnalysisTaskInfoMap().values();
         long successTask = 0;
         long failedTask = 0;
-        for (AnalysisInfo task:tasks) {
+        for (AnalysisInfo task : tasks) {
             if (task.state == AnalysisState.FINISHED) {
-                successTask ++;
+                successTask++;
             }
             if (task.state == AnalysisState.FAILED) {
-                failedTask ++;
+                failedTask++;
             }
         }
         // SUCCESS_TASK
@@ -1681,7 +1700,8 @@ public class MetadataGenerator {
         // LOW_PRIORITY_QUEUE_SIZE
         trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().lowPriorityJobs.size()));
         // VERY_LOW_PRIORITY_QUEUE_SIZE
-        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size()));
+        trow.addToColumnValue(
+                new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size()));
         dataBatch.add(trow);
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

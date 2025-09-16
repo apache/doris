@@ -94,7 +94,8 @@ public class DbPrivTable extends PrivTable {
             String origDb = dbPrivEntry.getOrigDb();
             PrivBitSet privSet = dbPrivEntry.getPrivSet();
             if (!privSet.isEmpty()) {
-                res.add(new PrivObject(origCtl, origDb, null, null, PrivObjectType.DATABASE, privSet.toPrivilegeNames()));
+                res.add(new PrivObject(origCtl, origDb, null, null, PrivObjectType.DATABASE,
+                        privSet.toPrivilegeNames()));
             }
         }
         return res;

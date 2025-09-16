@@ -31,7 +31,7 @@ import org.apache.commons.collections.MapUtils;
 import java.util.List;
 import java.util.Map;
 
-public class AsyncMvMetrics extends MvMetrics{
+public class AsyncMvMetrics extends MvMetrics {
     // rewrite
     // rewrite success
     private LongCounterMetric rewriteFullSuccess = new LongCounterMetric("mv", MetricUnit.ROWS, "");
@@ -58,7 +58,7 @@ public class AsyncMvMetrics extends MvMetrics{
     public static void recordRefreshMetrics(MTMV mtmv, MTMVTaskRefreshMode refreshMode, MTMVTaskContext taskContext) {
         AsyncMvMetrics asyncMvMetrics = mtmv.getAsyncMvMetrics();
         // refresh manual
-        if (taskContext.getTriggerMode().equals(MTMVTaskTriggerMode.MANUAL)){
+        if (taskContext.getTriggerMode().equals(MTMVTaskTriggerMode.MANUAL)) {
             if (taskContext.isComplete()) {
                 asyncMvMetrics.getManualRefreshesOnComplete().increase(1L);
             } else if (CollectionUtils.isEmpty(taskContext.getPartitions())) {

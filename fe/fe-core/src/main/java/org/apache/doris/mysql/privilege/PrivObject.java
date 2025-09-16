@@ -27,7 +27,8 @@ public class PrivObject {
     private PrivObjectType type;
     private List<String> privileges;
 
-    public PrivObject(String catalog, String database, String table, String name, PrivObjectType type, List<String> privilege) {
+    public PrivObject(String catalog, String database, String table, String name, PrivObjectType type,
+            List<String> privileges) {
         this.catalog = catalog;
         this.database = database;
         this.table = table;

@@ -224,11 +224,6 @@ public abstract class MaterializationContext {
     public abstract List<String> generateMaterializationIdentifier();
 
     /**
-     * Get materialization metrics
-     */
-    public abstract Optional<MvMetrics> getMaterializationMetrics();
-
-    /**
      * Common method for generating materialization identifier by index name
      */
     public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
@@ -240,6 +235,11 @@ public abstract class MaterializationContext {
                         ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
                         olapTable.getName(), indexName);
     }
+
+    /**
+     * Get materialization metrics
+     */
+    public abstract Optional<MvMetrics> getMaterializationMetrics();
 
     /**
      * Common method for generating materialization identifier by index id

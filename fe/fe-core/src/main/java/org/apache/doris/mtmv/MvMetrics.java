@@ -17,7 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
@@ -144,6 +147,34 @@ public class MvMetrics {
                         .ifPresent(mvMetrics -> mvMetrics.getRewriteFailureShapeMismatch().increase(1L));
             }
         }
+
+        Set<List<String>> noUseHint = getNoUseHint();
+        for (List<String> names : noUseHint) {
+            if (names.size() < 3) {
+                continue;
+            }
+            TableIf tableIf;
+            try {
+                tableIf = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(names.get(0))
+                        .getDbOrAnalysisException(names.get(1)).getTableOrAnalysisException(names.get(2));
+            } catch (AnalysisException e) {
+                LOG.info("get table failed by: {}", names);
+                continue;
+            }
+            if (names.size() == 3 && tableIf instanceof MTMV) {
+                MTMV mtmv = (MTMV) tableIf;
+                mtmv.getAsyncMvMetrics().getRewriteFailureWithHint().increase(1L);
+            } else if (names.size() == 4 && tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
+                Long syncMvId = olapTable.getIndexIdByName(names.get(3));
+                if (syncMvId != null) {
+                    MaterializedIndexMeta materializedIndexMeta = olapTable.getIndexIdToMeta().get(syncMvId);
+                    if (materializedIndexMeta != null) {
+                        materializedIndexMeta.getSyncMvMetrics().getRewriteFailureWithHint().increase(1L);
+                    }
+                }
+            }
+        }
     }
 
     private static void rewriteFailureStaleData(BaseTableInfo baseTableInfo) {
@@ -166,8 +197,8 @@ public class MvMetrics {
         }
         return res;
     }
-    // todo not rewrite by hint
-    private Set<List<String>> getNoUseHint() {
+
+    private static Set<List<String>> getNoUseHint() {
         Set<List<String>> res = Sets.newHashSet();
         Optional<UseMvHint> noUseMv = ConnectContext.get().getStatementContext().getUseMvHint("NO_USE_MV");
         if (noUseMv.isPresent()) {

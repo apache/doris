@@ -21,7 +21,7 @@ import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 
 public class SyncMvMetrics extends MvMetrics {
-    private LongCounterMetric rewriteSuccess = new LongCounterMetric("mv", MetricUnit.ROWS, "");// may be not need
+    private LongCounterMetric rewriteSuccess = new LongCounterMetric("mv", MetricUnit.ROWS, "");
 
     public LongCounterMetric getRewriteSuccess() {
         return rewriteSuccess;
