@@ -35,6 +35,7 @@
 #include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -65,7 +66,8 @@ static void* run_bthread_work(void* arg) {
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
-                    std::shared_ptr<RateLimiter> rate_controller);
+                    std::shared_ptr<RateLimiter> rate_controller,
+                    std::shared_ptr<SnapshotManager> snapshot_manager);
     ~MetaServiceImpl() override;
 
     [[nodiscard]] const std::shared_ptr<TxnKv>& txn_kv() const { return txn_kv_; }
@@ -76,6 +78,10 @@ public:
 
     [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
         return txn_lazy_committer_;
+    }
+
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return snapshot_manager_;
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -357,6 +363,10 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override;
 
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
     void clone_instance(::google::protobuf::RpcController* controller,
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -445,6 +455,7 @@ private:
     std::shared_ptr<RateLimiter> rate_limiter_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
     std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 class MetaServiceProxy final : public MetaService {
@@ -863,6 +874,12 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::list_snapshot, controller, request, response, done);
+    }
+
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::drop_snapshot, controller, request, response, done);
     }
 
     void clone_instance(::google::protobuf::RpcController* controller,

@@ -39,6 +39,15 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             sql """use `${catalog_name}`.`flink_paimon`"""
             order_qt_no_region1 """select ts1,ts19 from ${table_name} """
             order_qt_no_region2 """select * from ${table_name} """
+            // 3.1 new features
+            // batch incremental
+            sql """SELECT * FROM ${table_name}  @incr('startTimestamp'='876488912')"""
+            // time travel
+            sql """SELECT * FROM ${table_name}  FOR VERSION AS OF 1;"""
+            // branch/tag
+            // TODO(zgx): add branch/tag
+            // system table
+            sql """SELECT * FROM ${table_name}\$snapshots;"""
             sql """drop catalog if exists ${catalog_name}"""
 
             sql """drop catalog if exists ${catalog_name}_with_region"""
@@ -58,6 +67,15 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
             sql """use `${catalog_name}_with_region`.`flink_paimon`"""
             order_qt_region1 """select ts1,ts19 from ${table_name} """
             order_qt_region2 """select * from ${table_name} """
+            // 3.1 new features
+            // batch incremental
+            sql """SELECT * FROM ${table_name}  @incr('startTimestamp'='876488912')"""
+            // time travel
+            sql """SELECT * FROM ${table_name}  FOR VERSION AS OF 1;"""
+            // branch/tag
+            // TODO(zgx): add branch/tag
+            // system table
+            sql """SELECT * FROM ${table_name}\$snapshots;"""
             sql """drop catalog if exists ${catalog_name}_with_region"""
         }
     }

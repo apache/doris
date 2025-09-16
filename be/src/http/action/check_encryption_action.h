@@ -15,23 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.property.metastore;
+#include <gen_cpp/FrontendService_types.h>
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+#include "cloud/cloud_tablet_mgr.h"
+#include "http/http_handler_with_auth.h"
+#include "http/http_request.h"
+#include "olap/tablet_manager.h"
+#include "runtime/exec_env.h"
+namespace doris {
 
-import java.util.Map;
+class CheckEncryptionAction : public HttpHandlerWithAuth {
+public:
+    explicit CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                                   TPrivilegeType::type type);
 
-public class DataProcProperties extends MetastoreProperties {
-    @ConnectorProperty(names = {"hive.metastore.uri"},
-            description = "The uri of the hive metastore in DataProc")
-    private String hiveMetastoreUri = "";
+    void handle(HttpRequest* req) override;
+};
 
-    public DataProcProperties(Map<String, String> origProps) {
-        super(Type.DATAPROC, origProps);
-    }
-
-    @Override
-    protected void checkRequiredProperties() {
-
-    }
-}
+} // namespace doris

@@ -38,6 +38,7 @@
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
+#include "vec/common/string_view.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
@@ -385,6 +386,8 @@ public:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
             return get<String>() <=> rhs.get<String>();
+        case PrimitiveType::TYPE_VARBINARY:
+            return get<doris::StringView>() <=> rhs.get<doris::StringView>();
         case PrimitiveType::TYPE_DECIMAL32:
             return get<Decimal32>() <=> rhs.get<Decimal32>();
         case PrimitiveType::TYPE_DECIMAL64:
@@ -430,6 +433,9 @@ public:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
             f(field.template get<String>());
+            return;
+        case PrimitiveType::TYPE_VARBINARY:
+            f(field.template get<doris::StringView>());
             return;
         case PrimitiveType::TYPE_JSONB:
             f(field.template get<JsonbField>());
@@ -479,11 +485,11 @@ public:
     std::string_view as_string_view() const;
 
 private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+    std::aligned_union_t<
+            DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64, Int128, IPv6,
+            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
+            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, doris::StringView>
             storage;
 
     PrimitiveType type;
