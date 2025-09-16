@@ -75,7 +75,7 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
     int divisor = 4
     int queryCacheCapacity
 
-    sql """set global enable_file_cache=true"""
+    sql """set enable_file_cache=true"""
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
