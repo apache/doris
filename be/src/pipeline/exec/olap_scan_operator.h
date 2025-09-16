@@ -269,12 +269,20 @@ private:
     RuntimeProfile::Counter* _segment_create_column_readers_timer = nullptr;
     RuntimeProfile::Counter* _segment_load_index_timer = nullptr;
 
-    RuntimeProfile::Counter* _variant_scan_sparse_column_timer = nullptr;
+    // total uncompressed bytes read when scanning sparse columns in variant
     RuntimeProfile::Counter* _variant_scan_sparse_column_bytes = nullptr;
+
+    // total time spent scanning sparse subcolumns
+    RuntimeProfile::Counter* _variant_scan_sparse_column_timer = nullptr;
+    // time to build/resolve subcolumn paths from the sparse column
     RuntimeProfile::Counter* _variant_fill_path_from_sparse_column_timer = nullptr;
+    // Variant subtree: times falling back to default iterator due to missing path
     RuntimeProfile::Counter* _variant_subtree_default_iter_count = nullptr;
+    // Variant subtree: times selecting leaf iterator (target subcolumn is a leaf)
     RuntimeProfile::Counter* _variant_subtree_leaf_iter_count = nullptr;
+    // Variant subtree: times selecting hierarchical iterator (node has children and sparse columns)
     RuntimeProfile::Counter* _variant_subtree_hierarchical_iter_count = nullptr;
+    // Variant subtree: times selecting sparse iterator (iterate over sparse subcolumn)
     RuntimeProfile::Counter* _variant_subtree_sparse_iter_count = nullptr;
 
     std::vector<TabletWithVersion> _tablets;
