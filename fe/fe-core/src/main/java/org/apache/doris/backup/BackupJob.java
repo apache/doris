@@ -627,7 +627,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         olapTable.readLock();
         try {
             // check backup table again
-            if (backupTableRef.getTableNameInfo() != null) {
+            if (backupTableRef.getPartitionNamesInfo() != null) {
                 for (String partName : backupTableRef.getPartitionNamesInfo().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
