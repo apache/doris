@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator.SlotSizeComparator;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -136,7 +137,7 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         // Should return the first one since they have same priority, compared by slot size
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isComplexType());
+        Assertions.assertTrue(result == mapSlot);
     }
 
     @Test
@@ -167,7 +168,7 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isNumericType() || result.getType().isBoolean());
+        Assertions.assertTrue(result.getType().isBoolean());
     }
 
     @Test
@@ -181,23 +182,7 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isStringType());
-    }
-
-    @Test
-    public void testGetSmallestSlotAllDateTimeTypes() {
-        // Test all date/time types
-        List<SlotDescriptor> slots = Lists.newArrayList();
-
-        slots.add(createSlotDescriptor(Type.DATE, "date_col"));
-        slots.add(createSlotDescriptor(Type.DATETIME, "datetime_col"));
-        slots.add(createSlotDescriptor(Type.DATEV2, "datev2_col"));
-        slots.add(createSlotDescriptor(Type.DATETIMEV2, "datetimev2_col"));
-        slots.add(createSlotDescriptor(Type.TIMEV2, "timev2_col"));
-
-        SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isDateType() || result.getType().isTimeType());
+        Assertions.assertTrue(result == slots.get(0));
     }
 
     @Test
@@ -213,33 +198,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         Assertions.assertNotNull(result);
-    }
-
-    @Test
-    public void testGetSmallestSlotNetworkTypes() {
-        // Test network/IP types
-        List<SlotDescriptor> slots = Lists.newArrayList();
-
-        slots.add(createSlotDescriptor(Type.IPV4, "ipv4_col"));
-        slots.add(createSlotDescriptor(Type.IPV6, "ipv6_col"));
-
-        SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isIP());
-    }
-
-    @Test
-    public void testGetSmallestSlotComplexTypes() {
-        // Test complex types
-        List<SlotDescriptor> slots = Lists.newArrayList();
-
-        slots.add(createSlotDescriptor(Type.ARRAY, "array_col"));
-        slots.add(createSlotDescriptor(Type.MAP, "map_col"));
-        slots.add(createSlotDescriptor(Type.STRUCT, "struct_col"));
-
-        SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-        Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.getType().isComplexType());
     }
 
     @Test
@@ -299,7 +257,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         // Numeric type should win due to priority
         Assertions.assertEquals(numericSlot, result);
-        Assertions.assertTrue(result.getType().isNumericType());
     }
 
     @Test
@@ -383,9 +340,99 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
         Assertions.assertNotNull(result);
-
         // Result should be a numeric type due to priority
-        Assertions.assertTrue(result.getType().isNumericType() || result.getType().isBoolean());
+        Assertions.assertTrue(result.getType().isBoolean());
+
+        slots.sort(new SlotSizeComparator());
+        for (int i = 0; i < slots.size(); i++) {
+            SlotDescriptor slot = slots.get(i);
+            switch (i) {
+                case 0:
+                    Assertions.assertTrue(slot.getType().isBoolean());
+                    break;
+                case 1:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.TINYINT);
+                    break;
+                case 2:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.INT);
+                    break;
+                case 3:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.FLOAT);
+                    break;
+                case 4:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DECIMAL32);
+                    break;
+                case 5:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DATEV2);
+                    break;
+                case 6:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.IPV4);
+                    break;
+                case 7:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.BIGINT);
+                    break;
+                case 8:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DOUBLE);
+                    break;
+                case 9:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DATETIMEV2);
+                    break;
+                case 10:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.TIMEV2);
+                    break;
+                case 11:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DECIMALV2);
+                    break;
+                case 12:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DATE);
+                    break;
+                case 13:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.DATETIME);
+                    break;
+                case 14:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.IPV6);
+                    break;
+                case 15:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.CHAR);
+                    break;
+                case 16:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.VARCHAR);
+                    break;
+                case 17:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRING);
+                    break;
+                case 18:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.MAP);
+                    break;
+                case 19:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRUCT);
+                    break;
+                case 20:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.ARRAY);
+                    break;
+                case 21:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.HLL);
+                    break;
+                case 22:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.BITMAP);
+                    break;
+                case 23:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.QUANTILE_STATE);
+                    break;
+                case 24:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.JSONB);
+                    break;
+                case 25:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.VARBINARY);
+                    break;
+                case 26:
+                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.VARIANT);
+                    break;
+                default:
+                    // Remaining types can be in any order due to similar slot sizes
+                    Assertions.assertNotNull(false);
+            }
+        }
     }
 
     /**
