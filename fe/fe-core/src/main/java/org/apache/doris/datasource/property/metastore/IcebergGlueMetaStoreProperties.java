@@ -28,7 +28,6 @@ import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.catalog.Catalog;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,10 +71,6 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
         GlueCatalog catalog = new GlueCatalog();
         catalog.initialize(catalogName, catalogProps);
         return catalog;
-    }
-
-    private Map<String, String> prepareBaseCatalogProps() {
-        return new HashMap<>(origProps);
     }
 
     private void appendS3Props(Map<String, String> props) {

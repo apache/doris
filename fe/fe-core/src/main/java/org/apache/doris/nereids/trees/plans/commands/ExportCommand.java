@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.StmtType;
@@ -84,7 +83,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
             .add(LABEL)
             .add(PARALLELISM)
             .add(DATA_CONSISTENCY)
-            .add(LoadStmt.KEY_IN_PARAM_COLUMNS)
+            .add(LoadCommand.KEY_IN_PARAM_COLUMNS)
             .add(OutFileClause.PROP_MAX_FILE_SIZE)
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
@@ -284,7 +283,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setLineDelimiter(lineDelimiter);
 
         // set format
-        exportJob.setFormat(fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv")
+        exportJob.setFormat(fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_FORMAT_TYPE, "csv")
                 .toLowerCase());
 
         // set withBom
@@ -313,7 +312,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         // null means not specified
         // "" means user specified zero columns
         // if fileProperties contains KEY_IN_PARAM_COLUMNS, the columns have been checked in check phases
-        String columns = fileProperties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        String columns = fileProperties.getOrDefault(LoadCommand.KEY_IN_PARAM_COLUMNS, null);
         exportJob.setColumns(columns);
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();

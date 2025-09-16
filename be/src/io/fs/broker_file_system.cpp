@@ -22,11 +22,10 @@
 #include <gen_cpp/TPaloBrokerService.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <stddef.h>
 #include <thrift/Thrift.h>
 #include <thrift/transport/TTransportException.h>
 
-#include <algorithm>
+#include <cstddef>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
@@ -45,6 +44,7 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/exec_env.h"
 #include "util/slice.h"
+#include "vec/common/custom_allocator.h"
 
 namespace doris::io {
 
@@ -405,7 +405,7 @@ Status BrokerFileSystem::download_impl(const Path& remote_file, const Path& loca
     // 4. read remote and write to local
     VLOG(2) << "read remote file: " << remote_file << " to local: " << local_file;
     constexpr size_t buf_sz = 1024 * 1024;
-    std::unique_ptr<uint8_t[]> read_buf(new uint8_t[buf_sz]);
+    auto read_buf = make_unique_buffer<uint8_t>(buf_sz);
     size_t cur_offset = 0;
     while (true) {
         size_t read_len = 0;

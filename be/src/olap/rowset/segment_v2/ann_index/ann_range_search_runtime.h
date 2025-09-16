@@ -22,6 +22,11 @@
 #include <string>
 
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/runtime/vector_search_user_params.h"
 
 namespace doris::segment_v2 {
@@ -81,16 +86,8 @@ struct AnnRangeSearchRuntime {
               dst_col_idx(other.dst_col_idx),
               radius(other.radius),
               metric_type(other.metric_type),
-              user_params(other.user_params) {
-        // Do deep copy to query_value.
-        if (other.query_value) {
-            query_value = std::make_unique<float[]>(other.dim);
-            std::copy(other.query_value.get(), other.query_value.get() + other.dim,
-                      query_value.get());
-        } else {
-            query_value = nullptr;
-        }
-    }
+              user_params(other.user_params),
+              query_value(other.query_value) {}
 
     /**
      * @brief Assignment operator with deep copy semantics.
@@ -110,14 +107,8 @@ struct AnnRangeSearchRuntime {
         metric_type = other.metric_type;
         user_params = other.user_params;
         dim = other.dim;
-        // Do deep copy to query_value.
-        if (other.query_value) {
-            query_value = std::make_unique<float[]>(other.dim);
-            std::copy(other.query_value.get(), other.query_value.get() + other.dim,
-                      query_value.get());
-        } else {
-            query_value = nullptr;
-        }
+        query_value = other.query_value;
+
         return *this;
     }
 
@@ -142,7 +133,7 @@ struct AnnRangeSearchRuntime {
     double radius = 0.0;                       ///< Search radius/distance threshold
     AnnIndexMetric metric_type;                ///< Distance metric (L2, Inner Product, etc.)
     doris::VectorSearchUserParams user_params; ///< User-defined search parameters
-    std::unique_ptr<float[]> query_value;      ///< Query vector data (deep copied)
+    vectorized::IColumn::Ptr query_value;      ///< Query vector data (deep copied)
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

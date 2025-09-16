@@ -201,6 +201,9 @@ public class StmtExecutor {
     private Boolean isForwardedToMaster = null;
     // Flag for execute prepare statement, need to use binary protocol resultset
     private boolean isComStmtExecute = false;
+    // Set to true if there are more stmt need to execute.
+    // Mainly for forward to master, so that master can set the mysql server status correctly.
+    private boolean moreStmtExists = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -303,7 +306,14 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
+            long executionCosts = currentTimestamp - context.getStartTime();
+            // Execution of parser could happen before StmtExecutor is involved.
+            if (getSummaryProfile().parsedByConnectionProcess) {
+                builder.totalTime(DebugUtil.getPrettyStringMs(
+                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+            } else {
+                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+            }
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -345,6 +355,14 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
+    }
+
+    public boolean isMoreStmtExists() {
+        return moreStmtExists;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     private boolean shouldForwardToMaster() {
@@ -578,7 +596,8 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (context.getSessionVariable().enableProfile) {
+        // short circuit query should not dump changed session var since it will impact the performance.
+        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -716,7 +735,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             handleQueryWithRetry(queryId);
         }
     }
@@ -747,6 +766,7 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            getProfile().getSummaryProfile().parsedByConnectionProcess = false;
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -897,6 +917,12 @@ public class StmtExecutor {
             return false;
         }
 
+        // If the query is short circuit, we should not update the profile,
+        // which will impact the performance of the short circuit query.
+        if (statementContext.isShortCircuitQuery()) {
+            return false;
+        }
+
         LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
         if (plan instanceof InsertIntoTableCommand) {
@@ -937,6 +963,7 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
+        masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
@@ -1218,7 +1245,7 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -1315,7 +1342,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (QueryTimeoutException e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
@@ -1919,7 +1946,7 @@ public class StmtExecutor {
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
-        LOG.info("TUniqueId: {} generate stream load plan", queryId);
+        LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -1928,7 +1955,6 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        HttpStreamParams httpStreamParams = new HttpStreamParams();
 
         try {
             if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
@@ -1938,6 +1964,7 @@ public class StmtExecutor {
                 context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
+            HttpStreamParams httpStreamParams = new HttpStreamParams();
             httpStreamParams.setTxnId(insertExecutor.getTxnId());
             httpStreamParams.setDb(insertExecutor.getDatabase());
             httpStreamParams.setTable(insertExecutor.getTable());
@@ -1954,6 +1981,7 @@ public class StmtExecutor {
             if (!isValidPlan) {
                 throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
             }
+            return httpStreamParams;
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -1972,17 +2000,15 @@ public class StmtExecutor {
             throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                     new AnalysisException(e.getMessage(), e));
         }
-        return httpStreamParams;
     }
 
     public HttpStreamParams generateHttpStreamPlan(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        HttpStreamParams httpStreamParams = null;
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
-                httpStreamParams = generateHttpStreamNereidsPlan(queryId);
+                return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
@@ -1994,8 +2020,8 @@ public class StmtExecutor {
                 }
                 if (e instanceof NereidsException) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    throw ((NereidsException) e).getException();
                 }
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -2011,7 +2037,6 @@ public class StmtExecutor {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }
-        return httpStreamParams;
     }
 
     public SummaryProfile getSummaryProfile() {

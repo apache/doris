@@ -1207,22 +1207,6 @@ public:
         ASSERT_EQ(expect_name, column.get_name());
     }
 
-    // use in ColumnVariant for check_if_sparse_column
-    static void assert_get_ratio_of_default_rows(MutableColumns& load_cols,
-                                                 DataTypeSerDeSPtrs serders) {
-        // just check cols get_ratio_of_default_rows is the same as assert_res
-        std::vector<std::vector<std::string>> res;
-        for (size_t i = 0; i < load_cols.size(); ++i) {
-            auto& source_column = load_cols[i];
-            std::vector<std::string> data;
-            data.push_back("in column: " + source_column->get_name() + " ratio of default rows: ");
-            auto actual_str_value = std::to_string(source_column->get_ratio_of_default_rows());
-            data.push_back(actual_str_value);
-            res.push_back(data);
-        }
-        check_res_file("get_ratio_of_default_rows", res);
-    }
-
     // size related we can check from checked file to make sure the size is right
     static void assert_size_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
         std::vector<std::vector<std::string>> res;

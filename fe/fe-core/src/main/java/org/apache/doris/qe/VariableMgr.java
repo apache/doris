@@ -1023,15 +1023,17 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.SQL_MODE,
                     String.valueOf(sqlMode));
-
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
+            // update to 4.0.0
             // update from older version, use legacy behavior.
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR,
                     String.valueOf(false));
-        }
-        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_400) {
-            // update to master
-            // do nothing now
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    GlobalVariable.ENABLE_NEW_TYPE_COERCION_BEHAVIOR,
+                    String.valueOf(false));
+
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,

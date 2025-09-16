@@ -20,8 +20,6 @@
 BUILD_DIR = ${CURDIR}/../build/
 FE_TARGET_DIR = ${CURDIR}/../../fe/fe-core/target/generated-sources/build
 
-export DORIS_VENDOR ?= doris
-
 # Prerequisites on the right side of '|' is only order
 all: gen_builtins gen_version
 .PHONY: all
@@ -48,5 +46,5 @@ gen_builtins: ${GEN_BUILTINS_OUTPUT}
 
 # generate version info
 gen_version:
-	${CURDIR}/gen_build_version.sh $(DORIS_VENDOR)
+	${CURDIR}/gen_build_version.sh
 .PHONY: gen_version

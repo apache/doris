@@ -1379,31 +1379,38 @@ const ColumnVariant::Subcolumn* ColumnVariant::get_subcolumn(const PathInData& k
     return &node->data;
 }
 
+const std::string_view EMPTY_JSON = "{}";
+
 size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
                                                      DataTypeSerDe::FormatOptions opt) const {
     if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
-        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+        output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+        return EMPTY_JSON.size();
     }
 
     size_t ind = n;
     if (ind < num_of_defaults_in_prefix) {
-        output.write(DataTypeSerDe::NULL_IN_COMPLEX_TYPE.data(),
-                     DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size());
-        return DataTypeSerDe::NULL_IN_COMPLEX_TYPE.size();
+        output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+        return EMPTY_JSON.size();
     }
 
     ind -= num_of_defaults_in_prefix;
     for (size_t i = 0; i < data.size(); ++i) {
-        const auto& part = data[i];
+        const auto& part = (*data[i]);
         const auto& part_type_serde = data_serdes[i];
 
-        if (ind < part->size()) {
-            return part_type_serde->serialize_one_cell_to_json(*part, ind, output, opt);
+        if (ind < part.size()) {
+            // special case when null flag is true, but the value is empty string in JSON type,
+            // other wise will serialize to '\N'
+            const auto* nullable_col = check_and_get_column<ColumnNullable>(*data[i]);
+            if (nullable_col && nullable_col->is_null_at(ind)) {
+                output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
+                return EMPTY_JSON.size();
+            }
+            return part_type_serde->serialize_one_cell_to_json(part, ind, output, opt);
         }
 
-        ind -= part->size();
+        ind -= part.size();
     }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND,
                            "Index ({}) for serializing JSON is out of range", n);
@@ -1689,17 +1696,7 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
             return false;
         }
     }
-    size_t ind = nrow - root->data.num_of_defaults_in_prefix;
-    // null value as empty json, todo: think a better way to disinguish empty json and null json.
-    for (const auto& part : root->data.data) {
-        if (ind < part->size()) {
-            return !part->get_data_at(ind).empty();
-        }
-        ind -= part->size();
-    }
-
-    throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
-                           nrow);
+    return !root->data.is_null_at(nrow);
 }
 
 void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWritable& output,

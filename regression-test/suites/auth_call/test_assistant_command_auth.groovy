@@ -56,7 +56,9 @@ suite("test_assistant_command_auth","p0,auth_call") {
     logger.info("insert_res: " + insert_res)
 
     sql """create catalog if not exists ${catalogName} properties (
-            'type'='hms'
+            'type'='hms',
+            'hive.metastore.uris' = 'thrift://127.0.0.1:9083'
+        
         );"""
 
 

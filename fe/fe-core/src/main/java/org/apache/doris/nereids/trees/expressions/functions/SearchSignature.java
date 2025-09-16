@@ -159,7 +159,7 @@ public class SearchSignature {
                     finalType = DecimalV3Type.createDecimalV3Type(new BigDecimal(((Literal) arg).getStringValue()));
                 } else {
                     finalType = DecimalV3Type.widerDecimalV3Type((DecimalV3Type) finalType,
-                            DecimalV3Type.forType(arg.getDataType()), true);
+                            DecimalV3Type.forType(arg.getDataType()), false);
                 }
             }
             if (!finalType.isDecimalV3Type()) {

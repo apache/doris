@@ -94,7 +94,7 @@ struct AnnTopNParam {
 
 struct AnnRangeSearchParams {
     bool is_le_or_lt = true;
-    float* query_value = nullptr;
+    const float* query_value = nullptr;
     float radius = -1;
     roaring::Roaring* roaring; // roaring from segment_iterator
     std::string to_string() const {

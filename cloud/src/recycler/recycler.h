@@ -36,6 +36,7 @@
 #include "meta-store/versionstamp.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace brpc {
 class Server;
@@ -116,6 +117,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 enum class RowsetRecyclingState {
@@ -296,6 +298,9 @@ public:
     // scan and recycle useless partition version kv
     int recycle_versions();
 
+    // scan and recycle the orphan partitions
+    int recycle_orphan_partitions();
+
     // scan and abort timeout txn label
     // returns 0 for success otherwise error
     int abort_timeout_txn();
@@ -347,6 +352,10 @@ public:
     int scan_and_statistics_versions();
 
     int scan_and_statistics_restore_jobs();
+
+    void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
+        accessor_map_.insert({std::string(id), std::move(accessor)});
+    }
 
 private:
     // returns 0 for success otherwise error
@@ -406,8 +415,11 @@ private:
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view rowset_meta_key,
+    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
                                      const RowsetMetaCloudPB& rowset_meta);
+
+    // Whether the instance has any snapshots, return 0 for success otherwise error.
+    int has_cluster_snapshots(bool* any);
 
 private:
     std::atomic_bool stopped_ {false};
@@ -437,6 +449,28 @@ private:
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;
+};
+
+// Helper class to check if operation logs can be recycled based on snapshots and versionstamps
+class OperationLogRecycleChecker {
+public:
+    OperationLogRecycleChecker(std::string_view instance_id, TxnKv* txn_kv)
+            : instance_id_(instance_id), txn_kv_(txn_kv) {}
+
+    // Initialize the checker by loading snapshots and setting max version stamp
+    int init();
+
+    // Check if an operation log can be recycled
+    bool can_recycle(const Versionstamp& log_versionstamp, int64_t log_min_timestamp) const;
+
+    Versionstamp max_versionstamp() const { return max_versionstamp_; }
+
+private:
+    std::string_view instance_id_;
+    TxnKv* txn_kv_;
+    Versionstamp max_versionstamp_;
+    std::map<Versionstamp, size_t> snapshot_indexes_;
+    std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots_;
 };
 
 } // namespace doris::cloud

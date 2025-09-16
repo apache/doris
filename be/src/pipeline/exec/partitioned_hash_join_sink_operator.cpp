@@ -324,7 +324,7 @@ Status PartitionedHashJoinSinkLocalState::terminate(RuntimeState* state) {
         inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
     }
     if (_parent->cast<PartitionedHashJoinSinkOperatorX>()._inner_sink_operator) {
-        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->terminate(state));
+        RETURN_IF_ERROR(inner_sink_state->_runtime_filter_producer_helper->skip_process(state));
     }
     inner_sink_state->_terminated = true;
     return PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>::terminate(state);
