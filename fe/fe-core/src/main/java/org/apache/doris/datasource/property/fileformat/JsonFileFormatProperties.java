@@ -59,33 +59,12 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "", isRemoveOriginProperty);
             jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                     "", isRemoveOriginProperty);
-            boolean hasReadJsonByLine = formatProperties.containsKey(PROP_READ_JSON_BY_LINE);
-            boolean hasStripOuterArray = formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY);
-            if (!hasReadJsonByLine && !hasStripOuterArray) {
-                // both not set
-                readJsonByLine = true;
-                stripOuterArray = false;
-            } else if (hasReadJsonByLine && hasStripOuterArray) {
-                // both set
-                readJsonByLine = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                                "false", isRemoveOriginProperty)).booleanValue();
-                stripOuterArray = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                                "false", isRemoveOriginProperty)).booleanValue();
-            } else if (hasReadJsonByLine) {
-                // only set read_json_by_line
-                readJsonByLine = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                                "false", isRemoveOriginProperty)).booleanValue();
-                stripOuterArray = false;
-            } else if (hasStripOuterArray) {
-                // only set strip_outer_array
-                stripOuterArray = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                                "false", isRemoveOriginProperty)).booleanValue();
-                readJsonByLine = false;
-            }
+            readJsonByLine = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
+                            "true", isRemoveOriginProperty)).booleanValue();
+            stripOuterArray = Boolean.valueOf(
+                    getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
+                            "false", isRemoveOriginProperty)).booleanValue();
             numAsString = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_NUM_AS_STRING,
                             "", isRemoveOriginProperty)).booleanValue();
@@ -98,6 +77,7 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("line_delimiter can not be empty.");
             }
             lineDelimiter = Separator.convertSeparator(lineDelimiter);
+
             String compressTypeStr = getOrDefault(formatProperties, PROP_COMPRESS_TYPE,
                     "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);

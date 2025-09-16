@@ -417,7 +417,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_compress_type(ctx->compress_type);
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
-    request.__set_read_json_by_line(false);
+    request.__set_read_json_by_line(true);
     request.__set_strip_outer_array(false);
     if (ctx->use_streaming) {
         std::shared_ptr<io::StreamLoadPipe> pipe;
@@ -521,30 +521,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!http_req->header(HTTP_JSONROOT).empty()) {
         request.__set_json_root(http_req->header(HTTP_JSONROOT));
     }
-    // (TODO Refrain)For json load parameters, we need a more elegant way to handle them
-    bool has_read_json_by_line = !http_req->header(HTTP_READ_JSON_BY_LINE).empty();
-    bool has_strip_outer_array = !http_req->header(HTTP_STRIP_OUTER_ARRAY).empty();
-    bool read_json_by_line = false;
-    bool strip_outer_array = false;
-    if (!has_read_json_by_line && !has_strip_outer_array) {
-        // both no set
-        read_json_by_line = true;
-        strip_outer_array = false;
-    } else if (has_read_json_by_line && has_strip_outer_array) {
-        // both set
-        read_json_by_line = iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true");
-        strip_outer_array = iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true");
-    } else if (has_read_json_by_line) {
-        // only set read_json_by_line
-        read_json_by_line = iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true");
-        strip_outer_array = false;
-    } else if (has_strip_outer_array) {
-        // only set strip_outer_array
-        strip_outer_array = iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true");
-        read_json_by_line = false;
+    // (TODO Refrain)For json load parameters, we will remove the read json by line
+    if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        if (iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
+            request.__set_strip_outer_array(true);
+        } else {
+            request.__set_strip_outer_array(false);
+        }
     }
-    request.__set_read_json_by_line(read_json_by_line);
-    request.__set_strip_outer_array(strip_outer_array);
+    // only user set read_json_by_line to false, we will set it to false
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty() && 
+        iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "false")) {
+        request.__set_read_json_by_line(false);
+    }
+    if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
+        request.__set_strip_outer_array(iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true"));
+    }
     if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
         if (iequal(http_req->header(HTTP_NUM_AS_STRING), "true")) {
             request.__set_num_as_string(true);
