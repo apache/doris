@@ -5127,6 +5127,10 @@ public class SessionVariable implements Serializable, Writable {
         return fetchAllFeForSystemTable;
     }
 
+    public void setFetchAllFeForSystemTable(boolean fetchAllFeForSystemTable) {
+        this.fetchAllFeForSystemTable = fetchAllFeForSystemTable;
+    }
+
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
     }
