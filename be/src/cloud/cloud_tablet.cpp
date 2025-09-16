@@ -308,7 +308,14 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         // but has not been warmuped up yet, fallback to capture rowsets as usual
         return capture_rs_readers_internal(spec_version, rs_splits);
     }
-
+    VLOG_DEBUG << fmt::format(
+            "[verbose] CloudTablet::capture_rs_readers_with_freshness_tolerance, capture path: {}, "
+            "tablet_id={}, spec_version={}, path_max_version={}",
+            fmt::join(version_path | std::views::transform([](const auto& version) {
+                          return fmt::format("{}", version.to_string());
+                      }),
+                      ", "),
+            tablet_id(), spec_version.to_string(), path_max_version);
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
