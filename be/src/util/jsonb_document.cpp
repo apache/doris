@@ -77,13 +77,13 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                     for (const auto& it : *pval->unpack<ArrayVal>()) {
                         if (it.type == JsonbType::T_Object) {
                             pval = it.unpack<ObjectVal>()->find(
-                                path.get_leg_from_leg_vector(i)->leg_ptr,
-                                path.get_leg_from_leg_vector(i)->leg_len, nullptr);
-                                if (pval) {
-                                    results.emplace_back(pval);
-                                }
+                                    path.get_leg_from_leg_vector(i)->leg_ptr,
+                                    path.get_leg_from_leg_vector(i)->leg_len, nullptr);
+                            if (pval) {
+                                results.emplace_back(pval);
                             }
                         }
+                    }
                 }
                 continue;
             }
