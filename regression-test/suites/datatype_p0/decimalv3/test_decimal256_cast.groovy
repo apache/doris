@@ -154,4 +154,338 @@ suite("test_decimal256_cast") {
         exception "Arithmetic overflow"
     }
 
+    // cast float to decimal256
+    qt_cast_float_to_decimal256_const_1_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("219.77718" as float) as decimalv3(76, 38));"""
+    qt_cast_float_to_decimal256_const_1_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("219.77718" as float) as decimalv3(76, 38));"""
+
+    qt_cast_float_to_decimal256_const_2_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-219.77718" as float) as decimalv3(76, 38));"""
+    qt_cast_float_to_decimal256_const_2_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-219.77718" as float) as decimalv3(76, 38));"""
+
+    qt_cast_float_to_decimal256_const_3_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("99999999999999999999999999999999999998.99999999999999999999999999999999999999" as float) as decimalv3(76, 38));"""
+    qt_cast_float_to_decimal256_const_3_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("99999999999999999999999999999999999998.99999999999999999999999999999999999999" as float) as decimalv3(76, 38));"""
+
+    qt_cast_float_to_decimal256_const_4_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-99999999999999999999999999999999999998.99999999999999999999999999999999999999" as float) as decimalv3(76, 38));"""
+    qt_cast_float_to_decimal256_const_4_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-99999999999999999999999999999999999998.99999999999999999999999999999999999999" as float) as decimalv3(76, 38));"""
+
+    qt_cast_float_to_decimal256_const_5_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("9999999999999999999999999999998.999999999999999999999999999999999999999999999" as float) as decimalv3(76, 45));"""
+    qt_cast_float_to_decimal256_const_5_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("9999999999999999999999999999998.999999999999999999999999999999999999999999999" as float) as decimalv3(76, 45));"""
+
+    qt_cast_float_to_decimal256_const_6_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-9999999999999999999999999999998.999999999999999999999999999999999999999999999" as float) as decimalv3(76, 45));"""
+    qt_cast_float_to_decimal256_const_6_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-9999999999999999999999999999998.999999999999999999999999999999999999999999999" as float) as decimalv3(76, 45));"""
+
+    qt_cast_float_to_decimal256_const_7_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("0.8999999999999999999999999999999999999999999999999999999999999999999999999999" as float) as decimalv3(76, 76));"""
+    qt_cast_float_to_decimal256_const_7_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("0.8999999999999999999999999999999999999999999999999999999999999999999999999999" as float) as decimalv3(76, 76));"""
+
+    qt_cast_float_to_decimal256_const_8_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-0.8999999999999999999999999999999999999999999999999999999999999999999999999999" as float) as decimalv3(76, 76));"""
+    qt_cast_float_to_decimal256_const_8_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-0.8999999999999999999999999999999999999999999999999999999999999999999999999999" as float) as decimalv3(76, 76));"""
+
+    qt_cast_float_to_decimal256_const_9_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("3.402e38" as float) as decimalv3(76, 37));"""
+    qt_cast_float_to_decimal256_const_9_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("3.402e38" as float) as decimalv3(76, 37));"""
+    qt_cast_float_to_decimal256_const_10_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-3.402e38" as float) as decimalv3(76, 37));"""
+    qt_cast_float_to_decimal256_const_10_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-3.402e38" as float) as decimalv3(76, 37));"""
+
+    sql """
+        drop table if exists cast_to_float_to_decimal256;
+    """
+    sql """
+    create table cast_to_float_to_decimal256 (
+        k1 int,
+        v1 float
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_float_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (2, "99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (3, "-99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "-0.97718"),
+            (10, "3.402e38"),
+            (11, "-3.402e38");
+    """
+    qt_cast_float_to_decimal256_1 """
+        select k1, cast(v1 as decimalv3(76, 0)) from cast_to_float_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_float_to_decimal256;
+    """
+    sql """
+    create table cast_to_float_to_decimal256 (
+        k1 int,
+        v1 float
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_float_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (2, "99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (3, "-99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "-0.97718");
+    """
+    qt_cast_float_to_decimal256_2 """
+        select k1, cast(v1 as decimalv3(76, 38)) from cast_to_float_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_float_to_decimal256;
+    """
+    sql """
+    create table cast_to_float_to_decimal256 (
+        k1 int,
+        v1 float
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_float_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "0.97718");
+    """
+    qt_cast_float_to_decimal256_3 """
+        select k1, cast(v1 as decimalv3(76, 45)) from cast_to_float_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_float_to_decimal256;
+    """
+    sql """
+    create table cast_to_float_to_decimal256 (
+        k1 int,
+        v1 float
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_float_to_decimal256 values 
+            (6, "0.8999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.8999999999999999999999999999999999999999999999999999999999999999999999999999");
+    """
+    qt_cast_float_to_decimal256_4 """
+        select k1, cast(v1 as decimalv3(76, 76)) from cast_to_float_to_decimal256 order by k1;
+    """
+
+    // cast double to decimal256
+    qt_cast_double_to_decimal256_const_1_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("219.77718" as double) as decimalv3(76, 38));"""
+    qt_cast_double_to_decimal256_const_1_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("219.77718" as double) as decimalv3(76, 38));"""
+
+    qt_cast_double_to_decimal256_const_2_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-219.77718" as double) as decimalv3(76, 38));"""
+    qt_cast_double_to_decimal256_const_2_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-219.77718" as double) as decimalv3(76, 38));"""
+
+    qt_cast_double_to_decimal256_const_3_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("99999999999999999999999999999999999998.99999999999999999999999999999999999999" as double) as decimalv3(76, 38));"""
+    qt_cast_double_to_decimal256_const_3_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("99999999999999999999999999999999999998.99999999999999999999999999999999999999" as double) as decimalv3(76, 38));"""
+
+    qt_cast_double_to_decimal256_const_4_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-99999999999999999999999999999999999998.99999999999999999999999999999999999999" as double) as decimalv3(76, 38));"""
+    qt_cast_double_to_decimal256_const_4_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-99999999999999999999999999999999999998.99999999999999999999999999999999999999" as double) as decimalv3(76, 38));"""
+
+    qt_cast_double_to_decimal256_const_5_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("9999999999999999999999999999998.999999999999999999999999999999999999999999999" as double) as decimalv3(76, 45));"""
+    qt_cast_double_to_decimal256_const_5_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("9999999999999999999999999999998.999999999999999999999999999999999999999999999" as double) as decimalv3(76, 45));"""
+
+    qt_cast_double_to_decimal256_const_6_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-9999999999999999999999999999998.999999999999999999999999999999999999999999999" as double) as decimalv3(76, 45));"""
+    qt_cast_double_to_decimal256_const_6_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-9999999999999999999999999999998.999999999999999999999999999999999999999999999" as double) as decimalv3(76, 45));"""
+
+    qt_cast_double_to_decimal256_const_7_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("0.9899999999999999999999999999999999999999999999999999999999999999999999999999" as double) as decimalv3(76, 76));"""
+    qt_cast_double_to_decimal256_const_7_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("0.9899999999999999999999999999999999999999999999999999999999999999999999999999" as double) as decimalv3(76, 76));"""
+
+    qt_cast_double_to_decimal256_const_8_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-0.9899999999999999999999999999999999999999999999999999999999999999999999999999" as double) as decimalv3(76, 76));"""
+    qt_cast_double_to_decimal256_const_8_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-0.9899999999999999999999999999999999999999999999999999999999999999999999999999" as double) as decimalv3(76, 76));"""
+
+    qt_cast_double_to_decimal256_const_9_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("9.899e75" as double) as decimalv3(76, 0));"""
+    qt_cast_double_to_decimal256_const_9_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("9.899e75" as double) as decimalv3(76, 0));"""
+    qt_cast_double_to_decimal256_const_10_1 """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-9.899e75" as double) as decimalv3(76, 0));"""
+    qt_cast_double_to_decimal256_const_10_2 """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-9.899e75" as double) as decimalv3(76, 0));"""
+
+    sql """
+        drop table if exists cast_to_double_to_decimal256;
+    """
+    sql """
+    create table cast_to_double_to_decimal256 (
+        k1 int,
+        v1 double
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_double_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (2, "99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (3, "-99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "-0.97718"),
+            (10, "3.402e38"),
+            (11, "-3.402e38"),
+            (12, "9.899e75"),
+            (13, "9.899e75");
+    """
+    qt_cast_double_to_decimal256_1 """
+        select k1, cast(v1 as decimalv3(76, 0)) from cast_to_double_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_double_to_decimal256;
+    """
+    sql """
+    create table cast_to_double_to_decimal256 (
+        k1 int,
+        v1 double
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_double_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (2, "99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (3, "-99999999999999999999999999999999999998.99999999999999999999999999999999999999"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "-0.97718");
+    """
+    qt_cast_double_to_decimal256_2 """
+        select k1, cast(v1 as decimalv3(76, 38)) from cast_to_double_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_double_to_decimal256;
+    """
+    sql """
+    create table cast_to_double_to_decimal256 (
+        k1 int,
+        v1 double
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_double_to_decimal256 values 
+            (0, "219.77718"), (1, "-219.77718"),
+            (4, "9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (5, "-9999999999999999999999999999998.999999999999999999999999999999999999999999999"),
+            (6, "0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.9999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (8, "0.97718"),
+            (9, "0.97718");
+    """
+    qt_cast_double_to_decimal256_3 """
+        select k1, cast(v1 as decimalv3(76, 45)) from cast_to_double_to_decimal256 order by k1;
+    """
+
+    sql """
+        drop table if exists cast_to_double_to_decimal256;
+    """
+    sql """
+    create table cast_to_double_to_decimal256 (
+        k1 int,
+        v1 double
+    ) properties ('replication_num' = '1');
+    """
+    sql """
+        insert into cast_to_double_to_decimal256 values 
+            (6, "0.8999999999999999999999999999999999999999999999999999999999999999999999999999"),
+            (7, "-0.8999999999999999999999999999999999999999999999999999999999999999999999999999");
+    """
+    qt_cast_double_to_decimal256_4 """
+        select k1, cast(v1 as decimalv3(76, 76)) from cast_to_double_to_decimal256 order by k1;
+    """
+
+    // test cast float to decimal256 overflow
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("219.77718" as float) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("219.77718" as float) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-219.77718" as float) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-219.77718" as float) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("3.402e38" as float) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("3.402e38" as float) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-3.402e38" as float) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-3.402e38" as float) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+
+    // test cast double to decimal256 overflow
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("219.77718" as double) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("219.77718" as double) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-219.77718" as double) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-219.77718" as double) as decimalv3(76, 74));"""
+        exception "Arithmetic overflow"
+    }
+
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("3.402e38" as double) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("3.402e38" as double) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-3.402e38" as double) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-3.402e38" as double) as decimalv3(76, 38));"""
+        exception "Arithmetic overflow"
+    }
+
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("9.899e76" as double) as decimalv3(76, 0));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("9.899e76" as double) as decimalv3(76, 0));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = true) */cast(cast("-9.899e76" as double) as decimalv3(76, 0));"""
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """select /*+SET_VAR(debug_skip_fold_constant = false) */cast(cast("-9.899e76" as double) as decimalv3(76, 0));"""
+        exception "Arithmetic overflow"
+    }
 }
