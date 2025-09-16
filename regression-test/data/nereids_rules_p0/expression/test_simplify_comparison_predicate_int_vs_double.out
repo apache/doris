@@ -2,12 +2,12 @@
 -- !cast_bigint_as_double_shape --
 PhysicalResultSink
 --PhysicalProject
-----hashJoin[LEFT_OUTER_JOIN] hashCondition=((expr_cast(c_s as DOUBLE) = expr_cast(c_bigint as DOUBLE))) otherCondition=()
+----hashJoin[RIGHT_OUTER_JOIN] hashCondition=((expr_cast(c_s as DOUBLE) = expr_cast(c_bigint as DOUBLE))) otherCondition=()
+------PhysicalProject
+--------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 ------PhysicalProject
 --------filter((t1.c_s = '870479087484055553'))
 ----------PhysicalOlapScan[tbl1_test_simplify_comparison_predicate_int_vs_double]
-------PhysicalProject
---------PhysicalOlapScan[tbl2_test_simplify_comparison_predicate_int_vs_double]
 
 -- !cast_bigint_as_double_result --
 100	870479087484055553	200	870479087484055553	999.999
