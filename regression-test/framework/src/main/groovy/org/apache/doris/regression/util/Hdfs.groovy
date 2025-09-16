@@ -26,6 +26,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.junit.Assert;
+import groovy.util.logging.Slf4j
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -33,6 +36,8 @@ import java.io.IOException;
 // upload file from  "regression-test/data/hdfs"  to  "hdfs://xx/user/${userName}/groovy/"
 // download file from "hdfs://xx/user/${userName}/groovy/" to  "regression-test/data/hdfs"
 class Hdfs {
+    final static Logger logger = LoggerFactory.getLogger(this.class)
+
     FileSystem fs = null;
     String uri;
     String userName;
@@ -71,9 +76,12 @@ class Hdfs {
 
         try {
             String filepath = this.testRemoteDir + prefix + "*";
+            logger.info("${filepath}")
             FileStatus[] fileStatusArray = fs.globStatus(new Path(filepath));
             for (FileStatus fileStatus : fileStatusArray) {
                 Path path = fileStatus.getPath();
+                logger.info("${path}")
+                if (!fileStatus.isFile()) continue
                 FSDataInputStream fsDataInputStream = fs.open(path);
                 File localFile = new File(targetTmpFolder,path.getName());
                 FileOutputStream fileOutputStream = new FileOutputStream(localFile);
@@ -113,3 +121,4 @@ class Hdfs {
         return "";
     }
 }
+

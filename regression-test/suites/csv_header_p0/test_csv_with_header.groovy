@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.util.Hdfs
 
-suite("test_csv_with_header") {
+suite("test_csv_with_header", "p0,external") {
      //define format
     def format_csv = "csv"
     def format_csv_with_names = "csv_with_names"
@@ -225,7 +225,7 @@ suite("test_csv_with_header") {
             sql """
                 SELECT * FROM ${outTable}
                 INTO OUTFILE "${outHdfsPath}"
-                FORMAT AS "${outFormat}"
+                FORMAT AS ${outFormat}
                 PROPERTIES
                 (
                     "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}",
@@ -238,20 +238,21 @@ suite("test_csv_with_header") {
         }
         // select out file to hdfs format=csv
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
+        select_out_file(testTable, hdfsDataDir + "/" + label + "csv", format_csv, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
         result = download_from_hdfs(label)
         check_download_result(result, format_csv, currentTotalRows)
 
         // select out file to hdfs format=csv_with_names
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv_with_names, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
+        select_out_file(testTable, hdfsDataDir + "/" + label + "csv", format_csv_with_names, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
         result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names, currentTotalRows)
 
         // select out file to hdfs format=csv_with_names_and_types
         label = UUID.randomUUID().toString().replaceAll("-", "")
-        select_out_file(testTable, hdfsDataDir + "/" + label + "/csv", format_csv_with_names_and_types, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
+        select_out_file(testTable, hdfsDataDir + "/" + label + "csv", format_csv_with_names_and_types, hdfsFs, brokerName, hdfsUser, hdfsPasswd)
         result = download_from_hdfs(label)
         check_download_result(result, format_csv_with_names_and_types, currentTotalRows)
     }    
 }
+
