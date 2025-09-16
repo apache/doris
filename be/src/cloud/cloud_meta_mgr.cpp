@@ -825,6 +825,7 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
 Status CloudMetaMgr::_get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req,
                                                 GetDeleteBitmapResponse& res) {
     VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
+    TEST_SYNC_POINT_CALLBACK("CloudMetaMgr::_get_delete_bitmap_from_ms", &req, &res);
 
     auto st = retry_rpc("get delete bitmap", req, &res, &MetaService_Stub::get_delete_bitmap);
     if (st.code() == ErrorCode::THRIFT_RPC_ERROR) {
