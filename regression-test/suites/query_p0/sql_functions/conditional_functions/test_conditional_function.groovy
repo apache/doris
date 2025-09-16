@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.io.FileType
+import java.nio.file.Files
+import java.nio.file.Paths
+
 suite("test_conditional_function") {
     sql "set batch_size = 4096;"
 
@@ -262,5 +266,129 @@ insert into table_50_undef_partitions2_keys3_properties4_distributed_by54(pk,col
     """
     qt_test """
 SELECT TO_DATE ( table1 . `col_date_undef_signed_not_null` ) AS field1, MAX( distinct table1 . `col_int_undef_signed_not_null` ) AS field2, ( TO_DATE (CASE table1 . col_date_undef_signed_not_null WHEN table1 . col_date_undef_signed_not_null THEN DATE_ADD( table1 . `col_date_undef_signed_not_null` , INTERVAL 3 YEAR ) WHEN table1 . col_date_undef_signed THEN '2024-01-31' WHEN '2025-02-18' THEN '2024-02-18' WHEN '2008-09-25' THEN DATE_SUB( table1 . `col_date_undef_signed` , INTERVAL 7 DAY ) ELSE DATE_ADD( table1 . `col_date_undef_signed_not_null` , INTERVAL 2 DAY ) END)) AS field3, COUNT( distinct TO_DATE (ifnull( table1 . `col_date_undef_signed_not_null` , table1 . `col_date_undef_signed_not_null` )) ) AS field4, table1 . col_int_undef_signed AS field5, MIN( distinct table1 . `col_int_undef_signed` ) AS field6 FROM table_50_undef_partitions2_keys3_properties4_distributed_by54 AS table1 INNER JOIN table_50_undef_partitions2_keys3_properties4_distributed_by54 AS table2 ON ( table2 . `col_date_undef_signed` = table1 . `col_date_undef_signed` ) RIGHT JOIN table_200_undef_partitions2_keys3_properties4_distributed_by5 AS table3 ON ( table3 . `col_date_undef_signed` = table2 . `col_date_undef_signed` ) WHERE  ( table2 . `col_int_undef_signed` != 4 )  GROUP BY field1,field3,field5  ORDER BY field1,field3,field5 LIMIT 1000 OFFSET 9; 
+    """
+
+    sql "drop table if exists table_800_undef_partitions2_keys3_properties4_distributed_by524;"
+    sql """
+create table table_800_undef_partitions2_keys3_properties4_distributed_by524 (
+pk int,
+col_int_undef_signed_index_inverted int  null  ,
+col_date_undef_signed_not_null date  not null  ,
+col_varchar_1024__undef_signed varchar(1024)  null  ,
+col_boolean_undef_signed boolean  null  ,
+col_boolean_undef_signed_not_null boolean  not null  ,
+col_tinyint_undef_signed tinyint  null  ,
+col_tinyint_undef_signed_index_inverted tinyint  null  ,
+col_tinyint_undef_signed_not_null tinyint  not null  ,
+col_tinyint_undef_signed_not_null_index_inverted tinyint  not null  ,
+col_smallint_undef_signed smallint  null  ,
+col_smallint_undef_signed_index_inverted smallint  null  ,
+col_smallint_undef_signed_not_null smallint  not null  ,
+col_smallint_undef_signed_not_null_index_inverted smallint  not null  ,
+col_int_undef_signed int  null  ,
+col_int_undef_signed_not_null int  not null  ,
+col_int_undef_signed_not_null_index_inverted int  not null  ,
+col_bigint_undef_signed bigint  null  ,
+col_bigint_undef_signed_index_inverted bigint  null  ,
+col_bigint_undef_signed_not_null bigint  not null  ,
+col_bigint_undef_signed_not_null_index_inverted bigint  not null  ,
+col_decimal_16__8__undef_signed decimal(16, 8)  null  ,
+col_decimal_16__8__undef_signed_index_inverted decimal(16, 8)  null  ,
+col_decimal_16__8__undef_signed_not_null decimal(16, 8)  not null  ,
+col_decimal_16__8__undef_signed_not_null_index_inverted decimal(16, 8)  not null  ,
+col_decimal_38__9__undef_signed decimal(38, 9)  null  ,
+col_decimal_38__9__undef_signed_index_inverted decimal(38, 9)  null  ,
+col_decimal_38__9__undef_signed_not_null decimal(38, 9)  not null  ,
+col_decimal_38__9__undef_signed_not_null_index_inverted decimal(38, 9)  not null  ,
+col_decimal_38__30__undef_signed decimal(38, 30)  null  ,
+col_decimal_38__30__undef_signed_index_inverted decimal(38, 30)  null  ,
+col_decimal_38__30__undef_signed_not_null decimal(38, 30)  not null  ,
+col_decimal_38__30__undef_signed_not_null_index_inverted decimal(38, 30)  not null  ,
+col_date_undef_signed date  null  ,
+col_date_undef_signed_index_inverted date  null  ,
+col_date_undef_signed_not_null_index_inverted date  not null  ,
+col_datetime_undef_signed datetime  null  ,
+col_datetime_undef_signed_index_inverted datetime  null  ,
+col_datetime_undef_signed_not_null datetime  not null  ,
+col_datetime_undef_signed_not_null_index_inverted datetime  not null  ,
+col_datetime_3__undef_signed datetime(3)  null  ,
+col_datetime_3__undef_signed_index_inverted datetime(3)  null  ,
+col_datetime_3__undef_signed_not_null datetime(3)  not null  ,
+col_datetime_3__undef_signed_not_null_index_inverted datetime(3)  not null  ,
+col_datetime_6__undef_signed datetime(6)  null  ,
+col_datetime_6__undef_signed_index_inverted datetime(6)  null  ,
+col_datetime_6__undef_signed_not_null datetime(6)  not null  ,
+col_datetime_6__undef_signed_not_null_index_inverted datetime(6)  not null  ,
+col_char_255__undef_signed char(255)  null  ,
+col_char_255__undef_signed_index_inverted char(255)  null  ,
+col_char_255__undef_signed_index_inverted_p_e char(255)  null  ,
+col_char_255__undef_signed_index_inverted_p_u char(255)  null  ,
+col_char_255__undef_signed_not_null char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted_p_e char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted_p_u char(255)  not null  ,
+col_varchar_1024__undef_signed_index_inverted varchar(1024)  null  ,
+col_varchar_1024__undef_signed_index_inverted_p_e varchar(1024)  null  ,
+col_varchar_1024__undef_signed_index_inverted_p_u varchar(1024)  null  ,
+col_varchar_1024__undef_signed_not_null varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted_p_e varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted_p_u varchar(1024)  not null  ,
+INDEX col_tinyint_undef_signed_index_inverted_idx (`col_tinyint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_tinyint_undef_signed_not_null_index_inverted_idx (`col_tinyint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_smallint_undef_signed_index_inverted_idx (`col_smallint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_smallint_undef_signed_not_null_index_inverted_idx (`col_smallint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_int_undef_signed_index_inverted_idx (`col_int_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_int_undef_signed_not_null_index_inverted_idx (`col_int_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_bigint_undef_signed_index_inverted_idx (`col_bigint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_bigint_undef_signed_not_null_index_inverted_idx (`col_bigint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_16__8__undef_signed_index_inverted_idx (`col_decimal_16__8__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_16__8__undef_signed_not_null_index_inverted_idx (`col_decimal_16__8__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__9__undef_signed_index_inverted_idx (`col_decimal_38__9__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__9__undef_signed_not_null_index_inverted_idx (`col_decimal_38__9__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__30__undef_signed_index_inverted_idx (`col_decimal_38__30__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__30__undef_signed_not_null_index_inverted_idx (`col_decimal_38__30__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_date_undef_signed_index_inverted_idx (`col_date_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_date_undef_signed_not_null_index_inverted_idx (`col_date_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_undef_signed_index_inverted_idx (`col_datetime_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_undef_signed_not_null_index_inverted_idx (`col_datetime_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_3__undef_signed_index_inverted_idx (`col_datetime_3__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_3__undef_signed_not_null_index_inverted_idx (`col_datetime_3__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_6__undef_signed_index_inverted_idx (`col_datetime_6__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_6__undef_signed_not_null_index_inverted_idx (`col_datetime_6__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_index_inverted_idx (`col_char_255__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_index_inverted_p_e_idx (`col_char_255__undef_signed_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_char_255__undef_signed_index_inverted_p_u_idx (`col_char_255__undef_signed_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_char_255__undef_signed_not_null_index_inverted_idx (`col_char_255__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_not_null_index_inverted_p_e_idx (`col_char_255__undef_signed_not_null_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_char_255__undef_signed_not_null_index_inverted_p_u_idx (`col_char_255__undef_signed_not_null_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_varchar_1024__undef_signed_index_inverted_idx (`col_varchar_1024__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_varchar_1024__undef_signed_index_inverted_p_e_idx (`col_varchar_1024__undef_signed_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_varchar_1024__undef_signed_index_inverted_p_u_idx (`col_varchar_1024__undef_signed_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_idx (`col_varchar_1024__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_e_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_u_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode")
+) engine=olap
+UNIQUE KEY(pk, col_int_undef_signed_index_inverted, col_date_undef_signed_not_null, col_varchar_1024__undef_signed)
+distributed by hash(pk) buckets 10
+properties("bloom_filter_columns" = "col_int_undef_signed, col_int_undef_signed_not_null, col_date_undef_signed_not_null, col_varchar_1024__undef_signed, col_varchar_1024__undef_signed_not_null", "replication_num" = "1");
+    """
+    def sqlFile = new File(context.file.parent+'/data.txt')
+    sql """$sqlFile.text"""
+
+    qt_test """
+SELECT
+    col_date_undef_signed
+FROM
+    table_800_undef_partitions2_keys3_properties4_distributed_by524
+where
+    (
+        case
+            col_date_undef_signed
+            when "2024-01-09" then 1
+            when "2023-12-10" then 2
+            else 0
+        end
+    ) = 1;
     """
 }
