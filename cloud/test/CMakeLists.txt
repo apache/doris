@@ -1,3 +1,7 @@
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/enterprise/CMakeLists.txt)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/enterprise)
+endif()
+
 # where to put generated libraries
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test")
 

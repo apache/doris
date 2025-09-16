@@ -102,7 +102,7 @@ public class HiveDlaTable extends HMSDlaTable {
         List<HivePartition> partitionList = cache.getAllPartitionsWithCache(hmsTable,
                 Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
         if (CollectionUtils.isEmpty(partitionList)) {
-            throw new AnalysisException("partitionList is empty, table name: " + hmsTable.getName());
+            return new MTMVMaxTimestampSnapshot(hmsTable.getName(), 0L);
         }
         for (HivePartition hivePartition : partitionList) {
             visibleVersionTime = hivePartition.getLastModifiedTime();
