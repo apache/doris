@@ -17,8 +17,13 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /*
  * ResourcePrivTable saves all resources privs
@@ -36,5 +41,18 @@ public class ResourcePrivTable extends PrivTable {
                 savedPrivs.or(resourcePrivEntry.getPrivSet());
             }
         }
+    }
+
+    public List<PrivObject> getPrivObjects(PrivObjectType type) {
+        List<PrivObject> res = Lists.newArrayList();
+        for (PrivEntry entry : entries) {
+            ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
+            String origResource = resourcePrivEntry.getOrigResource();
+            PrivBitSet privSet = resourcePrivEntry.getPrivSet();
+            if (!privSet.isEmpty()) {
+                res.add(new PrivObject(null, null, null, origResource, type, privSet.toPrivilegeNames()));
+            }
+        }
+        return res;
     }
 }

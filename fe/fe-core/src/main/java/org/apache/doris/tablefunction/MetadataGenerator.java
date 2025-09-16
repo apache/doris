@@ -86,8 +86,10 @@ import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.SyncMvMetrics;
+import org.apache.doris.mysql.privilege.PrivObject;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -477,6 +479,9 @@ public class MetadataGenerator {
             case grants_to_roles:
                 result = grantsToRolesMetadataResult(schemaTableParams);
                 columnIndex = GRANTS_TO_ROLES_COLUMN_TO_INDEX;
+            case grants_to_users:
+                result = grantsToUsersMetadataResult(schemaTableParams);
+                columnIndex = GRANTS_TO_USERS_COLUMN_TO_INDEX;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -1700,16 +1705,67 @@ public class MetadataGenerator {
             if (FrontendConjunctsUtils.isFiltered(roleNameConjuncts, "ROLE_NAME", roleName)) {
                 continue;
             }
-            TRow trow = new TRow();
-            // ROLE_NAME
-            trow.addToColumnValue(new TCell().setStringVal(roleName));
-            // OBJECT_CATALOG
+            List<PrivObject> privObjects = role.getPrivObjects();
+            for (PrivObject privObject : privObjects) {
+                TRow trow = new TRow();
+                // ROLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(roleName));
+                // OBJECT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getCatalog()));
+                // OBJECT_DATABASE
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getDatabase()));
+                // OBJECT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getName()));
+                // OBJECT_TYPE
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getType().name()));
+                // PRIVILEGE_TYPE
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(privObject.getType())));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
 
-            // OBJECT_DATABASE
-            // OBJECT_NAME
-            // OBJECT_TYPE
-            // PRIVILEGE_TYPE
-            dataBatch.add(trow);
+    private static TFetchSchemaTableDataResult grantsToUsersMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> userNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "USER_NAME");
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Map<String, List<User>> nameToUsers = Env.getCurrentEnv().getAuth().getUserManager().getNameToUsers();
+        for (List<User> users : nameToUsers.values()) {
+            for (User user : users) {
+                String userName = user.getUserIdentity().toString();
+                if (FrontendConjunctsUtils.isFiltered(userNameConjuncts, "USER_NAME", userName)) {
+                    continue;
+                }
+                List<PrivObject> privObjects = Env.getCurrentEnv().getAuth()
+                        .getUserPrivObjects(user.getUserIdentity());
+                for (PrivObject privObject : privObjects) {
+                    TRow trow = new TRow();
+                    // USER_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(userName));
+                    // OBJECT_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getCatalog()));
+                    // OBJECT_DATABASE
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getDatabase()));
+                    // OBJECT_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getName()));
+                    // OBJECT_TYPE
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getType().name()));
+                    // PRIVILEGE_TYPE
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(privObject.getType())));
+                    dataBatch.add(trow);
+                }
+
+            }
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));

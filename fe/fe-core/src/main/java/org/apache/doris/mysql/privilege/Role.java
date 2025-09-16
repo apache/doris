@@ -31,10 +31,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -974,6 +976,22 @@ public class Role implements GsonPostProcessable {
             throw new DdlException(e.getMessage());
         }
         tablePrivTable.revoke(entry, false, true);
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        res.addAll(globalPrivTable.getPrivObjects());
+        res.addAll(catalogPrivTable.getPrivObjects());
+        res.addAll(dbPrivTable.getPrivObjects());
+        res.addAll(tablePrivTable.getPrivObjects());
+        res.addAll(resourcePrivTable.getPrivObjects(PrivObjectType.RESOURCE));
+        // https://github.com/apache/doris/pull/40767 change cloud cluster to compute group
+        res.addAll(cloudClusterPrivTable.getPrivObjects(PrivObjectType.COMPUTE_GROUP));
+        res.addAll(cloudStagePrivTable.getPrivObjects(PrivObjectType.CLOUD_STAGE));
+        res.addAll(storageVaultPrivTable.getPrivObjects(PrivObjectType.STORAGE_VAULT));
+        res.addAll(workloadGroupPrivTable.getPrivObjects());
+        res.addAll(Auth.colPrivToPrivObjects(colPrivMap));
+        return res;
     }
 
     /**

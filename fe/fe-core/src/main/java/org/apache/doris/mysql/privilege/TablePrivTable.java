@@ -17,7 +17,12 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /*
  * TablePrivTable saves all table level privs
@@ -100,5 +105,20 @@ public class TablePrivTable extends PrivTable {
             }
         }
         return false;
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        for (PrivEntry entry : entries) {
+            TablePrivEntry tablePrivEntry = (TablePrivEntry) entry;
+            String origCtl = tablePrivEntry.getOrigCtl();
+            String origDb = tablePrivEntry.getOrigDb();
+            String origTbl = tablePrivEntry.getOrigTbl();
+            PrivBitSet privSet = tablePrivEntry.getPrivSet();
+            if (!privSet.isEmpty()) {
+                res.add(new PrivObject(origCtl, origDb, origTbl,null, PrivObjectType.TABLE, privSet.toPrivilegeNames()));
+            }
+        }
+        return res;
     }
 }

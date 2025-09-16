@@ -863,6 +863,7 @@ public class SchemaTable extends Table {
                             builder().column("ROLE_NAME", ScalarType.createStringType())
                                     .column("OBJECT_CATALOG", ScalarType.createStringType())
                                     .column("OBJECT_DATABASE", ScalarType.createStringType())
+                                    .column("OBJECT_TABLE", ScalarType.createStringType())
                                     .column("OBJECT_NAME", ScalarType.createStringType())
                                     .column("OBJECT_TYPE", ScalarType.createStringType())
                                     .column("PRIVILEGE_TYPE", new ArrayType(ScalarType.createStringType()))
@@ -872,10 +873,10 @@ public class SchemaTable extends Table {
                             builder().column("USER_NAME", ScalarType.createStringType())
                                     .column("OBJECT_CATALOG", ScalarType.createStringType())
                                     .column("OBJECT_DATABASE", ScalarType.createStringType())
+                                    .column("OBJECT_TABLE", ScalarType.createStringType())
                                     .column("OBJECT_NAME", ScalarType.createStringType())
                                     .column("OBJECT_TYPE", ScalarType.createStringType())
                                     .column("PRIVILEGE_TYPE", new ArrayType(ScalarType.createStringType()))
-                                    .column("ROLES", new ArrayType(ScalarType.createStringType()))
                                     .build()))
             .build();
 

@@ -17,8 +17,13 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /*
  * CatalogPrivTable saves all catalog level privs
@@ -48,5 +53,18 @@ public class CatalogPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        for (PrivEntry entry : entries) {
+            CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) entry;
+            String origCtl = catalogPrivEntry.getOrigCtl();
+            PrivBitSet privSet = catalogPrivEntry.getPrivSet();
+            if (!privSet.isEmpty()) {
+                res.add(new PrivObject(origCtl, null, null, null, PrivObjectType.CATALOG, privSet.toPrivilegeNames()));
+            }
+        }
+        return res;
     }
 }
