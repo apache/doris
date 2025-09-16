@@ -177,8 +177,7 @@ Status SchemaEncryptionKeysScanner::_fill_block_impl(vectorized::Block* block) {
             } else if (col_desc.type == TYPE_INT) {
                 switch (col_idx) {
                 case 1:
-                    int_vals[row_idx] =
-                            encryption_key.has_version() ? encryption_key.has_version() : 0;
+                    int_vals[row_idx] = encryption_key.has_version() ? encryption_key.version() : 0;
                     break;
                 case 3:
                     int_vals[row_idx] = encryption_key.has_parent_version()
