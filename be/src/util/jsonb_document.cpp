@@ -75,13 +75,15 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                     }
                 } else if (pval->type == JsonbType::T_Array && !is_wildcard) {
                     for (const auto& it : *pval->unpack<ArrayVal>()) {
-                        pval = it.unpack<ObjectVal>()->find(
+                        if (it.type == JsonbType::T_Object) {
+                            pval = it.unpack<ObjectVal>()->find(
                                 path.get_leg_from_leg_vector(i)->leg_ptr,
                                 path.get_leg_from_leg_vector(i)->leg_len, nullptr);
-                        if (pval) {
-                            results.emplace_back(pval);
+                                if (pval) {
+                                    results.emplace_back(pval);
+                                }
+                            }
                         }
-                    }
                 }
                 continue;
             }
