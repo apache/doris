@@ -2067,5 +2067,4 @@ std::vector<std::vector<std::string>> get_config_info() {
     }
     return configs;
 }
-
 } // namespace doris::config
