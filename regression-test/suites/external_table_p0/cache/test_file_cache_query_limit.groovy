@@ -48,7 +48,7 @@ final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MS
 final String NORMAL_QUEUE_CURR_SIZE_LESS_THAN_FILE_CACHE_QUERY_LIMIT_BYTES_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is less than file_cache_query_limit_bytes"
 final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is greater than query cache capacity"
 
-suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,p0,external") {
+suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,p0,external,nonConcurrent") {
     String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
     if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
         logger.info("disable hive test.")
