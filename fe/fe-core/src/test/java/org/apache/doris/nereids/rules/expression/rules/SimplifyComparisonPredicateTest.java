@@ -698,6 +698,4 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         assertRewrite(new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("123.4"))),
                 new EqualTo(new Cast(decimalSlot, DecimalV3Type.createDecimalV3Type(4, 1)), new DecimalV3Literal(new BigDecimal("123.4"))));
     }
-
-    }
 }
