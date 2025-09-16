@@ -836,7 +836,7 @@ enum TSchemaTableName {
   ANALYZE_TASK = 21,
   ACTIVITY_AUTO_ANALYZE = 22,
   GRANTS_TO_ROLES = 23,
-  GRANTS_TO_ROLES = 24;
+  GRANTS_TO_USERS = 24;
 }
 
 struct TMetadataTableRequestParams {

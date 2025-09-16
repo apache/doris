@@ -165,7 +165,7 @@ enum TSchemaTableType {
     SCH_ANALYZE_TASK = 67,
     SCH_ACTIVITY_AUTO_ANALYZE = 68,
     SCH_GRANTS_TO_ROLES = 69,
-    SCH_GRANTS_TO_ROLES = 70;
+    SCH_GRANTS_TO_USERS = 70;
 }
 
 enum THdfsCompression {
