@@ -116,6 +116,7 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    // only used in external table (for min-max filter). get `slot > xxx`, not `function(slot) > xxx`.
     bool get_binary_expr(VExprSPtr& new_root) const {
         if (!get_child(0)->is_slot_ref()) {
             // top rf maybe is `xxx order by abs(column) limit xxx`.

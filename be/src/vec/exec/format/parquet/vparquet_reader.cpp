@@ -564,6 +564,7 @@ Status ParquetReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -625,6 +626,7 @@ Status ParquetReader::set_fill_columns(
 
             VExprSPtr binary_expr;
             if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
                 expr = binary_expr;
             } else {
                 continue;
