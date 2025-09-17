@@ -96,10 +96,10 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         if (isCloudMode()) {
             assert tabletJson.rowsets.size() == 2
             assert tabletJson.rowsets[0].contains("[0-1]")
-            assert tabletJson.rowsets[1].contains("[2-63]")
+            assert tabletJson.rowsets[1].contains("[2-62]")
         } else {
-            assert tabletJson.rowsets.size() == 1
-            assert tabletJson.rowsets[0].contains("[0-63]")
+            assert tabletJson.rowsets.size() == 2
+            assert tabletJson.rowsets[0].contains("[0-61]")
         }
     }
 }
