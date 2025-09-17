@@ -1181,7 +1181,7 @@ public class StatisticsUtil {
         }
         // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
         if (tableStatsStatus.userInjected) {
-            return MIN_HEALTH_RATE;
+            return MAX_HEALTH_RATE;
         }
         ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column.first, column.second);
         // Column never been analyzed, need analyze.
@@ -1213,7 +1213,7 @@ public class StatisticsUtil {
             }
             // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
             if (currentRowCount == 0) {
-                return MIN_HEALTH_RATE;
+                return MAX_HEALTH_RATE;
             }
             // 3. Check partition
             if (needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta)) {

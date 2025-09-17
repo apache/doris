@@ -38,6 +38,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -91,11 +92,22 @@ public class MvMetrics {
             return;
         }
         StatementContext statementContext = nereidsPlanner.getStatementContext();
-        long currentTimeMillis = System.currentTimeMillis();
+        Set<List<String>> useHint = getUseHint();
+        Set<List<String>> noUseHint = getNoUseHint();
+        Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap
+                = statementContext.getMvCanRewritePartitionsMap();
         // get cbo chosen mv
         Set<MaterializationContext> chosenMvCtx = MaterializationContext.getChosenMvsContext(materializationContexts,
                 physicalPlan);
-        Set<List<String>> useHint = getUseHint();
+        recordRewriteMetrics(chosenMvCtx, mvCanRewritePartitionsMap, materializationContexts, useHint, noUseHint);
+    }
+
+    @VisibleForTesting
+    public static void recordRewriteMetrics(Set<MaterializationContext> chosenMvCtx,
+            Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap,
+            List<MaterializationContext> mvCtxInCascades, Set<List<String>> useHint,
+            Set<List<String>> noUseHint) {
+        long currentTimeMillis = System.currentTimeMillis();
         for (MaterializationContext materializationContext : chosenMvCtx) {
             Optional<MvMetrics> mvMetricsOptional = materializationContext.getMaterializationMetrics();
             if (!mvMetricsOptional.isPresent()) {
@@ -126,15 +138,13 @@ public class MvMetrics {
         }
 
         // if partitions is empty, stale data
-        Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap
-                = statementContext.getMvCanRewritePartitionsMap();
         for (Entry<BaseTableInfo, Collection<Partition>> entry : mvCanRewritePartitionsMap.entrySet()) {
             if (CollectionUtils.isEmpty(entry.getValue())) {
                 rewriteFailureStaleData(entry.getKey());
             }
         }
 
-        for (MaterializationContext materializationContext : materializationContexts) {
+        for (MaterializationContext materializationContext : mvCtxInCascades) {
             // if shape success, and chosenMvCtx not contains, cbo reject
             if (materializationContext.isSuccess()) {
                 if (!chosenMvCtx.contains(materializationContext)) {
@@ -148,7 +158,6 @@ public class MvMetrics {
             }
         }
 
-        Set<List<String>> noUseHint = getNoUseHint();
         for (List<String> names : noUseHint) {
             if (names.size() < 3) {
                 continue;

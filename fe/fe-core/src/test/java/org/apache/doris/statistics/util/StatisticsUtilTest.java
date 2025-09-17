@@ -377,6 +377,196 @@ class StatisticsUtilTest {
     }
 
     @Test
+    void testGetColumnHealthRate() throws DdlException {
+        Column column = new Column("testColumn", PrimitiveType.INT);
+        List<Column> schema = new ArrayList<>();
+        schema.add(column);
+        OlapTable table = new OlapTable(200, "testTable", schema, null, null, null);
+        HMSExternalCatalog externalCatalog = new HMSExternalCatalog();
+        HMSExternalDatabase externalDatabase = new HMSExternalDatabase(externalCatalog, 1L, "dbName", "dbName");
+        // Test olap table auto analyze disabled.
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY, "disable");
+        table.setTableProperty(new TableProperty(properties));
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+        table.setTableProperty(null);
+
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            protected synchronized void makeSureInitialized() {
+            }
+        };
+
+        // Test auto analyze catalog disabled.
+        HMSExternalTable hmsTable = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(hmsTable, Pair.of("index", column.getName())));
+
+        // Test catalog auto analyze enabled.
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return null;
+            }
+        };
+        externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "true");
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test external table auto analyze enabled.
+        externalCatalog.getCatalogProperty().addProperty(ExternalCatalog.ENABLE_AUTO_ANALYZE, "false");
+        HMSExternalTable hmsTable1 = new HMSExternalTable(1, "name", "name", externalCatalog, externalDatabase);
+        externalCatalog.setAutoAnalyzePolicy("dbName", "name", "enable");
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(hmsTable1, Pair.of("index", column.getName())));
+
+
+        // Test table stats meta is null.
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test user injected flag is set.
+        TableStatsMeta tableMeta = new TableStatsMeta();
+        tableMeta.userInjected = true;
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return tableMeta;
+            }
+        };
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test column meta is null.
+        tableMeta.userInjected = false;
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
+            }
+        };
+
+        new MockUp<JdbcExternalTable>() {
+            @Mock
+            protected synchronized void makeSureInitialized() {
+            }
+        };
+        // Test not supported external table type.
+        JdbcExternalCatalog jdbcExternalCatalog = new JdbcExternalCatalog(1, "name", "resource", new HashMap<>(), "");
+        JdbcExternalDatabase jdbcExternalDatabase = new JdbcExternalDatabase(jdbcExternalCatalog, 1, "jdbcdb", "jdbcdb");
+        ExternalTable externalTable = new JdbcExternalTable(1, "jdbctable", "jdbctable", jdbcExternalCatalog, jdbcExternalDatabase);
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(externalTable, Pair.of("index", column.getName())));
+
+        // Test hms external table not hive type.
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public DLAType getDlaType() {
+                return DLAType.ICEBERG;
+            }
+        };
+        ExternalTable hmsExternalTable = new HMSExternalTable(1, "hmsTable", "hmsTable", externalCatalog, externalDatabase);
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(hmsExternalTable, Pair.of("index", column.getName())));
+
+        // Test partition first load.
+        new MockUp<OlapTable>() {
+            @Mock
+            public boolean isPartitionColumn(String columnName) {
+                return true;
+            }
+        };
+        tableMeta.partitionChanged.set(true);
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test empty table to non-empty table.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test non-empty table to empty table.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 0;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 0, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test table still empty.
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 0, 0, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertEquals(StatisticsUtil.MAX_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test row count changed more than threshold.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 1000;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 500, 0, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        Assertions.assertEquals(StatisticsUtil.MIN_HEALTH_RATE, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test row count changed more than threshold.
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 111;
+            }
+        };
+        new MockUp<TableStatsMeta>() {
+            @Mock
+            public ColStatsMeta findColumnStatsMeta(String indexName, String colName) {
+                return new ColStatsMeta(System.currentTimeMillis(), null, null, null, 0, 100, 80, 0, null);
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(80);
+        Assertions.assertEquals(89, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test update rows changed more than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 101;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(91);
+        Assertions.assertEquals(89, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+
+        // Test row count and update rows changed less than threshold
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 100;
+            }
+        };
+        tableMeta.partitionChanged.set(false);
+        tableMeta.updatedRows.set(85);
+        Assertions.assertEquals(95, StatisticsUtil.getColumnHealthRate(table, Pair.of("index", column.getName())));
+    }
+
+    @Test
     void testLongTimeNoAnalyze() {
         Column column = new Column("testColumn", PrimitiveType.INT);
         List<Column> schema = new ArrayList<>();
