@@ -17,13 +17,20 @@
 
 package org.apache.doris.datasource.iceberg.action;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+
+import com.google.common.collect.Lists;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Map;
@@ -65,7 +72,61 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        throw new DdlException("Iceberg fast_forward procedure is not implemented yet");
+        Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
+
+        String sourceBranch = namedArguments.getString(BRANCH);
+        Long targetSnapshotId = namedArguments.getLong(TO);
+
+        if (sourceBranch == null || sourceBranch.trim().isEmpty()) {
+            throw new UserException("branch parameter is required for fast_forward operation");
+        }
+
+        if (targetSnapshotId == null) {
+            throw new UserException("to parameter is required for fast_forward operation");
+        }
+
+        Snapshot previousSnapshot = icebergTable.currentSnapshot();
+        long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : 0L;
+
+        Snapshot targetSnapshot = icebergTable.snapshot(targetSnapshotId);
+        if (targetSnapshot == null) {
+            throw new UserException("Snapshot " + targetSnapshotId + " not found in table " + icebergTable.name());
+        }
+
+        if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
+            return Lists.newArrayList(
+                    sourceBranch.trim(),
+                    String.valueOf(previousSnapshotId),
+                    String.valueOf(targetSnapshotId)
+            );
+        }
+
+        try {
+            icebergTable.manageSnapshots().setCurrentSnapshot(targetSnapshotId).commit();
+            // invalid iceberg catalog table cache.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+            return Lists.newArrayList(
+                    sourceBranch.trim(),
+                    String.valueOf(previousSnapshotId),
+                    String.valueOf(targetSnapshotId)
+            );
+
+        } catch (Exception e) {
+            throw new UserException(
+                    "Failed to fast-forward branch " + sourceBranch + " to snapshot " + targetSnapshotId + ": "
+                            + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected List<Column> getResultSchema() {
+        return Lists.newArrayList(
+                new Column("branch_updated", Type.STRING, false,
+                        "Name of the branch that was fast-forwarded to match the target branch"),
+                new Column("previous_ref", Type.BIGINT, true,
+                        "Snapshot ID that the branch was pointing to before the fast-forward operation"),
+                new Column("updated_ref", Type.BIGINT, false,
+                        "Snapshot ID that the branch is pointing to after the fast-forward operation"));
     }
 
     @Override
