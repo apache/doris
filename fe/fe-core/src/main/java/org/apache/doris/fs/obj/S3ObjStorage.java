@@ -682,6 +682,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             String currentMaxFile = "";
             boolean isTruncated = false;
+            boolean reachLimit = false;
             do {
                 roundCnt++;
                 ListObjectsV2Response response = listObjectsV2(request);
@@ -716,11 +717,15 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         result.add(remoteFile);
 
                         if (reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
+                            reachLimit = true;
                             break;
                         }
 
                         objPath = objPath.getParent();
                         isPrefix = true;
+                    }
+                    if (reachLimit) {
+                        break;
                     }
                 }
                 //record current last object file name
@@ -733,7 +738,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .continuationToken(response.nextContinuationToken())
                             .build();
                 }
-            } while (isTruncated);
+            } while (isTruncated && !reachLimit);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);

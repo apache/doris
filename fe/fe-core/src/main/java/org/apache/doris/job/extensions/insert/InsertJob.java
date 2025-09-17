@@ -99,6 +99,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .addAll(COMMON_SCHEMA)
             .add(new Column("Comment", ScalarType.createStringType()))
             // only execute type = streaming need record
+            .add(new Column("Properties", ScalarType.createStringType()))
             .add(new Column("Progress", ScalarType.createStringType()))
             .add(new Column("RemoteOffset", ScalarType.createStringType()))
             .add(new Column("LoadStatistic", ScalarType.createStringType()))
@@ -547,6 +548,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(

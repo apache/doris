@@ -23,7 +23,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -36,9 +35,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 
@@ -66,15 +63,9 @@ public class DropFunctionTest {
     public void testDropGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // 1. create database db1
-        //String sql = "create database db1;";
-        String sql = "insert into db1.tb select * from s3('url'='s3://a/*.csv')";
+        String sql = "create database db1;";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
-        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
-        baseCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
-        Map<String, String> map = new HashMap<>();
-        map.put("url", "s3:/xxxx/*.");
-
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (logicalPlan instanceof CreateDatabaseCommand) {
             ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);

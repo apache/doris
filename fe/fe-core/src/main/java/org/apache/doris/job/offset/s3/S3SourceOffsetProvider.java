@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import lombok.extern.log4j.Log4j2;
@@ -72,8 +73,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 String parentPath = rfiles.get(0).getParentPath();
                 String filePaths = rfiles.stream().map(RemoteFile::getName).collect(Collectors.joining(",", "{", "}"));
                 String finalFiles = String.format("s3://%s/%s/%s", bucket, parentPath, filePaths);
-                offset.setEndFile(
-                        String.format("s3://%s/%s/%s", bucket, parentPath, rfiles.get(rfiles.size() - 1).getName()));
+                offset.setEndFile(String.format("%s/%s", parentPath, rfiles.get(rfiles.size() - 1).getName()));
                 offset.setFileLists(finalFiles);
             }
         } catch (Exception e) {
@@ -152,5 +152,10 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public Offset deserializeOffset(String offset) {
+        return GsonUtils.GSON.fromJson(offset, S3Offset.class);
     }
 }

@@ -55,6 +55,8 @@ public class StreamingInsertTask {
     @Setter
     private TaskStatus status;
     private String errMsg;
+    @Setter
+    private String otherMsg;
     private Long createTimeMs;
     private Long startTimeMs;
     private Long finishTimeMs;
@@ -99,8 +101,8 @@ public class StreamingInsertTask {
             if (TaskStatus.CANCELED.equals(status)) {
                 return;
             }
-            onFail(e.getMessage());
             log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
+            onFail(e.getMessage());
         } finally {
             // The cancel logic will call the closeOrReleased Resources method by itself.
             // If it is also called here,
