@@ -72,8 +72,28 @@ public:
                               const CaptureRsReaderOptions& opts) override;
     Status capture_rs_readers_internal(const Version& spec_version,
                                        std::vector<RowSetSplits>* rs_splits);
+
+    // Capture rowset readers with cache preference optimization.
+    // This method prioritizes using cached/warmed-up rowsets when building version paths,
+    // avoiding cold data reads when possible. It uses capture_consistent_versions_prefer_cache
+    // to find a consistent version path that prefers already warmed-up rowsets.
     Status capture_rs_readers_prefer_cache(const Version& spec_version,
                                            std::vector<RowSetSplits>* rs_splits);
+
+    // Capture rowset readers with query freshness tolerance.
+    // This method finds a consistent version path where all rowsets are warmed up,
+    // but allows fallback to normal capture if there are newer rowsets that should be
+    // visible (based on freshness tolerance) but haven't been warmed up yet.
+    // For merge-on-write tables, uses special validation to ensure data correctness.
+    //
+    // IMPORTANT: The returned version may be smaller than the requested version if newer
+    // data hasn't been warmed up yet. This can cause different tablets in the same query
+    // to read from different versions, potentially leading to inconsistent query results.
+    //
+    // @param query_freshness_tolerance_ms: Time tolerance in milliseconds. Rowsets that
+    //        became visible within this time range (after current_time - query_freshness_tolerance_ms)
+    //        can be skipped if not warmed up. However, if older rowsets (before this time point)
+    //        are not warmed up, the method will fallback to normal capture.
     Status capture_rs_readers_with_freshness_tolerance(const Version& spec_version,
                                                        std::vector<RowSetSplits>* rs_splits,
                                                        int64_t query_freshness_tolerance_ms);

@@ -51,11 +51,24 @@ struct TabletWithVersion {
 };
 
 struct CaptureRsReaderOptions {
-    // used by local mode only
+    // Used by local mode only.
+    // If true, allows skipping missing versions during rowset capture.
+    // This can be useful when some versions are temporarily unavailable.
     bool skip_missing_version {false};
 
-    // used by cloud mode only
+    // ======== only take effect in cloud mode ========
+
+    // Enable preference for cached/warmed-up rowsets when building version paths.
+    // When enabled, the capture process will prioritize already cached rowsets
+    // to avoid cold data reads and improve query performance.
     bool enable_prefer_cached_rowset {false};
+
+    // Query freshness tolerance in milliseconds.
+    // Defines the time window for considering data as "fresh enough".
+    // Rowsets that became visible within this time range can be skipped if not warmed up,
+    // but older rowsets (before current_time - query_freshness_tolerance_ms) that are
+    // not warmed up will trigger fallback to normal capture.
+    // Set to -1 to disable freshness tolerance checking.
     int64_t query_freshness_tolerance_ms {-1};
 };
 
