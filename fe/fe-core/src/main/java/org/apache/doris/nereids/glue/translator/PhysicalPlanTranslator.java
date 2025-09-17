@@ -502,7 +502,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
                     partitionExprs, syncMvWhereClauses,
                     context.getSessionVariable().getGroupCommit(),
-                    ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0 : 1);
+                    ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0
+                            : ConnectContext.get().getSessionVariable().getInsertMaxFilterRatio());
         } else {
             sink = new OlapTableSink(
                 olapTableSink.getTargetTable(),
