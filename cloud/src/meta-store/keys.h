@@ -504,6 +504,7 @@ static inline std::string snapshot_full_key(const SnapshotFullKeyInfo& in) { std
 
 void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out);
 static inline std::string snapshot_reference_key(const SnapshotReferenceKeyInfo& in) { std::string s; snapshot_reference_key(in, &s); return s; }
+std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp);
 
 void log_key(const LogKeyInfo& in, std::string* out);
 static inline std::string log_key(const LogKeyInfo& in) { std::string s; log_key(in, &s); return s; }

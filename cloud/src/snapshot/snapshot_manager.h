@@ -51,9 +51,11 @@ public:
     virtual int recycle_snapshots(InstanceRecycler* recycler);
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    virtual int recycle_snapshot_meta_and_data(StorageVaultAccessor* accessor,
-                                               Versionstamp* snapshot_version,
-                                               const SnapshotPB* snapshot_pb);
+    virtual int recycle_snapshot_meta_and_data(std::string_view instance_id,
+                                               std::string_view resource_id,
+                                               StorageVaultAccessor* accessor,
+                                               Versionstamp snapshot_version,
+                                               const SnapshotPB& snapshot_pb);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;
