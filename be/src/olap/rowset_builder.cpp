@@ -148,10 +148,6 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
-    bool injection = false;
-    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
-                    { injection = true; });
-
     auto max_version_config = _tablet->max_version_config();
     auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
@@ -169,8 +165,8 @@ Status RowsetBuilder::check_tablet_version_count() {
     // max_version_config must > 100, otherwise silent errors will occur.
     if ((!config::disable_auto_compaction &&
          !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) &&
-        (injection || (version_count > max_version_config - 100)) &&
-        (injection || !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE))) {
+        (version_count > max_version_config - 100) &&
+        !GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         // Trigger compaction
         auto st = _engine.submit_compaction_task(tablet_sptr(),
                                                  CompactionType::CUMULATIVE_COMPACTION, true);
