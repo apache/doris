@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -535,6 +536,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             }
         } catch (Throwable t) {
             return cast;
+        }
+    }
+
+    @Override
+    public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
+        try {
+            return visitCast(cast, context);
+        } catch (CastException c) {
+            return new NullLiteral(cast.getDataType());
         }
     }
 

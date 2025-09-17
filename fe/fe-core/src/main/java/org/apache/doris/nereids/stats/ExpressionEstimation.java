@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -214,6 +215,11 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatistic childColStats = cast.child().accept(this, context);
         Preconditions.checkNotNull(childColStats, "childColStats is null");
         return castMinMax(childColStats, cast.getDataType());
+    }
+
+    @Override
+    public ColumnStatistic visitTryCast(TryCast cast, Statistics context) {
+        return visitCast(cast, context);
     }
 
     private ColumnStatistic castMinMax(ColumnStatistic colStats, DataType targetType) {
