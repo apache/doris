@@ -88,7 +88,44 @@ suite("test_json_load_default_behavior", "p0") {
         try_sql("DROP TABLE IF EXISTS test_table2")
     }
 
-    // case3 test tvf s3 load with default config
+    // case3 test Multiple JSON arrays error
+    try {
+        sql """
+            CREATE TABLE IF NOT EXISTS test_table3 (
+                id INT,
+                city VARCHAR(32),
+                code INT
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY RANDOM BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+            """
+        
+        streamLoad {
+            table "test_table3"
+            set 'format', 'json'
+            set 'read_json_by_line', 'false'
+            set 'strip_outer_array', 'true'
+            file 'multi_line_json.json'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("Multiple JSON arrays detected"))
+                assertTrue(json.Message.contains("read_json_by_line"))
+            }
+        }
+    } finally {
+        try_sql("DROP TABLE IF EXISTS test_table3")
+    }
+
+    // case4 test tvf s3 load with default config
     // we just need to test SELECT * FROM S3
     def s3BucketName = getS3BucketName()
     def s3Endpoint = getS3Endpoint()

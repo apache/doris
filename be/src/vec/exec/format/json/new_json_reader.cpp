@@ -1288,6 +1288,9 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         _json_str += 3;
         *size -= 3;
     }
+
+    RETURN_IF_ERROR(_check_multiple_json_arrays(*size));
+
     memcpy(&_simdjson_ondemand_padding_buffer.front(), _json_str, *size);
     _original_doc_size = *size;
     *error = _ondemand_json_parser
@@ -1312,6 +1315,40 @@ Status NewJsonReader::_judge_empty_row(size_t size, bool eof, bool* is_empty_row
             *is_empty_row = true;
         }
     }
+    return Status::OK();
+}
+
+Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
+    if (size == 0) {
+        return Status::OK();
+    }
+    
+    const char* data = reinterpret_cast<const char*>(_json_str);
+    
+    // Find the first '[' and matching ']'
+    size_t bracket_count = 0;
+    size_t first_bracket_pos = std::string::npos;
+    
+    for (size_t i = 0; i < size; ++i) {
+        char c = data[i];
+        if (c == '[') {
+            if (first_bracket_pos == std::string::npos) {
+                first_bracket_pos = i;
+            }
+            bracket_count++;
+        } else if (c == ']' && first_bracket_pos != std::string::npos) {
+            bracket_count--;
+            if (bracket_count == 0) {
+                // Found the end of first array, check if there's content after it
+                if (i + 1 < size) {
+                    return Status::DataQualityError(
+                        "Multiple JSON arrays detected. Please set 'read_json_by_line' to true.");
+                }
+                break;
+            }
+        }
+    }
+    
     return Status::OK();
 }
 

@@ -527,7 +527,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     bool read_json_by_line = false;
     bool strip_outer_array = false;
     if (!has_read_json_by_line && !has_strip_outer_array) {
-        // both no set
+        // both not set
         read_json_by_line = true;
         strip_outer_array = false;
     } else if (has_read_json_by_line && has_strip_outer_array) {
