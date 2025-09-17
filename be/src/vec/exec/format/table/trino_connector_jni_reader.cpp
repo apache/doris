@@ -84,36 +84,25 @@ Status TrinoConnectorJniReader::init_reader() {
 
 Status TrinoConnectorJniReader::_set_spi_plugins_dir() {
     JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+
     // get PluginLoader class
-    jclass plugin_loader_cls;
+    Jni::LocalClass plugin_loader_cls;
     std::string plugin_loader_str = "org/apache/doris/trinoconnector/TrinoConnectorPluginLoader";
     RETURN_IF_ERROR(
-            JniUtil::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
-    if (!plugin_loader_cls) {
-        if (env->ExceptionOccurred()) {
-            env->ExceptionDescribe();
-        }
-        return Status::InternalError("Fail to get JniScanner class.");
-    }
-    RETURN_ERROR_IF_EXC(env);
+            Jni::Util::get_jni_scanner_class(env, plugin_loader_str.c_str(), &plugin_loader_cls));
 
-    // get method: setPluginsDir(String pluginsDir)
-    jmethodID set_plugins_dir_method =
-            env->GetStaticMethodID(plugin_loader_cls, "setPluginsDir", "(Ljava/lang/String;)V");
-    RETURN_ERROR_IF_EXC(env);
+    Jni::MethodId set_plugins_dir_method;
+    RETURN_IF_ERROR(plugin_loader_cls.get_static_method(
+            env, "setPluginsDir", "(Ljava/lang/String;)V", &set_plugins_dir_method));
 
-    // call: setPluginsDir(String pluginsDir)
-    jstring trino_connector_plugin_path =
-            env->NewStringUTF(doris::config::trino_connector_plugin_dir.c_str());
-    RETURN_ERROR_IF_EXC(env);
-    env->CallStaticVoidMethod(plugin_loader_cls, set_plugins_dir_method,
-                              trino_connector_plugin_path);
-    RETURN_ERROR_IF_EXC(env);
-    env->DeleteLocalRef(trino_connector_plugin_path);
-    RETURN_ERROR_IF_EXC(env);
+    Jni::LocalString trino_connector_plugin_path;
+    RETURN_IF_ERROR(Jni::LocalString::new_string(
+            env, doris::config::trino_connector_plugin_dir.c_str(), &trino_connector_plugin_path));
 
-    return Status::OK();
+    return plugin_loader_cls.call_static_void_method(env, set_plugins_dir_method)
+            .with_arg(trino_connector_plugin_path)
+            .call();
 }
 
 #include "common/compile_check_end.h"
