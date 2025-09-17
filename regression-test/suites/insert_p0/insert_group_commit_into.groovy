@@ -447,7 +447,7 @@ suite("insert_group_commit_into") {
         sql """
                 CREATE TABLE IF NOT EXISTS ${table}
                 (
-                    k1 INT,
+                    k1 INT not null,
                     `or` varchar(50)
                 )
                 DUPLICATE KEY(`k1`)
@@ -465,6 +465,16 @@ suite("insert_group_commit_into") {
             getRowCount(2)
             order_qt_select8 """ select * from ${table}; """
         }
+
+        // max_filter_ratio
+        sql """ set group_commit = sync_mode; """
+        sql """ set enable_insert_strict = false; """
+        sql """ set insert_max_filter_ratio = 0.05; """
+        test {
+            sql """ insert into ${table} values('a', 'a'), ('10', 'a'), ('11', 'a'), ('12', 'a'); """
+            exception """too many filtered rows"""
+        }
+        getRowCount(2)
     } finally {
     }
 }
