@@ -382,11 +382,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        if (ctx->put_result.__isset.params) {
-            ctx->put_result.params.__set_content_length(content_length);
-        } else {
-            ctx->put_result.pipeline_params.__set_content_length(content_length);
-        }
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
     TPipelineFragmentParamsList mocked;
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
