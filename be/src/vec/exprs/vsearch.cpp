@@ -56,8 +56,7 @@ const std::string& VSearchExpr::expr_name() const {
 
 Status VSearchExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     // query_string expressions should only be evaluated via inverted index
-    return Status::InternalError(
-            "SearchExpr should not be executed without inverted index");
+    return Status::InternalError("SearchExpr should not be executed without inverted index");
 }
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
