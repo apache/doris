@@ -80,7 +80,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
             Map<String, String> updateProps =
                     properties == null || properties.isEmpty() ? originJob.getProperties() : properties;
 
-            return new StreamingInsertJob(jobName,
+            StreamingInsertJob streamingInsertJob = new StreamingInsertJob(jobName,
                     job.getJobStatus(),
                     job.getCurrentDbName(),
                     job.getComment(),
@@ -89,6 +89,8 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
                     System.currentTimeMillis(),
                     updateSQL,
                     updateProps);
+            streamingInsertJob.setJobId(job.getJobId());
+            return streamingInsertJob;
         } else {
             throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
         }

@@ -42,9 +42,13 @@ suite("test_streaming_insert_job") {
     """
 
 
-    // create recurring job
+    // create streaming job
     sql """
-       CREATE JOB ${jobName}  ON STREAMING DO INSERT INTO ${tableName} 
+       CREATE JOB ${jobName}  
+       PROPERTIES(
+        "s3.batch_files" = "1"
+       )
+       ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
         (
             "uri" = "s3://${s3BucketName}/regression/load/data/example_[0-1].csv",
@@ -57,12 +61,13 @@ suite("test_streaming_insert_job") {
             "s3.secret_key" = "${getS3SK()}"
         );
     """
-    Awaitility.await().atMost(30, SECONDS).until(
+    Awaitility.await().atMost(30, SECONDS)
+            .pollInterval(1, SECONDS).until(
             {
                 print("check success task count")
                 def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
-                // check job status and succeed task count larger than 1
-                jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
+                // check job status and succeed task count larger than 2
+                jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
             }
     )
 
@@ -76,11 +81,47 @@ suite("test_streaming_insert_job") {
 
     qt_select """ SELECT * FROM ${tableName} order by c1 """
 
+    def jobOffset = sql """
+        select progress, remoteoffset from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert jobOffset.get(0).get(0) == "regression/load/data/example_1.csv"
+    assert jobOffset.get(0).get(1) == "regression/load/data/example_1.csv"
+    //todo check status
+
+    // alter streaming job
+    sql """
+       ALTER JOB FOR ${jobName}
+       PROPERTIES(
+        "s3.batch_files" = "1",
+        "session.insert_max_filter_ratio" = "0.5"
+       )
+       INSERT INTO ${tableName}
+       SELECT * FROM S3
+        (
+            "uri" = "s3://${s3BucketName}/regression/load/data/example_[0-1].csv",
+            "format" = "csv",
+            "provider" = "${getS3Provider()}",
+            "column_separator" = ",",
+            "s3.endpoint" = "${getS3Endpoint()}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        );
+    """
+
+    def alterJobProperties = sql """
+        select properties from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert alterJobProperties.get(0).get(0) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+
+
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
     """
 
     def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
     assert jobCountRsp.get(0).get(0) == 0
+
+
 
 }

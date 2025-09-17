@@ -17,14 +17,20 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class StreamingJobSchedulerTask extends AbstractTask {
     private static final long BACK_OFF_BASIC_TIME_SEC = 10L;
@@ -55,15 +61,15 @@ public class StreamingJobSchedulerTask extends AbstractTask {
     }
 
     private void autoResumeHandler() throws JobException {
-        final PauseReason pauseReason = streamingInsertJob.getPauseReason();
+        final FailureReason failureReason = streamingInsertJob.getFailureReason();
         final long latestAutoResumeTimestamp = streamingInsertJob.getLatestAutoResumeTimestamp();
         final long autoResumeCount = streamingInsertJob.getAutoResumeCount();
         final long current = System.currentTimeMillis();
 
-        if (pauseReason != null
-                && pauseReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
-                && pauseReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
-                && pauseReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
+        if (failureReason != null
+                && failureReason.getCode() != InternalErrorCode.MANUAL_PAUSE_ERR
+                && failureReason.getCode() != InternalErrorCode.TOO_MANY_FAILURE_ROWS_ERR
+                && failureReason.getCode() != InternalErrorCode.CANNOT_RESUME_ERR) {
             long autoResumeIntervalTimeSec = autoResumeCount < 5
                         ? Math.min((long) Math.pow(2, autoResumeCount) * BACK_OFF_BASIC_TIME_SEC,
                                 MAX_BACK_OFF_TIME_SEC) : MAX_BACK_OFF_TIME_SEC;
@@ -107,20 +113,40 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getErrMsg()));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? ""
+        trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? FeConstants.null_string
                 : TimeUtils.longToTimeString(runningTask.getStartTimeMs())));
         // load end time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getFinishTimeMs())));
-        // tracking url
-        trow.addToColumnValue(new TCell().setStringVal("trackingUrl"));
-        trow.addToColumnValue(new TCell().setStringVal("statistic"));
+
+        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager()
+                .queryLoadJobsByJobIds(Arrays.asList(runningTask.getTaskId()));
+        if (!loadJobs.isEmpty()) {
+            LoadJob loadJob = loadJobs.get(0);
+            if (loadJob.getLoadingStatus() != null && loadJob.getLoadingStatus().getTrackingUrl() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+
+            if (loadJob.getLoadStatistic() != null) {
+                trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
+            } else {
+                trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            }
+        } else {
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        }
+
         if (runningTask.getUserIdentity() == null) {
-            trow.addToColumnValue(new TCell().setStringVal(""));
+            trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(runningTask.getUserIdentity().getQualifiedUser()));
         }
-        trow.addToColumnValue(new TCell().setStringVal(runningTask.getRunningOffset() == null ? ""
+        trow.addToColumnValue(new TCell().setStringVal(runningTask.getRunningOffset() == null ? FeConstants.null_string
                 : runningTask.getRunningOffset().toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(null == runningTask.getOtherMsg()
+                ? FeConstants.null_string : runningTask.getOtherMsg()));
         return trow;
     }
 }

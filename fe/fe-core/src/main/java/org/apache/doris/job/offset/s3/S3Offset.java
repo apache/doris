@@ -20,6 +20,7 @@ package org.apache.doris.job.offset.s3;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -27,6 +28,7 @@ import lombok.Setter;
 @Setter
 public class S3Offset implements Offset {
     String startFile;
+    @SerializedName("ef")
     String endFile;
     String fileLists;
 

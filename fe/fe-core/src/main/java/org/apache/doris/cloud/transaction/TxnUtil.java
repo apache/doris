@@ -289,7 +289,7 @@ public class TxnUtil {
                 .setFileSize(streamingTaskTxnCommitAttachment.getFileSize());
 
         if (streamingTaskTxnCommitAttachment.getOffset() != null) {
-            builder.setOffset(streamingTaskTxnCommitAttachment.getOffset().endOffset());
+            builder.setOffset(streamingTaskTxnCommitAttachment.getOffset());
         }
 
         attachementBuilder.setStreamingTaskTxnCommitAttachment(builder.build());

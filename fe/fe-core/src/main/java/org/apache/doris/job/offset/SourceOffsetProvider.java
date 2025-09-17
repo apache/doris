@@ -81,5 +81,11 @@ public interface SourceOffsetProvider {
      */
     boolean hasMoreDataToConsume();
 
+    /**
+     * Deserialize string offset to Offset
+     * @return
+     */
+    Offset deserializeOffset(String offset);
+
 }
 

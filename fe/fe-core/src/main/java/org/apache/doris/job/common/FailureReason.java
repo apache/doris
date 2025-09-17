@@ -27,14 +27,18 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class PauseReason implements Writable {
+public class FailureReason implements Writable {
     @SerializedName(value = "code")
     private InternalErrorCode code;
     @SerializedName(value = "msg")
     private String msg;
 
-    public PauseReason(InternalErrorCode errCode, String msg) {
+    public FailureReason(InternalErrorCode errCode, String msg) {
         this.code = errCode;
+        this.msg = msg;
+    }
+
+    public FailureReason(String msg) {
         this.msg = msg;
     }
 

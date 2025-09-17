@@ -24,7 +24,6 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -32,10 +31,10 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.FailureReason;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.common.PauseReason;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
@@ -72,6 +71,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Log4j2
@@ -80,7 +80,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
     @Getter
-    protected PauseReason pauseReason;
+    @SerializedName("fr")
+    protected FailureReason failureReason;
     @Getter
     @Setter
     protected long latestAutoResumeTimestamp;
@@ -225,6 +226,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void onTaskFail(StreamingJobSchedulerTask task) throws JobException {
+        if (task.getErrMsg() != null) {
+            this.failureReason = new FailureReason(task.getErrMsg());
+        }
         // Here is the failure of StreamingJobSchedulerTask, no processing is required
         getRunningTasks().remove(task);
     }
@@ -240,7 +244,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-                this.pauseReason = new PauseReason(InternalErrorCode.INTERNAL_ERR, task.getErrMsg());
+                this.failureReason = new FailureReason(task.getErrMsg());
             }
         } finally {
             lock.writeLock().unlock();
@@ -262,11 +266,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private void updateJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+        if (this.jobStatistic == null) {
+            this.jobStatistic = new StreamingJobStatistic();
+        }
         this.jobStatistic.setScannedRows(this.jobStatistic.getScannedRows() + attachment.getScannedRows());
         this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getFileNumber());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileSize());
-        offsetProvider.updateOffset(attachment.getOffset());
+        offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
     }
 
     @Override
@@ -297,7 +304,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
-        trow.addToColumnValue(new TCell().setStringVal(""));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
@@ -305,6 +312,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getCanceledTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(getComment()));
+        trow.addToColumnValue(new TCell().setStringVal(properties != null
+                ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
 
         if (offsetProvider != null && offsetProvider.getSyncOffset() != null) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getSyncOffset()));
@@ -320,8 +329,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         trow.addToColumnValue(new TCell().setStringVal(
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
-        trow.addToColumnValue(
-                new TCell().setStringVal(pauseReason == null ? FeConstants.null_string : pauseReason.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(failureReason == null
+                ? FeConstants.null_string : failureReason.getMsg()));
         return trow;
     }
 
@@ -359,6 +368,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             taskIds.add(runningStreamTask.getTaskId());
             List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
             if (loadJobs.size() != 1) {
+                shouldRealseLock = true;
                 throw new TransactionException("load job not found, insert job id is " + runningStreamTask.getTaskId());
             }
             LoadJob loadJob = loadJobs.get(0);
@@ -377,7 +387,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
-                        runningStreamTask.getRunningOffset()));
+                        runningStreamTask.getRunningOffset().toJson()));
         } finally {
             if (shouldRealseLock) {
                 lock.writeLock().unlock();
@@ -387,6 +397,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
+
     }
 
     @Override
@@ -403,6 +414,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         updateJobStatisticAndOffset(attachment);
+        succeedTaskCount.incrementAndGet();
     }
 
     public void replayOnCloudMode() throws UserException {
@@ -461,6 +473,20 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         if (jobProperties == null && properties != null) {
             jobProperties = new StreamingJobProperties(properties);
+        }
+
+        if (null == getSucceedTaskCount()) {
+            setSucceedTaskCount(new AtomicLong(0));
+        }
+        if (null == getFailedTaskCount()) {
+            setFailedTaskCount(new AtomicLong(0));
+        }
+        if (null == getCanceledTaskCount()) {
+            setCanceledTaskCount(new AtomicLong(0));
+        }
+
+        if (null == lock) {
+            this.lock = new ReentrantReadWriteLock(true);
         }
     }
 }
