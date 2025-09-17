@@ -879,8 +879,12 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof MTMV) {
                     MTMV mtmv = (MTMV) table;
-                    // todo: check auth
                     String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
                         continue;
                     }
@@ -985,8 +989,12 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof MTMV) {
                     MTMV mtmv = (MTMV) table;
-                    // todo: check auth
                     String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
                         continue;
                     }
@@ -1090,8 +1098,12 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof MTMV) {
                     MTMV mtmv = (MTMV) table;
-                    // todo: check auth
                     String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
                         continue;
                     }
@@ -1192,8 +1204,12 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
-                    // todo: check auth
                     String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     if (FrontendConjunctsUtils.isFiltered(mviewTableConjuncts, "SYNC_MVIEW_TABLE", tableName)) {
                         continue;
                     }
@@ -1257,8 +1273,12 @@ public class MetadataGenerator {
             for (TableIf table : tables) {
                 if (table instanceof OlapTable) {
                     OlapTable olapTable = (OlapTable) table;
-                    // todo: check auth
                     String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     if (FrontendConjunctsUtils.isFiltered(mviewTableConjuncts, "SYNC_MVIEW_TABLE", tableName)) {
                         continue;
                     }
@@ -1321,6 +1341,10 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult analyzeTableLevelStatusMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
         }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
         if (params.isSetFrontendConjuncts()) {
@@ -1417,9 +1441,21 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TFetchSchemaTableDataResult generateEmptySchemaTableDataResult() {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
     private static TFetchSchemaTableDataResult analyzeJobMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
         }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
         if (params.isSetFrontendConjuncts()) {
@@ -1549,6 +1585,10 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
         if (params.isSetFrontendConjuncts()) {
             conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
@@ -1647,6 +1687,10 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<TRow> dataBatch = Lists.newArrayList();
         TRow trow = new TRow();
@@ -1712,6 +1756,10 @@ public class MetadataGenerator {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
         }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.GRANT)) {
+            return generateEmptySchemaTableDataResult();
+        }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
         if (params.isSetFrontendConjuncts()) {
             conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
@@ -1751,6 +1799,10 @@ public class MetadataGenerator {
     private static TFetchSchemaTableDataResult grantsToUsersMetadataResult(TSchemaTableRequestParams params) {
         if (!params.isSetCurrentUserIdent()) {
             return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.GRANT)) {
+            return generateEmptySchemaTableDataResult();
         }
         List<Expression> conjuncts = Collections.EMPTY_LIST;
         if (params.isSetFrontendConjuncts()) {
