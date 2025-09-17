@@ -50,23 +50,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     public static final String USE_PATH_STYLE = "use_path_style";
 
-    public static final String S3_PREFIX = "s3.";
-
-    public static final String ENDPOINT = "s3.endpoint";
-    public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
-    public static final String REGION = "s3.region";
-    public static final String ACCESS_KEY = "s3.access_key";
-    public static final String SECRET_KEY = "s3.secret_key";
-    public static final String SESSION_TOKEN = "s3.session_token";
-    public static final String MAX_CONNECTIONS = "s3.connection.maximum";
-    public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
-    public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
-
-    public static final String ROLE_ARN = "s3.role_arn";
-    public static final String EXTERNAL_ID = "s3.external_id";
-    public static final String ROOT_PATH = "s3.root.path";
-    public static final String BUCKET = "s3.bucket";
-    public static final String VALIDITY_CHECK = "s3_validity_check";
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
@@ -75,11 +58,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     private static final String[] REGION_NAMES_FOR_GUESSING = {
             "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
     };
-
-    public static List<String> SENSITIVE_KEYS = Arrays.asList("s3.secret_key", "AWS_SECRET_KEY", "secret_key",
-            "SECRET_KEY", "glue.secret_key",
-            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
-            "s3.secret-access-key");
 
     @Setter
     @Getter
@@ -179,34 +157,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
-
-    public static class Env {
-        public static final String PROPERTIES_PREFIX = "AWS";
-        // required
-        public static final String ENDPOINT = "AWS_ENDPOINT";
-        public static final String REGION = "AWS_REGION";
-        public static final String ACCESS_KEY = "AWS_ACCESS_KEY";
-        public static final String SECRET_KEY = "AWS_SECRET_KEY";
-        public static final String TOKEN = "AWS_TOKEN";
-        // required by storage policy
-        public static final String ROOT_PATH = "AWS_ROOT_PATH";
-        public static final String BUCKET = "AWS_BUCKET";
-        // optional
-        public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
-        public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
-        public static final String CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
-        public static final String DEFAULT_MAX_CONNECTIONS = "50";
-        public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
-        public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
-        public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
-
-        public static final String ROLE_ARN = "AWS_ROLE_ARN";
-        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
-
-        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
-        public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
-                ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
-    }
 
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
@@ -382,7 +332,74 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         return "https://s3." + region + ".amazonaws.com";
     }
 
+    /**
+     * ===========================================
+     *  NOTICE:
+     *  This parameter is still used for Cloud-related features,
+     *  although it is no longer recommended.
+     *
+     *  Reason:
+     *  - Cloud may access S3-compatible object storage via the S3 protocol.
+     *  - The exact behavior has not yet been fully clarified.
+     *
+     *  Therefore:
+     *  - We cannot directly replace it with the new parameter.
+     *  - This redundant parameter is temporarily kept for compatibility.
+     * ===========================================
+     */
+
+    public static final String S3_PREFIX = "s3.";
+
+    public static final String ENDPOINT = "s3.endpoint";
+    public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
+    public static final String REGION = "s3.region";
+    public static final String ACCESS_KEY = "s3.access_key";
+    public static final String SECRET_KEY = "s3.secret_key";
+    public static final String SESSION_TOKEN = "s3.session_token";
+    public static final String MAX_CONNECTIONS = "s3.connection.maximum";
+    public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
+    public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+
+    public static final String ROLE_ARN = "s3.role_arn";
+    public static final String EXTERNAL_ID = "s3.external_id";
+    public static final String ROOT_PATH = "s3.root.path";
+    public static final String BUCKET = "s3.bucket";
+    public static final String VALIDITY_CHECK = "s3_validity_check";
+
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
+
+    public static List<String> SENSITIVE_KEYS = Arrays.asList("s3.secret_key", "AWS_SECRET_KEY", "secret_key",
+            "SECRET_KEY", "glue.secret_key",
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
+            "s3.secret-access-key");
+
+    public static class Env {
+        public static final String PROPERTIES_PREFIX = "AWS";
+        // required
+        public static final String ENDPOINT = "AWS_ENDPOINT";
+        public static final String REGION = "AWS_REGION";
+        public static final String ACCESS_KEY = "AWS_ACCESS_KEY";
+        public static final String SECRET_KEY = "AWS_SECRET_KEY";
+        public static final String TOKEN = "AWS_TOKEN";
+        // required by storage policy
+        public static final String ROOT_PATH = "AWS_ROOT_PATH";
+        public static final String BUCKET = "AWS_BUCKET";
+        // optional
+        public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
+        public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+        public static final String CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
+        public static final String DEFAULT_MAX_CONNECTIONS = "50";
+        public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
+        public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
+        public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
+        public static final String ROLE_ARN = "AWS_ROLE_ARN";
+        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+
+        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
+        public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
+                ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
+    }
 
     public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
         // Try to convert env properties to uniform properties

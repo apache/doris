@@ -74,6 +74,7 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OBSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(MinioProperties.class));
         HIDDEN_KEY = Sets.newHashSet();
+        HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSeparator,
