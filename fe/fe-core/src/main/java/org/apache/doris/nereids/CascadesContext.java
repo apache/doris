@@ -290,8 +290,10 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void releaseMemo() {
-        groupExpressionCount = memo.getGroupExpressionsSize();
-        this.memo = null;
+        if (memo != null) {
+            groupExpressionCount = memo.getGroupExpressionsSize();
+            this.memo = null;
+        }
     }
 
     public int getGroupExpressionCount() {
