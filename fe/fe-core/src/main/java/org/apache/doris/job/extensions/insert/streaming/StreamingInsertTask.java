@@ -194,7 +194,11 @@ public class StreamingInsertTask {
         streamingInsertJob.onStreamTaskFail(this);
     }
 
-    public void cancel(boolean needWaitCancelComplete) throws Exception {
+    public void cancel(boolean needWaitCancelComplete) {
+        if (TaskStatus.SUCCESS.equals(status) || TaskStatus.FAILED.equals(status)
+                || TaskStatus.CANCELED.equals(status)) {
+            return;
+        }
         if (isCanceled.get()) {
             return;
         }
