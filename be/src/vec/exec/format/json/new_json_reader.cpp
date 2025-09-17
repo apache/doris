@@ -1327,27 +1327,24 @@ Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
 
     const char* data = reinterpret_cast<const char*>(_json_str);
 
-    // Find the first '[' and matching ']'
-    size_t bracket_count = 0;
-    size_t first_bracket_pos = std::string::npos;
+    size_t i;
+    for (i = 0; i < size; i ++) {
+        if (data[i] == '[') {
+            break;
+        }
+    }
+    for (; i < size; i ++) {
+        if (data[i] == ']') {
+            break;
+        }
+    }
 
-    for (size_t i = 0; i < size; ++i) {
-        char c = data[i];
-        if (c == '[') {
-            if (first_bracket_pos == std::string::npos) {
-                first_bracket_pos = i;
-            }
-            bracket_count++;
-        } else if (c == ']' && first_bracket_pos != std::string::npos) {
-            bracket_count--;
-            if (bracket_count == 0) {
-                // Found the end of first array, check if there's content after it
-                if (i + 1 < size) {
-                    return Status::DataQualityError(
-                            "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
-                            "true.");
-                }
-                break;
+    if (data[i+1] == '\n') {
+        for (; i < size; i ++) {
+            if (data[i] == '[') {
+                return Status::DataQualityError(
+                        "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
+                        "true.");
             }
         }
     }
