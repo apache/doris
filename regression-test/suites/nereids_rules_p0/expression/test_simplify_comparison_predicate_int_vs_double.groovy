@@ -42,7 +42,7 @@ suite('test_simplify_comparison_predicate_int_vs_double') {
         select *
         from tbl1_test_simplify_comparison_predicate_int_vs_double t1
              left join tbl2_test_simplify_comparison_predicate_int_vs_double t2
-             on t1.c_s = t2.c_bigint
+             on cast(t1.c_s as double) = t2.c_bigint
         where t1.c_s = '870479087484055553'
         """
 
