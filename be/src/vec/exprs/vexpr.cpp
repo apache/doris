@@ -60,7 +60,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vmatch_predicate.h"
-#include "vec/exprs/vsearch_expr.h"
+#include "vec/exprs/vsearch.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vstruct_literal.h"
 #include "vec/utils/util.hpp"

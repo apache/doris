@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/vsearch_expr.h"
+#include "vec/exprs/vsearch.h"
 
 #include <memory>
 #include <roaring/roaring.hh>
@@ -25,8 +25,6 @@
 #include "glog/logging.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_string.h"
-#include "vec/data_types/data_type_string.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
@@ -40,7 +38,6 @@ VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
         _original_dsl = _search_param.original_dsl;
     }
 
-    // DEBUG: Print thrift structure received from FE
     LOG(INFO) << "VSearchExpr constructor: dsl='" << _original_dsl
               << "', num_children=" << node.num_children
               << ", has_search_param=" << node.__isset.search_param
@@ -52,7 +49,6 @@ VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
     }
 }
 
-// Return the name of the expression as a static string to avoid returning a reference to a local variable
 const std::string& VSearchExpr::expr_name() const {
     static const std::string name = "VSearchExpr";
     return name;
@@ -61,33 +57,26 @@ const std::string& VSearchExpr::expr_name() const {
 Status VSearchExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     // query_string expressions should only be evaluated via inverted index
     return Status::InternalError(
-            "VSearchExpr::execute should not be called - use inverted index evaluation");
+            "SearchExpr should not be executed without inverted index");
 }
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     LOG(INFO) << "VSearchExpr::evaluate_inverted_index called with DSL: " << _original_dsl;
 
-    // Validate Thrift parameter (no __isset check needed for required fields)
     if (_search_param.original_dsl.empty()) {
-        return Status::InvalidArgument("query_string DSL is empty");
+        return Status::InvalidArgument("search DSL is empty");
     }
 
-    // Get inverted index context
     auto index_context = context->get_inverted_index_context();
     if (!index_context) {
         LOG(WARNING) << "VSearchExpr: No inverted index context available";
         return Status::OK();
     }
 
-    // Collect inverted index iterators and column information based on field bindings
     std::unordered_map<std::string, segment_v2::IndexIterator*> iterators;
     std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_type_with_names;
     std::vector<int> column_ids;
-    // Prepare arguments for function evaluation
     vectorized::ColumnsWithTypeAndName arguments;
-
-    LOG(INFO) << "VSearchExpr: Processing " << _search_param.field_bindings.size()
-              << " field bindings";
 
     for (const auto& child : children()) {
         if (child->is_slot_ref()) {
@@ -126,11 +115,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return Status::OK();
     }
 
-    // Create FunctionSearch to handle the actual inverted index evaluation
-    // This reuses the existing logic from function_search.cpp
     auto function = std::make_shared<FunctionSearch>();
-
-    // Use the new method that handles structured TQueryStringParam
     auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
             _search_param, data_type_with_names, iterators, segment_num_rows, result_bitmap);
