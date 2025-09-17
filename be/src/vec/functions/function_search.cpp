@@ -274,7 +274,7 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                 data_type_with_names,
         std::unordered_map<std::string, segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-    LOG(INFO) << "search: Processing structured query with DSL: " << search_param.original_dsl 
+    LOG(INFO) << "search: Processing structured query with DSL: " << search_param.original_dsl
               << ", available " << data_type_with_names.size() << " indexed columns, "
               << iterators.size() << " iterators";
 
@@ -430,7 +430,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     } catch (const std::exception& e) {
         LOG(WARNING) << "search: Exception during direct Boolean query execution: " << e.what();
-        return Status::InternalError("Exception during search query execution: " + std::string(e.what()));
+        return Status::InternalError("Exception during search query execution: " +
+                                     std::string(e.what()));
     }
 }
 
