@@ -543,7 +543,8 @@ Status LoadStreamStubs::open(BrpcClientCache<PBackendService_Stub>* client_cache
     return status;
 }
 
-Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams) {
+Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                   int num_incremental_streams) {
     if (!_open_success.load()) {
         return Status::InternalError("streams not open");
     }
