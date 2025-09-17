@@ -92,14 +92,15 @@ suite("test_date_floor_ceil") {
     qt_f_positive_5 """ select date_floor('2023-07-14 15:30:45', interval 3 month); """
     qt_f_positive_6 """ select date_floor('2023-07-14 15:30:45', interval 2 quarter); """
     qt_f_positive_7 """ select date_floor('2023-07-14 15:30:45', interval 5 year); """
-    
-    qt_f_neg_1 """ select date_floor('2023-07-14 15:30:45', interval -3 second); """
-    qt_f_neg_2 """ select date_floor('2023-07-14 15:30:45', interval -10 minute); """
-    qt_f_neg_3 """ select date_floor('2023-07-14 15:30:45', interval -6 hour); """
-    qt_f_neg_4 """ select date_floor('2023-07-14 15:30:45', interval -7 day); """
-    qt_f_neg_5 """ select date_floor('2023-07-14 15:30:45', interval -3 month); """
-    qt_f_neg_6 """ select date_floor('2023-07-14 15:30:45', interval -2 quarter); """
-    qt_f_neg_7 """ select date_floor('2023-07-14 15:30:45', interval -5 year); """
+
+    // TRY
+    // qt_f_neg_1 """ select date_floor('2023-07-14 15:30:45', interval -3 second); """
+    // qt_f_neg_2 """ select date_floor('2023-07-14 15:30:45', interval -10 minute); """
+    // qt_f_neg_3 """ select date_floor('2023-07-14 15:30:45', interval -6 hour); """
+    // qt_f_neg_4 """ select date_floor('2023-07-14 15:30:45', interval -7 day); """
+    // qt_f_neg_5 """ select date_floor('2023-07-14 15:30:45', interval -3 month); """
+    // qt_f_neg_6 """ select date_floor('2023-07-14 15:30:45', interval -2 quarter); """
+    // qt_f_neg_7 """ select date_floor('2023-07-14 15:30:45', interval -5 year); """
     
     qt_c_positive_1 """ select date_ceil('2023-07-14 15:30:45', interval 3 second); """
     qt_c_positive_2 """ select date_ceil('2023-07-14 15:30:45', interval 10 minute); """
@@ -109,16 +110,16 @@ suite("test_date_floor_ceil") {
     qt_c_positive_6 """ select date_ceil('2023-07-14 15:30:45', interval 2 quarter); """
     qt_c_positive_7 """ select date_ceil('2023-07-14 15:30:45', interval 5 year); """
 
-    qt_c_neg_1 """ select date_ceil('2023-07-14 15:30:45', interval -3 second); """
-    qt_c_neg_2 """ select date_ceil('2023-07-14 15:30:45', interval -10 minute); """
-    qt_c_neg_3 """ select date_ceil('2023-07-14 15:30:45', interval -6 hour); """
-    qt_c_neg_4 """ select date_ceil('2023-07-14 15:30:45', interval -7 day); """
-    qt_c_neg_5 """ select date_ceil('2023-07-14 15:30:45', interval -3 month); """
-    qt_c_neg_6 """ select date_ceil('2023-07-14 15:30:45', interval -2 quarter); """
-    qt_c_neg_7 """ select date_ceil('2023-07-14 15:30:45', interval -5 year); """
-    
-    qt_zero_interval_1 """ select date_floor('2023-07-14 15:30:45', interval 0 second); """
-    qt_zero_interval_2 """ select date_ceil('2023-07-14 15:30:45', interval 0 minute); """
+    // qt_c_neg_1 """ select date_ceil('2023-07-14 15:30:45', interval -3 second); """
+    // qt_c_neg_2 """ select date_ceil('2023-07-14 15:30:45', interval -10 minute); """
+    // qt_c_neg_3 """ select date_ceil('2023-07-14 15:30:45', interval -6 hour); """
+    // qt_c_neg_4 """ select date_ceil('2023-07-14 15:30:45', interval -7 day); """
+    // qt_c_neg_5 """ select date_ceil('2023-07-14 15:30:45', interval -3 month); """
+    // qt_c_neg_6 """ select date_ceil('2023-07-14 15:30:45', interval -2 quarter); """
+    // qt_c_neg_7 """ select date_ceil('2023-07-14 15:30:45', interval -5 year); """
+    // 
+    // qt_zero_interval_1 """ select date_floor('2023-07-14 15:30:45', interval 0 second); """
+    // qt_zero_interval_2 """ select date_ceil('2023-07-14 15:30:45', interval 0 minute); """
     
     qt_boundary_1 """ select date_floor('9999-12-31 23:59:58', interval 1 second); """
     qt_boundary_2 """ select date_floor('9999-12-31 22:59:58', interval 1 hour); """

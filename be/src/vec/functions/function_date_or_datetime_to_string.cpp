@@ -49,6 +49,8 @@ class DataTypeString;
 template <typename Transform>
 class FunctionDateOrDateTimeToString : public IFunction {
 public:
+    using NativeType = PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType;
+    using DateType = PrimitiveTypeTraits<Transform::OpArgType>::CppType;
     static constexpr auto name = Transform::name;
     static constexpr bool has_variadic_argument =
             !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
@@ -93,11 +95,8 @@ public:
     }
 
 private:
-    static void
-    vector(FunctionContext* context,
-           const PaddedPODArray<typename PrimitiveTypeTraits<Transform::OpArgType>::ColumnItemType>&
-                   ts,
-           ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+    static void vector(FunctionContext* context, const PaddedPODArray<NativeType>& ts,
+                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
         const auto len = ts.size();
         res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
@@ -105,8 +104,7 @@ private:
         size_t offset = 0;
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
-            const auto& date_time_value = reinterpret_cast<
-                    const typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&>(t);
+            const auto date_time_value = binary_cast<NativeType, DateType>(t);
             res_offsets[i] =
                     cast_set<UInt32>(Transform::execute(date_time_value, res_data, offset));
             DCHECK(date_time_value.is_valid_date());

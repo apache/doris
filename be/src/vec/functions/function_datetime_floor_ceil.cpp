@@ -190,7 +190,7 @@ public:
                     bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                           block.get_by_position(arguments[1]).column->is_null_at(0);
                     if (period < 1 && !period_is_null) [[unlikely]] {
-                        throw_out_of_bound_int_only(Flag::name, period);
+                        throw_out_of_bound_int(Flag::name, period);
                     }
                     vector_const_period(sources->get_data(), period, col_to->get_data(),
                                         result_null_map);
@@ -222,7 +222,7 @@ public:
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                       block.get_by_position(arguments[1]).column->is_null_at(0);
                 if (period < 1 && !period_is_null) [[unlikely]] {
-                    throw_out_of_bound_int_only(Flag::name, period);
+                    throw_out_of_bound_int(Flag::name, period);
                 }
                 vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
                                    result_null_map);
@@ -234,7 +234,7 @@ public:
                 bool period_is_null = block.get_by_position(arguments[1]).type->is_nullable() &&
                                       block.get_by_position(arguments[1]).column->is_null_at(0);
                 if (period < 1 && !period_is_null) [[unlikely]] {
-                    throw_out_of_bound_int_only(Flag::name, period);
+                    throw_out_of_bound_int(Flag::name, period);
                 }
                 vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
                                     col_to->get_data(), result_null_map);
@@ -275,7 +275,7 @@ private:
                 continue;
             }
             if (!time_round_reinterpret_two_args(dates[i], 1, res[i])) {
-                throw_out_of_bound_one<DateValueType>(Flag::name, dates[i]);
+                throw_out_of_bound_one_date<DateValueType>(Flag::name, dates[i]);
             }
         }
     }
@@ -297,17 +297,17 @@ private:
                                     PaddedPODArray<NativeType>& res,
                                     const NullMap& result_null_map) {
         // expand codes for const input periods
-#define EXPAND_CODE_FOR_CONST_INPUT(X)                                               \
-    case X: {                                                                        \
-        for (int i = 0; i < dates.size(); ++i) {                                     \
-            if (result_null_map[i]) {                                                \
-                continue;                                                            \
-            }                                                                        \
-            if (!time_round_reinterpret_two_args<X>(dates[i], period, res[i])) {     \
-                throw_out_of_bound_int<DateValueType>(Flag::name, dates[i], period); \
-            }                                                                        \
-        }                                                                            \
-        return;                                                                      \
+#define EXPAND_CODE_FOR_CONST_INPUT(X)                                                    \
+    case X: {                                                                             \
+        for (int i = 0; i < dates.size(); ++i) {                                          \
+            if (result_null_map[i]) {                                                     \
+                continue;                                                                 \
+            }                                                                             \
+            if (!time_round_reinterpret_two_args<X>(dates[i], period, res[i])) {          \
+                throw_out_of_bound_date_int<DateValueType>(Flag::name, dates[i], period); \
+            }                                                                             \
+        }                                                                                 \
+        return;                                                                           \
     }
 #define EXPANDER(z, n, text) EXPAND_CODE_FOR_CONST_INPUT(n)
         switch (period) {
@@ -319,7 +319,7 @@ private:
                     continue;
                 }
                 if (!time_round_reinterpret_two_args(dates[i], period, res[i])) {
-                    throw_out_of_bound_int<DateValueType>(Flag::name, dates[i], period);
+                    throw_out_of_bound_date_int<DateValueType>(Flag::name, dates[i], period);
                 }
             }
         }
@@ -433,10 +433,10 @@ private:
                 continue;
             }
             if (periods[i] < 1) [[unlikely]] {
-                throw_out_of_bound_int<DateValueType>(Flag::name, dates[i], periods[i]);
+                throw_out_of_bound_date_int<DateValueType>(Flag::name, dates[i], periods[i]);
             }
             if (!time_round_reinterpret_two_args(dates[i], periods[i], res[i])) {
-                throw_out_of_bound_int<DateValueType>(Flag::name, dates[i], periods[i]);
+                throw_out_of_bound_date_int<DateValueType>(Flag::name, dates[i], periods[i]);
             }
         }
     }

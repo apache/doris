@@ -270,23 +270,20 @@ private:
             if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
                 std::pair<int64_t, int64_t> timestamp;
                 if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                    throw_out_of_bound_one<ArgDateValueType>(
-                            "convert_tz", binary_cast<ArgDateValueType, ArgNativeType>(ts_value));
+                    throw_invalid_string("convert_tz", from_tz.name());
                 }
                 ts_value2.from_unixtime(timestamp, to_tz);
             } else {
                 int64_t timestamp;
                 if (!ts_value.unix_timestamp(&timestamp, from_tz)) [[unlikely]] {
-                    throw_out_of_bound_one<ArgDateValueType>(
-                            "convert_tz", binary_cast<ArgDateValueType, ArgNativeType>(ts_value));
+                    throw_invalid_string("convert_tz", from_tz.name());
                 }
                 ts_value2.from_unixtime(timestamp, to_tz);
             }
 
             if (!ts_value2.is_valid_date()) [[unlikely]] {
-                throw_out_of_bound_one<ReturnDateValueType>(
-                        "convert_tz",
-                        binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+                throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(i),
+                                                             from_tz.name(), to_tz.name());
             }
 
             if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
@@ -349,23 +346,21 @@ private:
         if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {
             std::pair<int64_t, int64_t> timestamp;
             if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                throw_out_of_bound_one<ArgDateValueType>(
-                        "convert_tz", binary_cast<ArgDateValueType, ArgNativeType>(ts_value));
+                throw_invalid_string("convert_tz", from_tz.name());
             }
             ts_value2.from_unixtime(timestamp, to_tz);
         } else {
             int64_t timestamp;
             if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
-                throw_out_of_bound_one<ArgDateValueType>(
-                        "convert_tz", binary_cast<ArgDateValueType, ArgNativeType>(ts_value));
+                throw_invalid_string("convert_tz", from_tz.name());
             }
 
             ts_value2.from_unixtime(timestamp, to_tz);
         }
 
         if (!ts_value2.is_valid_date()) [[unlikely]] {
-            throw_out_of_bound_one<ReturnDateValueType>(
-                    "convert_tz", binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
+            throw_out_of_bound_convert_tz<DateValueType>(date_column->get_element(index_now),
+                                                         from_tz.name(), to_tz.name());
         }
 
         if constexpr (std::is_same_v<ArgDateType, DataTypeDateTimeV2>) {

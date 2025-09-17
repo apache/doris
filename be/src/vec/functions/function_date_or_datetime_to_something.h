@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "util/binary_cast.hpp"
 #include "vec/data_types/data_type_date.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
@@ -30,6 +31,7 @@ template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
 struct Transformer {
     using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
     using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+    using CppType = typename PrimitiveTypeTraits<FromPType>::CppType;
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
         vec_to.resize(size);
@@ -38,8 +40,7 @@ struct Transformer {
             auto res = Transform::execute(vec_from[i]);
             using RESULT_TYPE = std::decay_t<decltype(res)>;
             vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
-            DCHECK(((typename PrimitiveTypeTraits<Transform::OpArgType>::CppType&)(vec_from[i]))
-                           .is_valid_date());
+            DCHECK((binary_cast<FromType, CppType>(vec_from[i]).is_valid_date()));
         }
     }
 };

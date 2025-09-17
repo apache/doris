@@ -114,19 +114,20 @@ TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_
 template <PrimitiveType PType>
 struct ToDateImpl {
     static constexpr PrimitiveType OpArgType = PType;
-    using ArgType = typename PrimitiveTypeTraits<PType>::CppNativeType;
-    using T = typename PrimitiveTypeTraits<PType>::CppType;
+    using NativeType = typename PrimitiveTypeTraits<PType>::CppNativeType;
+    using DateType = typename PrimitiveTypeTraits<PType>::CppType;
     static constexpr auto name = "to_date";
 
-    static auto execute(const ArgType& t) {
-        auto dt = binary_cast<ArgType, T>(t);
-        if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
-            return binary_cast<T, ArgType>(dt);
-        } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
+    static auto execute(const NativeType& t) {
+        auto dt = binary_cast<NativeType, DateType>(t);
+        if constexpr (std::is_same_v<DateType, DateV2Value<DateV2ValueType>>) {
+            return binary_cast<DateType, NativeType>(dt);
+        } else if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
             dt.cast_to_date();
-            return binary_cast<T, ArgType>(dt);
+            return binary_cast<DateType, NativeType>(dt);
         } else {
-            return (UInt32)(binary_cast<T, ArgType>(dt) >> TIME_PART_LENGTH);
+            return (PrimitiveTypeTraits<TYPE_DATEV2>::CppNativeType)(
+                    binary_cast<DateType, NativeType>(dt) >> TIME_PART_LENGTH);
         }
     }
 

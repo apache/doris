@@ -17,10 +17,13 @@
 
 #pragma once
 
+#include <fmt/compile.h>
+#include <fmt/core.h>
 #include <glog/logging.h>
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -188,7 +191,11 @@ public:
                             col.get_intergral_part(i), col.get_fractional_part(i), format, res_data,
                             offset, context->state()->timezone_obj());
                     if (invalid) [[unlikely]] {
-                        throw_invalid_string(name, format_state->format_str);
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
                     }
                     res_offsets[i] = cast_set<uint32_t>(offset);
                 }
@@ -199,7 +206,11 @@ public:
                                     col.get_intergral_part(i), col.get_fractional_part(i), format,
                                     res_data, offset, context->state()->timezone_obj());
                     if (invalid) [[unlikely]] {
-                        throw_invalid_string(name, format_state->format_str);
+                        throw_invalid_strings(
+                                name,
+                                fmt::format(FMT_COMPILE("{}.{}"), col.get_intergral_part(i),
+                                            col.get_fractional_part(i)),
+                                format_state->format_str);
                     }
                     res_offsets[i] = cast_set<uint32_t>(offset);
                 }
@@ -215,7 +226,8 @@ public:
                                     pod_array[i], format, res_data, offset,
                                     context->state()->timezone_obj());
                             if (invalid) [[unlikely]] {
-                                throw_invalid_string(name, format_state->format_str);
+                                throw_invalid_strings(name, std::to_string(pod_array[i]),
+                                                      format_state->format_str);
                             }
                             res_offsets[i] = cast_set<uint32_t>(offset);
                         }

@@ -77,7 +77,7 @@ auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldT
     auto ts_value = binary_cast<NativeType, ValueType>(t);
     TimeInterval interval(unit, std::abs(delta), delta < 0);
     if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
-        throw_out_of_bound_int<ValueType, NativeType>(get_time_unit_name(unit), t, delta);
+        throw_out_of_bound_date_int<ValueType, NativeType>(get_time_unit_name(unit), t, delta);
     }
     // here DateValueType = ResultDateValueType
     return binary_cast<ValueType, NativeType>(ts_value);
@@ -362,7 +362,7 @@ struct DateTimeOp {
             }
             // maybe all date value is valid, but now sure.
             // if (!binary_cast<NativeType0, ValueType0>(vec_from0[i]).is_valid_date()) [[unlikely]] {
-            //     throw_out_of_bound_one_int(Transform::name, vec_from0[i]);
+            //     throw_out_of_bound_int(Transform::name, vec_from0[i]);
             // }
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i]);
         }
@@ -931,14 +931,14 @@ struct TimestampToDateTime : IFunction {
         for (int i = 0; i < input_rows_count; ++i) {
             Int64 value = column_data.get_element(i);
             if (value < 0) [[unlikely]] {
-                throw_out_of_bound_one_int(name, value);
+                throw_out_of_bound_int(name, value);
             }
 
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
             dt.from_unixtime(value / Impl::ratio, time_zone);
 
             if (!dt.is_valid_date()) [[unlikely]] {
-                throw_out_of_bound_one_int(name, value);
+                throw_out_of_bound_int(name, value);
             }
             dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
         }

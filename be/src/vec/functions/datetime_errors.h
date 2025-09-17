@@ -40,32 +40,34 @@ inline std::string datelike_to_string(NativeT native) {
 
 // Throw for operations with one datelike argument
 template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_one(const char* op, NativeT arg0) {
+[[noreturn]] inline void throw_out_of_bound_one_date(const char* op, NativeT arg0) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} out of range", op,
                     datelike_to_string<DateValueType>(arg0));
 }
 
 // Throw for operations with a datelike and an integer (e.g. period)
 template <typename DateValueType, typename NativeT>
-[[noreturn]] inline void throw_out_of_bound_int(const char* op, NativeT arg0, Int32 delta) {
+[[noreturn]] inline void throw_out_of_bound_date_int(const char* op, NativeT arg0, Int32 delta) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op,
                     datelike_to_string<DateValueType>(arg0), delta);
 }
 
-// Throw for operations where only an integer argument (e.g. period) is invalid and
-// no concrete datelike value is available (e.g. zero input rows)
-[[noreturn]] inline void throw_out_of_bound_int_only(const char* op, Int32 delta) {
-    throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} with period {} out of range", op, delta);
-}
-
 // Throw for operations with a single integer argument (e.g., from_days daynr)
-[[noreturn]] inline void throw_out_of_bound_one_int(const char* op, int64_t value) {
+[[noreturn]] inline void throw_out_of_bound_int(const char* op, int64_t value) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {} out of range", op, value);
 }
 
 // Throw for operations with two integer arguments (e.g., makedate(year, day))
 [[noreturn]] inline void throw_out_of_bound_two_ints(const char* op, int64_t a, int64_t b) {
     throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} of {}, {} out of range", op, a, b);
+}
+
+// for convert_tz
+template <typename DateValueType, typename NativeT>
+[[noreturn]] inline void throw_out_of_bound_convert_tz(NativeT arg0, std::string_view from_name,
+                                                       std::string_view to_name) {
+    throw Exception(ErrorCode::OUT_OF_BOUND, "Cannot convert {} from {} to {}",
+                    datelike_to_string<DateValueType>(arg0), from_name, to_name);
 }
 
 // Throw for operations with a datelike, an integer and an origin datelike

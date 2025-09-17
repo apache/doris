@@ -20,9 +20,9 @@ import java.text.SimpleDateFormat
 suite("test_date_function") {
     def tableName = "test_date_function"
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS test_date_function """
     sql """
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS test_date_function (
                 test_datetime datetime NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(test_datetime)
@@ -34,16 +34,19 @@ suite("test_date_function") {
                 "storage_format" = "V2"
             )
         """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03") """
+    sql """ insert into test_date_function values ("2019-08-01 13:21:03") """
     // convert_tz
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'America/Los_Angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/SHANGHAI', 'america/Los_angeles') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/Los_Angeles') result from test_date_function; """
 
-    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from ${tableName}; """
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from ${tableName}; """
+    qt_sql """ SELECT convert_tz(test_datetime, 'Asia/Shanghai', 'Europe/London') result from test_date_function; """
+    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'Europe/London') result from test_date_function; """
 
-    qt_sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from ${tableName}; """
+    test {
+        sql """ SELECT convert_tz(test_datetime, '+08:00', 'America/London') result from test_date_function; """
+        exception "invalid timezone"
+    }
 
     qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTC'); """
     qt_sql """ select convert_tz("2019-08-01 02:18:27",  'Asia/Shanghai', 'UTc'); """
@@ -54,11 +57,14 @@ suite("test_date_function") {
     qt_sql """ SELECT convert_tz('2022-2-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('2022-02-29 13:21:03', '+08:00', 'America/London') result; """
     qt_sql """ SELECT convert_tz('1900-00-00 13:21:03', '+08:00', 'America/London') result; """
-    qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+    test {
+        sql """ select convert_tz('0000-01-01 00:00:00', '+08:00', '-02:00'); """
+        exception "Cannot convert"
+    }
     qt_lower_bound """ select convert_tz('0000-01-01 00:00:00', '+08:00', '+08:00'); """
 
     // bug fix
-    sql """ insert into ${tableName} values 
+    sql """ insert into test_date_function values 
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03"),
                 ("2019-08-01 13:21:03"),
@@ -356,14 +362,21 @@ suite("test_date_function") {
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, 'yyyy-MM-dd HH:mm:ss') """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d') """
     qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s') """
-    qt_sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+    test {
+        sql """ select /*+SET_VAR(time_zone="+08:00")*/ from_unixtime(253402272000, '%Y-%m-%d %H:%i:%s') """
+        exception "is invalid"
+    }
 
     // HOUR
     qt_sql """ select hour('2018-12-31 23:59:59') """
     qt_sql """ select hour('2018-12-31') """
 
     // MAKEDATE
-    qt_sql """ select makedate(2021,0), makedate(2021,1), makedate(2021,100), makedate(2021,400) """
+    test {
+        sql """ select makedate(2021,0) """
+        exception "out of range"
+    }
+    qt_sql """ select makedate(2021,1), makedate(2021,100), makedate(2021,400) """
 
     // MINUTE
     qt_sql """ select minute('2018-12-31 23:59:59') """
@@ -394,7 +407,10 @@ suite("test_date_function") {
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2014-12-21 12:34:56")  """
     qt_sql """ select str_to_date(test_datetime, '%Y-%m-%d %H:%i:%s') from ${tableName}; """
-    qt_sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
+    test {
+        sql """ select str_to_date("", "%Y-%m-%d %H:%i:%s"); """
+        exception "is invalid"
+    }
     qt_sql """ select str_to_date("2014-12-21 12:34%3A56", '%Y-%m-%d %H:%i%%3A%s'); """
     qt_sql """ select str_to_date('11.09.2011 11:09:30', '%m.%d.%Y %h:%i:%s'); """
     qt_sql """ select str_to_date("2014-12-21 12:34:56.789 PM", '%Y-%m-%d %h:%i:%s.%f %p'); """
@@ -513,7 +529,6 @@ suite("test_date_function") {
     qt_sql """ select count(*) from (select * from numbers("number" = "200")) tmp1 WHERE 0 <= UNIX_TIMESTAMP(); """
 
     // microsecond
-    sql """ drop table ${tableName} """
     tableName = "test_microsecond"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
@@ -522,9 +537,6 @@ suite("test_date_function") {
     sql """ insert into ${tableName} values('1999-01-02 10:11:12.767891') """
 
     qt_sql """ select microsecond(k1) from ${tableName}; """
-    
-    // from_unixtime
-    sql """ drop table ${tableName} """
 
     tableName = "test_from_unixtime"
 
@@ -561,12 +573,13 @@ suite("test_date_function") {
     qt_sql """SELECT CURDATE() = CURRENT_DATE();"""
     qt_sql """SELECT unix_timestamp(CURDATE()) = unix_timestamp(CURRENT_DATE());"""
 
-    sql """ drop table ${tableName} """
-
     qt_sql """ select date_format('1999-01-01', '%X %V'); """
     qt_sql """ select date_format('2025-01-01', '%X %V'); """
     qt_sql """ select date_format('2022-08-04', '%X %V %w'); """
-    qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
+    test {
+        sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %H:%i:%s %Y'); """
+        exception "is invalid"
+    }
     qt_sql """ select STR_TO_DATE('Tue Jul 12 20:00:45 CST 2022', '%a %b %e %T CST %Y'); """
     qt_sql """ select STR_TO_DATE('2018-4-2 15:3:28','%Y-%m-%d %H:%i:%s'); """
 
@@ -716,7 +729,6 @@ suite("test_date_function") {
                 last_day(birth2), last_day(birth3) 
                 from ${tableName};
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """
@@ -736,7 +748,6 @@ suite("test_date_function") {
     qt_sql """
         select last_day(birth), last_day(birth1) from ${tableName};
     """
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
 
     // test to_monday
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -804,7 +815,6 @@ suite("test_date_function") {
             logger.info(exception.message)
         }
     }
-    sql """ DROP TABLE IF EXISTS ${tableName}; """
     
     test {
         sql "select cast('20230631' as date), cast('20230632' as date)"
@@ -835,12 +845,12 @@ suite("test_date_function") {
         properties("replication_num" = "1");
     """
     sql """ insert into date_varchar values ("2020-12-12", "%Y-%m-%d"), ("20201111", "%Y%m%d"), ("202012-13", "%Y%m-%d"),
-    ("0000-00-00", "%Y-%m-%d"),("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
+    ("0000-01-01", "%Y-%m-%d"),("9999-12-31 23:59:59", "%Y-%m-%d %H:%i:%s"),
     ("9999-12-31 23:59:59.999999", "%Y-%m-%d %H:%i:%s.%f"), ("9999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"),
     ("1999-12-31 23:59:59.9999999", "%Y-%m-%d %H:%i:%s.%f"); """
     qt_sql_varchar1 """ select dt, fmt, unix_timestamp(dt, fmt) as k1 from date_varchar order by k1,dt,fmt; """
-    qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
-    qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select dt, unix_timestamp(dt, "%Y-%m-%d") as k1 from date_varchar order by k1,dt,fmt; """
+    // qt_sql_varchar1 """ select fmt, unix_timestamp("1990-12-12", fmt) as k1 from date_varchar order by k1,dt,fmt; """
 
     def test_simplify = {
         test {

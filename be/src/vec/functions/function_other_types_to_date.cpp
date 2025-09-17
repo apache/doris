@@ -537,7 +537,7 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = binary_cast<ArgType, DateValueType>(data[i]);
             if (!dt.template datetime_trunc<Unit>()) {
-                throw_out_of_bound_one<DateValueType>(name, data[i]);
+                throw_out_of_bound_one_date<DateValueType>(name, data[i]);
             }
             res[i] = binary_cast<DateValueType, ArgType>(dt);
         }
@@ -623,13 +623,13 @@ private:
                 const auto& cur_data = data_col[i];
                 auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
                 if (!ts_value.from_date_daynr(cur_data)) {
-                    throw_out_of_bound_one_int(name, cur_data);
+                    throw_out_of_bound_int(name, cur_data);
                 }
             } else {
                 const auto& cur_data = data_col[i];
                 auto& ts_value = *reinterpret_cast<DateValueType*>(&res_data[i]);
                 if (!ts_value.get_date_from_daynr(cur_data)) {
-                    throw_out_of_bound_one_int(name, cur_data);
+                    throw_out_of_bound_int(name, cur_data);
                 }
             }
         }
@@ -1018,7 +1018,7 @@ struct LastDayImpl {
             const auto& cur_data = data_col[i];
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             if (!ts_value.is_valid_date()) {
-                throw_out_of_bound_one<DateValueType>("last_day", cur_data);
+                throw_out_of_bound_one_date<DateValueType>("last_day", cur_data);
             }
             int day = get_last_month_day(ts_value.year(), ts_value.month());
             // day is definitely legal
@@ -1102,7 +1102,7 @@ struct MondayImpl {
             const auto& cur_data = data_col[i];
             auto ts_value = binary_cast<NativeType, DateValueType>(cur_data);
             if (!ts_value.is_valid_date()) [[unlikely]] {
-                throw_out_of_bound_one<DateValueType>("to_monday", cur_data);
+                throw_out_of_bound_one_date<DateValueType>("to_monday", cur_data);
             }
             if constexpr (date_cast::IsV1<DateType>()) {
                 if (is_special_day(ts_value.year(), ts_value.month(), ts_value.day())) {
