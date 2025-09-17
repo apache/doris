@@ -116,7 +116,6 @@ private:
     Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
                            bool* is_empty_row);
     Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
-    Status _check_multiple_json_arrays(size_t size);
 
     Status _handle_simdjson_error(simdjson::simdjson_error& error, Block& block, size_t num_rows,
                                   bool* eof);

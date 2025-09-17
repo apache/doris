@@ -1288,11 +1288,6 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         _json_str += 3;
         *size -= 3;
     }
-
-    if (!_read_json_by_line && _strip_outer_array && _json_root.empty()) {
-        RETURN_IF_ERROR(_check_multiple_json_arrays(*size));
-    }
-
     memcpy(&_simdjson_ondemand_padding_buffer.front(), _json_str, *size);
     _original_doc_size = *size;
     *error = _ondemand_json_parser
@@ -1317,36 +1312,6 @@ Status NewJsonReader::_judge_empty_row(size_t size, bool eof, bool* is_empty_row
             *is_empty_row = true;
         }
     }
-    return Status::OK();
-}
-
-Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
-    if (size == 0) {
-        return Status::OK();
-    }
-
-    const char* data = reinterpret_cast<const char*>(_json_str);
-
-    size_t i;
-    for (i = 0; i < size; i++) {
-        if (data[i] == '[') {
-            break;
-        }
-    }
-    for (; i < size; i++) {
-        if (data[i] == ']') {
-            break;
-        }
-    }
-
-    for (; i < size; i++) {
-        if (data[i] == '[') {
-            return Status::DataQualityError(
-                    "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
-                    "true.");
-        }
-    }
-
     return Status::OK();
 }
 
