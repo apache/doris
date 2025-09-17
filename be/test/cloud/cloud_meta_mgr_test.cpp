@@ -630,9 +630,9 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
 class CloudMetaMgrTestHelper {
 public:
     static Status call_get_delete_bitmap_from_ms_by_batch(CloudMetaMgr& meta_mgr,
-                                                           GetDeleteBitmapRequest& req,
-                                                           GetDeleteBitmapResponse& res,
-                                                           int64_t bytes_threshold) {
+                                                          GetDeleteBitmapRequest& req,
+                                                          GetDeleteBitmapResponse& res,
+                                                          int64_t bytes_threshold) {
         return meta_mgr._get_delete_bitmap_from_ms_by_batch(req, res, bytes_threshold);
     }
 };
@@ -833,8 +833,8 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
         EXPECT_EQ(res.rowset_ids_size(), 5);
         EXPECT_EQ(res.segment_delete_bitmaps_size(), 5);
         for (int i = 1; i <= 5; ++i) {
-            EXPECT_EQ(res.rowset_ids(i-1), "rowset_" + std::to_string(i));
-            EXPECT_EQ(res.segment_delete_bitmaps(i-1), "delete_bitmap_" + std::to_string(i));
+            EXPECT_EQ(res.rowset_ids(i - 1), "rowset_" + std::to_string(i));
+            EXPECT_EQ(res.segment_delete_bitmaps(i - 1), "delete_bitmap_" + std::to_string(i));
         }
 
         sp->disable_processing();
@@ -897,7 +897,7 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
                 // First batch: v2 delete bitmap data with actual content (stored in FDB)
                 res->add_delta_rowset_ids("delta_rowset_1");
                 auto* storage1 = res->add_delete_bitmap_storages();
-                storage1->set_store_in_fdb(true);  // Has delete bitmap data
+                storage1->set_store_in_fdb(true); // Has delete bitmap data
                 auto* delete_bitmap1 = storage1->mutable_delete_bitmap();
                 delete_bitmap1->add_rowset_ids("rowset_1");
                 delete_bitmap1->add_segment_ids(0);
@@ -909,7 +909,7 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
                 // Second batch: v2 delete bitmap without local data
                 res->add_delta_rowset_ids("delta_rowset_2");
                 auto* storage2 = res->add_delete_bitmap_storages();
-                storage2->set_store_in_fdb(false);  // No local bitmap data
+                storage2->set_store_in_fdb(false); // No local bitmap data
                 res->add_returned_rowset_ids("rowset_2");
                 res->set_has_more(false);
             }
@@ -930,7 +930,8 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
         EXPECT_TRUE(res.delete_bitmap_storages(0).store_in_fdb());
         EXPECT_TRUE(res.delete_bitmap_storages(0).has_delete_bitmap());
         EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().rowset_ids(0), "rowset_1");
-        EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().segment_delete_bitmaps(0), "v2_bitmap_1");
+        EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().segment_delete_bitmaps(0),
+                  "v2_bitmap_1");
 
         // Second storage: store_in_fdb=false, no local bitmap data
         EXPECT_FALSE(res.delete_bitmap_storages(1).store_in_fdb());
@@ -976,7 +977,7 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
                 // V2 delete bitmap data - has data when store_in_fdb=true
                 res->add_delta_rowset_ids("delta_rowset_1");
                 auto* storage1 = res->add_delete_bitmap_storages();
-                storage1->set_store_in_fdb(true);  // Has delete bitmap data
+                storage1->set_store_in_fdb(true); // Has delete bitmap data
                 auto* delete_bitmap1 = storage1->mutable_delete_bitmap();
                 delete_bitmap1->add_rowset_ids("rowset_1");
                 delete_bitmap1->add_segment_ids(0);
@@ -1000,7 +1001,7 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
                 // More V2 data - mixed scenarios
                 res->add_delta_rowset_ids("delta_rowset_2");
                 auto* storage2 = res->add_delete_bitmap_storages();
-                storage2->set_store_in_fdb(true);  // Has delete bitmap data
+                storage2->set_store_in_fdb(true); // Has delete bitmap data
                 auto* delete_bitmap2 = storage2->mutable_delete_bitmap();
                 delete_bitmap2->add_rowset_ids("rowset_2");
                 delete_bitmap2->add_segment_ids(1);
@@ -1008,7 +1009,7 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
                 delete_bitmap2->add_segment_delete_bitmaps("v2_bitmap_2");
                 res->add_delta_rowset_ids("delta_rowset_3");
                 auto* storage3 = res->add_delete_bitmap_storages();
-                storage3->set_store_in_fdb(false);  // No local bitmap data
+                storage3->set_store_in_fdb(false); // No local bitmap data
 
                 res->add_returned_rowset_ids("rowset_2");
                 res->add_returned_rowset_ids("rowset_3");
@@ -1052,13 +1053,15 @@ TEST_F(CloudMetaMgrTest, test_get_delete_bitmap_from_ms_by_batch) {
         EXPECT_TRUE(res.delete_bitmap_storages(0).store_in_fdb());
         EXPECT_TRUE(res.delete_bitmap_storages(0).has_delete_bitmap());
         EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().rowset_ids(0), "rowset_1");
-        EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().segment_delete_bitmaps(0), "v2_bitmap_1");
+        EXPECT_EQ(res.delete_bitmap_storages(0).delete_bitmap().segment_delete_bitmaps(0),
+                  "v2_bitmap_1");
 
         // Second storage: store_in_fdb=true, has delete bitmap data
         EXPECT_TRUE(res.delete_bitmap_storages(1).store_in_fdb());
         EXPECT_TRUE(res.delete_bitmap_storages(1).has_delete_bitmap());
         EXPECT_EQ(res.delete_bitmap_storages(1).delete_bitmap().rowset_ids(0), "rowset_2");
-        EXPECT_EQ(res.delete_bitmap_storages(1).delete_bitmap().segment_delete_bitmaps(0), "v2_bitmap_2");
+        EXPECT_EQ(res.delete_bitmap_storages(1).delete_bitmap().segment_delete_bitmaps(0),
+                  "v2_bitmap_2");
 
         // Third storage: store_in_fdb=false, no local bitmap data
         EXPECT_FALSE(res.delete_bitmap_storages(2).store_in_fdb());
