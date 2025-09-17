@@ -110,6 +110,11 @@ public abstract class AlterJobV2 implements Writable {
     @SerializedName(value = "uid")
     protected UserIdentity userIdentity = null;
 
+    // for show alter table command, master fe change the job state to FINISHED before writing edit log.
+    // We set showJobState to FINISHED after writing edit log. otherwise, query to non master fe may read
+    // data before schema change finished.
+    protected JobState showJobState;
+
     public AlterJobV2(String rawSql, long jobId, JobType jobType, long dbId, long tableId, String tableName,
                       long timeoutMs) {
         this.rawSql = rawSql;
@@ -122,6 +127,7 @@ public abstract class AlterJobV2 implements Writable {
 
         this.createTimeMs = System.currentTimeMillis();
         this.jobState = JobState.PENDING;
+        this.showJobState = JobState.PENDING;
 
         if (ConnectContext.get() != null) {
             userIdentity = ConnectContext.get().getCurrentUserIdentity();

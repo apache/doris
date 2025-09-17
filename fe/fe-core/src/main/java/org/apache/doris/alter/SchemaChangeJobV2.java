@@ -691,6 +691,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
             // else it will try to transform index in newly added partition while replaying and result in failure.
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
+            this.showJobState = JobState.FINISHED;
             pruneMeta();
         } finally {
             tbl.writeUnlock();
@@ -952,6 +953,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         postProcessOriginIndex();
         jobState = JobState.FINISHED;
+        this.showJobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
@@ -1022,7 +1024,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(entry.getValue());
             info.add(indexSchemaVersionAndHashMap.get(shadowIndexId).toString());
             info.add(watershedTxnId);
-            info.add(jobState.name());
+            info.add(showJobState.name());
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);

@@ -602,6 +602,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         this.finishedTimeMs = System.currentTimeMillis();
 
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
+        this.showJobState = JobState.FINISHED;
         LOG.info("rollup job finished: {}", jobId);
     }
 
@@ -786,6 +787,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
+        this.showJobState = JobState.FINISHED;
 
         LOG.info("replay finished rollup job: {}", jobId);
     }
@@ -839,7 +841,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         info.add(rollupIndexName);
         info.add(rollupIndexId);
         info.add(watershedTxnId);
-        info.add(jobState.name());
+        info.add(showJobState.name());
         info.add(errMsg);
         // progress
         if (jobState == JobState.RUNNING && rollupBatchTask.getTaskNum() > 0) {

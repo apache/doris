@@ -155,6 +155,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     @SerializedName("st")
     protected volatile RestoreJobState state;
 
+    // For show restore command, master fe change the job state to FINISHED before writing edit log.
+    // We set showState to FINISHED after writing edit log. otherwise, query to non master fe may read
+    // data before restore finished.
+    protected volatile RestoreJobState showState;
+
     @SerializedName("meta")
     private BackupMeta backupMeta;
 
@@ -241,6 +246,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.allowLoad = allowLoad;
         this.replicaAlloc = replicaAlloc;
         this.state = RestoreJobState.PENDING;
+        this.showState = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveColocate = reserveColocate;
@@ -2168,12 +2174,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
-
             env.getEditLog().logRestoreJob(this);
 
             // Only send release snapshot tasks after the job is finished.
             releaseSnapshots(savedSnapshotInfos, true);
         }
+        showState = RestoreJobState.FINISHED;
 
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
@@ -2280,7 +2286,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(label);
         info.add(backupTimestamp);
         info.add(dbName);
-        info.add(state.name());
+        info.add(showState.name());
         info.add(String.valueOf(allowLoad));
         info.add(String.valueOf(replicaAlloc.getTotalReplicaNum()));
         info.add(replicaAlloc.toCreateStmt());
