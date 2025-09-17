@@ -56,8 +56,7 @@ void SnapshotManager::list_snapshot(std::string_view instance_id,
     response->mutable_status()->set_msg("Not implemented");
 }
 
-void SnapshotManager::clone_instance(std::string_view instance_id,
-                                     const CloneInstanceRequest& request,
+void SnapshotManager::clone_instance(const CloneInstanceRequest& request,
                                      CloneInstanceResponse* response) {
     response->mutable_status()->set_code(MetaServiceCode::UNDEFINED_ERR);
     response->mutable_status()->set_msg("Not implemented");
