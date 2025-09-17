@@ -978,24 +978,22 @@ bool Segment::same_with_storage_type(int32_t cid, const Schema& schema, bool rea
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
                                        uint32_t row_id, vectorized::MutableColumnPtr& result,
-                                       OlapReaderStatistics& stats,
+                                       StorageReadOptions& storage_read_options,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
-    StorageReadOptions storage_read_opt;
-    storage_read_opt.stats = &stats;
-    storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
-            .stats = &stats,
+            .stats = storage_read_options.stats,
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats = &stats.file_cache_stats},
+                                     .file_cache_stats =
+                                             &storage_read_options.stats->file_cache_stats},
     };
 
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
-        RETURN_IF_ERROR(_create_column_meta_once(&stats));
+        RETURN_IF_ERROR(_create_column_meta_once(storage_read_options.stats));
 
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
@@ -1007,7 +1005,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         DCHECK(storage_type != nullptr);
 
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
@@ -1028,10 +1026,9 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                << ", field_name_to_index=" << schema.get_all_field_names();
             return Status::InternalError(ss.str());
         }
-        storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(
-                    new_column_iterator(schema.column(index), &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(new_column_iterator(schema.column(index), &iterator_hint,
+                                                &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
