@@ -295,6 +295,15 @@ suite("fold_constant_numeric_arithmatic") {
     testFoldConst("SELECT EXP(-709.782712893384)") // Near underflow boundary
     testFoldConst("SELECT EXP(1959859681)") // Result overflow become infinity
 
+//Factorial function cases
+    testFoldConst("SELECT FACTORIAL(5)") // common case
+    testFoldConst("SELECT FACTORIAL(0)") // boundary value 0
+    testFoldConst("SELECT FACTORIAL(1)") // boundary value 1
+    testFoldConst("SELECT FACTORIAL(20)") // boundary value 20
+    testFoldConst("SELECT FACTORIAL(-1)") // invalid input (negative)
+    testFoldConst("SELECT FACTORIAL(21)") // invalid input (overflow)
+    testFoldConst("SELECT FACTORIAL(NULL)") // NULL handling
+
 //Floor function cases
     testFoldConst("SELECT FLOOR(3.7) AS floor_case_1")
     testFoldConst("SELECT FLOOR(-3.7) AS floor_case_2")
