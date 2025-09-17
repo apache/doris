@@ -424,12 +424,6 @@ struct TMasterOpResult {
     11: optional i64 affectedRows;
 }
 
-struct TUpdateExportTaskStatusRequest {
-    1: required FrontendServiceVersion protocolVersion
-    2: required Types.TUniqueId taskId
-    3: required PaloInternalService.TExportStatusResult taskStatus
-}
-
 struct TLoadTxnBeginRequest {
     1: optional string cluster
     2: required string user
@@ -567,7 +561,7 @@ struct TStreamLoadPutRequest {
 struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    2: optional PaloInternalService.TExecPlanFragmentParams params
+    //2: optional PaloInternalService.TExecPlanFragmentParams params # deprecated
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
@@ -581,7 +575,7 @@ struct TStreamLoadPutResult {
 struct TStreamLoadMultiTablePutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
+    // 2: optional list<PaloInternalService.TExecPlanFragmentParams> params # deprecated
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
@@ -1664,8 +1658,6 @@ service FrontendService {
     TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
-
-    TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)

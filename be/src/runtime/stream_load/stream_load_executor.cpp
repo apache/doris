@@ -142,14 +142,8 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
             }
         }
     };
-
-    if (ctx->put_result.__isset.params) {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(ctx->put_result.params,
-                                                           QuerySource::STREAM_LOAD, exec_fragment);
-    } else {
-        st = _exec_env->fragment_mgr()->exec_plan_fragment(
-                ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
-    }
+    st = _exec_env->fragment_mgr()->exec_plan_fragment(
+            ctx->put_result.pipeline_params, QuerySource::STREAM_LOAD, exec_fragment, parent);
 
     if (!st.ok()) {
         // no need to check unref's return value
