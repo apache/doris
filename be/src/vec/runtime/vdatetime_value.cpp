@@ -1798,6 +1798,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /
                                                                      nullptr, params);
     }
 }
+
 template <typename T>
 bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,

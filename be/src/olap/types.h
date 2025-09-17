@@ -1298,25 +1298,20 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        tm time_tm;
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         CppType part1 = (tmp / 1000000L);
         CppType part2 = (tmp - part1 * 1000000L);
 
-        time_tm.tm_year = (part1 / 10000L) % 10000;
-        time_tm.tm_mon = (part1 / 100) % 100;
-        time_tm.tm_mday = part1 % 100;
+        int year = (part1 / 10000L) % 10000;
+        int mon = (part1 / 100) % 100;
+        int mday = part1 % 100;
 
-        time_tm.tm_hour = (part2 / 10000L) % 10000;
-        time_tm.tm_min = (part2 / 100) % 100;
-        time_tm.tm_sec = part2 % 100;
+        int hour = (part2 / 10000L) % 10000;
+        int min = (part2 / 100) % 100;
+        int sec = part2 % 100;
 
-        std::string s;
-        s.resize(19);
-        std::snprintf(s.data(), s.size() + 1, "%04d-%02d-%02d %02d:%02d:%02d", time_tm.tm_year,
-                      time_tm.tm_mon, time_tm.tm_mday, time_tm.tm_hour, time_tm.tm_min,
-                      time_tm.tm_sec);
-        return s;
+        return fmt::format(FMT_COMPILE("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}"), year, mon,
+                           mday, hour, min, sec);
     }
 
     static void set_to_max(void* buf) {

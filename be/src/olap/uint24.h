@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <fmt/compile.h>
+
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -127,18 +129,12 @@ public:
     }
 
     std::string to_string() const {
-        tm time_tm;
         int value = *reinterpret_cast<const uint24_t*>(data);
-        memset(&time_tm, 0, sizeof(time_tm));
-        time_tm.tm_mday = value & 31;
-        time_tm.tm_mon = value >> 5 & 15;
-        time_tm.tm_year = value >> 9;
+        int mday = value & 31;
+        int mon = value >> 5 & 15;
+        int year = value >> 9;
 
-        std::string s;
-        s.resize(10);
-        std::snprintf(s.data(), s.size() + 1, "%04d-%02d-%02d", time_tm.tm_year, time_tm.tm_mon,
-                      time_tm.tm_mday);
-        return s;
+        return fmt::format(FMT_COMPILE("{:04d}-{:02d}-{:02d}"), year, mon, mday);
     }
 
     const uint8_t* get_data() const { return data; }

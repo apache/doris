@@ -35,8 +35,8 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_wrapper_field_string, expect_data_type_string
-        using FieldType_RandStr = std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
-                           std::vector<std::string>>;
+        using FieldType_RandStr = std::tuple<FieldType, std::vector<std::string>,
+                                             std::vector<std::string>, std::vector<std::string>>;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
                                   {"0", "1", "1"}, {"0", "1", ""}),
