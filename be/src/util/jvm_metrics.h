@@ -27,27 +27,27 @@ class JvmMetrics;
 
 class JvmStats {
 private:
-    jclass _managementFactoryClass = nullptr;
-    jmethodID _getMemoryMXBeanMethod = nullptr;
-    jclass _memoryUsageClass = nullptr;
-    jclass _memoryMXBeanClass = nullptr;
-    jmethodID _getHeapMemoryUsageMethod = nullptr;
-    jmethodID _getNonHeapMemoryUsageMethod = nullptr;
-    jmethodID _getMemoryUsageUsedMethod = nullptr;
-    jmethodID _getMemoryUsageCommittedMethod = nullptr;
-    jmethodID _getMemoryUsageMaxMethod = nullptr;
+    Jni::GlobalClass _managementFactoryClass;
+    Jni::MethodId _getMemoryMXBeanMethod;
+    Jni::GlobalClass _memoryUsageClass;
+    Jni::GlobalClass _memoryMXBeanClass;
+    Jni::MethodId _getHeapMemoryUsageMethod;
+    Jni::MethodId _getNonHeapMemoryUsageMethod;
+    Jni::MethodId _getMemoryUsageUsedMethod;
+    Jni::MethodId _getMemoryUsageCommittedMethod;
+    Jni::MethodId _getMemoryUsageMaxMethod;
 
-    jmethodID _getMemoryPoolMXBeansMethod = nullptr;
+    Jni::MethodId _getMemoryPoolMXBeansMethod;
 
-    jclass _listClass = nullptr;
-    jmethodID _getListSizeMethod = nullptr;
-    jmethodID _getListUseIndexMethod = nullptr;
+    Jni::GlobalClass _listClass;
+    Jni::MethodId _getListSizeMethod;
+    Jni::MethodId _getListUseIndexMethod;
 
-    jclass _memoryPoolMXBeanClass = nullptr;
-    jmethodID _getMemoryPoolMXBeanUsageMethod = nullptr;
+    Jni::GlobalClass _memoryPoolMXBeanClass;
+    Jni::MethodId _getMemoryPoolMXBeanUsageMethod;
 
-    jmethodID _getMemoryPollMXBeanPeakMethod = nullptr;
-    jmethodID _getMemoryPollMXBeanNameMethod = nullptr;
+    Jni::MethodId _getMemoryPollMXBeanPeakMethod;
+    Jni::MethodId _getMemoryPollMXBeanNameMethod;
 
     enum memoryPoolNameEnum { YOUNG, SURVIVOR, OLD };
     const std::map<std::string, memoryPoolNameEnum> _memoryPoolName = {
@@ -68,34 +68,34 @@ private:
 
     };
 
-    jmethodID _getThreadMXBeanMethod = nullptr;
-    jclass _threadMXBeanClass = nullptr;
-    jmethodID _getAllThreadIdsMethod = nullptr;
-    jmethodID _getThreadInfoMethod = nullptr;
-    jclass _threadInfoClass = nullptr;
+    Jni::MethodId _getThreadMXBeanMethod;
+    Jni::GlobalClass _threadMXBeanClass;
+    Jni::MethodId _getAllThreadIdsMethod;
+    Jni::MethodId _getThreadInfoMethod;
+    Jni::GlobalClass _threadInfoClass;
 
-    jmethodID _getPeakThreadCountMethod = nullptr;
+    Jni::MethodId _getPeakThreadCountMethod;
 
-    jmethodID _getThreadStateMethod = nullptr;
-    jclass _threadStateClass = nullptr;
+    Jni::MethodId _getThreadStateMethod;
+    Jni::GlobalClass _threadStateClass;
 
-    jobject _newThreadStateObj = nullptr;
-    jobject _runnableThreadStateObj = nullptr;
-    jobject _blockedThreadStateObj = nullptr;
-    jobject _waitingThreadStateObj = nullptr;
-    jobject _timedWaitingThreadStateObj = nullptr;
-    jobject _terminatedThreadStateObj = nullptr;
+    Jni::GlobalObject _newThreadStateObj;
+    Jni::GlobalObject _runnableThreadStateObj;
+    Jni::GlobalObject _blockedThreadStateObj;
+    Jni::GlobalObject _waitingThreadStateObj;
+    Jni::GlobalObject _timedWaitingThreadStateObj;
+    Jni::GlobalObject _terminatedThreadStateObj;
 
-    jclass _garbageCollectorMXBeanClass = nullptr;
-    jmethodID _getGCNameMethod = nullptr;
-    jmethodID _getGarbageCollectorMXBeansMethod = nullptr;
-    jmethodID _getGCCollectionCountMethod = nullptr;
-    jmethodID _getGCCollectionTimeMethod = nullptr;
+    Jni::GlobalClass _garbageCollectorMXBeanClass;
+    Jni::MethodId _getGCNameMethod;
+    Jni::MethodId _getGarbageCollectorMXBeansMethod;
+    Jni::MethodId _getGCCollectionCountMethod;
+    Jni::MethodId _getGCCollectionTimeMethod;
 
     bool _init_complete = false;
 
 public:
-    Status init(JNIEnv* env);
+    Status init();
     bool init_complete() const { return _init_complete; }
     void set_complete(bool val) { _init_complete = val; }
     Status refresh(JvmMetrics* jvm_metrics) const;
@@ -104,7 +104,7 @@ public:
 
 class JvmMetrics {
 public:
-    JvmMetrics(MetricRegistry* registry, JNIEnv* env);
+    JvmMetrics(MetricRegistry* registry);
     ~JvmMetrics() = default;
     void update();
 
