@@ -2,7 +2,7 @@
 -- !basic_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -16,7 +16,7 @@ PhysicalResultSink
 -- !basic_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -30,7 +30,7 @@ PhysicalResultSink
 -- !basic_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -44,7 +44,7 @@ PhysicalResultSink
 -- !basic_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -58,7 +58,7 @@ PhysicalResultSink
 -- !basic_2_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -72,7 +72,7 @@ PhysicalResultSink
 -- !basic_2_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -86,7 +86,7 @@ PhysicalResultSink
 -- !basic_2_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -100,7 +100,7 @@ PhysicalResultSink
 -- !basic_2_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -114,7 +114,7 @@ PhysicalResultSink
 -- !basic_3_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -128,7 +128,7 @@ PhysicalResultSink
 -- !basic_3_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -142,7 +142,7 @@ PhysicalResultSink
 -- !basic_3_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -156,7 +156,7 @@ PhysicalResultSink
 -- !basic_3_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -170,7 +170,7 @@ PhysicalResultSink
 -- !basic_4_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -184,7 +184,7 @@ PhysicalResultSink
 -- !basic_4_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -198,7 +198,7 @@ PhysicalResultSink
 -- !basic_4_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -212,7 +212,7 @@ PhysicalResultSink
 -- !basic_4_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -226,7 +226,7 @@ PhysicalResultSink
 -- !basic_add_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -241,7 +241,7 @@ PhysicalResultSink
 -- !basic_add_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -256,7 +256,7 @@ PhysicalResultSink
 -- !basic_add_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -271,7 +271,7 @@ PhysicalResultSink
 -- !basic_add_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -286,7 +286,7 @@ PhysicalResultSink
 -- !basic_add_2_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -301,7 +301,7 @@ PhysicalResultSink
 -- !basic_add_2_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -316,7 +316,7 @@ PhysicalResultSink
 -- !basic_add_2_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -331,7 +331,7 @@ PhysicalResultSink
 -- !basic_add_2_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -346,7 +346,7 @@ PhysicalResultSink
 -- !basic_add_3_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -361,7 +361,7 @@ PhysicalResultSink
 -- !basic_add_3_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -376,7 +376,7 @@ PhysicalResultSink
 -- !basic_add_3_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -391,7 +391,7 @@ PhysicalResultSink
 -- !basic_add_3_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -406,7 +406,7 @@ PhysicalResultSink
 -- !basic_add_4_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -421,7 +421,7 @@ PhysicalResultSink
 -- !basic_add_4_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -436,7 +436,7 @@ PhysicalResultSink
 -- !basic_add_4_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -451,7 +451,7 @@ PhysicalResultSink
 -- !basic_add_4_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -466,7 +466,7 @@ PhysicalResultSink
 -- !add_sum_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -481,7 +481,7 @@ PhysicalResultSink
 -- !add_sum_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -496,7 +496,7 @@ PhysicalResultSink
 -- !add_sum_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -511,7 +511,7 @@ PhysicalResultSink
 -- !add_sum_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t1]
 
@@ -526,7 +526,7 @@ PhysicalResultSink
 -- !add_sum_2_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -541,7 +541,7 @@ PhysicalResultSink
 -- !add_sum_2_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -556,7 +556,7 @@ PhysicalResultSink
 -- !add_sum_2_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -571,7 +571,7 @@ PhysicalResultSink
 -- !add_sum_2_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t2]
 
@@ -586,7 +586,7 @@ PhysicalResultSink
 -- !add_sum_3_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -601,7 +601,7 @@ PhysicalResultSink
 -- !add_sum_3_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -616,7 +616,7 @@ PhysicalResultSink
 -- !add_sum_3_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -631,7 +631,7 @@ PhysicalResultSink
 -- !add_sum_3_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t3]
 
@@ -646,7 +646,7 @@ PhysicalResultSink
 -- !add_sum_4_1 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -661,7 +661,7 @@ PhysicalResultSink
 -- !add_sum_4_3 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -676,7 +676,7 @@ PhysicalResultSink
 -- !add_sum_4_5 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 
@@ -691,7 +691,7 @@ PhysicalResultSink
 -- !add_sum_4_7 --
 PhysicalResultSink
 --PhysicalProject
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[t4]
 

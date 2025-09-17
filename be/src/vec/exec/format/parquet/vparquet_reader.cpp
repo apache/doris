@@ -126,11 +126,13 @@ ParquetReader::~ParquetReader() {
     _close_internal();
 }
 
+#ifdef BE_TEST
 // for unit test
 void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
     _file_reader = file_reader;
     _tracing_file_reader = file_reader;
 }
+#endif
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
@@ -1030,13 +1032,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type ||
         _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();
     }
     PageIndex page_index;
-    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index)) {
+    if (!config::enable_parquet_page_index || !_has_page_index(row_group.columns, page_index) ||
+        _colname_to_slot_id == nullptr) {
         read_whole_row_group();
         return Status::OK();
     }
@@ -1065,8 +1068,10 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     for (size_t idx = 0; idx < _read_table_columns.size(); idx++) {
         const auto& read_table_col = _read_table_columns[idx];
         const auto& read_file_col = _read_file_columns[idx];
-
-        DCHECK(_colname_to_slot_id != nullptr && _colname_to_slot_id->contains(read_table_col));
+        if (!_colname_to_slot_id->contains(read_table_col)) {
+            // equal delete may add column to read_table_col, but this column no slot_id.
+            continue;
+        }
         auto slot_id = _colname_to_slot_id->at(read_table_col);
         if (!_push_down_simple_expr.contains(slot_id)) {
             continue;

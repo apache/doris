@@ -247,6 +247,7 @@ struct TFileTextScanRangeParams {
     5: optional i8 enclose;
     6: optional i8 escape;
     7: optional string null_format;
+    8: optional bool empty_field_as_null
 }
 
 struct TFileScanSlotInfo {
@@ -539,8 +540,10 @@ struct TDataGenScanRange {
 
 // deprecated
 struct TIcebergMetadataParams {
-  1: optional string serialized_task
-  2: optional map<string, string> hadoop_props
+  1: optional Types.TIcebergQueryType iceberg_query_type
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
 // deprecated

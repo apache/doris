@@ -370,7 +370,7 @@ public class HiveMetaStoreCache {
         // So we need to recursively list data location.
         // https://blog.actorsfit.com/a?ID=00550-ce56ec63-1bff-4b0c-a6f7-447b93efaa31
         boolean isRecursiveDirectories = Boolean.valueOf(
-                catalog.getProperties().getOrDefault("hive.recursive_directories", "false"));
+                catalog.getProperties().getOrDefault("hive.recursive_directories", "true"));
         try {
             RemoteIterator<RemoteFile> iterator = directoryLister.listFiles(fs, isRecursiveDirectories,
                     table, path.getNormalizedLocation());
@@ -436,18 +436,6 @@ public class HiveMetaStoreCache {
 
     public HivePartitionValues getPartitionValues(PartitionValueCacheKey key) {
         return partitionValuesCache.get(key);
-    }
-
-    public List<FileCacheValue> getFilesByPartitionsWithCache(List<HivePartition> partitions,
-                                                              DirectoryLister directoryLister,
-                                                              TableIf table) {
-        return getFilesByPartitions(partitions, true, true, directoryLister, table);
-    }
-
-    public List<FileCacheValue> getFilesByPartitionsWithoutCache(List<HivePartition> partitions,
-                                                                 DirectoryLister directoryLister,
-                                                                 TableIf table) {
-        return getFilesByPartitions(partitions, false, true, directoryLister, table);
     }
 
     public List<FileCacheValue> getFilesByPartitions(List<HivePartition> partitions,

@@ -66,7 +66,7 @@ suite("test_stream_load_error_url", "p0") {
                 assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                 def (code, out, err) = curl("GET", json.ErrorURL)
                 log.info("error result: " + out)
-                assertTrue(out.contains("actual column number in csv file is  more than  schema column number.actual number"))
+                assertTrue(out.contains("Column count mismatch: expected"))
                 log.info("url: " + json.ErrorURL)
                 if (isCloudMode()) {
                     assertTrue(json.ErrorURL.contains("X-Amz-Signature=") || json.ErrorURL.contains("error_log"))

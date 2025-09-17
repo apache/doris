@@ -52,8 +52,7 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     }
 
     for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
-        values.assign(results.begin(), results.end());
-        results.clear();
+        values = std::move(results);
         for (const auto* pval : values) {
             switch (path.get_leg_from_leg_vector(i)->type) {
             case MEMBER_CODE: {

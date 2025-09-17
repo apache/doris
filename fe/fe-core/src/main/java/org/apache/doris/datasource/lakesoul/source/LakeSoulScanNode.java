@@ -25,7 +25,6 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulUtils;
-import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
@@ -183,7 +182,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
         if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
-            if (!options.containsKey(OssProperties.ENDPOINT)) {
+            if (!options.containsKey("oss.endpoint")) {
                 // Aliyun OSS requires virtual host style access
                 options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "false");
             } else {

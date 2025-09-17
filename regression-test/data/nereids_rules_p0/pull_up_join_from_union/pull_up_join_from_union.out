@@ -72,9 +72,9 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((id = id)) otherCondition=()
 ----PhysicalUnion
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_b]
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalOlapScan[table_c]
 ----PhysicalOlapScan[table_a]
 
@@ -113,7 +113,7 @@ PhysicalResultSink
 ----PhysicalUnion
 ------PhysicalOlapScan[table_b]
 ------PhysicalOlapScan[table_c]
-----filter((cast(value as DOUBLE) = 1.0))
+----filter((cast(value as DECIMALV3(38, 6)) = 1.000000))
 ------PhysicalOlapScan[table_a]
 
 -- !basic_join_union_res --

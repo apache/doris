@@ -315,7 +315,7 @@ DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int co
     return true;
 });
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
@@ -1141,9 +1141,12 @@ DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
 // will write to file cache; satisfying any of the two conditions will write to file cache.
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
 DEFINE_mBool(enable_file_cache_adaptive_write, "true");
+DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
 
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
+DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
@@ -1576,9 +1579,6 @@ DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
 // The maximum csv line reader output buffer size
 DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
 
-// The maximum number of threads supported when executing LLMFunction
-DEFINE_mInt32(llm_max_concurrent_requests, "1");
-
 // Maximum number of openmp threads can be used by each doris threads.
 // This configuration controls the parallelism level for OpenMP operations within Doris,
 // helping to prevent resource contention and ensure stable performance when multiple
@@ -1586,6 +1586,11 @@ DEFINE_mInt32(llm_max_concurrent_requests, "1");
 DEFINE_mInt32(omp_threads_limit, "8");
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
+
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+DEFINE_mBool(enable_wal_tde, "false");
 
 // clang-format off
 #ifdef BE_TEST

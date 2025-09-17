@@ -322,6 +322,8 @@ public:
 
     void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
+    void replace_float_special_values() override;
+
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;
 

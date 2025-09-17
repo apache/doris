@@ -75,7 +75,8 @@ private:
     std::string _get_file_name_from_url(const std::string& url) const;
     std::vector<std::string> _split_string_by_checksum(const std::string& file);
 
-private:
+    Status _get_real_url(const std::string& url, std::string* result_url);
+    Status _check_and_return_default_java_udf_url(const std::string& url, std::string* result_url);
     std::string _lib_dir;
     void* _current_process_handle = nullptr;
 

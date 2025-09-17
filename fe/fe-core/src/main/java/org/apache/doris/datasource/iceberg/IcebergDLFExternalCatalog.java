@@ -17,14 +17,13 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 
 import java.util.Map;
 
@@ -33,7 +32,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, comment);
-        props.put(HMSProperties.HIVE_METASTORE_TYPE, "dlf");
+        props.put(HMSBaseProperties.HIVE_METASTORE_TYPE, "dlf");
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -48,12 +47,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    public boolean createTable(CreateTableCommand command) throws UserException {
-        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
-    }
-
-    @Override
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
     }
 

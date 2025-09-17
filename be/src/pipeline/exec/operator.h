@@ -879,7 +879,7 @@ public:
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
     bool is_blockable(RuntimeState* state) const override {
-        return state->get_sink_local_state()->is_blockable();
+        return state->get_sink_local_state()->is_blockable() || _blockable;
     }
 
     Status prepare(RuntimeState* state) override;
@@ -1015,6 +1015,9 @@ protected:
     //_keep_origin is used to avoid copying during projection,
     // currently set to false only in the nestloop join.
     bool _keep_origin = true;
+
+    // _blockable is true if the operator contains expressions that may block execution
+    bool _blockable = false;
 };
 
 template <typename LocalStateType>

@@ -1254,4 +1254,18 @@ public class ExpressionUtils {
     public static boolean hasNonWindowAggregateFunction(Expression expression) {
         return expression.accept(ExpressionVisitors.CONTAINS_AGGREGATE_CHECKER, null);
     }
+
+    /**
+     * check if the expressions contain a unique function which exists multiple times
+     */
+    public static boolean containUniqueFunctionExistMultiple(Collection<? extends Expression> expressions) {
+        Set<UniqueFunction> counterSet = Sets.newHashSet();
+        for (Expression expression : expressions) {
+            if (expression.anyMatch(
+                    expr -> expr instanceof UniqueFunction && !counterSet.add((UniqueFunction) expr))) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

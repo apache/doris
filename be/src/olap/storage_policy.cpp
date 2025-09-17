@@ -244,9 +244,9 @@ std::string StorageResource::remote_delete_bitmap_path(int64_t tablet_id,
                                                        std::string_view rowset_id) const {
     switch (path_version) {
     case 0:
-        return fmt::format("{}/{}/{}_delete_bitmap.dat", DATA_PREFIX, tablet_id, rowset_id);
+        return fmt::format("{}/{}/{}_delete_bitmap.db", DATA_PREFIX, tablet_id, rowset_id);
     case 1:
-        return fmt::format("{}/{}/{}/{}_delete_bitmap.dat", DATA_PREFIX, shard_fn(tablet_id),
+        return fmt::format("{}/{}/{}/{}_delete_bitmap.db", DATA_PREFIX, shard_fn(tablet_id),
                            tablet_id, rowset_id);
     default:
         exit_at_unknown_path_version(fs->id(), path_version);

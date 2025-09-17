@@ -26,6 +26,7 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -409,5 +410,14 @@ public class S3PropertiesTest {
         Assertions.assertEquals("https://s3.ap-east-1.amazonaws.com", s3Properties.endpoint);
         Assertions.assertEquals("aaa", s3Properties.accessKey);
         Assertions.assertEquals("bbb", s3Properties.secretKey);
+    }
+
+    @Test
+    public void testS3PropertiesAwsAnonymousCredentialsProvider() {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        S3Properties s3Properties = (S3Properties) StorageProperties.createPrimary(props);
+        AwsCredentialsProvider provider = s3Properties.getAwsCredentialsProvider();
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, provider.getClass());
     }
 }

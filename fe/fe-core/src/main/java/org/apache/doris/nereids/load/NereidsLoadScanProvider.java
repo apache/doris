@@ -62,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -164,11 +165,20 @@ public class NereidsLoadScanProvider {
         //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
         //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<NereidsImportColumnDesc> copiedColumnExprs = new ArrayList<>(columnDescs.size());
+        Set<String> constantMappingColumns = new HashSet<>();
         for (NereidsImportColumnDesc importColumnDesc : columnDescs) {
             String mappingColumnName = importColumnDesc.getColumnName();
-            if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
+            if (importColumnDesc.isColumn()) {
                 copiedColumnExprs.add(importColumnDesc);
+            } else if (tbl.getColumn(mappingColumnName) != null) {
+                copiedColumnExprs.add(importColumnDesc);
+                // Only track columns with constant expressions (e.g., "k1 = 'constant'")
+                // Non-constant expressions (e.g., "k1 = k1 + 1") still need to read from file
+                if (importColumnDesc.getExpr().isConstant()) {
+                    constantMappingColumns.add(mappingColumnName);
+                }
             }
+            // Skip mapping columns that don't exist in table schema
         }
 
         // check whether the OlapTable has sequenceCol and skipBitmapCol
@@ -188,6 +198,11 @@ public class NereidsLoadScanProvider {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                if (constantMappingColumns.contains(column.getName())) {
+                    // Skip this column because user has already specified a constant mapping expression for it
+                    // in the COLUMNS parameter (e.g., "column_name = 'constant_value'")
+                    continue;
+                }
                 NereidsImportColumnDesc columnDesc;
                 if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());

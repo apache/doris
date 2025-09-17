@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -30,6 +28,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
@@ -135,6 +136,18 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitBitmapUnionInt(BitmapUnionInt bitmapUnionInt, C context) {
         return visitAggregateFunction(bitmapUnionInt, context);
+    }
+
+    default R visitBoolAnd(BoolAnd boolAnd, C context) {
+        return visitAggregateFunction(boolAnd, context);
+    }
+
+    default R visitBoolOr(BoolOr boolOr, C context) {
+        return visitAggregateFunction(boolOr, context);
+    }
+
+    default R visitBoolXor(BoolXor boolXor, C context) {
+        return visitAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {
@@ -379,14 +392,6 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitJavaUdaf(JavaUdaf javaUdaf, C context) {
         return visitAggregateFunction(javaUdaf, context);
-    }
-
-    default R visitApproxTopK(ApproxTopK approxTopK, C context) {
-        return visitNullableAggregateFunction(approxTopK, context);
-    }
-
-    default R visitApproxTopSum(ApproxTopSum approxTopSum, C context) {
-        return visitNullableAggregateFunction(approxTopSum, context);
     }
 
 }

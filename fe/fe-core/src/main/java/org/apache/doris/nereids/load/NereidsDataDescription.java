@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -426,6 +427,8 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
                 String.valueOf(taskInfo.getSkipLines()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
+                String.valueOf(taskInfo.getEmptyFieldAsNull()));
 
         putAnalysisMapIfNonNull(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY,
                 String.valueOf(taskInfo.isStripOuterArray()));
@@ -1168,7 +1171,16 @@ public class NereidsDataDescription {
         if (this.columnMappingList != null && !this.columnMappingList.isEmpty()) {
             for (Expression expression : this.columnMappingList) {
                 if (expression != null) {
-                    legacyColumnMappingList.add(PlanUtils.translateToLegacyExpr(expression, null, ctx));
+                    if (expression instanceof EqualTo) {
+                        // we should not cast right type to left type here, because we do the cast when
+                        // creating load plan later, see NereidsLoadUtils.createLoadPlan for more details
+                        Expr left = PlanUtils.translateToLegacyExpr(((EqualTo) expression).left(), null, ctx);
+                        Expr right = PlanUtils.translateToLegacyExpr(((EqualTo) expression).right(), null, ctx);
+                        legacyColumnMappingList.add(new BinaryPredicate(BinaryPredicate.Operator.EQ, left, right));
+                    } else {
+                        throw new AnalysisException(String.format("column mapping expr must be EqualTo, but it's %s",
+                                expression));
+                    }
                 }
             }
         }

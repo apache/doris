@@ -20,8 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -102,18 +102,19 @@ public class HiveTable extends Table {
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetaStoreUris = copiedProps.get(HMSProperties.HIVE_METASTORE_URIS);
+        String hiveMetaStoreUris = copiedProps.get(HMSBaseProperties.HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
             throw new DdlException(String.format(
-                    PROPERTY_MISSING_MSG, HMSProperties.HIVE_METASTORE_URIS, HMSProperties.HIVE_METASTORE_URIS));
+                    PROPERTY_MISSING_MSG, HMSBaseProperties.HIVE_METASTORE_URIS,
+                    HMSBaseProperties.HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(HMSProperties.HIVE_METASTORE_URIS);
-        hiveProperties.put(HMSProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
+        copiedProps.remove(HMSBaseProperties.HIVE_METASTORE_URIS);
+        hiveProperties.put(HMSBaseProperties.HIVE_METASTORE_URIS, hiveMetaStoreUris);
         // support multi hive version
-        String hiveVersion = copiedProps.get(HMSProperties.HIVE_VERSION);
+        String hiveVersion = copiedProps.get(HMSBaseProperties.HIVE_VERSION);
         if (!Strings.isNullOrEmpty(hiveVersion)) {
-            copiedProps.remove(HMSProperties.HIVE_VERSION);
-            hiveProperties.put(HMSProperties.HIVE_VERSION, hiveVersion);
+            copiedProps.remove(HMSBaseProperties.HIVE_VERSION);
+            hiveProperties.put(HMSBaseProperties.HIVE_VERSION, hiveVersion);
         }
 
         // check auth type

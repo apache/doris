@@ -19,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load_multi_table', 'p0') {
+suite('test_ingestion_load_multi_table', 'p0,external') {
 
     def testIngestLoadJob = { loadLabel, testTable1, testTable2, dataFile1, dataFile2 ->
 
@@ -28,12 +28,12 @@ suite('test_ingestion_load_multi_table', 'p0') {
 
         sql "CLEAN LABEL FROM ${context.dbName}"
 
-        Integer loadId = -1
-        Integer tableId = -1
-        Integer partitionId = -1
-        Integer indexId = -1
-        Integer bucketId = 0
-        Integer schemaHash = -1
+        long loadId = -1
+        long tableId = -1
+        long partitionId = -1
+        long indexId = -1
+        long bucketId = 0
+        long schemaHash = -1
 
         String resultFileName1 = ""
         String resultFileName2 = ""
@@ -103,7 +103,7 @@ suite('test_ingestion_load_multi_table', 'p0') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 81758, \\"${etlResultFilePath2}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath1}\\": 5745, \\"${etlResultFilePath2}\\": 5745}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -124,9 +124,9 @@ suite('test_ingestion_load_multi_table', 'p0') {
             }
         }
 
-        max_try_milli_secs = 60000
+        def max_try_milli_secs = 60000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select * from ${testTable1} order by c_int"

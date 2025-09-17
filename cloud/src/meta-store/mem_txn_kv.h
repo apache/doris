@@ -64,6 +64,12 @@ public:
         return mem_kv_.size();
     }
 
+    void update_commit_version(int64_t version) {
+        std::lock_guard<std::mutex> l(lock_);
+        committed_version_ = std::max(committed_version_, version);
+        read_version_ = std::max(committed_version_, read_version_);
+    }
+
     int64_t get_bytes_ {};
     int64_t put_bytes_ {};
     int64_t del_bytes_ {};
@@ -238,6 +244,10 @@ public:
 
     size_t get_bytes() const override { return get_bytes_; }
 
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
+
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
 
@@ -265,6 +275,9 @@ private:
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
     size_t get_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    std::string versionstamp_result_;
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
