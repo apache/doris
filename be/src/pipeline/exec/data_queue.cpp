@@ -83,7 +83,7 @@ void DataQueue::clear_free_blocks() {
 }
 
 void DataQueue::terminate() {
-    for (int i = 0; i < _queue_blocks.size(); i ++) {
+    for (int i = 0; i < _queue_blocks.size(); i++) {
         set_finish(i);
         INJECT_MOCK_SLEEP(std::lock_guard<std::mutex> l(*_queue_blocks_lock[i]));
         if (_cur_blocks_nums_in_queue[i] > 0) {
