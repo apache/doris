@@ -79,6 +79,7 @@ enum class InvertedIndexQueryType {
     MATCH_PHRASE_PREFIX_QUERY = 8,
     MATCH_REGEXP_QUERY = 9,
     MATCH_PHRASE_EDGE_QUERY = 10,
+    BOOLEAN_QUERY = 11,
 };
 
 inline bool is_equal_query(InvertedIndexQueryType query_type) {
@@ -138,6 +139,9 @@ inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     }
     case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY: {
         return "MPHRASEEDGE";
+    }
+    case InvertedIndexQueryType::BOOLEAN_QUERY: {
+        return "BOOLEAN";
     }
     default:
         return "";
