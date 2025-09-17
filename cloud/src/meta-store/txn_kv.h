@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "txn_kv_error.h"
+#include "versionstamp.h"
 
 // =============================================================================
 //
@@ -405,7 +406,7 @@ public:
      * @return TXN_OK for success, TXN_INVALID_ARGUMENT if not enabled, 
      *         TXN_KEY_NOT_FOUND if not available
      **/
-    virtual TxnErrorCode get_versionstamp(std::string* versionstamp) {
+    virtual TxnErrorCode get_versionstamp(Versionstamp* versionstamp) {
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
     }
 };
@@ -796,7 +797,7 @@ public:
 
     void enable_get_versionstamp() override;
 
-    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
 
     TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                            const std::vector<std::string>& keys,
@@ -842,7 +843,7 @@ private:
     size_t approximate_bytes_ {0};
 
     bool versionstamp_enabled_ {false};
-    std::string versionstamp_result_;
+    Versionstamp versionstamp_result_;
 };
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
