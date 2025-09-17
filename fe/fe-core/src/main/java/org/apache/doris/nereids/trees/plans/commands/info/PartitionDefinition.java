@@ -129,6 +129,8 @@ public abstract class PartitionDefinition {
             }
 
             Map<String, String> mergedMap = Maps.newHashMap();
+            // validate should not change partitionDesc properties
+            Map<String, String> oldProperties = this.properties == null ? null : Maps.newHashMap(this.properties);
             // Should putAll `otherProperties` before `this.properties`,
             // because the priority of partition is higher than table
             if (otherProperties != null) {
@@ -173,6 +175,7 @@ public abstract class PartitionDefinition {
                     }
                 }
             }
+            this.properties = oldProperties; // recover properties
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
