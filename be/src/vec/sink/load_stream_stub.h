@@ -320,7 +320,7 @@ public:
         }
     }
 
-    Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+    Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
 
     std::unordered_set<int64_t> success_tablets() {
         std::unordered_set<int64_t> s;
