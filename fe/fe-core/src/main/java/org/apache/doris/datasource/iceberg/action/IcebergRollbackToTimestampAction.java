@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,6 +43,7 @@ import java.util.Optional;
  * at a specific timestamp.
  */
 public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
+    private static final DateTimeFormatter DATETIME_MS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     public static final String TIMESTAMP = "timestamp";
 
     public IcebergRollbackToTimestampAction(Map<String, String> properties,
@@ -56,7 +58,7 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
         // Create a custom timestamp parser that supports both ISO datetime and
         // millisecond formats
         namedArguments.registerRequiredArgument(TIMESTAMP,
-                "A timestamp to rollback to (ISO datetime 'yyyy-MM-ddTHH:mm:ss' or milliseconds since epoch)",
+                "A timestamp to rollback to (formats: 'yyyy-MM-dd HH:mm:ss.SSS' or milliseconds since epoch)",
                 value -> {
                     if (value == null || value.trim().isEmpty()) {
                         throw new IllegalArgumentException("timestamp cannot be empty");
@@ -72,14 +74,13 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
                         }
                         return trimmed;
                     } catch (NumberFormatException e) {
-                        // If not a number, try as ISO datetime format
+                        // Second attempt: Parse as ISO datetime format (yyyy-MM-dd HH:mm:ss.SSS)
                         try {
-                            java.time.LocalDateTime.parse(trimmed,
-                                    java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                            java.time.LocalDateTime.parse(trimmed, DATETIME_MS_FORMAT);
                             return trimmed;
                         } catch (java.time.format.DateTimeParseException dte) {
                             throw new IllegalArgumentException("Invalid timestamp format. Expected ISO datetime "
-                                    + "(yyyy-MM-ddTHH:mm:ss) or timestamp in milliseconds: " + trimmed);
+                                    + "(yyyy-MM-dd HH:mm:ss.SSS) or timestamp in milliseconds: " + trimmed);
                         }
                     }
                 });
@@ -103,15 +104,14 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
         }
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
-        long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : 0L;
-
-        long targetTimestamp = TimeUtils.timeStringToLong(timestampStr, TimeUtils.getTimeZone());
+        Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
 
         try {
+            long targetTimestamp = TimeUtils.msTimeStringToLong(timestampStr, TimeUtils.getTimeZone());
             icebergTable.manageSnapshots().rollbackToTime(targetTimestamp).commit();
 
             Snapshot currentSnapshot = icebergTable.currentSnapshot();
-            long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : 0L;
+            Long currentSnapshotId = currentSnapshot != null ? currentSnapshot.snapshotId() : null;
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
             return Lists.newArrayList(

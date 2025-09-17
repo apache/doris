@@ -83,14 +83,14 @@ public class IcebergRollbackToSnapshotAction extends BaseIcebergAction {
 
         try {
             Snapshot previousSnapshot = icebergTable.currentSnapshot();
-            long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : 0L;
+            Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
             if (previousSnapshot != null && previousSnapshot.snapshotId() == targetSnapshotId) {
                 return Lists.newArrayList(
                         String.valueOf(previousSnapshotId),
                         String.valueOf(targetSnapshotId)
                 );
             }
-
+            icebergTable.manageSnapshots().rollbackTo(targetSnapshotId).commit();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
             return Lists.newArrayList(

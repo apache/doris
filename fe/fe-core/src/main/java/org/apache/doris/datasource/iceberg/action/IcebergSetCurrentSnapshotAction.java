@@ -29,6 +29,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
+import com.amazonaws.services.dynamodbv2.xspec.L;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -91,7 +92,7 @@ public class IcebergSetCurrentSnapshotAction extends BaseIcebergAction {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
-        long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : 0L;
+        Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
 
         Long targetSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
         String ref = namedArguments.getString(REF);
