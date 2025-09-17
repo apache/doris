@@ -611,8 +611,8 @@ public class FEFunctionsTest {
     @Test
     public void subtractBigIntTest() throws AnalysisException {
         LargeIntLiteral actualResult = FEFunctions.subtractBigInt(
-                new LargeIntLiteral("170141183460469231731687303715884105727"),
-                new LargeIntLiteral("170141183460469231731687303715884105728"));
+                new LargeIntLiteral("170141183460469231731687303715884105726"),
+                new LargeIntLiteral("170141183460469231731687303715884105727"));
         LargeIntLiteral expectedResult = new LargeIntLiteral("-1");
         Assert.assertEquals(expectedResult, actualResult);
 
