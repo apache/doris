@@ -496,7 +496,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
 
-        const OlapReaderStatistics *stats = scanner_builder.builder_stats();
+        const OlapReaderStatistics* stats = scanner_builder.builder_stats();
         io::FileCacheProfileReporter cache_profile(_segment_profile.get());
         cache_profile.update(&stats->file_cache_stats);
 
