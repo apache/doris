@@ -189,7 +189,7 @@ void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg
 
     // Try to read existing versioned tablet stats
     TxnErrorCode err =
-            meta_reader.get_tablet_load_stats(tablet_id, &stats, &versionstamp, snapshot);
+            meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // If versioned stats doesn't exist, read from single version
         internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, stats, snapshot);

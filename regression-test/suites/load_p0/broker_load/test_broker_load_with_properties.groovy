@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_properties", "load_p0") {
+suite("test_broker_load_with_properties", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_load_with_properties"
 
@@ -60,9 +60,10 @@ suite("test_broker_load_with_properties", "load_p0") {
                             FORMAT as "${format}"
                             PROPERTIES ("num_as_string"="true")
                         )
-                        with BROKER "${brokerName}" (
+                        with HDFS (
                         "username"="${hdfsUser}",
-                        "password"="${hdfsPasswd}")
+                        "password"="${hdfsPasswd}",
+                        "fs.defaultFS"="${context.config.otherConfigs.get('hdfsFs')}")
                         PROPERTIES  (
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");

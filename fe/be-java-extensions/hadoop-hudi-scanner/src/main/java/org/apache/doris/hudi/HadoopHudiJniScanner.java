@@ -111,8 +111,13 @@ public class HadoopHudiJniScanner extends JniScanner {
 
         this.hudiColumnNames = params.get("hudi_column_names");
         this.hudiColumnTypes = params.get("hudi_column_types").split("#");
-        this.requiredFields = params.get("required_fields").split(",");
-
+        // Required fields will be empty when only partition fields are selected
+        // This is because partition fields are not stored in the data files
+        if (!params.get("required_fields").equals("")) {
+            this.requiredFields = params.get("required_fields").split(",");
+        } else {
+            this.requiredFields = new String[0];
+        }
         this.fieldInspectors = new ObjectInspector[requiredFields.length];
         this.structFields = new StructField[requiredFields.length];
         this.fsOptionsProps = Maps.newHashMap();
@@ -166,13 +171,19 @@ public class HadoopHudiJniScanner extends JniScanner {
                     if (!reader.next(key, value)) {
                         break;
                     }
-                    Object rowData = deserializer.deserialize(value);
-                    for (int i = 0; i < fields.length; i++) {
-                        Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
-                        columnValue.setRow(fieldData);
-                        columnValue.setField(types[i], fieldInspectors[i]);
-                        appendData(i, columnValue);
+                    if (fields.length > 0) {
+                        Object rowData = deserializer.deserialize(value);
+                        for (int i = 0; i < fields.length; i++) {
+                            Object fieldData = rowInspector.getStructFieldData(rowData, structFields[i]);
+                            columnValue.setRow(fieldData);
+                            columnValue.setField(types[i], fieldInspectors[i]);
+                            appendData(i, columnValue);
+                        }
                     }
+                }
+                // vectorTable is virtual
+                if (fields.length == 0) {
+                    vectorTable.appendVirtualData(numRows);
                 }
                 return numRows;
             });

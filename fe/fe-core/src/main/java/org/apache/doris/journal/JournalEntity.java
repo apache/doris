@@ -34,6 +34,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
+import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -792,16 +793,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_MTMV_JOB:
-            case OperationType.OP_CHANGE_MTMV_JOB:
-            case OperationType.OP_DROP_MTMV_JOB:
-            case OperationType.OP_CREATE_MTMV_TASK:
-            case OperationType.OP_CHANGE_MTMV_TASK:
-            case OperationType.OP_DROP_MTMV_TASK:
-            case OperationType.OP_ALTER_MTMV_STMT: {
-                isRead = true;
-                break;
-            }
             case OperationType.OP_DROP_CONSTRAINT:
             case OperationType.OP_ADD_CONSTRAINT: {
                 data = AlterConstraintLog.read(in);
@@ -993,6 +984,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_OPERATE_KEY: {
                 data = KeyOperationInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BEGIN_SNAPSHOT: {
+                data = SnapshotState.read(in);
                 isRead = true;
                 break;
             }

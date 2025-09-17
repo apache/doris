@@ -38,6 +38,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* type_info, io::FileWriter* file_writer)
@@ -123,7 +124,7 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
 
     PageFooterPB footer;
     footer.set_type(DATA_PAGE);
-    footer.set_uncompressed_size(page_body.slice().get_size());
+    footer.set_uncompressed_size(static_cast<uint32_t>(page_body.slice().get_size()));
     footer.mutable_data_page_footer()->set_first_ordinal(first_ordinal);
     footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
     footer.mutable_data_page_footer()->set_nullmap_size(0);
@@ -197,5 +198,6 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

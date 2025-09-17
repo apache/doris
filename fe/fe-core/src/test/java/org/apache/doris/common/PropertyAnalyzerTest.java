@@ -334,4 +334,32 @@ public class PropertyAnalyzerTest {
                     e.getMessage());
         }
     }
+
+    @Test
+    public void testAnalyzeVariantMaxSparseColumnStatisticsSize() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "-1");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "50001");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+        properties.clear();
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE, "invalid");
+        try {
+            PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(properties, 0);
+            Assertions.fail("Expected AnalysisException was not thrown");
+        } catch (AnalysisException e) {
+            Assertions.assertNotNull(e.getMessage());
+        }
+    }
 }

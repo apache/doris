@@ -63,6 +63,7 @@
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReader::ReadSource;
 
@@ -154,6 +155,7 @@ Status OlapScanner::prepare() {
     _score_runtime = local_state->_score_runtime;
 
     _score_runtime = local_state->_score_runtime;
+    // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
 
     // set limit to reduce end of rowset and segment mem use
@@ -623,6 +625,8 @@ void OlapScanner::update_realtime_counters() {
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
                         stats.file_cache_stats.bytes_read_from_remote);
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
                 stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
@@ -843,4 +847,5 @@ void OlapScanner::_collect_profile_before_close() {
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::vectorized

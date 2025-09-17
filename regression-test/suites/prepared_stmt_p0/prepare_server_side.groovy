@@ -74,7 +74,7 @@ suite("test_prepare_server_side") {
         qe_select1 stmt_read
 
         stmt_read = prepareStatement "select * from ${tableName} where k1 in (?, ?)"
-        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
+        assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
     }
 
     // test group commit

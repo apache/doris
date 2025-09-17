@@ -32,9 +32,27 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
     std::vector<const JsonbValue*> results;
     results.emplace_back(this);
 
+    if (path.is_supper_wildcard()) {
+        std::function<void(const JsonbValue*)> foreach_values;
+        foreach_values = [&](const JsonbValue* val) {
+            if (val->isObject()) {
+                for (const auto& it : *val->unpack<ObjectVal>()) {
+                    results.emplace_back(it.value());
+                    foreach_values(it.value());
+                }
+            } else if (val->isArray()) {
+                for (const auto& it : *val->unpack<ArrayVal>()) {
+                    results.emplace_back(&it);
+                    foreach_values(&it);
+                }
+            }
+        };
+        is_wildcard = true;
+        foreach_values(this);
+    }
+
     for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
-        values.assign(results.begin(), results.end());
-        results.clear();
+        values = std::move(results);
         for (const auto* pval : values) {
             switch (path.get_leg_from_leg_vector(i)->type) {
             case MEMBER_CODE: {

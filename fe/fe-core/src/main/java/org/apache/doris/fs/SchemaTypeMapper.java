@@ -65,6 +65,7 @@ public enum SchemaTypeMapper {
     OSS("oss", StorageProperties.Type.OSS, FileSystemType.S3, TFileType.FILE_S3),
     OBS("obs", StorageProperties.Type.OBS, FileSystemType.S3, TFileType.FILE_S3),
     COS("cos", StorageProperties.Type.COS, FileSystemType.S3, TFileType.FILE_S3),
+    GCS("gs", StorageProperties.Type.GCS, FileSystemType.S3, TFileType.FILE_S3),
     //MINIO("minio", StorageProperties.Type.MINIO),
     /*
      * Only secure protocols are supported to ensure safe access to Azure storage services.

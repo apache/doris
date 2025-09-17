@@ -42,6 +42,16 @@ class ExpressionRewriteSqlTest extends SqlTestBase {
                         logicalFilter().when(f -> f.getPredicate().toSql().equals(
                                 "OR[id IN (10, 20, 30, 300),(id = score),(id = (score + 10)),(id = (score + score))]"
                 )));
+
+        // if IN predicate compareExpr contains unique function, don't extract it.
+        sql = "select * from T1 where id + random(1, 10) in (score,  score + 10, score + score, score, 10, 20, 30, 100 + 200)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalFilter().when(f -> f.getPredicate().toSql().equals(
+                                "(id + random(1, 10)) IN ((score + 10), (score + score), 10, 20, 30, 300, score)"
+                        )));
     }
 
     @Test

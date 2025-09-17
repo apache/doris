@@ -18,10 +18,12 @@
 suite("distinct_split") {
     sql "set runtime_filter_mode = OFF"
     sql "set disable_join_reorder=true"
+    sql "set global enable_auto_analyze=false;"
+    sql "set be_number_for_test=1;"
     sql "drop table if exists test_distinct_multi"
     sql "create table test_distinct_multi(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi values(1,2,3,'abc','2024-01-02'),(1,2,4,'abc','2024-01-03'),(2,2,4,'abcd','2024-01-02'),(1,2,3,'abcd','2024-01-04'),(1,2,4,'eee','2024-02-02'),(2,2,4,'abc','2024-01-02');"
-
+    sql "analyze table test_distinct_multi with sync;"
     // first bit 0 means distinct 1 col, 1 means distinct more than 1 col; second bit 0 means without group by, 1 means with group by;
     // third bit 0 means there is 1 count(distinct) in projects, 1 means more than 1 count(distinct) in projects.
 
@@ -197,20 +199,84 @@ suite("distinct_split") {
     qt_has_other_func "explain shape plan select count(distinct b), count(distinct a), max(b),sum(c),min(a)  from test_distinct_multi"
     qt_2_agg """explain shape plan select max(c1), min(c2) from (select count(distinct a,b) c1, count(distinct a,c) c2 from test_distinct_multi group by c) t"""
 
-    // should not rewrite
     qt_multi_count_with_gby """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by c"""
     qt_multi_sum_with_gby """explain shape plan select sum(distinct b), sum(distinct a) from test_distinct_multi group by c"""
     qt_sum_count_with_gby """explain shape plan select sum(distinct b), count(distinct a) from test_distinct_multi group by a"""
     qt_has_grouping """explain shape plan select count(distinct b), count(distinct a) from test_distinct_multi group by grouping sets((a,b),(c));"""
-    test {
-        sql """select count(distinct a,b), count(distinct a) from test_distinct_multi
-        group by grouping sets((a,b),(c));"""
-        exception "The query contains multi count distinct or sum distinct, each can't have multi columns"
-    }
 
     //----------------test null hash join ------------------------
     sql "drop table if exists test_distinct_multi_null_hash;"
     sql "create table test_distinct_multi_null_hash(a int, b int, c int, d varchar(10), e date) distributed by hash(a) properties('replication_num'='1');"
     sql "insert into test_distinct_multi_null_hash values(1,null,null,null,'2024-12-08');"
     qt_null_hash "SELECT a, b, count(distinct c,e), count(distinct concat(d,e))/count(distinct e) FROM test_distinct_multi_null_hash where e = '2024-12-08' GROUP BY a, b;"
+
+    qt_same_distinct_arg "select sum(distinct b), count(distinct b) from test_distinct_multi;"
+    qt_same_distinct_arg_2group "select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"
+    qt_same_distinct_arg_shape """explain shape plan select sum(distinct b), count(distinct b) from test_distinct_multi;"""
+    qt_same_distinct_arg_2group_shape """explain shape plan select count(distinct b), sum(distinct a), count(distinct a) from test_distinct_multi;"""
+
+    multi_sql """drop table if exists sales_records;
+    CREATE TABLE sales_records (
+            region VARCHAR(20),
+                    city VARCHAR(20),
+            product_category VARCHAR(20),
+                    product_id INT,
+            sales_amount DECIMAL(10,2),
+                    sales_date DATE,
+            customer_id INT
+    ) DISTRIBUTED BY HASH(region) PROPERTIES('replication_num'='1');
+
+    -- 插入测试数据
+    INSERT INTO sales_records VALUES
+    ('North', 'Beijing', 'Electronics', 101, 1500.00, '2024-01-15', 1001),
+    ('North', 'Beijing', 'Electronics', 101, 1200.00, '2024-01-16', 1002),
+    ('North', 'Beijing', 'Clothing', 201, 800.00, '2024-01-15', 1003),
+    ('North', 'Tianjin', 'Electronics', 102, 2000.00, '2024-01-17', 1004),
+    ('North', 'Tianjin', 'Clothing', 202, 600.00, '2024-01-18', 1005),
+    ('South', 'Shanghai', 'Electronics', 103, 1800.00, '2024-01-16', 1006),
+    ('South', 'Shanghai', 'Electronics', 103, 1600.00, '2024-01-17', 1007),
+    ('South', 'Shanghai', 'Clothing', 203, 900.00, '2024-01-18', 1008),
+    ('South', 'Guangzhou', 'Electronics', 104, 2200.00, '2024-01-19', 1009),
+    ('South', 'Guangzhou', 'Clothing', 204, 750.00, '2024-01-20', 1010),
+    ('East', 'Nanjing', 'Electronics', 105, 1300.00, '2024-01-21', 1011),
+    ('East', 'Nanjing', 'Clothing', 205, 850.00, '2024-01-22', 1012);"""
+    sql "set multi_distinct_strategy=1;"
+    qt_use_multi_distinct """SELECT
+    region,
+    city,
+    product_category,
+    COUNT(DISTINCT customer_id) AS unique_customers,
+            COUNT(DISTINCT product_id) AS unique_products,
+            SUM(sales_amount) AS total_sales,
+            AVG(sales_amount) AS avg_sale_amount,
+            COUNT(*) AS total_transactions
+    FROM sales_records
+    GROUP BY GROUPING SETS (
+            (region, city),
+    (region, product_category),
+    (product_category),
+    ()
+    )
+    order by 1,2,3,4,5,6,7,8
+    ;"""
+
+    sql "set multi_distinct_strategy=2;"
+    qt_use_cte_split """SELECT
+    region,
+    city,
+    product_category,
+    COUNT(DISTINCT customer_id) AS unique_customers,
+            COUNT(DISTINCT product_id) AS unique_products,
+            SUM(sales_amount) AS total_sales,
+            AVG(sales_amount) AS avg_sale_amount,
+            COUNT(*) AS total_transactions
+    FROM sales_records
+    GROUP BY GROUPING SETS (
+            (region, city),
+    (region, product_category),
+    (product_category),
+    ()
+    )
+    order by 1,2,3,4,5,6,7,8
+    ;"""
 }

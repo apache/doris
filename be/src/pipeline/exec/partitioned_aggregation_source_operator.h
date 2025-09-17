@@ -49,6 +49,8 @@ public:
     template <bool spilled>
     void update_profile(RuntimeProfile* child_profile);
 
+    bool is_blockable() const override;
+
 protected:
     friend class PartitionedAggSourceOperatorX;
     std::unique_ptr<RuntimeState> _runtime_state;

@@ -21,6 +21,11 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_disable_load","nonConcurrent,p0") {
+    if (isCloudMode()) {
+        logger.info("skip test_disable_load case, because cloud mode not support")
+        return
+    }
+
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         // 1. send data

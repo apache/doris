@@ -27,6 +27,7 @@
 #include "bvar/bvar.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "olap/rowset/beta_rowset.h"
@@ -39,6 +40,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_size(
         "file_cache_event_driven_warm_up_requested_segment_size");
@@ -235,8 +237,9 @@ void CloudWarmUpManager::handle_jobs() {
                     // 1st. download segment files
                     submit_download_tasks(
                             storage_resource.value()->remote_segment_path(*rs, seg_id),
-                            rs->segment_file_size(seg_id), storage_resource.value()->fs,
-                            expiration_time, wait, false, [tablet, rs, seg_id](Status st) {
+                            rs->segment_file_size(cast_set<int>(seg_id)),
+                            storage_resource.value()->fs, expiration_time, wait, false,
+                            [tablet, rs, seg_id](Status st) {
                                 VLOG_DEBUG << "warmup rowset " << rs->version() << " segment "
                                            << seg_id << " completed";
                                 if (tablet->complete_rowset_segment_warmup(rs->rowset_id(), st) ==
@@ -249,9 +252,10 @@ void CloudWarmUpManager::handle_jobs() {
                     int64_t file_size = -1;
                     auto schema_ptr = rs->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
-                    const auto& idx_file_info = rs->inverted_index_file_info(seg_id);
+                    const auto& idx_file_info = rs->inverted_index_file_info(cast_set<int>(seg_id));
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                        auto&& inverted_index_info = rs->inverted_index_file_info(seg_id);
+                        auto&& inverted_index_info =
+                                rs->inverted_index_file_info(cast_set<int>(seg_id));
                         std::unordered_map<int64_t, int64_t> index_size_map;
                         for (const auto& info : inverted_index_info.index_info()) {
                             if (info.index_file_size() != -1) {
@@ -502,13 +506,13 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
                    << " tablets, tablet id=" << tablet_id << ", job_id=" << job_id;
 
         for (const auto& it : result.tablet_replica_infos) {
-            auto tablet_id = it.first;
+            auto tid = it.first;
             VLOG_DEBUG << "get_replica_info: got " << it.second.size()
-                       << " replica_infos, tablet id=" << tablet_id << ", job_id=" << job_id;
+                       << " replica_infos, tablet id=" << tid << ", job_id=" << job_id;
             for (const auto& replica : it.second) {
-                cache[tablet_id] = std::make_pair(std::chrono::steady_clock::now(), replica);
+                cache[tid] = std::make_pair(std::chrono::steady_clock::now(), replica);
                 replicas.push_back(replica);
-                LOG(INFO) << "get_replica_info: cache add, tablet_id=" << tablet_id
+                LOG(INFO) << "get_replica_info: cache add, tablet_id=" << tid
                           << ", job_id=" << job_id;
             }
         }
@@ -587,11 +591,12 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
         for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
             g_file_cache_event_driven_warm_up_requested_segment_num << 1;
             g_file_cache_event_driven_warm_up_requested_segment_size
-                    << rs_meta.segment_file_size(segment_id);
+                    << rs_meta.segment_file_size(cast_set<int>(segment_id));
 
             if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto&& inverted_index_info =
+                            rs_meta.inverted_index_file_info(cast_set<int>(segment_id));
                     if (inverted_index_info.index_info().empty()) {
                         VLOG_DEBUG << "No index info available for segment " << segment_id;
                         continue;
@@ -607,7 +612,8 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
                         }
                     }
                 } else { // InvertedIndexStorageFormatPB::V2
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto&& inverted_index_info =
+                            rs_meta.inverted_index_file_info(cast_set<int>(segment_id));
                     g_file_cache_event_driven_warm_up_requested_index_num << 1;
                     if (inverted_index_info.has_index_size()) {
                         g_file_cache_event_driven_warm_up_requested_index_size
@@ -704,4 +710,5 @@ void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

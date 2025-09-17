@@ -136,6 +136,7 @@ suite("test_ngram_bloomfilter_index_change") {
     // Drop index
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     // Test after dropping index
     profile("sql_select_like_with_ngram_index_light_mode_dropped") {
@@ -200,6 +201,7 @@ suite("test_ngram_bloomfilter_index_change") {
     // Add NGRAM Bloom Filter index (will trigger schema change in this mode)
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     // Test after adding NGRAM Bloom Filter index (should filter existing data)
     profile("sql_select_like_with_ngram_index_schema_change_mode_added") {
@@ -235,6 +237,7 @@ suite("test_ngram_bloomfilter_index_change") {
     // Drop index
     sql "DROP INDEX idx_ngram_customer_name ON ${tableName};"
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     // Test after dropping index
     profile("sql_select_like_with_ngram_index_schema_change_mode_dropped") {
@@ -282,6 +285,7 @@ suite("test_ngram_bloomfilter_index_change") {
     // Add ngram bf index before data insertion
     sql "ALTER TABLE ${tableName} ADD INDEX idx_ngram_customer_name(customer_name) USING NGRAM_BF PROPERTIES('bf_size' = '1024', 'gram_size' = '3');"
     wait_for_latest_op_on_table_finish(tableName, timeout)
+    wait_for_last_build_index_finish(tableName, timeout)
 
     // Insert data after index creation
     insertTestData()

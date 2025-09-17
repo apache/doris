@@ -28,6 +28,7 @@
 #include "io/cache/block_file_cache_factory.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 #include "common/compile_check_begin.h"
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
@@ -435,4 +436,5 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
     }
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

@@ -59,6 +59,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Getter
     @ConnectorProperty(names = {"cos.secret_key", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY"},
             required = false,
+            sensitive = true,
             description = "The secret key of COS.")
     protected String secretKey = "";
 
@@ -99,7 +100,6 @@ public class COSProperties extends AbstractS3CompatibleProperties {
      * Flag indicating whether to use path-style URLs for the object storage system.
      * This value is optional and can be configured by the user.
      */
-    @Setter
     @Getter
     @ConnectorProperty(names = {"cos.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
             description = "Whether to use path style URL for the storage.")
@@ -107,7 +107,6 @@ public class COSProperties extends AbstractS3CompatibleProperties {
 
     @ConnectorProperty(names = {"cos.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
             description = "Whether to use path style URL for the storage.")
-    @Setter
     @Getter
     protected String forceParsingByStandardUrl = "false";
 

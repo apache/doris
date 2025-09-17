@@ -47,4 +47,51 @@ suite("nereids_scalar_fn_U") {
     qt_sql_url_decode_empty "select url_decode('');"
     qt_sql_url_decode_null "select url_decode(null);"
     qt_sql_url_decode_invalid_url "select url_decode('This is not a url');"
+
+	def result = sql """select uniform(1, 100, random()*10000) from numbers("number" = "10");"""
+	assertTrue(result.size() == 10)
+	test {
+		sql """select uniform(100, 1, random()*10000) from numbers("number" = "10");"""
+		exception "uniform's min should be less than max"
+	}
+	test {
+		sql """select uniform(100, 1, 1) from numbers("number" = "10");"""
+		exception "The third parameter (gen) of uniform function must not be literal"
+	}
+	test {
+		sql """select uniform(100, 1, 1) from numbers("number" = "10");"""
+		exception "The third parameter (gen) of uniform function must not be literal"
+	}
+	sql "set enable_fold_constant_by_be=true;"
+	test {
+		sql """select uniform(100, 1, 1) from numbers("number" = "10");"""
+		exception "The third parameter (gen) of uniform function must not be literal"
+	}
+	sql "set enable_fold_constant_by_be=false;"
+	test {
+		sql """select uniform(ksint, 1, random()) from fn_test;"""
+		exception "The first parameter (min) of uniform function must be literal"
+	}
+	test {
+		sql """select uniform(1, kint, random()) from fn_test;"""
+		exception "The second parameter (max) of uniform function must be literal"
+	}
+	sql """ select uniform(1, 100, v.x) from (select random() * 10000 as x from numbers("number" = "10")) v; """
+	sql """ select uniform(1, 100, kdbl) from (select kdbl from fn_test) v; """
+	test {
+		sql """select uniform(1, kint, random()) from fn_test;"""
+		exception "The second parameter (max) of uniform function must be literal"
+	}
+	explain {
+		sql """select uniform(1, 100.100, random()*10000) as result from numbers("number" = "10");"""
+		checkSlotTypeOf("result", "double")
+	}
+	explain {
+		sql """select uniform(1.23, 100.100, random()*10000) as result from numbers("number" = "10");"""
+		checkSlotTypeOf("result", "double")
+	}
+	explain {
+		sql """select uniform(1, 100, random()*10000) as result from numbers("number" = "10");"""
+		checkSlotTypeOf("result", "bigint")
+	}
 }

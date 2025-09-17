@@ -23,12 +23,6 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-    def set_be_config = { key, value ->
-    for (String backend_id: backendId_to_backendIP.keySet()) {
-        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -45,13 +39,14 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             }
         }
 
-        set_be_config("variant_max_sparse_column_statistics_size", "2")
+        int max_sparse_column_statistics_size = 2
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
-            def var_def = "variant <'sala' : int, 'ddd' : double, 'z' : double>"
+            def var_def = "variant <MATCH_NAME 'sala' : int, MATCH_NAME 'ddd' : double, MATCH_NAME 'z' : double, properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")>"
             if (key_type == "AGGREGATE") {
-                var_def = "variant <'sala' : int, 'ddd' : double, 'z' : double> replace"
+                var_def = "variant <MATCH_NAME 'sala' : int, MATCH_NAME 'ddd' : double, MATCH_NAME 'z' : double, properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")> replace"
             }
+
             sql """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
                     k bigint,
@@ -61,6 +56,9 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
                 properties("replication_num" = "1", "disable_auto_compaction" = "true");
             """
+            def create_tbl_res = sql """ show create table ${tableName} """
+            logger.info("${create_tbl_res}")
+            assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
@@ -132,7 +130,8 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             order_qt_select "select * from ${tableName} order by k, cast(v as string) limit 5;"
         }
     } finally {
-        // set back to default
-        set_be_config("variant_max_sparse_column_statistics_size", "10000")
+        sql "DROP TABLE IF EXISTS simple_variant_DUPLICATE"
+        sql "DROP TABLE IF EXISTS simple_variant_UNIQUE"
+        sql "DROP TABLE IF EXISTS simple_variant_AGGREGATE"
     }
 }

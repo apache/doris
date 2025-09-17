@@ -72,8 +72,8 @@ public:
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
-                       const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                       io::IOContext* io_ctx);
+                       const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                       FileMetaCache* meta_cache);
     ~IcebergTableReader() override = default;
 
     Status init_row_filters() final;
@@ -161,9 +161,9 @@ public:
     IcebergParquetReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                          RuntimeState* state, const TFileScanRangeParams& params,
                          const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                         io::IOContext* io_ctx)
+                         io::IOContext* io_ctx, FileMetaCache* meta_cache)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx) {}
+                                 kv_cache, io_ctx, meta_cache) {}
     Status init_reader(
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
@@ -173,9 +173,6 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
-    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) final;
-
     void set_delete_rows() final {
         auto* parquet_reader = (ParquetReader*)(_file_format_reader.get());
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
@@ -184,10 +181,15 @@ public:
 protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) final {
-        return ParquetReader::create_unique(
-                _profile, _params, delete_desc, READ_DELETE_FILE_BATCH_SIZE,
-                const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx, _state);
+        return ParquetReader::create_unique(_profile, _params, delete_desc,
+                                            READ_DELETE_FILE_BATCH_SIZE,
+                                            const_cast<cctz::time_zone*>(&_state->timezone_obj()),
+                                            _io_ctx, _state, _meta_cache);
     }
+
+private:
+    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
+                                      DeleteFile* position_delete) final;
 };
 class IcebergOrcReader final : public IcebergTableReader {
 public:
@@ -198,9 +200,10 @@ public:
 
     IcebergOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,
-                     const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx)
+                     const TFileRangeDesc& range, ShardedKVCache* kv_cache, io::IOContext* io_ctx,
+                     FileMetaCache* meta_cache)
             : IcebergTableReader(std::move(file_format_reader), profile, state, params, range,
-                                 kv_cache, io_ctx) {}
+                                 kv_cache, io_ctx, meta_cache) {}
 
     void set_delete_rows() final {
         auto* orc_reader = (OrcReader*)_file_format_reader.get();
@@ -220,7 +223,8 @@ protected:
     std::unique_ptr<GenericReader> _create_equality_reader(
             const TFileRangeDesc& delete_desc) override {
         return OrcReader::create_unique(_profile, _state, _params, delete_desc,
-                                        READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx);
+                                        READ_DELETE_FILE_BATCH_SIZE, _state->timezone(), _io_ctx,
+                                        _meta_cache);
     }
 
 private:

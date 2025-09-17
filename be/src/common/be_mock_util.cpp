@@ -23,13 +23,15 @@
 #include <vector>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 void mock_random_sleep() {
     std::vector<int> sleepDurations = {0, 0, 0, 0, 50};
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, sleepDurations.size() - 1);
+    std::uniform_int_distribution<> dis(0, (int)sleepDurations.size() - 1);
 
     int sleepTime = sleepDurations[dis(gen)];
     std::this_thread::sleep_for(std::chrono::milliseconds(sleepTime));
 }
 } // namespace doris
+#include "common/compile_check_end.h"

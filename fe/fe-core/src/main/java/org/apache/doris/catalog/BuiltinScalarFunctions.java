@@ -19,16 +19,17 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Regexp;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMClassify;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMExtract;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFilter;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMFixGrammar;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMGenerate;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMMask;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSentiment;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSimilarity;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMSummarize;
-import org.apache.doris.nereids.trees.expressions.functions.llm.LLMTranslate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIClassify;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIExtract;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFilter;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFixGrammar;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIGenerate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIMask;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISentiment;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISimilarity;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISummarize;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AITranslate;
+import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
@@ -267,6 +268,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
@@ -304,8 +306,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -414,6 +418,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm3sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Decrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sm4Encrypt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Soundex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Space;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByChar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SplitByRegexp;
@@ -486,6 +491,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uniform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
@@ -761,6 +767,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonInsert.class, "json_insert", "jsonb_insert"),
             scalar(JsonReplace.class, "json_replace", "jsonb_replace"),
             scalar(JsonSet.class, "json_set", "jsonb_set"),
+            scalar(JsonRemove.class, "json_remove"),
             scalar(JsonbExistsPath.class, "json_exists_path"),
             scalar(JsonbExistsPath.class, "jsonb_exists_path"),
             scalar(JsonbExtract.class, "jsonb_extract", "json_extract"),
@@ -804,8 +811,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Ltrim.class, "ltrim"),
             scalar(LtrimIn.class, "ltrim_in"),
             scalar(MakeDate.class, "makedate"),
+            scalar(MapContainsEntry.class, "map_contains_entry"),
             scalar(MapContainsKey.class, "map_contains_key"),
             scalar(MapContainsValue.class, "map_contains_value"),
+            scalar(MapEntries.class, "map_entries"),
             scalar(MapKeys.class, "map_keys"),
             scalar(MapSize.class, "map_size"),
             scalar(MapValues.class, "map_values"),
@@ -917,6 +926,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Sm3sum.class, "sm3sum"),
             scalar(Sm4Decrypt.class, "sm4_decrypt"),
             scalar(Sm4Encrypt.class, "sm4_encrypt"),
+            scalar(Soundex.class, "soundex"),
             scalar(Space.class, "space"),
             scalar(SplitByChar.class, "split_by_char"),
             scalar(SplitByRegexp.class, "split_by_regexp"),
@@ -1024,16 +1034,18 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(LastQueryId.class, "last_query_id"),
             scalar(Compress.class, "compress"),
             scalar(Uncompress.class, "uncompress"),
-            scalar(LLMTranslate.class, "llm_translate"),
-            scalar(LLMSentiment.class, "llm_sentiment"),
-            scalar(LLMFilter.class, "llm_filter"),
-            scalar(LLMFixGrammar.class, "llm_fixgrammar"),
-            scalar(LLMExtract.class, "llm_extract"),
-            scalar(LLMGenerate.class, "llm_generate"),
-            scalar(LLMClassify.class, "llm_classify"),
-            scalar(LLMMask.class, "llm_mask"),
-            scalar(LLMSummarize.class, "llm_summarize"),
-            scalar(LLMSimilarity.class, "llm_similarity"));
+            scalar(AITranslate.class, "ai_translate"),
+            scalar(AISentiment.class, "ai_sentiment"),
+            scalar(AIFilter.class, "ai_filter"),
+            scalar(AIFixGrammar.class, "ai_fixgrammar"),
+            scalar(AIExtract.class, "ai_extract"),
+            scalar(AIGenerate.class, "ai_generate"),
+            scalar(AIClassify.class, "ai_classify"),
+            scalar(AIMask.class, "ai_mask"),
+            scalar(AISummarize.class, "ai_summarize"),
+            scalar(AISimilarity.class, "ai_similarity"),
+            scalar(Embed.class, "embed"),
+            scalar(Uniform.class, "uniform"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 

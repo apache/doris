@@ -20,7 +20,7 @@ suite("test_variant_predefine_base", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    def count = new Random().nextInt(5) + 1
+    def count = new Random().nextInt(5)
     def tableName = "base_match_name_variant_test"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (

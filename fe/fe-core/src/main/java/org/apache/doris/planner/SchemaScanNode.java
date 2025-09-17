@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -109,18 +110,25 @@ public class SchemaScanNode extends ScanNode {
     }
 
     private void setFeAddrList(TPlanNode msg) {
-        if (SchemaTable.isShouldFetchAllFe(tableName)) {
-            List<TNetworkAddress> feAddrList = new ArrayList();
-            if (ConnectContext.get().getSessionVariable().showAllFeConnection) {
+        List<TNetworkAddress> feAddrList = new ArrayList();
+        TableIf tableIf = desc.getTable();
+        // may be ExternalInfoSchemaTable
+        if (!(tableIf instanceof SchemaTable)) {
+            feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
+        } else {
+            SchemaTable table = (SchemaTable) tableIf;
+            if (table.shouldFetchAllFe()) {
                 List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
                 for (Frontend fe : feList) {
-                    feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    if (fe.isAlive()) {
+                        feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    }
                 }
             } else {
                 feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
             }
-            msg.schema_scan_node.setFeAddrList(feAddrList);
         }
+        msg.schema_scan_node.setFeAddrList(feAddrList);
     }
 
     @Override

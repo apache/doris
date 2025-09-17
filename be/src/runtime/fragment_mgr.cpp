@@ -448,7 +448,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
-                req.runtime_state->num_finished_range() > 0) {
+                rs->num_finished_range() > 0) {
                 params.__isset.load_counters = true;
                 num_rows_load_success += rs->num_rows_load_success();
                 num_rows_load_filtered += rs->num_rows_load_filtered();
@@ -740,8 +740,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
-                        if (params.__isset.llm_resources) {
-                            query_ctx->set_llm_resources(params.llm_resources);
+                        if (params.__isset.ai_resources) {
+                            query_ctx->set_ai_resources(params.ai_resources);
                         }
 
                         RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));

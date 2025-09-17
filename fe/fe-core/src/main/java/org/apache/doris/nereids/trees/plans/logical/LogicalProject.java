@@ -286,9 +286,4 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             builder.addDeps(expr.getInputSlots(), ImmutableSet.of(expr.toSlot()));
         }
     }
-
-    @Override
-    public boolean canProcessProject(List<NamedExpression> parentProjects) {
-        return canMergeParentProjections(parentProjects);
-    }
 }

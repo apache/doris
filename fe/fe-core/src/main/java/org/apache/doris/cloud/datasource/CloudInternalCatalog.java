@@ -167,13 +167,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
-            TInvertedIndexFileStorageFormat effectiveIndexStorageFormat =
-                        (Config.enable_new_partition_inverted_index_v2_format
-                                && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
-                                ? TInvertedIndexFileStorageFormat.V2
-                                : tbl.getInvertedIndexFileStorageFormat();
             for (Tablet tablet : index.getTablets()) {
-                // Use resolved format that considers global override for new partitions
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
@@ -186,7 +180,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        effectiveIndexStorageFormat,
+                        tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
@@ -1034,25 +1028,27 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.warn("replay update cloud replica, unknown table {}", info.toString());
             return;
         }
+        LOG.debug("replay update a cloud replica {}", info);
 
-        olapTable.writeLock();
         try {
             unprotectUpdateCloudReplica(olapTable, info);
         } catch (Exception e) {
             LOG.warn("unexpected exception", e);
-        } finally {
-            olapTable.writeUnlock();
         }
     }
 
     private void unprotectUpdateCloudReplica(OlapTable olapTable, UpdateCloudReplicaInfo info) {
-        LOG.debug("replay update a cloud replica {}", info);
         Partition partition = olapTable.getPartition(info.getPartitionId());
         if (partition == null) {
             LOG.warn("replay update cloud replica, unknown partition {}, may be dropped", info.toString());
             return;
         }
+
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
+        if (materializedIndex == null) {
+            LOG.warn("replay update cloud replica, unknown index {}, may be dropped", info.toString());
+            return;
+        }
 
         try {
             if (info.getTabletId() != -1) {

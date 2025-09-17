@@ -40,6 +40,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 namespace {
 bool _end_with(std::string_view str, std::string_view match) {
     return str.size() >= match.size() &&
@@ -241,4 +242,5 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
     return status;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // end namespace doris

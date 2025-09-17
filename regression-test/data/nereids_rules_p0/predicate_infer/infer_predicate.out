@@ -119,7 +119,7 @@ PhysicalResultSink
 
 -- !infer_predicate_with_aggregate --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.id > 70))
 --------PhysicalOlapScan[t]
@@ -170,7 +170,7 @@ PhysicalResultSink
 -- !infer_predicate_join_with_aggregate_having --
 PhysicalResultSink
 --filter((sum(score) > 140))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 --------PhysicalOlapScan[t]
 --------PhysicalOlapScan[t]
@@ -186,7 +186,7 @@ PhysicalResultSink
 
 -- !infer_predicate_join_with_distinct --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------filter((t1.score > 160))
 --------PhysicalOlapScan[t]
@@ -219,7 +219,7 @@ PhysicalResultSink
 -- !infer_predicate_aggregate_subquery --
 PhysicalResultSink
 --filter((t_agg.total > 30))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalOlapScan[t]
 
 -- !infer_predicate_join_with_function --
@@ -250,7 +250,7 @@ PhysicalResultSink
 
 -- !infer_predicate_multi_join_subquery_aggregate --
 PhysicalResultSink
---hashAgg[LOCAL]
+--hashAgg[GLOBAL]
 ----hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t.id)) otherCondition=()
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
@@ -283,7 +283,7 @@ PhysicalResultSink
 -- !infer_predicate_multi_join_with_having_clause --
 PhysicalResultSink
 --filter((sum(score) > 150))
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------PhysicalOlapScan[t]

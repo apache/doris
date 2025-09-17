@@ -86,6 +86,8 @@ public:
         int64_t column_read_time = 0;
         int64_t parse_meta_time = 0;
         int64_t parse_footer_time = 0;
+        int64_t file_footer_read_calls = 0;
+        int64_t file_footer_hit_cache = 0;
         int64_t open_file_time = 0;
         int64_t open_file_num = 0;
         int64_t row_group_filter_time = 0;
@@ -102,11 +104,14 @@ public:
                   bool enable_lazy_mat = true);
 
     ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                  io::IOContext* io_ctx, RuntimeState* state, bool enable_lazy_mat = true);
+                  io::IOContext* io_ctx, RuntimeState* state, FileMetaCache* meta_cache = nullptr,
+                  bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
+#ifdef BE_TEST
     // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
+#endif
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -143,9 +148,6 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
-    // Only for iceberg reader to sanitize invalid column names
-    void iceberg_sanitize(const std::vector<std::string>& read_columns);
-
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
@@ -179,11 +181,12 @@ private:
         RuntimeProfile::Counter* open_file_time = nullptr;
         RuntimeProfile::Counter* open_file_num = nullptr;
         RuntimeProfile::Counter* row_group_filter_time = nullptr;
+        RuntimeProfile::Counter* page_index_read_calls = nullptr;
         RuntimeProfile::Counter* page_index_filter_time = nullptr;
         RuntimeProfile::Counter* read_page_index_time = nullptr;
         RuntimeProfile::Counter* parse_page_index_time = nullptr;
-
-        RuntimeProfile::Counter* file_meta_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
         RuntimeProfile::Counter* decompress_time = nullptr;
         RuntimeProfile::Counter* decompress_cnt = nullptr;
         RuntimeProfile::Counter* decode_header_time = nullptr;
@@ -241,7 +244,6 @@ private:
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_other_children_is_literal(const VExprSPtr& expr);
 
-private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -257,7 +259,7 @@ private:
     // after _file_reader. Otherwise, there may be heap-use-after-free bug.
     ObjLRUCache::CacheHandle _meta_cache_handle;
     std::unique_ptr<FileMetaData> _file_metadata_ptr;
-    FileMetaData* _file_metadata = nullptr;
+    const FileMetaData* _file_metadata = nullptr;
     const tparquet::FileMetaData* _t_metadata = nullptr;
 
     // _tracing_file_reader wraps _file_reader.
@@ -307,9 +309,6 @@ private:
     bool _closed = false;
     io::IOContext* _io_ctx = nullptr;
     RuntimeState* _state = nullptr;
-    // Cache to save some common part such as file footer.
-    // Maybe null if not used
-    FileMetaCache* _meta_cache = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
     const TupleDescriptor* _tuple_descriptor = nullptr;

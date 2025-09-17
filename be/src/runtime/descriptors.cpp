@@ -46,7 +46,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
@@ -423,7 +423,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
-    _num_slots = tuple_desc->slots().size();
+    _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -618,7 +618,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
         }
 
-        (*tbl)->_tbl_desc_map[tdesc.id] = desc;
+        (*tbl)->_tbl_desc_map[static_cast<int32_t>(tdesc.id)] = desc;
     }
 
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {
@@ -626,7 +626,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
 
         // fix up table pointer
         if (tdesc.__isset.tableId) {
-            desc->_table_desc = (*tbl)->get_table_descriptor(tdesc.tableId);
+            desc->_table_desc = (*tbl)->get_table_descriptor(static_cast<int32_t>(tdesc.tableId));
             DCHECK(desc->_table_desc != nullptr);
         }
 
@@ -693,5 +693,5 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

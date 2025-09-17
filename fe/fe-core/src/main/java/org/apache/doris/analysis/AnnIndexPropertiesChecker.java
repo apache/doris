@@ -78,6 +78,13 @@ public class AnnIndexPropertiesChecker {
                                 "ef_construction of ann index must be a positive integer, got: " + efConstruction);
                     }
                     break;
+                case "quantizer":
+                    String quantizer = properties.get(key);
+                    if (!quantizer.equals("flat") && !quantizer.equals("sq4") && !quantizer.equals("sq8")) {
+                        throw new AnalysisException(
+                                "only support ann index with quantizer flat, sq4 or sq8, got: " + quantizer);
+                    }
+                    break;
                 default:
                     throw new AnalysisException("unknown ann index property: " + key);
             }

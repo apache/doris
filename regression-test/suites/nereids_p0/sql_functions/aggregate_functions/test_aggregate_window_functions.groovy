@@ -184,11 +184,11 @@ suite("test_aggregate_window_functions") {
     order_qt_agg_window_bitmap_union_count "select id, bitmap_union_count(bitmap_from_string(user_ids)) over(partition by id) from test_aggregate_window_functions;"
 
     // collect_list
-    order_qt_agg_window_collect_list "select id, collect_list(user_ids) over(partition by id order by user_ids) from test_aggregate_window_functions;"
+    order_qt_agg_window_collect_list "select id, array_sort(collect_list(user_ids) over(partition by id order by user_ids)) from test_aggregate_window_functions order by id, id2;"
     // collect_set
-    order_qt_agg_window_collect_set "select id, collect_set(user_ids) over(partition by id order by user_ids) from test_aggregate_window_functions;"
+    order_qt_agg_window_collect_set "select id, array_sort(collect_set(user_ids) over(partition by id order by user_ids)) from test_aggregate_window_functions order by id, id2;"
     // array_agg
-    order_qt_agg_window_array_agg "select id, array_agg(user_ids) over(partition by id order by user_ids) from test_aggregate_window_functions;"
+    order_qt_agg_window_array_agg "select id, array_sort(array_agg(user_ids) over(partition by id order by user_ids)) from test_aggregate_window_functions order by id, id2;"
 
     // group_concat
     order_qt_agg_window_group_concat "select id, group_concat(user_ids) over(partition by id order by user_ids) from test_aggregate_window_functions;"
@@ -518,5 +518,9 @@ suite("test_aggregate_window_functions") {
     order_qt_agg_window_window_funnel """
         select user_id, window_funnel(3600, "fixed", event_timestamp, event_name = '登录', event_name = '访问', event_name = '下单', event_name = '付款') over(partition by user_id) from test_aggregate_window_functions;
     """
+    test {
+        sql """select user_id, window_funnel(-1, "fixed", event_timestamp, event_name = '登录', event_name = '访问', event_name = '下单', event_name = '付款') over(partition by user_id) from test_aggregate_window_functions;"""
+        exception "the sliding time window must be a positive integer"
+    }
 
 }

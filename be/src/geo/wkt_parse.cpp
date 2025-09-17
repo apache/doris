@@ -26,6 +26,7 @@
 #include "geo/wkt_lex.l.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape) {
     WktParseContext ctx;
@@ -46,4 +47,5 @@ GeoParseStatus WktParse::parse_wkt(const char* str, size_t len, GeoShape** shape
     return ctx.parse_status;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

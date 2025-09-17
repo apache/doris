@@ -57,4 +57,21 @@ suite("test_variant_cast", "p0") {
     //qt_sql7 "select cast(var as json) from var_not_null_cast"
     sql """insert into var_not_null_cast values (1, '123')"""
     //qt_sql8 "select cast(var as json) from var_not_null_cast"
+    sql """insert into var_not_null_cast values (1, '{"aaa" : "aaa"}')"""
+    qt_sql9 "select * from var_not_null_cast where cast(var['aaa'] as int) is null"
+
+    sql "DROP TABLE IF EXISTS var_cast_decimal"
+    sql """
+        CREATE TABLE `var_cast_decimal` (
+            `k` int NULL,
+            `var` variant<'aaa': decimal(10, 2), properties("variant_enable_typed_paths_to_sparse" = "false")> NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+    sql """insert into var_cast_decimal values (1, '{"aaa" : 1.23}')"""
+    qt_sql10 "select * from var_cast_decimal where cast(var['aaa'] as decimal(10, 1)) = 1.2"
 }

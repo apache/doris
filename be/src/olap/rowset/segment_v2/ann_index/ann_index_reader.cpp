@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "io/io_common.h"
 #include "olap/rowset/segment_v2/ann_index/ann_index.h"
+#include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
 #include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
 #include "olap/rowset/segment_v2/ann_index/faiss_ann_index.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
@@ -58,6 +59,9 @@ AnnIndexReader::AnnIndexReader(const TabletIndex* index_meta,
     it = index_properties.find("metric_type");
     DCHECK(it != index_properties.end());
     _metric_type = string_to_metric(it->second);
+    it = index_properties.find(AnnIndexColumnWriter::DIM);
+    DCHECK(it != index_properties.end());
+    _dim = std::stoi(it->second);
 }
 
 Status AnnIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
@@ -189,7 +193,11 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
         result->roaring = search_result.roaring;
 
 #ifndef NDEBUG
-        if (params.is_le_or_lt == false) {
+        if (params.is_le_or_lt == false && _metric_type == AnnIndexMetric::L2) {
+            DCHECK(search_result.distances == nullptr);
+            DCHECK(search_result.row_ids == nullptr);
+        }
+        if (params.is_le_or_lt == true && _metric_type == AnnIndexMetric::IP) {
             DCHECK(search_result.distances == nullptr);
             DCHECK(search_result.row_ids == nullptr);
         }
@@ -219,6 +227,10 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
             static_cast<int64_t>(search_costs_ms));
 
     return Status::OK();
+}
+
+size_t AnnIndexReader::get_dimension() const {
+    return _dim;
 }
 
 } // namespace doris::segment_v2

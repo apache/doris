@@ -23,10 +23,6 @@
 
 #include "common/logging.h"
 
-namespace lucene::store {
-class Directory;
-} // namespace lucene::store
-
 namespace doris::segment_v2 {
 
 struct DirectoryDeleter {
@@ -37,6 +33,31 @@ struct TermDeleter {
     void operator()(lucene::index::Term* p) const { _CLDECDELETE(p); }
 };
 using TermPtr = std::unique_ptr<lucene::index::Term, TermDeleter>;
+
+template <typename... Args>
+TermPtr make_term_ptr(Args&&... args) {
+    return TermPtr(new lucene::index::Term(std::forward<Args>(args)...));
+}
+
+struct CLuceneDeleter {
+    void operator()(lucene::index::TermDocs* p) const {
+        if (p) {
+            _CLDELETE(p);
+        }
+    }
+};
+using TermDocsPtr = std::unique_ptr<lucene::index::TermDocs, CLuceneDeleter>;
+using TermPositionsPtr = std::unique_ptr<lucene::index::TermPositions, CLuceneDeleter>;
+
+template <typename... Args>
+TermDocsPtr make_term_doc_ptr(lucene::index::IndexReader* reader, Args&&... args) {
+    return TermDocsPtr(reader->termDocs(std::forward<Args>(args)...));
+}
+
+template <typename... Args>
+TermPositionsPtr make_term_positions_ptr(lucene::index::IndexReader* reader, Args&&... args) {
+    return TermPositionsPtr(reader->termPositions(std::forward<Args>(args)...));
+}
 
 struct ErrorContext {
     std::string err_msg;

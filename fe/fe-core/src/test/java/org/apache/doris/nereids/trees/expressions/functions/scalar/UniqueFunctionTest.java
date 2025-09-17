@@ -169,7 +169,8 @@ class UniqueFunctionTest extends SqlTestBase {
         Map<ExprId, Expression> exprIdToOriginExprMap = getExprIdToOriginExpressionMap(root);
 
         LogicalProject<?> project = (LogicalProject<?>) root.child(0);
-        Assertions.assertEquals(ImmutableList.of("a + random()", "a + random()",
+        Assertions.assertEquals(ImmutableList.of("(a + random()) AS `a + random()`",
+                        "(a + random()) AS `a + random()`",
                         "sum(a + random()) over(partition by a + random())", "sum(a + random()) over(partition by a + random())"),
                 toSqls(project.getProjects()));
         checkOutputDifferent(project, expressionSet, exprIdToOriginExprMap);
@@ -811,7 +812,8 @@ class UniqueFunctionTest extends SqlTestBase {
 
         LogicalProject<?> project = (LogicalProject<?>) root.child(0);
         Assertions.assertEquals(ImmutableList.of("a + random()", "a + random() + 1", "a + random() + 2",
-                        "sum(a + random())", "sum(a + random() + 1)", "sum(a + random() + 2)",
+                        "sum(a + random()) AS `sum(a + random())`", "sum(a + random() + 1) AS `sum(a + random() + 1)`",
+                        "sum((a + random() + cast(2 as DOUBLE))) AS `sum(a + random() + 2)`",
                         "sum(a + random()) over()", "sum(a + random() + 1) over()", "sum(a + random() + 2) over()"),
                 toSqls(project.getProjects()));
         Lists.transform(ImmutableList.of(0, 2, 3, 5, 6, 8), project.getProjects()::get).forEach(random0EqualValidator::checkRandomEqual);

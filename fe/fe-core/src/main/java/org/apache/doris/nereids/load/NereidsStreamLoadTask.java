@@ -95,6 +95,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
 
     private String groupCommit;
 
+    private boolean emptyFieldAsNull = false;
+
     /**
      * NereidsStreamLoadTask
      */
@@ -335,6 +337,15 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.streamPerNode = streamPerNode;
     }
 
+    @Override
+    public boolean getEmptyFieldAsNull() {
+        return emptyFieldAsNull;
+    }
+
+    public void setEmptyFieldAsNull(boolean emptyFieldAsNull) {
+        this.emptyFieldAsNull = emptyFieldAsNull;
+    }
+
     /**
      * fromTStreamLoadPutRequest
      */
@@ -499,6 +510,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         }
         if (request.isSetStreamPerNode()) {
             this.streamPerNode = request.getStreamPerNode();
+        }
+        if (request.isSetEmptyFieldAsNull()) {
+            emptyFieldAsNull = request.isEmptyFieldAsNull();
         }
     }
 

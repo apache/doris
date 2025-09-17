@@ -730,16 +730,17 @@ enum TCompoundType {
     NOT = 3,
 }
 
-struct TLLMResource {
+struct TAIResource {
   1: required string endpoint
   2: required string provider_type
   3: required string model_name
   4: optional string api_key
   5: optional double temperature
   6: optional i64 max_tokens
-  7: optional i64 max_retries
-  8: optional i64 retry_delay_second
+  7: optional i32 max_retries
+  8: optional i32 retry_delay_second
   9: optional string anthropic_version
+  10: optional i32 dimensions
 }
 
 struct TCondition {
@@ -823,7 +824,7 @@ struct TPipelineFragmentParams {
   43: optional Types.TNetworkAddress current_connect_fe
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
-  45: optional map<string, TLLMResource> llm_resources
+  45: optional map<string, TAIResource> ai_resources
 
   // For cloud
   1000: optional bool is_mow_table;

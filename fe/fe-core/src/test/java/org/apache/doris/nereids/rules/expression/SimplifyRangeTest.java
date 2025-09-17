@@ -109,7 +109,7 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
         assertRewrite("(TA < 1 or TA > 2) or (TA >= 0 and TA <= 3)", "TA IS NOT NULL OR NULL");
         assertRewrite("TA between 10 and 20 or TA between 100 and 120 or TA between 15 and 25 or TA between 115 and 125",
-                "TA between 10 and 25 or TA between 100 and 125");
+                "TA >= 10 and TA <= 25 or TA >= 100 and TA <= 125");
         assertRewriteNotNull("TA > 3 and TA > null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA < null", "TA > 3 and NULL");
         assertRewriteNotNull("TA > 3 and TA = null", "TA > 3 and NULL");
@@ -236,10 +236,17 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         assertRewrite("(TA + TC > 3 and TA + TC < 1) or TB < 5", "((TA + TC) is null and null) OR TB < 5");
 
         assertRewrite("(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1", "(TA + TC > 3 OR TA < 1) AND TB = 2 AND IA =1");
+        assertRewrite("SA = '20250101' and SA < '20200101'", "SA is null and null");
+        assertRewrite("SA > '20250101' and SA > '20260110'", "SA > '20260110'");
 
         // random is non-foldable, so the two random(1, 10) are distinct, cann't merge range for them.
-        Expression expr = rewrite("TA + random(1, 10) > 10 AND  TA + random(1, 10) < 1", Maps.newHashMap());
-        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) > 10),((cast(TA as BIGINT) + random(1, 10)) < 1)]", expr.toSql());
+        Expression expr = rewriteExpression("X + random(1, 10) > 10 AND  X + random(1, 10) < 1", true);
+        Assertions.assertEquals("AND[((X + random(1, 10)) > 10),((X + random(1, 10)) < 1)]", expr.toSql());
+
+        expr = rewrite("TA + random(1, 10) between 10 and 20", Maps.newHashMap());
+        Assertions.assertEquals("AND[((cast(TA as BIGINT) + random(1, 10)) >= 10),((cast(TA as BIGINT) + random(1, 10)) <= 20)]", expr.toSql());
+        expr = rewrite("TA + random(1, 10) between 20 and 10", Maps.newHashMap());
+        Assertions.assertEquals("AND[(cast(TA as BIGINT) + random(1, 10)) IS NULL,NULL]", expr.toSql());
     }
 
     @Test
@@ -437,6 +444,14 @@ public class SimplifyRangeTest extends ExpressionRewrite {
         expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
+    }
+
+    private Expression rewriteExpression(String expression, boolean nullable) {
+        Map<String, Slot> mem = Maps.newHashMap();
+        Expression needRewriteExpression = PARSER.parseExpression(expression);
+        needRewriteExpression = nullable ? replaceUnboundSlot(needRewriteExpression, mem) : replaceNotNullUnboundSlot(needRewriteExpression, mem);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
+        return executor.rewrite(needRewriteExpression, context);
     }
 
     private Expression replaceUnboundSlot(Expression expression, Map<String, Slot> mem) {

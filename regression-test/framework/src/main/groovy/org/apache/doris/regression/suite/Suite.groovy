@@ -1574,6 +1574,50 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def executeQueryByTag(String tag, Object arg) {
+        Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
+        
+        if (tag.contains("hive_docker")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(hivePrefix), (String) arg)
+        } else if (tag.contains("hive_remote")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+        } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+            tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                    (String) ("USE ${context.dbName};" + (String) arg))
+        } else if (tag.contains("target_sql")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getTargetConnection(this), (String) arg)
+        } else if (tag.contains("master_sql")) {
+            tupleResult = JdbcUtils.executeToStringList(context.getMasterConnection(), (String) arg)
+        } else {
+            tupleResult = JdbcUtils.executeToStringList(context.getConnection(), (String) arg)
+        }
+
+        def (realResults, meta) = tupleResult
+        return [realResults, meta]
+    }
+
+    // test results of two sqls are the same
+    void quickRunTest(String tag, Object arg1, Object arg2) {
+        def (realResults1, meta1) = executeQueryByTag(tag, arg1)
+        Iterator<List<Object>> realResultsIter1 = realResults1.iterator()
+
+        def (realResults2, meta2) = executeQueryByTag(tag, arg2)
+        Iterator<List<Object>> realResultsIter2 = realResults2.iterator()
+
+        String errorMsg = null
+        try {
+            errorMsg = OutputUtils.checkOutput(realResultsIter1.iterator(), realResultsIter2.iterator(),
+                { row -> OutputUtils.toCsvString(row) },
+                { row ->  OutputUtils.toCsvString(row) },
+                "Check tag '${tag}' failed", meta1, meta2)
+        } catch (Throwable t) {
+            throw new IllegalStateException("Check tag '${tag}' failed, sql1:\n${arg1}, sql2:\n${arg2}", t)
+        }
+        if (errorMsg != null) {
+            throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg1}")
+        }
+    }
+
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
         if (tag.contains("hive_docker")) {
@@ -1585,6 +1629,19 @@ class Suite implements GroovyInterceptable {
             sql = cleanedSqlStr
         }
         quickRunTest(tag, sql, isOrder)
+    }
+
+    void quickTest(String tag, String sql1, String sql2) {
+        logger.info("Execute tag: ${tag}, sql1: ${sql1}\nsql2: ${sql2}".toString())
+        if (tag.contains("hive_docker")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        if (tag.contains("hive_remote")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        quickRunTest(tag, sql1, sql2)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
@@ -1612,6 +1669,8 @@ class Suite implements GroovyInterceptable {
                 // do nothing
                 return null
             }
+        } else if (name.startsWith("check_sqls_result_equal")) {
+            return quickTest("check_sqls_result_equal", (args as Object[])[0] as String, (args as Object[])[1] as String)
         } else {
             // invoke origin method
             return metaClass.invokeMethod(this, name, args)
@@ -1739,7 +1798,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMVTaskFinishedByMvName(String dbName, String tableName, String indexName) {
         Thread.sleep(2000)
-        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC"
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
@@ -1748,12 +1807,7 @@ class Suite implements GroovyInterceptable {
         while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED')) {
             result = sql(showTasks)
             logger.info("crrent db is " + dbName + ", showTasks result: " + result.toString())
-            // just consider current db
-            for (List<String> taskRow : result) {
-                if (taskRow.get(5).equals(indexName)) {
-                    toCheckTaskRow = taskRow;
-                }
-            }
+            toCheckTaskRow = result.last()
             if (toCheckTaskRow.isEmpty()) {
                 logger.info("waitingMVTaskFinishedByMvName toCheckTaskRow is empty")
                 Thread.sleep(1000);
@@ -2566,7 +2620,7 @@ class Suite implements GroovyInterceptable {
 
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
-    def get_be_metric = { ip, port, field ->
+    def get_be_metric = { ip, port, field, type="" ->
         def metric_api = { request_body, check_func ->
             httpTest {
                 endpoint ip + ":" + port
@@ -2588,7 +2642,8 @@ class Suite implements GroovyInterceptable {
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
                 for (item : json) {
-                    if (item.tags.metric == field) {
+                    if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
+                        log.info("get be metric resp: ${item}".toString())
                         ret = item.value
                     }
                 }
@@ -2631,7 +2686,46 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def get_cluster = { be_unique_id , MetaService ms=null->
+    def add_vcluster = { cluster_name, cluster_id, active, standby ->
+        def jsonOutput = new JsonOutput()
+        def ci = [
+                     type: "VIRTUAL",
+                     cluster_name : cluster_name,
+                     cluster_id : cluster_id,
+                     cluster_names: [
+                        active,
+                        standby
+                     ],
+                     cluster_policy: [
+                         type: "ActiveStandby",
+                         active_cluster_name: active,
+                         standby_cluster_names: [
+                             standby
+                         ]
+                     ]
+                 ]
+        def map = [instance_id: "${instance_id}", cluster: ci]
+        def js = jsonOutput.toJson(map)
+        log.info("add cluster req: ${js} ".toString())
+
+        def add_cluster_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/add_cluster?token=${token}"
+                body request_body
+                check check_func
+            }
+        }
+
+        add_cluster_api.call(js) {
+            respCode, body ->
+                log.info("add cluster resp: ${body} ${respCode}".toString())
+                def json = parseJson(body)
+                assertTrue(json.code.equalsIgnoreCase("OK") || json.code.equalsIgnoreCase("ALREADY_EXISTED"))
+        }
+    }
+
+    def get_cluster = { be_unique_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def map = [instance_id: "${instance_id}", cloud_unique_id: "${be_unique_id}" ]
         def js = jsonOutput.toJson(map)
@@ -2670,7 +2764,6 @@ class Suite implements GroovyInterceptable {
     def drop_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
-                     type: "COMPUTE",
                      cluster_name : cluster_name,
                      cluster_id : cluster_id,
                      nodes: [
@@ -2874,7 +2967,85 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def rename_cloud_cluster = { cluster_name, cluster_id ->
+    def checkProfileNew = { fe, addrSet, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/rest/v1/query_profile"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() {
+            respCode, body ->
+                def json = parseJson(body)
+                assertTrue(json.msg.equalsIgnoreCase("success"))
+                log.info("lw query profile resp json : ${json}".toString())
+                log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
+                checkProfileByQueryId.call(fe, addrSet, json.data.rows[0]['Profile ID'], shouldContain)
+        }
+    }
+
+    def checkProfileByQueryId = { fe, addrSet, query_id, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
+        def query_profile_api = { check_func ->
+            httpTest {
+                op "get"
+                endpoint feEndPoint
+                uri "/api/profile?query_id=${query_id}"
+                check check_func
+                basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
+            }
+        }
+
+        query_profile_api.call() { respCode, body ->
+            def json = parseJson(body)
+            assertTrue(json.msg.equalsIgnoreCase("success"))
+
+            def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+            if (instanceLineMatcher.find()) {
+                // Extract the instance string section
+                def instancesStr = instanceLineMatcher.group(1).trim()
+                def instanceEntries = instancesStr.split(/\s*,\s*/)
+                def result = []
+
+                // Parse each instance entry (format like "10.1.1.1:9000:4") and extract IP:port
+                instanceEntries.each { entry ->
+                    def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                    if (matcher.matches()) {
+                        def ip = matcher.group(1)
+                        def port = matcher.group(2)
+                        result.add(ip + ":" + port)
+                    }
+                }
+
+                if (shouldContain) {
+                    // All items in result should exist in addrSet
+                    assertTrue(addrSet.containsAll(result),
+                        "Check failed: Some result addresses are missing in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Missing: ${result.findAll { !addrSet.contains(it) }}")
+                } else {
+                    // No item in result should exist in addrSet
+                    assertTrue(addrSet.intersect(result).isEmpty(),
+                        "Check failed: Some result addresses unexpectedly exist in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Overlap: ${addrSet.intersect(result)}")
+                }
+            } else {
+                log.info("Instance info not found in profile")
+            }
+        }
+    }
+
+    def rename_cloud_cluster = { cluster_name, cluster_id, MetaService ms=null ->
         def jsonOutput = new JsonOutput()
         def reqBody = [
                           cluster_name : cluster_name,
@@ -2886,7 +3057,11 @@ class Suite implements GroovyInterceptable {
 
         def rename_cluster_api = { request_body, check_func ->
             httpTest {
-                endpoint context.config.metaServiceHttpAddress
+                if (ms) {
+                    endpoint ms.host+':'+ms.httpPort
+                } else {
+                    endpoint context.config.metaServiceHttpAddress
+                }
                 uri "/MetaService/http/rename_cluster?token=${token}"
                 body request_body
                 check check_func

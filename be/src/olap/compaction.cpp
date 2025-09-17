@@ -86,7 +86,6 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-
 namespace {
 #include "common/compile_check_begin.h"
 
@@ -133,7 +132,8 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
           _enable_vertical_compact_variant_subcolumns(
-                  config::enable_vertical_compact_variant_subcolumns) {
+                  config::enable_vertical_compact_variant_subcolumns),
+          _enable_inverted_index_compaction(config::inverted_index_compaction_enable) {
     init_profile(label);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _rowid_conversion = std::make_unique<RowIdConversion>();
@@ -247,27 +247,7 @@ Status Compaction::merge_input_rowsets() {
     }
 
     //RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
-
-    // Now we support delete in cumu compaction, to make all data in rowsets whose version
-    // is below output_version to be delete in the future base compaction, we should carry
-    // all delete predicate in the output rowset.
-    // Output start version > 2 means we must set the delete predicate in the output rowset
-    if (_allow_delete_in_cumu_compaction && _output_rowset->version().first > 2) {
-        DeletePredicatePB delete_predicate;
-        std::accumulate(_input_rowsets.begin(), _input_rowsets.end(), &delete_predicate,
-                        [](DeletePredicatePB* delete_predicate, const RowsetSharedPtr& rs) {
-                            if (rs->rowset_meta()->has_delete_predicate()) {
-                                delete_predicate->MergeFrom(rs->rowset_meta()->delete_predicate());
-                            }
-                            return delete_predicate;
-                        });
-        // now version in delete_predicate is deprecated
-        if (!delete_predicate.in_predicates().empty() ||
-            !delete_predicate.sub_predicates_v2().empty() ||
-            !delete_predicate.sub_predicates().empty()) {
-            _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
-        }
-    }
+    set_delete_predicate_for_output_rowset();
 
     _local_read_bytes_total = _stats.bytes_read_from_local;
     _remote_read_bytes_total = _stats.bytes_read_from_remote;
@@ -284,6 +264,30 @@ Status Compaction::merge_input_rowsets() {
     return check_correctness();
 }
 
+void Compaction::set_delete_predicate_for_output_rowset() {
+    // Now we support delete in cumu compaction, to make all data in rowsets whose version
+    // is below output_version to be delete in the future base compaction, we should carry
+    // all delete predicate in the output rowset.
+    // Output start version > 2 means we must set the delete predicate in the output rowset
+    if (_output_rowset->version().first > 2 &&
+        (_allow_delete_in_cumu_compaction || is_index_change_compaction())) {
+        DeletePredicatePB delete_predicate;
+        std::accumulate(_input_rowsets.begin(), _input_rowsets.end(), &delete_predicate,
+                        [](DeletePredicatePB* delete_predicate, const RowsetSharedPtr& rs) {
+                            if (rs->rowset_meta()->has_delete_predicate()) {
+                                delete_predicate->MergeFrom(rs->rowset_meta()->delete_predicate());
+                            }
+                            return delete_predicate;
+                        });
+        // now version in delete_predicate is deprecated
+        if (!delete_predicate.in_predicates().empty() ||
+            !delete_predicate.sub_predicates_v2().empty() ||
+            !delete_predicate.sub_predicates().empty()) {
+            _output_rowset->rowset_meta()->set_delete_predicate(std::move(delete_predicate));
+        }
+    }
+}
+
 int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
@@ -292,11 +296,14 @@ int64_t Compaction::get_avg_segment_rows() {
     const auto& meta = _tablet->tablet_meta();
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
-        return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
-               (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+        // The output segment rows should be less than total input rows
+        return std::min((compaction_goal_size_mbytes * 1024 * 1024 * 2) /
+                                (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                        _input_row_num + 1);
     }
-    return config::vertical_compaction_max_segment_size /
-           (_input_rowsets_data_size / (_input_row_num + 1) + 1);
+    return std::min(config::vertical_compaction_max_segment_size /
+                            (_input_rowsets_data_size / (_input_row_num + 1) + 1),
+                    _input_row_num + 1);
 }
 
 CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
@@ -586,7 +593,7 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
 
 Status Compaction::do_inverted_index_compaction() {
     const auto& ctx = _output_rs_writer->context();
-    if (!config::inverted_index_compaction_enable || _input_row_num <= 0 ||
+    if (!_enable_inverted_index_compaction || _input_row_num <= 0 ||
         ctx.columns_to_do_index_compaction.empty()) {
         return Status::OK();
     }
@@ -1137,10 +1144,9 @@ Status CloudCompactionMixin::update_delete_bitmap() {
 
 Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (config::inverted_index_compaction_enable &&
-        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-           _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                _tablet->enable_unique_key_merge_on_write()) ||
+                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
     ctx.version = _output_version;
@@ -1344,6 +1350,7 @@ Status CompactionMixin::modify_rowsets() {
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowset",
                     { tablet()->delete_expired_stale_rowset(); });
+    _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
 
@@ -1435,7 +1442,12 @@ Status CloudCompactionMixin::build_basic_info() {
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
     std::transform(_input_rowsets.begin(), _input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
-    _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    if (is_index_change_compaction()) {
+        RETURN_IF_ERROR(rebuild_tablet_schema());
+    } else {
+        _cur_tablet_schema = _tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
+    }
+
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
@@ -1538,26 +1550,56 @@ Status CloudCompactionMixin::modify_rowsets() {
     return Status::OK();
 }
 
+Status CloudCompactionMixin::set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx) {
+    // Set storage resource from input rowsets by iterating backwards to find the first rowset
+    // with non-empty resource_id. This handles two scenarios:
+    // 1. Hole rowsets compaction: Multiple hole rowsets may lack storage resource.
+    //    Example: [0-1, 2-2, 3-3, 4-4, 5-5] where 2-5 are hole rowsets.
+    //    If 0-1 lacks resource_id, then 2-5 also lack resource_id.
+    // 2. Schema change: New tablet may have later version empty rowsets without resource_id,
+    //    but middle rowsets get resource_id after historical rowsets are converted.
+    //    We iterate backwards to find the most recent rowset with valid resource_id.
+
+    for (const auto& rowset : std::ranges::reverse_view(_input_rowsets)) {
+        const auto& resource_id = rowset->rowset_meta()->resource_id();
+
+        if (!resource_id.empty()) {
+            ctx.storage_resource = *DORIS_TRY(rowset->rowset_meta()->remote_storage_resource());
+            return Status::OK();
+        }
+
+        // Validate that non-empty rowsets (num_segments > 0) must have valid resource_id
+        // Only hole rowsets or empty rowsets are allowed to have empty resource_id
+        if (rowset->num_segments() > 0) {
+            auto error_msg = fmt::format(
+                    "Non-empty rowset must have valid resource_id. "
+                    "rowset_id={}, version=[{}-{}], is_hole_rowset={}, num_segments={}, "
+                    "tablet_id={}, table_id={}",
+                    rowset->rowset_id().to_string(), rowset->start_version(), rowset->end_version(),
+                    rowset->is_hole_rowset(), rowset->num_segments(), _tablet->tablet_id(),
+                    _tablet->table_id());
+
+#ifndef BE_TEST
+            DCHECK(false) << error_msg;
+#endif
+
+            return Status::InternalError<false>(error_msg);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx) {
     // only do index compaction for dup_keys and unique_keys with mow enabled
-    if (config::inverted_index_compaction_enable &&
-        (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-           _tablet->enable_unique_key_merge_on_write()) ||
-          _tablet->keys_type() == KeysType::DUP_KEYS))) {
+    if (_enable_inverted_index_compaction && (((_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                _tablet->enable_unique_key_merge_on_write()) ||
+                                               _tablet->keys_type() == KeysType::DUP_KEYS))) {
         construct_index_compaction_columns(ctx);
     }
 
-    // Use the storage resource of the previous rowset
-    // when multiple hole rowsets doing compaction, those rowsets may not have a storage resource.
-    // case:
-    // [0-1, 2-2, 3-3, 4-4, 5-5], 2-5 are hole rowsets.
-    //  0-1 current doesn't have a resource_id, so 2-5 also have no resource_id.
-    // Because there is no data to write, so we can skip setting the storage resource.
-    if (!_input_rowsets.back()->is_hole_rowset() ||
-        !_input_rowsets.back()->rowset_meta()->resource_id().empty()) {
-        ctx.storage_resource =
-                *DORIS_TRY(_input_rowsets.back()->rowset_meta()->remote_storage_resource());
-    }
+    // Use the storage resource of the previous rowset.
+    RETURN_IF_ERROR(set_storage_resource_from_input_rowsets(ctx));
 
     ctx.txn_id = boost::uuids::hash_value(UUIDGenerator::instance()->next_uuid()) &
                  std::numeric_limits<int64_t>::max(); // MUST be positive
@@ -1574,9 +1616,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
-    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
-                           (config::enable_file_cache_keep_base_compaction_output &&
-                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
+
+    ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
 
@@ -1603,12 +1644,20 @@ Status CloudCompactionMixin::garbage_collection() {
 }
 
 void CloudCompactionMixin::update_compaction_level() {
-    auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
-    auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
-    if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
-        int64_t compaction_level =
-                cumu_policy->get_compaction_level(cloud_tablet(), _input_rowsets, _output_rowset);
-        _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+    // for index change compaction, compaction level should not changed.
+    // because input rowset num is 1.
+    if (is_index_change_compaction()) {
+        DCHECK(_input_rowsets.size() == 1);
+        _output_rowset->rowset_meta()->set_compaction_level(
+                _input_rowsets.back()->rowset_meta()->compaction_level());
+    } else {
+        auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
+        auto cumu_policy = _engine.cumu_compaction_policy(compaction_policy);
+        if (cumu_policy && cumu_policy->name() == CUMULATIVE_TIME_SERIES_POLICY) {
+            int64_t compaction_level = cumu_policy->get_compaction_level(
+                    cloud_tablet(), _input_rowsets, _output_rowset);
+            _output_rowset->rowset_meta()->set_compaction_level(compaction_level);
+        }
     }
 }
 
@@ -1621,6 +1670,43 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
         }
     }
     return count;
+}
+
+bool CloudCompactionMixin::should_cache_compaction_output() {
+    if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        return true;
+    }
+
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+        double input_rowsets_hit_cache_ratio = 0.0;
+
+        int64_t _input_rowsets_cached_size =
+                _input_rowsets_cached_data_size + _input_rowsets_cached_index_size;
+        if (_input_rowsets_total_size > 0) {
+            input_rowsets_hit_cache_ratio =
+                    double(_input_rowsets_cached_size) / double(_input_rowsets_total_size);
+        }
+
+        LOG(INFO) << "CloudBaseCompaction should_cache_compaction_output"
+                  << ", tablet_id=" << _tablet->tablet_id()
+                  << ", input_rowsets_hit_cache_ratio=" << input_rowsets_hit_cache_ratio
+                  << ", _input_rowsets_cached_size=" << _input_rowsets_cached_size
+                  << ", _input_rowsets_total_size=" << _input_rowsets_total_size
+                  << ", enable_file_cache_keep_base_compaction_output="
+                  << config::enable_file_cache_keep_base_compaction_output
+                  << ", file_cache_keep_base_compaction_output_min_hit_ratio="
+                  << config::file_cache_keep_base_compaction_output_min_hit_ratio;
+
+        if (config::enable_file_cache_keep_base_compaction_output) {
+            return true;
+        }
+
+        if (input_rowsets_hit_cache_ratio >
+            config::file_cache_keep_base_compaction_output_min_hit_ratio) {
+            return true;
+        }
+    }
+    return false;
 }
 
 #include "common/compile_check_end.h"
