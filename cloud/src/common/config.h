@@ -377,4 +377,5 @@ CONF_Bool(enable_multi_version_status, "false");
 // The new instance snapshot switch status will be set to SNAPSHOT_SWITCH_ON, and the auto snapshot will be open.
 CONF_Bool(enable_cluster_snapshot, "false");
 
+CONF_mBool(enable_custom_aws_credentials_chain, "true");
 } // namespace doris::cloud::config
