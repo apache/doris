@@ -26,10 +26,8 @@ import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
 
-import java.util.List;
-import java.util.Map;
+import java.util.Collection;
 
 public class AsyncMvMetrics extends MvMetrics {
     // rewrite
@@ -84,12 +82,12 @@ public class AsyncMvMetrics extends MvMetrics {
         }
     }
 
-    public static void recordLastQueryTime(Map<List<String>, TableIf> tables) {
-        if (MapUtils.isEmpty(tables)) {
+    public static void recordLastQueryTime(Collection<TableIf> tables) {
+        if (CollectionUtils.isEmpty(tables)) {
             return;
         }
         long currentTimeMillis = System.currentTimeMillis();
-        for (TableIf tableIf : tables.values()) {
+        for (TableIf tableIf : tables) {
             if (tableIf instanceof MTMV) {
                 MTMV mtmv = (MTMV) tableIf;
                 mtmv.getAsyncMvMetrics().setLastQueryTime(currentTimeMillis);

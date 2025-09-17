@@ -246,7 +246,7 @@ public class NereidsPlanner extends Planner {
                 statementContext.getConnectContext().getExecutor().getSummaryProfile()
                         .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
             }
-            AsyncMvMetrics.recordLastQueryTime(statementContext.getTables());
+            AsyncMvMetrics.recordLastQueryTime(statementContext.getTables().values());
             return resultPlan;
         } finally {
             statementContext.releasePlannerResources();

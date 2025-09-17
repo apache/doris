@@ -1598,7 +1598,8 @@ public class Auth implements Writable {
             for (String col : entry.getValue()) {
                 ColInfo colInfo = new ColInfo(colPrivilegeKey.getCtl(), colPrivilegeKey.getDb(),
                         colPrivilegeKey.getTbl(), col);
-                colToPriv.getOrDefault(colInfo, Sets.newHashSet()).add(colPrivilegeKey.getPrivilegeIdx());
+                colToPriv.computeIfAbsent(colInfo, k -> Sets.newHashSet()).add(colPrivilegeKey.getPrivilegeIdx());
+
             }
         }
         return colToPriv;

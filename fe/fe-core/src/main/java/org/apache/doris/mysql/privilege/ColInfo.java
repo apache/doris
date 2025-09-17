@@ -25,11 +25,11 @@ public class ColInfo {
     private String table;
     private String col;
 
-    public ColInfo(String col, String ctl, String db, String table) {
-        this.col = col;
+    public ColInfo(String ctl, String db, String table, String col) {
         this.ctl = ctl;
         this.db = db;
         this.table = table;
+        this.col = col;
     }
 
     public String getCol() {

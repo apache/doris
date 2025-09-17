@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
@@ -831,6 +832,8 @@ public abstract class TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (parsed instanceof GrantTablePrivilegeCommand) {
             ((GrantTablePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
+        } else if (parsed instanceof GrantResourcePrivilegeCommand) {
+            ((GrantResourcePrivilegeCommand) parsed).run(connectContext, stmtExecutor);
         }
     }
 

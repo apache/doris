@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import java.util.List;
+import java.util.Objects;
 
 public class PrivObject {
     private String catalog;
@@ -72,5 +73,21 @@ public class PrivObject {
 
     public String getTable() {
         return table;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PrivObject that = (PrivObject) o;
+        return Objects.equals(catalog, that.catalog) && Objects.equals(database, that.database)
+                && Objects.equals(table, that.table) && Objects.equals(name, that.name)
+                && type == that.type && Objects.equals(privileges, that.privileges);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(catalog, database, table, name, type, privileges);
     }
 }
