@@ -1342,13 +1342,14 @@ Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
                 // Found the end of first array, check if there's content after it
                 if (i + 1 < size) {
                     return Status::DataQualityError(
-                        "Multiple JSON arrays detected. Please set 'read_json_by_line' to true.");
+                            "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
+                            "true.");
                 }
                 break;
             }
         }
     }
-    
+
     return Status::OK();
 }
 
