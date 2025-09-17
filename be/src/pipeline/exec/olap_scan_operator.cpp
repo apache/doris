@@ -87,11 +87,15 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
 
     // 2. init timer and counters
+    // Scanner builder stats
+    _scanner_builder_remote_io = ADD_COUNTER(_scanner_profile, "BuilderRemoteIO", TUnit::UNIT);
+    _scanner_builder_remote_bytes = ADD_COUNTER(_scanner_profile, "BuilderRemoteBytes", TUnit::BYTES);
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
@@ -493,7 +497,11 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
-
+        COUNTER_UPDATE(_scanner_builder_remote_io,
+                       scanner_builder.builder_stats()->file_cache_stats.num_remote_io_total);
+        COUNTER_UPDATE(_scanner_builder_remote_bytes,
+                       scanner_builder.builder_stats()->file_cache_stats.bytes_scanned_from_remote);
+        custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
         return Status::OK();
     }
 
