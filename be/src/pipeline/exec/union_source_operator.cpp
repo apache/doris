@@ -197,7 +197,9 @@ Status UnionSourceLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    _shared_state->data_queue.terminate();
+    if (_shared_state) {
+        _shared_state->data_queue.terminate();
+    }
     return Base::close(state);
 }
 
