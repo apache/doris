@@ -637,7 +637,9 @@ std::string BlockFileCache::clear_file_cache_async() {
                 ++num_cells_to_delete;
             }
         }
+        clear_need_update_lru_blocks();
     }
+
     std::stringstream ss;
     ss << "finish clear_file_cache_async, path=" << _cache_base_path
        << " num_files_all=" << num_files_all << " num_cells_all=" << num_cells_all
@@ -2211,6 +2213,14 @@ bool BlockFileCache::try_reserve_during_async_load(size_t size,
     return !_disk_resource_limit_mode || removed_size >= size;
 }
 
+void BlockFileCache::clear_need_update_lru_blocks() {
+    std::vector<FileBlockSPtr> buffer;
+    buffer.reserve(1024);
+    while (_need_update_lru_blocks.try_dequeue_bulk(buffer, buffer.capacity())) {
+        buffer.clear();
+    }
+}
+
 std::string BlockFileCache::clear_file_cache_directly() {
     _lru_dumper->remove_lru_dump_files();
     using namespace std::chrono;
@@ -2253,6 +2263,9 @@ std::string BlockFileCache::clear_file_cache_directly() {
     _normal_queue.clear(cache_lock);
     _disposable_queue.clear(cache_lock);
     _ttl_queue.clear(cache_lock);
+
+    clear_need_update_lru_blocks();
+
     ss << "finish clear_file_cache_directly"
        << " path=" << _cache_base_path
        << " time_elapsed_ms=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
