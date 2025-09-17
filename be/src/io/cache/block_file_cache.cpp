@@ -1041,10 +1041,10 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                     ? try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)
                     : false;
     if (!other_queue_success) {
-        VLOG_DEBUG << "Failed to reserve space after exhausting all eviction strategies: "
-                   << "query_limit_enable_evict_from_other_queue="
-                   << config::file_cache_query_limit_enable_evict_from_other_queue
-                   << ", hash=" << hash.to_string() << ", offset=" << offset << ", size=" << size;
+        LOG(WARNING) << "Failed to reserve space after exhausting all eviction strategies: "
+                     << "query_limit_enable_evict_from_other_queue="
+                     << config::file_cache_query_limit_enable_evict_from_other_queue
+                     << ", hash=" << hash.to_string() << ", offset=" << offset << ", size=" << size;
         return false;
     }
 
