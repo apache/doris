@@ -2135,11 +2135,11 @@ public class SchemaChangeHandler extends AlterHandler {
                         }
                     }
 
-                    if (indexDef.getPartitionNames().isEmpty()) {
+                    if (indexDef.getPartitionNamesInfo().isEmpty()) {
                         indexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                     } else {
                         indexOnPartitions.put(
-                                index.getIndexId(), new HashSet<>(indexDef.getPartitionNames()));
+                                index.getIndexId(), new HashSet<>(indexDef.getPartitionNamesInfo()));
                     }
 
                     alterIndexes.add(index);

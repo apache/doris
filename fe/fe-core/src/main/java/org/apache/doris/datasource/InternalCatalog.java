@@ -34,7 +34,6 @@ import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.SlotRef;
@@ -127,6 +126,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -3500,15 +3500,15 @@ public class InternalCatalog implements CatalogIf<Database> {
      * otherwise, it will only truncate those specified partitions.
      *
      */
-    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql)
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                              String rawTruncateSql)
             throws DdlException {
         // check, and save some info which need to be checked again later
         Map<String, Long> origPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         Map<Long, DistributionInfo> partitionsDistributionInfo = Maps.newHashMap();
         OlapTable copiedTbl;
 
-        boolean truncateEntireTable = partitionNames == null || partitionNames.isStar();
+        boolean truncateEntireTable = partitionNamesInfo == null || partitionNamesInfo.isStar();
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -3524,7 +3524,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             olapTable.checkNormalStateForAlter();
             if (!truncateEntireTable) {
-                for (String partName : partitionNames.getPartitionNames()) {
+                for (String partName : partitionNamesInfo.getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
@@ -3719,8 +3719,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNames);
-        LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNames);
+        Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, partitionNamesInfo);
+        LOG.info("finished to truncate table {}.{}, partitions: {}", dbName, tableName, partitionNamesInfo);
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,

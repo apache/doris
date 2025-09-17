@@ -125,7 +125,7 @@ public class BuildIndexClause extends AlterTableClause {
         }
         indexDef = new IndexDef(indexName, partitionNames, indexType, true);
         if (!table.isPartitionedTable()) {
-            List<String> specifiedPartitions = indexDef.getPartitionNames();
+            List<String> specifiedPartitions = indexDef.getPartitionNamesInfo();
             if (!specifiedPartitions.isEmpty()) {
                 throw new AnalysisException("table " + table.getName()
                     + " is not partitioned, cannot build index with partitions.");
