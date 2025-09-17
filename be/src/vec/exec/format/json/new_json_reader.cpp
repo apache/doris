@@ -1322,13 +1322,13 @@ Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
     if (size == 0) {
         return Status::OK();
     }
-    
+
     const char* data = reinterpret_cast<const char*>(_json_str);
-    
+
     // Find the first '[' and matching ']'
     size_t bracket_count = 0;
     size_t first_bracket_pos = std::string::npos;
-    
+
     for (size_t i = 0; i < size; ++i) {
         char c = data[i];
         if (c == '[') {
