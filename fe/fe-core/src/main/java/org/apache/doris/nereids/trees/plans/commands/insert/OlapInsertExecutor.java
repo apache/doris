@@ -99,24 +99,14 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 throw new BeginTransactionException("current running txns on db is larger than limit");
             }
             this.txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
-                    database.getId(), ImmutableList.of(table.getId()), labelName, null,
+                    database.getId(), ImmutableList.of(table.getId()), labelName,
                     new TxnCoordinator(TxnSourceType.FE, 0,
                             FrontendOptions.getLocalHostAddress(),
                             ExecuteEnv.getInstance().getStartupTime()),
-                    LoadJobSourceType.INSERT_STREAMING, getListenerId(), ctx.getExecTimeoutS());
+                    LoadJobSourceType.INSERT_STREAMING, ctx.getExecTimeoutS());
         } catch (Exception e) {
             throw new AnalysisException("begin transaction failed. " + e.getMessage(), e);
         }
-    }
-
-    private long getListenerId() {
-        long listenerId = -1;
-        StreamingInsertTask streamingInsertTask =
-                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getStreamingInsertTaskById(jobId);
-        if (streamingInsertTask != null) {
-            listenerId = streamingInsertTask.getJobId();
-        }
-        return listenerId;
     }
 
     @Override
@@ -199,6 +189,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
 
     @Override
     protected void onComplete() throws UserException {
+        setTxnCallbackId();
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
             try {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
@@ -231,6 +222,18 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                 List<Long> allTabletIds = ((OlapTable) table).getAllTabletIds();
                 StmtExecutor.syncLoadForTablets(backendsList, allTabletIds);
             }
+        }
+    }
+
+    private void setTxnCallbackId() {
+        TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(database.getId(), txnId);
+        if (state == null) {
+            throw new AnalysisException("txn does not exist: " + txnId);
+        }
+        StreamingInsertTask streamingInsertTask =
+                Env.getCurrentEnv().getJobManager().getStreamingTaskManager().getStreamingInsertTaskById(jobId);
+        if (streamingInsertTask != null) {
+            state.setCallbackId(streamingInsertTask.getJobId());
         }
     }
 
