@@ -29,6 +29,7 @@ import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -39,6 +40,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -65,6 +67,7 @@ public class StreamingInsertTask {
     private Offset runningOffset;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
     private StreamingJobProperties jobProperties;
+    private Map<String, String> originTvfProps;
     SourceOffsetProvider offsetProvider;
 
     public StreamingInsertTask(long jobId,
@@ -73,6 +76,7 @@ public class StreamingInsertTask {
                                SourceOffsetProvider offsetProvider,
                                String currentDb,
                                StreamingJobProperties jobProperties,
+                               Map<String, String> originTvfProps,
                                UserIdentity userIdentity) {
         this.jobId = jobId;
         this.taskId = taskId;
@@ -81,6 +85,7 @@ public class StreamingInsertTask {
         this.currentDb = currentDb;
         this.offsetProvider = offsetProvider;
         this.jobProperties = jobProperties;
+        this.originTvfProps = originTvfProps;
         this.labelName = getJobId() + LABEL_SPLITTER + getTaskId();
         this.createTimeMs = System.currentTimeMillis();
     }
@@ -118,8 +123,15 @@ public class StreamingInsertTask {
         StatementContext statementContext = new StatementContext();
         ctx.setStatementContext(statementContext);
 
-        this.runningOffset = offsetProvider.getNextOffset(jobProperties, jobProperties.getProperties());
-        this.taskCommand = offsetProvider.rewriteTvfParams(sql, runningOffset);
+        this.runningOffset = offsetProvider.getNextOffset(jobProperties, originTvfProps);
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+        StmtExecutor baseStmtExecutor =
+                new StmtExecutor(ctx, new LogicalPlanAdapter(baseCommand, ctx.getStatementContext()));
+        baseCommand.initPlan(ctx, baseStmtExecutor, false);
+        if (!baseCommand.getParsedPlan().isPresent()) {
+            throw new JobException("Can not get Parsed plan");
+        }
+        this.taskCommand = offsetProvider.rewriteTvfParams(baseCommand, runningOffset);
         this.taskCommand.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
         this.taskCommand.setJobId(getTaskId());
         this.stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(taskCommand, ctx.getStatementContext()));

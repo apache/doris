@@ -21,14 +21,18 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.PauseReason;
@@ -76,8 +80,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         TxnStateChangeCallback, GsonPostProcessable {
     private final long dbId;
     private StreamingJobStatistic jobStatistic = new StreamingJobStatistic();
-    @SerializedName("fm")
-    private FailMsg failMsg;
     @Getter
     protected PauseReason pauseReason;
     @Getter
@@ -87,7 +89,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Setter
     protected long autoResumeCount;
     @Getter
-    @SerializedName("jp")
+    @SerializedName("props")
+    private final Map<String, String> properties;
     private StreamingJobProperties jobProperties;
     @Getter
     @SerializedName("tvf")
@@ -110,26 +113,40 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             JobExecutionConfiguration jobConfig,
             Long createTimeMs,
             String executeSql,
-            StreamingJobProperties jobProperties) {
+            Map<String, String> properties) {
         super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
-        this.jobProperties = jobProperties;
+        this.properties = properties;
         init();
     }
 
     private void init() {
         try {
+            this.jobProperties = new StreamingJobProperties(properties);
+            jobProperties.validate();
+            // build time definition
+            JobExecutionConfiguration execConfig = getJobConfig();
+            TimerDefinition timerDefinition = new TimerDefinition();
+            timerDefinition.setInterval(jobProperties.getMaxIntervalSecond());
+            timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
+            timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
+            execConfig.setTimerDefinition(timerDefinition);
+
             UnboundTVFRelation currentTvf = getCurrentTvf();
+            this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
+        } catch (AnalysisException ae) {
+            log.warn("parse streaming insert job failed, props: {}", properties, ae);
+            throw new RuntimeException("parse streaming insert job failed, " +  ae.getMessage());
         } catch (Exception ex) {
             log.warn("init streaming insert job failed, sql: {}", getExecuteSql(), ex);
-            throw new RuntimeException("init streaming insert job failed, sql: " + getExecuteSql(), ex);
+            throw new RuntimeException("init streaming insert job failed, " +  ex.getMessage());
         }
     }
 
-    private UnboundTVFRelation getCurrentTvf() throws Exception {
+    private UnboundTVFRelation getCurrentTvf() {
         if (baseCommand == null) {
             this.baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(getExecuteSql());
         }
@@ -180,7 +197,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     protected StreamingInsertTask createStreamingInsertTask() {
         this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), getExecuteSql(),
-                offsetProvider, getCurrentDbName(), jobProperties, getCreateUser());
+                offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
         return runningStreamTask;
@@ -224,10 +241,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskFail(StreamingInsertTask task) throws JobException {
         try {
-            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-                this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
-            }
+          failedTaskCount.incrementAndGet();
+          Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
+          if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+              this.pauseReason = new PauseReason(InternalErrorCode.INTERNAL_ERR, task.getErrMsg());
+          }
         } finally {
             lock.writeLock().unlock();
         }
@@ -236,9 +254,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskSuccess(StreamingInsertTask task) {
         try {
+            succeedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             StreamingInsertTask nextTask = createStreamingInsertTask();
             this.runningStreamTask = nextTask;
+            //todo: maybe fetch from txn attachment?
+            offsetProvider.updateOffset(task.getRunningOffset());
         } finally {
             lock.writeLock().unlock();
         }
@@ -280,7 +301,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(getCreateUser().getQualifiedUser()));
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
-        trow.addToColumnValue(new TCell().setStringVal(getJobConfig().convertRecurringStrategyToString()));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
@@ -294,16 +315,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
+
         if (offsetProvider != null && offsetProvider.getRemoteOffset() != null) {
             trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getRemoteOffset()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
 
-        trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getRemoteOffset()));
         trow.addToColumnValue(new TCell().setStringVal(
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
-        trow.addToColumnValue(new TCell().setStringVal(failMsg == null ? FeConstants.null_string : failMsg.getMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(pauseReason == null ? FeConstants.null_string : pauseReason.getMsg()));
         return trow;
     }
 
@@ -369,7 +390,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-
     }
 
     @Override
@@ -420,7 +440,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
             throws UserException {
-
     }
 
     @Override
@@ -435,14 +454,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void replayOnVisible(TransactionState txnState) {
-
-
     }
 
     @Override
     public void gsonPostProcess() throws IOException {
-        if (offsetProvider == null) {
+        if (offsetProvider == null && tvfType != null) {
             offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(tvfType);
+        }
+
+        if (jobProperties == null && properties != null) {
+            jobProperties = new StreamingJobProperties(properties);
         }
     }
 }

@@ -159,8 +159,6 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
             Arrays.asList(
-                    props -> (isFsSupport(props, FS_HDFS_SUPPORT)
-                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
                     props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
                             || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
                             || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
@@ -181,7 +179,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
+                    props -> (isFsSupport(props, FS_HDFS_SUPPORT)
+                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {

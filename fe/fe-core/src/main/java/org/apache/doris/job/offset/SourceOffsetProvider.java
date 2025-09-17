@@ -62,7 +62,7 @@ public interface SourceOffsetProvider {
      * @param nextOffset
      * @return rewritten InsertIntoTableCommand
      */
-    InsertIntoTableCommand rewriteTvfParams(String executeSql, Offset nextOffset) throws Exception;
+    InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset);
 
     /**
      * Update the offset of the source.

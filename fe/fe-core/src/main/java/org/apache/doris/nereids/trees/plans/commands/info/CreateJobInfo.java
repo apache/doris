@@ -125,11 +125,8 @@ public class CreateJobInfo {
         // check its insert stmt,currently only support insert stmt
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         JobExecuteType executeType = intervalOptional.isPresent() ? JobExecuteType.RECURRING : JobExecuteType.ONE_TIME;
-        JobProperties properties = null;
         if (streamingJob) {
             executeType = JobExecuteType.STREAMING;
-            properties = new StreamingJobProperties(jobProperties);
-            properties.validate();
             jobExecutionConfiguration.setImmediate(true);
         }
         jobExecutionConfiguration.setExecuteType(executeType);
@@ -138,21 +135,18 @@ public class CreateJobInfo {
         if (executeType.equals(JobExecuteType.ONE_TIME)) {
             buildOnceJob(timerDefinition, jobExecutionConfiguration);
         } else if (executeType.equals(JobExecuteType.STREAMING)) {
-            buildStreamingJob(timerDefinition, properties);
+            buildStreamingJob(timerDefinition);
         } else {
             buildRecurringJob(timerDefinition, jobExecutionConfiguration);
         }
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        return analyzeAndCreateJob(executeSql, dbName, jobExecutionConfiguration, properties);
+        return analyzeAndCreateJob(executeSql, dbName, jobExecutionConfiguration, jobProperties);
     }
 
-    private void buildStreamingJob(TimerDefinition timerDefinition, JobProperties props)
-            throws AnalysisException {
-        StreamingJobProperties properties = (StreamingJobProperties) props;
-        timerDefinition.setInterval(properties.getMaxIntervalSecond());
+    private void buildStreamingJob(TimerDefinition timerDefinition) {
+        // timerDefinition.setInterval(properties.getMaxIntervalSecond());
         timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
         timerDefinition.setStartTimeMs(System.currentTimeMillis());
-        properties.validate();
     }
 
     /**
@@ -237,7 +231,7 @@ public class CreateJobInfo {
      */
     private AbstractJob analyzeAndCreateJob(String sql, String currentDbName,
                                             JobExecutionConfiguration jobExecutionConfiguration,
-                                            JobProperties properties) throws UserException {
+                                            Map<String, String> properties) throws UserException {
         if (jobExecutionConfiguration.getExecuteType().equals(JobExecuteType.STREAMING)) {
             return analyzeAndCreateStreamingInsertJob(sql, currentDbName, jobExecutionConfiguration, properties);
         } else {
@@ -271,13 +265,13 @@ public class CreateJobInfo {
     }
 
     private AbstractJob analyzeAndCreateStreamingInsertJob(String sql, String currentDbName,
-            JobExecutionConfiguration jobExecutionConfiguration, JobProperties properties) throws UserException {
+            JobExecutionConfiguration jobExecutionConfiguration, Map<String, String> properties) throws UserException {
         NereidsParser parser = new NereidsParser();
         LogicalPlan logicalPlan = parser.parseSingle(sql);
         if (logicalPlan instanceof InsertIntoTableCommand) {
-            // InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
+            InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
             try {
-                // insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
+                insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
                 return new StreamingInsertJob(labelNameOptional.get(),
                         JobStatus.PENDING,
                         currentDbName,
@@ -286,7 +280,7 @@ public class CreateJobInfo {
                         jobExecutionConfiguration,
                         System.currentTimeMillis(),
                         sql,
-                        (StreamingJobProperties) properties);
+                        properties);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }

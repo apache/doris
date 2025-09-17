@@ -30,7 +30,7 @@ import java.util.List;
 public class S3Offset implements Offset {
     String startFile;
     String endFile;
-    List<String> fileLists;
+    String fileLists;
 
     @Override
     public void setEndOffset(String endOffset) {
