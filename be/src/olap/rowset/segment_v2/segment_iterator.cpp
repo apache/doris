@@ -2419,8 +2419,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     nrows_read_limit = std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), nrows_read_limit);
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
-                                                            nrows_read_limit);
+            LOG(ERROR) << "nrows_read_limit: " << nrows_read_limit
+                       << ", _opts.topn_limit: " << _opts.topn_limit;
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
+                    nrows_read_limit, _opts.topn_limit);
         }
     })
 
@@ -2927,6 +2930,10 @@ bool SegmentIterator::_can_opt_topn_reads() {
         }
         return false;
     });
+
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "column_ids: " << _schema->column_ids().size() << ", all_true: " << all_true;
+    })
 
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_2", {
         if (all_true) {
