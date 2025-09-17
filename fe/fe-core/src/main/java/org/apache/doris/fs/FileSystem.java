@@ -124,7 +124,7 @@ public interface FileSystem {
      * @param fileNumLimit limit the total number of files to be listed.
      * @return
      */
-    default String globListWithLimit(String remotePath, List<String> result,
+    default String globListWithLimit(String remotePath, List<RemoteFile> result,
             String startFile, long fileSizeLimit, long fileNumLimit) {
         throw new UnsupportedOperationException("Unsupported operation glob list with limit on current file system.");
     }

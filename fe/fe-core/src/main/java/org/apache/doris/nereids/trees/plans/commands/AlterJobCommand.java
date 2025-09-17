@@ -22,13 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
-import org.apache.doris.job.base.JobExecutionConfiguration;
-import org.apache.doris.job.base.TimerDefinition;
-import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
-import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -81,25 +77,18 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
         if (job instanceof StreamingInsertJob) {
             StreamingInsertJob originJob = (StreamingInsertJob) job;
             String updateSQL = StringUtils.isEmpty(sql) ? originJob.getExecuteSql() : sql;
-            Map<String, String> updateProps = properties == null || properties.isEmpty() ? originJob.getJobProperties()
-                    .getProperties() : properties;
-            StreamingJobProperties streamJobProps = new StreamingJobProperties(updateProps);
-            // rebuild time definition
-            JobExecutionConfiguration execConfig = originJob.getJobConfig();
-            TimerDefinition timerDefinition = new TimerDefinition();
-            timerDefinition.setInterval(streamJobProps.getMaxIntervalSecond());
-            timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
-            timerDefinition.setStartTimeMs(execConfig.getTimerDefinition().getStartTimeMs());
-            execConfig.setTimerDefinition(timerDefinition);
+            Map<String, String> updateProps =
+                    properties == null || properties.isEmpty() ? originJob.getProperties() : properties;
+
             return new StreamingInsertJob(jobName,
                     job.getJobStatus(),
                     job.getCurrentDbName(),
                     job.getComment(),
                     ConnectContext.get().getCurrentUserIdentity(),
-                    execConfig,
+                    originJob.getJobConfig(),
                     System.currentTimeMillis(),
                     updateSQL,
-                    streamJobProps);
+                    updateProps);
         } else {
             throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
         }
@@ -117,7 +106,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
         if (job.getJobConfig().getExecuteType().equals(JobExecuteType.STREAMING)
                 && job instanceof StreamingInsertJob) {
             StreamingInsertJob streamingJob = (StreamingInsertJob) job;
-            boolean proCheck = checkProperties(streamingJob.getJobProperties().getProperties());
+            boolean proCheck = checkProperties(streamingJob.getProperties());
             boolean sqlCheck = checkSql(streamingJob.getExecuteSql());
             if (!proCheck && !sqlCheck) {
                 throw new AnalysisException("No properties or sql changed in ALTER JOB");

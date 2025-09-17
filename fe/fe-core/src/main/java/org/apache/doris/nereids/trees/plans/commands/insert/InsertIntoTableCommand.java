@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -103,6 +104,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private Optional<LogicalPlan> logicalQuery;
     private Optional<String> labelName;
     private Optional<String> branchName;
+    private Optional<Plan> parsedPlan;
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -151,6 +153,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    public Optional<Plan> getParsedPlan() {
+        return parsedPlan;
     }
 
     protected void setLogicalQuery(LogicalPlan logicalQuery) {
@@ -233,6 +239,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 throw new IllegalStateException(e.getMessage(), e);
             }
             insertExecutor = buildResult.executor;
+            parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
             if (!needBeginTransaction) {
                 return insertExecutor;
             }

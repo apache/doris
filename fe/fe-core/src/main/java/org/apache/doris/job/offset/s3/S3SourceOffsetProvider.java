@@ -19,20 +19,18 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
-import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.trees.expressions.Properties;
-import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
-import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import lombok.extern.log4j.Log4j2;
 
 import java.util.ArrayList;
@@ -40,12 +38,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     S3Offset currentOffset;
     String maxRemoteEndFile;
-    InsertIntoTableCommand baseCommand;
 
     @Override
     public String getSourceType() {
@@ -54,19 +52,29 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public S3Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties) {
+        Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        copiedProps.putAll(properties);
         S3Offset offset = new S3Offset();
-        List<String> rfiles = new ArrayList<>();
+        List<RemoteFile> rfiles = new ArrayList<>();
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         String filePath = null;
-        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
-            String uri = storageProperties.validateAndGetUri(properties);
+            String uri = storageProperties.validateAndGetUri(copiedProps);
             filePath = storageProperties.validateAndNormalizeUri(uri);
             maxRemoteEndFile = fileSystem.globListWithLimit(filePath, rfiles, startFile,
                     jobProps.getS3BatchFiles(), jobProps.getS3BatchSize());
             offset.setStartFile(startFile);
-            offset.setEndFile(rfiles.get(rfiles.size() - 1));
-            offset.setFileLists(rfiles);
+            //todo: The path may be in the form of bucket/dir/*/*,
+            // but currently only the case where the last segment is * is handled.
+            if (!rfiles.isEmpty()) {
+                String bucket = rfiles.get(0).getBucket();
+                String parentPath = rfiles.get(0).getParentPath();
+                String filePaths = rfiles.stream().map(RemoteFile::getName).collect(Collectors.joining(",", "{", "}"));
+                String finalFiles = String.format("s3://%s/%s/%s", bucket, parentPath, filePaths);
+                offset.setEndFile(String.format("s3://%s/%s/%s", bucket, parentPath, rfiles.get(rfiles.size() - 1).getName()));
+                offset.setFileLists(finalFiles);
+            }
         } catch (Exception e) {
             log.warn("list path exception, path={}", filePath, e);
             throw new RuntimeException(e);
@@ -93,23 +101,18 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(String executeSql, Offset runningOffset) throws Exception {
+    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset runningOffset) {
         S3Offset offset = (S3Offset) runningOffset;
         Map<String, String> props = new HashMap<>();
-        String finalUri = "{" + String.join(",", offset.getFileLists()) + "}";
-        props.put("uri", finalUri);
-        if (baseCommand == null) {
-            this.baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(executeSql);
-            this.baseCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
-        }
-
         // rewrite plan
-        Plan rewritePlan = baseCommand.getLogicalQuery().rewriteUp(plan -> {
-            if (plan instanceof LogicalTVFRelation) {
-                LogicalTVFRelation originTvfRel = (LogicalTVFRelation) plan;
-                LogicalTVFRelation newRvfRel = new LogicalTVFRelation(
-                        originTvfRel.getRelationId(), new S3(new Properties(props)), ImmutableList.of());
-                return newRvfRel;
+        Plan rewritePlan = originCommand.getParsedPlan().get().rewriteUp(plan -> {
+            if (plan instanceof UnboundTVFRelation) {
+                UnboundTVFRelation originTvfRel = (UnboundTVFRelation) plan;
+                Map<String, String> oriMap = originTvfRel.getProperties().getMap();
+                props.putAll(oriMap);
+                props.put("uri", offset.getFileLists());
+                return new UnboundTVFRelation(
+                        originTvfRel.getRelationId(), originTvfRel.getFunctionName(), new Properties(props));
             }
             return plan;
         });
@@ -120,14 +123,17 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void updateOffset(Offset offset) {
         this.currentOffset = (S3Offset) offset;
+        this.currentOffset.setFileLists(null);
     }
 
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
-        StorageProperties storageProperties = StorageProperties.createPrimary(properties);
+        Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        copiedProps.putAll(properties);
+        StorageProperties storageProperties = StorageProperties.createPrimary(copiedProps);
         String startFile = currentOffset == null ? null : currentOffset.endFile;
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
-            String uri = storageProperties.validateAndGetUri(properties);
+            String uri = storageProperties.validateAndGetUri(copiedProps);
             String filePath = storageProperties.validateAndNormalizeUri(uri);
             maxRemoteEndFile = fileSystem.globListWithLimit(filePath, new ArrayList<>(), startFile,
                     1, 1);

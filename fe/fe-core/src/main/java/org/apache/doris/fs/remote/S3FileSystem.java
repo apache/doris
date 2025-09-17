@@ -69,7 +69,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
-    public String globListWithLimit(String remotePath, List<String> result, String startFile,
+    public String globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.globListWithLimit(remotePath, result, startFile, fileSizeLimit, fileNumLimit);

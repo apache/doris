@@ -20,22 +20,31 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Properties;
+import org.apache.doris.nereids.trees.expressions.functions.table.S3;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropFunctionCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 
@@ -63,9 +72,27 @@ public class DropFunctionTest {
     public void testDropGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // 1. create database db1
-        String sql = "create database db1;";
+        //String sql = "create database db1;";
+        String sql = "insert into db1.tb select * from s3('url'='s3://a/*.csv')";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+        baseCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
+        Map<String, String> map = new HashMap<>();
+        map.put("url" ,"s3:/xxxx/*.");
+        // rewrite plan
+        Plan rewritePlan = baseCommand.getLogicalQuery().rewriteUp(plan -> {
+            if (plan instanceof LogicalTVFRelation) {
+                LogicalTVFRelation originTvfRel = (LogicalTVFRelation) plan;
+                LogicalTVFRelation newRvfRel = new LogicalTVFRelation(
+                        originTvfRel.getRelationId(), new S3(new Properties(map)), ImmutableList.of());
+                return newRvfRel;
+            }
+            return plan;
+        });
+        InsertIntoTableCommand s = new InsertIntoTableCommand((LogicalPlan) rewritePlan, Optional.empty(), Optional.empty(),
+                Optional.empty(), true, Optional.empty());
+
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         if (logicalPlan instanceof CreateDatabaseCommand) {
             ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);

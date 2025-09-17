@@ -17,9 +17,6 @@
 
 package org.apache.doris.job.base;
 
-import org.apache.doris.common.AnalysisException;
 
 public interface JobProperties {
-    default void validate() throws AnalysisException {
-    }
 }
