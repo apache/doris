@@ -492,10 +492,4 @@ public class MetaServiceClient {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .createInstance(request);
     }
-
-    public Cloud.GetStreamingTaskCommitAttachResponse
-            getStreamingTaskCommitAttach(Cloud.GetStreamingTaskCommitAttachRequest request) {
-        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .getStreamingTaskCommitAttach(request);
-    }
 }
