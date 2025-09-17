@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cloud/cloud_cumulative_compaction_policy.h"
-
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include "cloud/cloud_cumulative_compaction_policy.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/status.h"
