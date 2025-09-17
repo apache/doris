@@ -147,7 +147,7 @@ public:
                        int32_t segment_id, const SegmentStatistics& segment_stat);
 
     // CLOSE_LOAD
-    Status close_load(const std::vector<PTabletID>& tablets_to_commit);
+    Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
 
     // GET_SCHEMA
     Status get_schema(const std::vector<PTabletID>& tablets);
