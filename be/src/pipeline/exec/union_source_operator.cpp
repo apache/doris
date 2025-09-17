@@ -191,6 +191,16 @@ Status UnionSourceOperatorX::get_next_const(RuntimeState* state, vectorized::Blo
     return Status::OK();
 }
 
+Status UnionSourceLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+    if (_closed) {
+        return Status::OK();
+    }
+    _shared_state->data_queue.terminate();
+    return Base::close(state);
+}
+
 } // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris
