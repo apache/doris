@@ -72,7 +72,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 String parentPath = rfiles.get(0).getParentPath();
                 String filePaths = rfiles.stream().map(RemoteFile::getName).collect(Collectors.joining(",", "{", "}"));
                 String finalFiles = String.format("s3://%s/%s/%s", bucket, parentPath, filePaths);
-                offset.setEndFile(String.format("s3://%s/%s/%s", bucket, parentPath, rfiles.get(rfiles.size() - 1).getName()));
+                offset.setEndFile(
+                        String.format("s3://%s/%s/%s", bucket, parentPath, rfiles.get(rfiles.size() - 1).getName()));
                 offset.setFileLists(finalFiles);
             }
         } catch (Exception e) {

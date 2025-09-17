@@ -43,7 +43,6 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -238,11 +237,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     public void onStreamTaskFail(StreamingInsertTask task) throws JobException {
         try {
-          failedTaskCount.incrementAndGet();
-          Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-          if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-              this.pauseReason = new PauseReason(InternalErrorCode.INTERNAL_ERR, task.getErrMsg());
-          }
+            failedTaskCount.incrementAndGet();
+            Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
+            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                this.pauseReason = new PauseReason(InternalErrorCode.INTERNAL_ERR, task.getErrMsg());
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -321,7 +320,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         trow.addToColumnValue(new TCell().setStringVal(
                 jobStatistic == null ? FeConstants.null_string : jobStatistic.toJson()));
-        trow.addToColumnValue(new TCell().setStringVal(pauseReason == null ? FeConstants.null_string : pauseReason.getMsg()));
+        trow.addToColumnValue(
+                new TCell().setStringVal(pauseReason == null ? FeConstants.null_string : pauseReason.getMsg()));
         return trow;
     }
 
