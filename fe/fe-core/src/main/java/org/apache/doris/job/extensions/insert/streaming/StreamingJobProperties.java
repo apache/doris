@@ -24,7 +24,6 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 
 import java.util.HashMap;

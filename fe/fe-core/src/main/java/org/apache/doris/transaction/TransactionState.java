@@ -485,6 +485,10 @@ public class TransactionState implements Writable {
         return callbackId;
     }
 
+    public void setCallbackId(long callbackId) {
+        this.callbackId = callbackId;
+    }
+
     public long getTimeoutMs() {
         return timeoutMs;
     }
