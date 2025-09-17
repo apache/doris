@@ -1289,7 +1289,7 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         *size -= 3;
     }
 
-    if (!_read_json_by_line && _strip_outer_array) {
+    if (!_read_json_by_line && _strip_outer_array && _json_root.empty()) {
         RETURN_IF_ERROR(_check_multiple_json_arrays(*size));
     }
 
