@@ -28,6 +28,7 @@
 #include "io/cache/block_file_cache_factory.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 #include "common/compile_check_begin.h"
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
@@ -362,9 +363,8 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
             // inverted index
             auto schema_ptr = rs_meta.tablet_schema();
             auto idx_version = schema_ptr->get_inverted_index_storage_format();
-            bool has_inverted_index = schema_ptr->has_inverted_index();
 
-            if (has_inverted_index) {
+            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
                     std::unordered_map<int64_t, int64_t> index_size_map;
@@ -436,4 +436,5 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
     }
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris

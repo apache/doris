@@ -58,7 +58,7 @@ suite("ctas_aggregate_t1") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
         ) 
-        as select * from ${tbName};
+        select * from ${tbName};
              
      """
 

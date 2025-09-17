@@ -44,6 +44,27 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
     }
 
 
+    def test_topn_abs = {
+        def test_col_topn = { String col -> 
+            "qt_all_types_${col}_topn_abs_asc"  """ select  * from  parquet_alltypes_tiny_pages    order by abs(${col}) asc ,id asc limit 10; """
+            "qt_all_types_${col}_topn_abs_desc"  """ select * from  parquet_alltypes_tiny_pages    order by abs(${col}) asc ,id desc limit 10; """
+            }
+        test_col_topn("bool_col")         
+        test_col_topn("tinyint_col")     
+        test_col_topn("smallint_col")    
+        test_col_topn("int_col")         
+        test_col_topn("bigint_col")      
+        test_col_topn("float_col")       
+        test_col_topn("double_col")      
+        test_col_topn("id")              
+        test_col_topn("date_string_col") 
+        test_col_topn("string_col")      
+        test_col_topn("timestamp_col")   
+        test_col_topn("year")            
+        test_col_topn("month")  
+    }
+
+
 
 
 
@@ -73,6 +94,7 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
        }
         sql """ use ${ex_db_name}"""
         test_topn()
+        test_topn_abs()
 
        order_qt_schema_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
        order_qt_schema_2 """select * from ${catalog_name}.${ex_db_name}.parquet_delta_binary_packed order by int_value limit 1;"""

@@ -30,7 +30,7 @@ suite("delta_row", "nonConcurrent") {
     explain {
         sql "physical plan select * from t where k > 6"
         contains("stats=0,")
-        contains("stats=4 ")
+        contains("stats=4, ")
         // PhysicalResultSink[75] ( outputExprs=[k#0, v#1] )
         //     +--PhysicalFilter[72]@1 ( stats=0, predicates=(k#0 > 6) )
         //         +--PhysicalOlapScan[t]@0 ( stats=4 )
@@ -50,7 +50,7 @@ suite("delta_row", "nonConcurrent") {
         logger.info("rows not reported, test analyze rows + delta rows")
         assertTrue(stringResult.contains("stats=0.5,"))
         assertFalse(stringResult.contains("stats=0,"))
-        assertFalse(stringResult.contains("stats=4 "))
+        assertFalse(stringResult.contains("stats=4, "))
     } else {
         logger.info("rows reported, test use reported rows.")
         result = sql """show index stats t t"""

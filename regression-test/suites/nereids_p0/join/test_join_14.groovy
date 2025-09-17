@@ -183,29 +183,29 @@ suite("test_join_14", "nereids_p0") {
                  ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) order by 
                  isnull(ak1), 1, 2, 3, 4, isnull(bk1), 12, 13, 14, 15 limit 65535"""
 
-        def res67 = sql"""select * from ${tbName2} a left semi join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql67 = """select * from ${tbName2} a left semi join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
-        def res68 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql68 = """select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where b.k1 is not null order by a.k1, a.k2, a.k3"""
-        check2_doris(res67, res68)
+        check_sqls_result_equal(sql67, sql68)
 
-        def res69 = sql"""select * from ${tbName2} a right semi join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql69 = """select * from ${tbName2} a right semi join ${tbName1} b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
-        def res70 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql70 = """select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is not null order by b.k1, b.k2, b.k3"""
-        check2_doris(res69, res70)
+        check_sqls_result_equal(sql69, sql70)
 
-        def res71 = sql"""select * from ${tbName2} a left anti join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql71 = """select * from ${tbName2} a left anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
-        def res72 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql72 = """select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where b.k1 is null order by a.k1, a.k2, a.k3"""
-        check2_doris(res71, res72)
+        check_sqls_result_equal(sql71, sql72)
 
-        def res73 = sql"""select * from ${tbName2} a right anti join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql73 = """select * from ${tbName2} a right anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by b.k1, b.k2, b.k3"""
-        def res74 = sql"""select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
+        def sql74 = """select distinct b.* from ${tbName2} a right outer join ${tbName1} b on (a.${c} = b.${c}) 
                 where a.k1 is null order by b.k1, b.k2, b.k3"""
-        check2_doris(res73, res74)
+        check_sqls_result_equal(sql73, sql74)
     }
 
     sql "set runtime_filter_type='IN_OR_BLOOM_FILTER',runtime_filter_max_in_num=1,parallel_pipeline_task_num=2;"

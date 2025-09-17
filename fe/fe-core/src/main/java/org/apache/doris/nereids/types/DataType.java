@@ -84,6 +84,7 @@ public abstract class DataType {
                     .put(Type.DECIMAL256.getPrimitiveType(), DecimalV3Type.SYSTEM_DEFAULT)
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
+                    .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
                     .build();
         }
     }
@@ -355,6 +356,11 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "varbinary":
+                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
+                // dataType = VarBinaryType.INSTANCE;
+                // break;
+                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);
         }
@@ -403,6 +409,7 @@ public abstract class DataType {
             case JSONB: return JsonType.INSTANCE;
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
+            case VARBINARY: return VarBinaryType.INSTANCE;
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -451,7 +458,8 @@ public abstract class DataType {
                         .collect(ImmutableList.toImmutableList());
                 return new VariantType(variantFields,
                         ((org.apache.doris.catalog.VariantType) type).getVariantMaxSubcolumnsCount(),
-                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse());
+                        ((org.apache.doris.catalog.VariantType) type).getEnableTypedPathsToSparse(),
+                        ((org.apache.doris.catalog.VariantType) type).getVariantMaxSparseColumnStatisticsSize());
             }
             return VariantType.INSTANCE;
         } else {
@@ -610,6 +618,10 @@ public abstract class DataType {
         return this instanceof StringType;
     }
 
+    public boolean isVarBinaryType() {
+        return this instanceof VarBinaryType;
+    }
+
     public boolean isJsonType() {
         return this instanceof JsonType;
     }
@@ -700,6 +712,14 @@ public abstract class DataType {
         } else {
             return this;
         }
+    }
+
+    /**
+     * whether the element type in array can be calculated in array function
+     * @return true if the element type can be calculated
+     */
+    public boolean canBeCalculatedInArray() {
+        return isNumericType() || isBooleanType() || isStringLikeType() || isNullType();
     }
 
     /**

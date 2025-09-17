@@ -171,7 +171,7 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
     local_state->init_counters();
     local_state->_shared_state = shared_state.get();
-    shared_state->need_to_spill = true;
+    shared_state->is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
@@ -184,8 +184,6 @@ PartitionedHashJoinProbeLocalState* PartitionedHashJoinTestHelper::create_probe_
     local_state->_partitioned_blocks.resize(probe_operator->_partition_count);
     local_state->_probe_spilling_streams.resize(probe_operator->_partition_count);
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinProbeOperatorTestSpillDep", true);
     shared_state->spilled_streams.resize(probe_operator->_partition_count);
     shared_state->partitioned_build_blocks.resize(probe_operator->_partition_count);
 
@@ -205,7 +203,7 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
     shared_state = std::make_shared<MockPartitionedHashJoinSharedState>();
     local_state->init_spill_counters();
     local_state->_shared_state = shared_state.get();
-    shared_state->need_to_spill = true;
+    shared_state->is_spilled = true;
 
     ADD_TIMER(local_state->common_profile(), "ExecTime");
     local_state->common_profile()->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 0);
@@ -214,9 +212,6 @@ PartitionedHashJoinSinkLocalState* PartitionedHashJoinTestHelper::create_sink_lo
     local_state->_dependency = shared_state->create_sink_dependency(
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
-
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinSinkOperatorTestSpillDep", true);
 
     shared_state->spilled_streams.resize(sink_operator->_partition_count);
     shared_state->partitioned_build_blocks.resize(sink_operator->_partition_count);

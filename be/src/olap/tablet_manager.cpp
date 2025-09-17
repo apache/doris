@@ -801,6 +801,10 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
         }
 
+        if (current_compaction_score <= 0) {
+            return;
+        }
+
         // tablet should do single compaction
         if (current_compaction_score > single_compact_highest_score &&
             tablet_ptr->should_fetch_from_peer()) {

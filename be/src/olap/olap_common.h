@@ -382,6 +382,28 @@ struct OlapReaderStatistics {
     int64_t inverted_index_lookup_timer = 0;
     InvertedIndexStatistics inverted_index_stats;
 
+    int64_t ann_index_load_ns = 0;
+    int64_t ann_topn_search_ns = 0;
+    int64_t ann_index_topn_search_cnt = 0;
+
+    // Detailed timing for ANN operations
+    int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
+    int64_t ann_index_topn_result_process_ns = 0; // time spent processing TopN results
+    int64_t ann_index_topn_engine_convert_ns = 0; // time spent on FAISS-side conversions (TopN)
+    int64_t ann_index_topn_engine_prepare_ns =
+            0; // time spent preparing before engine search (TopN)
+    int64_t rows_ann_index_topn_filtered = 0;
+
+    int64_t ann_index_range_search_ns = 0;
+    int64_t ann_index_range_search_cnt = 0;
+    // Detailed timing for ANN Range search
+    int64_t ann_range_engine_search_ns = 0; // time spent in engine for range search
+    int64_t ann_range_pre_process_ns = 0;   // time spent preparing before engine search
+
+    int64_t ann_range_result_convert_ns = 0; // time spent processing range results
+    int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
+    int64_t rows_ann_index_range_filtered = 0;
+
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator
     int64_t filtered_segment_number = 0;
@@ -566,11 +588,11 @@ struct CalcDeleteBitmapTask {
 
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+    MowContext(int64_t version, int64_t txnid, std::shared_ptr<RowsetIdUnorderedSet> ids,
                std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
             : max_version(version),
               txn_id(txnid),
-              rowset_ids(ids),
+              rowset_ids(std::move(ids)),
               rowset_ptrs(std::move(rowset_ptrs)),
               delete_bitmap(std::move(db)) {}
 
@@ -581,7 +603,7 @@ struct MowContext {
 
     int64_t max_version;
     int64_t txn_id;
-    const RowsetIdUnorderedSet& rowset_ids;
+    std::shared_ptr<RowsetIdUnorderedSet> rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
 

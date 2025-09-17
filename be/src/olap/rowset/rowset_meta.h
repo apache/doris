@@ -21,12 +21,16 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -34,6 +38,7 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -61,11 +66,17 @@ public:
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
     MOCK_FUNCTION io::FileSystemSPtr fs();
 
+    io::FileSystemSPtr physical_fs();
+
     Result<const StorageResource*> remote_storage_resource();
 
     void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(const std::string& resource_id) {
+        _rowset_meta_pb.set_resource_id(resource_id);
+    }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -203,6 +214,15 @@ public:
     void set_creation_time(int64_t creation_time) {
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
+
+    int64_t stale_at() const {
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
+    }
+
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
+
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
 
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
@@ -405,6 +425,8 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
+    DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+    std::atomic<int64_t> _stale_at_s {0};
 };
 
 #include "common/compile_check_end.h"

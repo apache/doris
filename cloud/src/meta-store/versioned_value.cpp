@@ -145,22 +145,18 @@ TxnErrorCode versioned_get(Transaction* txn, std::string_view key, Versionstamp 
 TxnErrorCode versioned_batch_get(
         Transaction* txn, const std::vector<std::string>& keys, Versionstamp snapshot_version,
         std::vector<std::optional<std::pair<std::string, Versionstamp>>>* values, bool snapshot) {
-    // The snapshot version is exclusive, meaning we want to get the versions that are strictly
-    // less than the snapshot version. To achieve this, we need to use the previous versionstamp
-    // as the end key for the range get operation.
-    Versionstamp prev_version = Versionstamp::prev(snapshot_version);
-
-    std::vector<std::string> keys_with_versionstamp;
-    keys_with_versionstamp.reserve(keys.size());
+    std::vector<std::pair<std::string, std::string>> ranges;
+    ranges.reserve(keys.size());
     for (const auto& key : keys) {
-        keys_with_versionstamp.push_back(encode_versioned_key(key, prev_version));
+        ranges.emplace_back(encode_versioned_key(key, Versionstamp::min()),
+                            encode_versioned_key(key, snapshot_version));
     }
 
     Transaction::BatchGetOptions options;
     options.snapshot = snapshot;
     options.reverse = true; // Get the latest version first
     std::vector<std::optional<std::pair<std::string, std::string>>> key_value_pairs;
-    TxnErrorCode code = txn->batch_scan(&key_value_pairs, keys_with_versionstamp, options);
+    TxnErrorCode code = txn->batch_scan(&key_value_pairs, ranges, options);
     if (code != TxnErrorCode::TXN_OK) {
         return code;
     }

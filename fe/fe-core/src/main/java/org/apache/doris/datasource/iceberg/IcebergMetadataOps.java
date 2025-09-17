@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
@@ -42,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TagOptions;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -314,63 +314,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
-        try {
-            return executionAuthenticator.execute(() -> performCreateTable(stmt));
-        } catch (Exception e) {
-            throw new DdlException(
-                "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
-        }
-    }
-
-    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
-        String dbName = stmt.getDbName();
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
-        }
-        String tableName = stmt.getTableName();
-        // 1. first, check if table exist in remote
-        if (tableExist(db.getRemoteName(), tableName)) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tableName);
-                return true;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-        }
-        // 2. second, check fi table exist in local.
-        // This is because case sensibility issue, eg:
-        // 1. lower_case_table_name = 1
-        // 2. create table tbl1;
-        // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
-        //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
-        //    tbl1
-        ExternalTable dorisTable = db.getTableNullable(tableName);
-        if (dorisTable != null) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tableName);
-                return true;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-        }
-        List<Column> columns = stmt.getColumns();
-        List<StructField> collect = columns.stream()
-                .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
-                .collect(Collectors.toList());
-        StructType structType = new StructType(new ArrayList<>(collect));
-        Type visit =
-                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
-        Schema schema = new Schema(visit.asNestedType().asStructType().fields());
-        Map<String, String> properties = stmt.getProperties();
-        properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
-        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
-        return false;
-    }
-
-    @Override
     public void afterCreateTable(String dbName, String tblName) {
         Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
         if (db.isPresent()) {
@@ -460,18 +403,32 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                         // use current snapshot
                         Optional.ofNullable(icebergTable.currentSnapshot()).map(Snapshot::snapshotId).orElse(null));
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+        ManageSnapshots manageSnapshots;
+        try {
+            manageSnapshots = executionAuthenticator.execute(icebergTable::manageSnapshots);
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "Failed to create ManageSnapshots for table: " + icebergTable.name()
+                            + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
+        }
         String branchName = branchInfo.getBranchName();
         boolean refExists = null != icebergTable.refs().get(branchName);
         boolean create = branchInfo.getCreate();
         boolean replace = branchInfo.getReplace();
         boolean ifNotExists = branchInfo.getIfNotExists();
-
         Runnable safeCreateBranch = () -> {
-            if (snapshotId == null) {
-                manageSnapshots.createBranch(branchName);
-            } else {
-                manageSnapshots.createBranch(branchName, snapshotId);
+            try {
+                executionAuthenticator.execute(() -> {
+                    if (snapshotId == null) {
+                        manageSnapshots.createBranch(branchName);
+                    } else {
+                        manageSnapshots.createBranch(branchName, snapshotId);
+                    }
+                });
+            } catch (Exception e) {
+                throw new RuntimeException(
+                        "Failed to create branch: " + branchName + " in table: " + icebergTable.name()
+                                + ", error message is: {} " + ExceptionUtils.getRootCauseMessage(e), e);
             }
         };
 
@@ -497,7 +454,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         branchOptions.getRetention().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(branchName, n));
 
         try {
-            executionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(manageSnapshots::commit);
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace branch: " + branchName + " in table: " + icebergTable.name()
@@ -540,21 +497,23 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         boolean ifNotExists = tagInfo.getIfNotExists();
         boolean refExists = null != icebergTable.refs().get(tagName);
 
-        ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
-        if (create && replace && !refExists) {
-            manageSnapshots.createTag(tagName, snapshotId);
-        } else if (replace) {
-            manageSnapshots.replaceTag(tagName, snapshotId);
-        } else {
-            if (refExists && ifNotExists) {
-                return;
-            }
-            manageSnapshots.createTag(tagName, snapshotId);
-        }
 
-        tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
         try {
-            executionAuthenticator.execute(() -> manageSnapshots.commit());
+            executionAuthenticator.execute(() -> {
+                ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                if (create && replace && !refExists) {
+                    manageSnapshots.createTag(tagName, snapshotId);
+                } else if (replace) {
+                    manageSnapshots.replaceTag(tagName, snapshotId);
+                } else {
+                    if (refExists && ifNotExists) {
+                        return;
+                    }
+                    manageSnapshots.createTag(tagName, snapshotId);
+                }
+                tagOptions.getRetain().ifPresent(n -> manageSnapshots.setMaxRefAgeMs(tagName, n));
+                manageSnapshots.commit();
+            });
         } catch (Exception e) {
             throw new RuntimeException(
                     "Failed to create or replace tag: " + tagName + " in table: " + icebergTable.name()
@@ -570,13 +529,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         SnapshotRef snapshotRef = icebergTable.refs().get(tagName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                executionAuthenticator.execute(() -> manageSnapshots.removeTag(tagName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeTag(tagName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop tag: " + tagName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }
@@ -589,13 +550,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         SnapshotRef snapshotRef = icebergTable.refs().get(branchName);
 
         if (snapshotRef != null || !ifExists) {
-            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
             try {
-                executionAuthenticator.execute(() -> manageSnapshots.removeBranch(branchName).commit());
+                executionAuthenticator.execute(() -> {
+                    ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+                    manageSnapshots.removeBranch(branchName).commit();
+                });
             } catch (Exception e) {
                 throw new RuntimeException(
                         "Failed to drop branch: " + branchName + " in table: " + icebergTable.name()
-                        + ", error message is: " + e.getMessage(), e);
+                                + ", error message is: " + e.getMessage(), e);
             }
         }
     }

@@ -75,14 +75,14 @@ enum TimeUnit {
 };
 
 struct TimeInterval {
-    int64_t year;
-    int64_t month;
-    int64_t day;
-    int64_t hour;
-    int64_t minute;
-    int64_t second;
-    int64_t millisecond;
-    int64_t microsecond;
+    uint64_t year;
+    uint64_t month;
+    uint64_t day;
+    uint64_t hour;
+    uint64_t minute;
+    uint64_t second;
+    uint64_t millisecond;
+    uint64_t microsecond;
     bool is_neg;
 
     TimeInterval()
@@ -96,7 +96,7 @@ struct TimeInterval {
               microsecond(0),
               is_neg(false) {}
 
-    TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param)
+    TimeInterval(TimeUnit unit, uint64_t count, bool is_neg_param)
             : year(0),
               month(0),
               day(0),
@@ -174,7 +174,7 @@ constexpr int64_t SECOND_PER_HOUR = 3600;
 constexpr int64_t SECOND_PER_MINUTE = 60;
 constexpr int64_t MS_PER_SECOND = 1000 * 1000;
 
-inline constexpr int S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+inline constexpr uint8_t S_DAYS_IN_MONTH[13] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 constexpr size_t const_length(const char* str) {
     return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
@@ -508,6 +508,7 @@ public:
     uint8_t hour() const { return _hour; }
     uint8_t minute() const { return _minute; }
     uint16_t second() const { return _second; }
+    uint8_t microsecond() const { return 0; }
 
     int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;

@@ -49,6 +49,18 @@ STATEFULSET_NAME=${STATEFULSET_NAME}
 ENABLE_WORKLOAD_GROUP=${ENABLE_WORKLOAD_GROUP:-false}
 WORKLOAD_GROUP_PATH="/sys/fs/cgroup/cpu/doris"
 
+# enable_tls specify use tls connection or not.
+ENABLE_TLS=
+
+# tls_certificate_path specify the client certificate
+TLS_PRIVATE_KEY_PATH=
+
+# tls_certificate_path specify the path of public crt.
+TLS_CERTIFICATE_PATH=
+
+#tls_ca_certificate_path specify the path of root ca.
+TLS_CA_CERTIFICATE_PATH=
+
 log_stderr()
 {
     echo "[`date`] $@" >&2
@@ -84,9 +96,9 @@ update_conf_from_configmap()
             mv -f $tgt ${tgt}.bak
         fi
         if [[ "$conffile" == "be.conf" ]]; then
-             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
-             echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$file
-             ontinue
+             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$conffile
+             echo "deploy_mode = cloud" >> $DORIS_HOME/conf/$conffile
+             continue
          fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
     done
@@ -103,8 +115,20 @@ resolve_password_from_secret()
     fi
 }
 
+show_backends_with_tls(){
+    local svc=$1
+    backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    log_stderr "[info] use root no password show backends result $backends ."
+    if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show backends."
+        backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
+    fi
+
+    echo "$backends"
+}
+
 # get all backends info to check self exist or not.
-show_backends(){
+show_backends_with_no_tls(){
     local svc=$1
     backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
     log_stderr "[info] use root no password show backends result $backends ."
@@ -116,8 +140,16 @@ show_backends(){
     echo "$backends"
 }
 
-# get all registered fe in cluster, for check the fe have `MASTER`.
-function show_frontends()
+show_backends()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_backends_with_tls $1
+    else
+        show_backends_with_no_tls $1
+    fi
+}
+
+show_frontends_with_no_tls()
 {
     local addr=$1
     frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
@@ -130,13 +162,36 @@ function show_frontends()
     echo "$frontends"
 }
 
+show_frontends_with_tls()
+{
+    local addr=$1
+    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    log_stderr "[info] use root no password show frontends result $frontends ."
+    if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "[info] use username and password that configured to show frontends."
+        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
+    fi
+
+    echo "$frontends"
+}
+
+# get all registered fe in cluster, for check the fe have `MASTER`.
+function show_frontends()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        show_frontends_with_tls $1
+    else
+        show_frontends_with_no_tls $1
+    fi
+}
+
 #parse the `$BE_CONFIG` file, passing the key need resolve as parameter.
 parse_confval_from_conf()
 {
     # a naive script to grep given confkey from fe conf file
     # assume conf format: ^\s*<key>\s*=\s*<value>\s*$
     local confkey=$1
-    local confvalue=`grep "\<$confkey\>" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
+    local confvalue=`grep "^\s*$confkey" $BE_CONFIG | grep -v '^\s*#' | sed 's|^\s*'$confkey'\s*=\s*\(.*\)\s*$|\1|g'`
     echo "$confvalue"
 }
 
@@ -153,6 +208,51 @@ collect_env_info()
         MY_SELF=$MY_IP
     else
         MY_SELF=$MY_HOSTNAME
+    fi
+}
+
+parse_tls_connection_variables()
+{
+    ENABLE_TLS=$(parse_confval_from_conf "enable_tls")
+    TLS_PRIVATE_KEY_PATH=$(parse_confval_from_conf "tls_private_key_path")
+    TLS_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_certificate_path")
+    TLS_CA_CERTIFICATE_PATH=$(parse_confval_from_conf "tls_ca_certificate_path")
+}
+
+get_compute_group_name_with_tls()
+{
+    local pod_0_fqdn=$1
+    local fe_host=$2
+    local compute_group_name
+    if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --fe-host "${fe_host}" --user $DB_ADMIN_USER --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    else
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}"  --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --fe-host "${fe_host}" --user $DB_ADMIN_USER --password $DB_ADMIN_PASSWD --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    fi
+    echo $compute_group_name
+}
+
+get_compute_group_name_with_no_tls()
+{
+    local pod_0_fqdn=$1
+    local fe_host=$2
+    local compute_group_name
+    if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    else
+        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --password $DB_ADMIN_PASSWD --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
+    fi
+    echo $compute_group_name
+}
+
+get_compute_group_name_use_ctl()
+{
+    local pod_0_fqdn=$1
+    local fe_host=$2
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        get_compute_group_name_with_tls "$pod_0_fqdn" "$fe_host"
+    else
+        get_compute_group_name_with_no_tls "$pod_0_fqdn" "$fe_host"
     fi
 }
 
@@ -175,12 +275,7 @@ function get_compute_group_name()
     local pod_name=`echo $MY_HOSTNAME | awk -F'.' '{print $1}'`
     local pod_0_name=${STATEFULSET_NAME}"-0"
     local pod_0_fqdn=`echo $MY_HOSTNAME | sed "s|${pod_name}|${pod_0_name}|g"`
-    local compute_group_name=
-     if [[ "x$DB_ADMIN_PASSWD" == "x" ]]; then
-        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
-    else
-        compute_group_name=`./dorisctl get node "${pod_0_fqdn}" --fe-host "${fe_host}" --user $DB_ADMIN_USER --password $DB_ADMIN_PASSWD --query-port $FE_QUERY_PORT -o custom-columns=tag.compute_group_name`
-    fi
+    local compute_group_name=$(get_compute_group_name_use_ctl "$pod_0_fqdn" "$fe_host")
     if [[ "x$compute_group_name" != "x" ]];then
         log_stderr "use the first deployed pod's fqdn find the compute group name ${compute_group_name} ."
         COMPUTE_GROUP_NAME=${compute_group_name}
@@ -189,6 +284,75 @@ function get_compute_group_name()
        return 1
     fi
     return 0
+}
+
+create_account_with_no_tls()
+{
+    master=$1
+    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "created new account and grant NODE_PRIV!"
+}
+
+create_account_with_tls()
+{
+    master=$1
+    users=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
+        log_stderr "the 'root' account have set password! not need auto create management account."
+        return 0
+    fi
+    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
+       log_stderr "the $DB_ADMIN_USER have exist in doris."
+       return 0
+    fi
+    mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    log_stderr "created new account and grant NODE_PRIV!"
+}
+
+# create the adminastrater account when first deploying.
+function create_account()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        create_account_with_tls $1
+    else
+        create_account_with_no_tls $1
+    fi
+}
+
+add_self_as_backend_with_no_tls()
+{
+    local add_sql=$1
+     add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql"
+    fi
+}
+
+add_self_as_backend_with_tls()
+{
+    local add_sql=$1
+     add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
+        timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql"
+    fi
+}
+
+add_self_as_backend()
+{
+    if [[ "$ENABLE_TLS" == "true" ]]; then
+        add_self_as_backend_with_tls "$1"
+    else
+        add_self_as_backend_with_no_tls "$1"
+    fi
 }
 
 # add my self in fe, if config user and password not exist, create the account.
@@ -244,11 +408,8 @@ function first_deploy_start()
             fi
             create_account $leader
             log_stderr "[info] myself ($MY_SELF:$HEARTBEAT_PORT)  not exist in FE and fe have leader register myself into fe."
-            add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
-            if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-                timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql"
-            fi
-
+            # add self as backend node.
+            add_self_as_backend "$add_sql"
             let "expire=start+timeout"
             now=`date +%s`
             if [[ $expire -le $now ]] ; then
@@ -259,24 +420,6 @@ function first_deploy_start()
         log_stderr "[info] sleep 2s, next time to check myself in fe..."
         sleep $PROBE_INTERVAL
     done
-}
-
-# create the adminastrater account when first deploying.
-function create_account()
-{
-    master=$1
-    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
-    if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
-        log_stderr "the 'root' account have set password! not need auto create management account."
-        return 0
-    fi
-    if echo $users | awk '{print $1}' | grep -q -w "$DB_ADMIN_USER" &>/dev/null; then
-       log_stderr "the $DB_ADMIN_USER have exist in doris."
-       return 0
-    fi
-    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
-    log_stderr "created new account and grant NODE_PRIV!"
-
 }
 
 # check be exist or not, if exist return 0, or register self in fe cluster. when all fe address failed exit script.
@@ -367,6 +510,19 @@ mount_kerberos_config()
     done
 }
 
+function post_exit() {
+    local log_dir=`parse_confval_from_conf "LOG_DIR"`
+    if [[ x"$log_dir" == "x" ]]; then
+        log_dir="/opt/apache-doris/be/log"
+    fi
+
+    if ls | grep "core"  &>/dev/null; then
+        local log_replace_var_dir=`eval echo ${log_dir}`
+        `ls $log_replace_var_dir | grep "core" | xargs -I {} rm $log_replace_var_dir/{}`
+        `ls /opt/apache-doris/ | grep "core" | xargs -I {} mv {} $log_replace_var_dir`
+    fi
+}
+
 
 # scripts start position.
 fe_addrs=$1
@@ -394,11 +550,15 @@ add_workloadgroup_config
 mount_kerberos_config
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
+# parse tls connection variables, if config `enbale_tls=true`, use tls connection to manage node.
+parse_tls_connection_variables
 collect_env_info
 #add_self $fe_addr || exit $?
 check_and_register $fe_addrs
 ./doris-debug --component be
+ulimit -c unlimited
 log_stderr "run start_be.sh"
 # the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal
-# sine doris 2.0.2 ,doris start with : start_xx.sh --console  doc: https://doris.apache.org/docs/dev/install/standard-deployment/#version--202
 $DORIS_HOME/bin/start_be.sh --console
+log_stderr "run post_exit"
+post_exit

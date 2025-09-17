@@ -28,6 +28,7 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
+#include "util/asan_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -116,10 +117,11 @@ public:
         }
 
         string_vale = string_vale.trim();
-        auto format_str =
-                time_format_type::rewrite_specific_format(string_vale.data, string_vale.size);
+        // no need to rewrite, we choose implement by format_type. format_type's check has compatible logic about
+        // special format string.
+        auto format_str = StringRef(string_vale.data, string_vale.size);
         if (format_str.size > 128) {
-            //  exceeds the length limit.
+            // exceeds the length limit.
             state->is_valid = false;
             return IFunction::open(context, scope);
         }
@@ -181,6 +183,8 @@ public:
         }
 
         StringRef format(format_state->format_str);
+        auto result_row_length = std::visit([](auto type) { return decltype(type)::row_size; },
+                                            format_state->format_type);
 
         const auto& pod_array = col->get_data();
         const auto len = pod_array.size();
@@ -191,11 +195,11 @@ public:
             return Status::OK();
         }
         res_offsets.resize(len);
-        res_data.reserve(len * format.size + len);
+        res_data.reserve(len * result_row_length);
         null_map.resize_fill(len, false);
 
         if constexpr (IsDecimal) {
-            // FromUnixTimeDecimalImpl
+            // FromUnixTimeDecimalImpl. may use UserDefinedImpl or yyyy_MM_dd_HH_mm_ss_SSSSSSImpl.
             size_t offset = 0;
             if (format_state->format_str == time_format_type::DEFAULT_FORMAT_DECIMAL) {
                 for (int i = 0; i < len; ++i) {

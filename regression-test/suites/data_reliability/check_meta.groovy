@@ -28,7 +28,23 @@ suite("check_meta", "data_reliability,p3") {
         List<List<Object>> tableRes = sql """ show tables from ${db} """
         for (tableRow : tableRes) {
             def table = tableRow[0]
-            def createTableSql = sql """ show create table ${db}.`${table}` """
+            def createTableSql
+            try {
+                createTableSql = sql "show create table ${db}.${table}"
+            } catch (Exception e) {
+                if (e.getMessage().contains("not support async materialized view")) {
+                    try {
+                        createTableSql = sql "show create materialized view ${db}.${table}"
+                    } catch (Exception e2) {
+                        if (e2.getMessage().contains("table not found")) {
+                            continue
+                        }
+                    }
+                } else {
+                    logger.warn("Failed to show create materialized view ${db}.${table}: ${e.getMessage()}")
+                    continue
+                }
+            }
             if (createTableSql[0][1].contains("CREATE VIEW")) {
                 continue
             }

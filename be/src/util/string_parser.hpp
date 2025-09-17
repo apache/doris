@@ -46,6 +46,7 @@
 #include "vec/data_types/number_traits.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 namespace vectorized {
 template <DecimalNativeTypeConcept T>
 struct Decimal;
@@ -149,7 +150,7 @@ inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
 inline auto skip_one_non_alnum = skip_qualified_char<1, is_non_alnum>;
 
 inline bool is_delimiter(char c) {
-    return c == ' ' || c == 'T';
+    return c == ' ' || c == 'T' || c == ':';
 }
 inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
 
@@ -798,5 +799,5 @@ inline bool StringParser::string_to_bool_internal(const char* __restrict s, int 
     *result = PARSE_FAILURE;
     return false;
 }
-
+#include "common/compile_check_avoid_end.h"
 } // end namespace doris

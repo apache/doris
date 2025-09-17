@@ -352,10 +352,8 @@ PhysicalResultSink
 
 -- !shape_hint_other_agg_func --
 PhysicalResultSink
---hashAgg[DISTINCT_LOCAL]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalOlapScan[test_skew_hint]
+--hashAgg[GLOBAL]
+----PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_other_agg_func_expr --
 PhysicalResultSink
@@ -424,10 +422,9 @@ PhysicalResultSink
 
 -- !shape_hint_multi_column --
 PhysicalResultSink
---hashAgg[DISTINCT_LOCAL]
+--hashAgg[GLOBAL]
 ----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalOlapScan[test_skew_hint]
+------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_sum --
 PhysicalResultSink
@@ -541,10 +538,21 @@ PhysicalResultSink
 ------------------PhysicalOlapScan[test_skew_hint]
 
 -- !shape_hint_multi_count_distinct --
-PhysicalResultSink
---hashAgg[GLOBAL]
-----hashAgg[LOCAL]
-------PhysicalOlapScan[test_skew_hint]
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalOlapScan[test_skew_hint]
+--PhysicalResultSink
+----hashJoin[INNER_JOIN] hashCondition=((a <=> .a)) otherCondition=()
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[DISTINCT_LOCAL]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !shape_test_min_hint --
 PhysicalResultSink
@@ -560,8 +568,6 @@ PhysicalResultSink
 
 -- !shape_not_rewrite --
 PhysicalResultSink
---hashAgg[DISTINCT_LOCAL]
-----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalOlapScan[test_skew_hint]
+--hashAgg[GLOBAL]
+----PhysicalOlapScan[test_skew_hint]
 

@@ -45,12 +45,12 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class MetaScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(MetaScanner);
 
 public:
-    MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
+    MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, TupleId tuple_id,
                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                 TUserIdentity user_identity);
 
@@ -98,4 +98,5 @@ private:
     // for reading metadata using reader from be
     std::unique_ptr<GenericReader> _reader;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

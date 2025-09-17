@@ -21,6 +21,11 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_error_info","nonConcurrent") {
+    if (isCloudMode()) {
+        logger.info("skip test_routine_load_error_info case, because cloud mode not support")
+        return
+    }
+
     def kafkaCsvTpoics = [
                   "test_error_info",
                 ]

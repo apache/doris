@@ -392,7 +392,7 @@ public class NereidsCoordinator extends Coordinator {
             for (MultiFragmentsPipelineTask beTasks : executionTask.getChildrenTasks().values()) {
                 TNetworkAddress brpcAddress = beTasks.getBackend().getBrpcAddress();
                 String brpcAddrString = brpcAddress.hostname.concat(":").concat("" + brpcAddress.port);
-                result.put(brpcAddrString, beTasks.getChildrenTasks().size());
+                result.put(brpcAddrString, beTasks.getInstanceNum());
             }
         }
         return result;

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -71,6 +73,48 @@ public class LoadCommandTest extends TestWithFeService {
                 + "\"storage_format\" = \"V2\"\n"
                 + ");";
         createTable(createTableSql);
+
+        String createTableBitmapSql = "CREATE TABLE `load_bitmap_table`\n"
+                + "        (\n"
+                + "            `dt_h`      datetime    NOT NULL,\n"
+                + "            `userid_bitmap` bitmap BITMAP_UNION NOT NULL\n"
+                + "        ) ENGINE = OLAP AGGREGATE KEY(`dt_h`)\n"
+                + "        DISTRIBUTED BY HASH(`dt_h`) BUCKETS 4\n"
+                + "        PROPERTIES (\"replication_num\" = \"1\");";
+        createTable(createTableBitmapSql);
+    }
+
+    @Test
+    public void testLoadCommandBitmap() {
+        String loadSql1 = "LOAD LABEL load_bitmap_table_test( "
+                + "     DATA INFILE(\"s3://bucket/load_bitmap_table\") "
+                + "     INTO TABLE load_bitmap_table "
+                + "     COLUMNS TERMINATED BY \"|\""
+                + "     LINES TERMINATED BY \"\n\""
+                + "     (raw_dt_h,raw_userid_bitmap) "
+                + "     SET (`dt_h` = raw_dt_h, `userid_bitmap` = bitmap_from_array(cast(raw_userid_bitmap as ARRAY<BIGINT(20)>)))"
+                + "  ) "
+                + "  WITH S3(  "
+                + "     \"s3.access_key\" = \"AK\", "
+                + "     \"s3.secret_key\" = \"SK\", "
+                + "     \"s3.endpoint\" = \"cos.ap-beijing.myqcloud.com\",   "
+                + "     \"s3.region\" = \"ap-beijing\") "
+                + "PROPERTIES( \"exec_mem_limit\" = \"8589934592\") COMMENT \"test\";";
+
+        List<Pair<LogicalPlan, StatementContext>> statements = new NereidsParser().parseMultiple(loadSql1);
+        Assertions.assertFalse(statements.isEmpty());
+
+        // columns
+        LoadCommand command = (LoadCommand) statements.get(0).first;
+        List<NereidsDataDescription> dataDescriptions = command.getDataDescriptions();
+        Assertions.assertFalse(dataDescriptions.isEmpty());
+        NereidsDataDescription dataDescription = dataDescriptions.get(0);
+        List<String> colNames = dataDescription.getFileFieldNames();
+        Assertions.assertEquals(2, colNames.size());
+        Assertions.assertTrue(colNames.contains("raw_dt_h"));
+        Assertions.assertTrue(colNames.contains("raw_userid_bitmap"));
+        Assertions.assertTrue(dataDescription.getColumnMappingList().size() == 2);
+        Assertions.assertTrue(dataDescription.getColumnMappingList().get(1).child(0).getExpressionName().contains("userid_bitmap"));
     }
 
     @Test
@@ -168,10 +212,13 @@ public class LoadCommandTest extends TestWithFeService {
 
         // column separator and line delimiter
         dataDescription.analyzeWithoutCheckPriv("nereids_load");
-        CsvFileFormatProperties fileFormatProperties =
-                (CsvFileFormatProperties) dataDescription.getFileFormatProperties();
+        DeferredFileFormatProperties fileFormatProperties =
+                (DeferredFileFormatProperties) dataDescription.getFileFormatProperties();
         Assertions.assertNotNull(fileFormatProperties);
-        Assertions.assertEquals("|", fileFormatProperties.getColumnSeparator());
-        Assertions.assertEquals("\n", fileFormatProperties.getLineDelimiter());
+        fileFormatProperties.deferInit(TFileFormatType.FORMAT_CSV_PLAIN);
+        Assertions.assertTrue(fileFormatProperties.getDelegate() instanceof CsvFileFormatProperties);
+        CsvFileFormatProperties csvFileFormatProperties = (CsvFileFormatProperties) fileFormatProperties.getDelegate();
+        Assertions.assertEquals("|", csvFileFormatProperties.getColumnSeparator());
+        Assertions.assertEquals("\n", csvFileFormatProperties.getLineDelimiter());
     }
 }

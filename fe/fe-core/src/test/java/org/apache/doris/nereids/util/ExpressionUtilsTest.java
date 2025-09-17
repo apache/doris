@@ -29,12 +29,10 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 
@@ -184,8 +182,7 @@ public class ExpressionUtilsTest extends TestWithFeService {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             List<? extends Expression> originalExpressions = rewrittenPlan.getExpressions();
                             List<? extends Expression> shuttledExpressions
-                                    = ExpressionUtils.shuttleExpressionWithLineage(originalExpressions, rewrittenPlan,
-                                    Sets.newHashSet(), Sets.newHashSet(), new BitSet());
+                                    = ExpressionUtils.shuttleExpressionWithLineage(originalExpressions, rewrittenPlan);
                             assertExpect(originalExpressions, shuttledExpressions,
                                     "(cast(abs((cast(O_TOTALPRICE as DECIMALV3(16, 2)) + 10.00)) as "
                                             + "DOUBLE) + abs(sqrt(cast(PS_SUPPLYCOST as DOUBLE))))",

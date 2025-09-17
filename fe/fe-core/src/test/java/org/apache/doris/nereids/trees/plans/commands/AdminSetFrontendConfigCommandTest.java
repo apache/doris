@@ -42,6 +42,8 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertDoesNotThrow(() -> ((AdminSetFrontendConfigCommand) plan).validate());
+        Assertions.assertTrue(((AdminSetFrontendConfigCommand) plan).getLocalSetStmt().originStmt
+                .startsWith("ADMIN SET FRONTEND CONFIG"));
     }
 
     @Test
@@ -74,25 +76,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
     @Test
     public void testExperimentalConfig() throws Exception {
-        // 1. set without experimental
-        boolean enableMtmv = Config.enable_mtmv;
-        String sql = "admin set frontend config('enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        LogicalPlan plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 2. set with experimental
-        enableMtmv = Config.enable_mtmv;
-        sql = "admin set frontend config('experimental_enable_mtmv' = '" + String.valueOf(!enableMtmv) + "');";
-        plan = new NereidsParser().parseSingle(sql);
-
-        Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
-        Env.getCurrentEnv().setConfig((AdminSetFrontendConfigCommand) plan);
-        Assertions.assertNotEquals(enableMtmv, Config.enable_mtmv);
-
-        // 3. show config
+        // show config
         int num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.EXPERIMENTAL);
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern("%experimental%",
                 CaseSensibility.CONFIG.getCaseSensibility());
@@ -101,7 +85,7 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         num = ConfigBase.getConfigNumByVariableAnnotation(VariableAnnotation.DEPRECATED);
         matcher = PatternMatcherWrapper.createMysqlPattern("%deprecated%",
-            CaseSensibility.CONFIG.getCaseSensibility());
+                CaseSensibility.CONFIG.getCaseSensibility());
         results = ConfigBase.getConfigInfo(matcher);
         Assertions.assertEquals(num, results.size());
     }
@@ -113,5 +97,20 @@ public class AdminSetFrontendConfigCommandTest extends TestWithFeService {
 
         Assertions.assertTrue(plan instanceof AdminSetFrontendConfigCommand);
         Assertions.assertEquals("60", ((AdminSetFrontendConfigCommand) plan).getConfigs().get("alter_table_timeout_second"));
+    }
+
+    @Test
+    public void testSetAllFrontendsConfig() throws Exception {
+        String sql = "admin set all frontends config(\" alter_table_timeout_second \" = \"77\");";
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+
+        Assertions.assertInstanceOf(AdminSetFrontendConfigCommand.class, plan);
+        AdminSetFrontendConfigCommand command = (AdminSetFrontendConfigCommand) plan;
+        Assertions.assertTrue(command.isApplyToAll());
+        Assertions.assertEquals(command.toRedirectStatus(), RedirectStatus.NO_FORWARD);
+        Assertions.assertTrue(command.getLocalSetStmt().originStmt.startsWith("ADMIN SET ALL FRONTENDS CONFIG"));
+
+        Env.getCurrentEnv().setConfig(command, true);
+        Assertions.assertEquals(77, Config.alter_table_timeout_second);
     }
 }

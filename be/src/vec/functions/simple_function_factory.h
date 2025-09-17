@@ -37,7 +37,6 @@ void register_function_comparison(SimpleFunctionFactory& factory);
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory);
 void register_function_hll(SimpleFunctionFactory& factory);
 void register_function_logical(SimpleFunctionFactory& factory);
-void register_function_case(SimpleFunctionFactory& factory);
 void register_function_cast(SimpleFunctionFactory& factory);
 void register_function_encode_varchar(SimpleFunctionFactory& factory);
 void register_function_conv(SimpleFunctionFactory& factory);
@@ -82,6 +81,7 @@ void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
+void register_function_uniform(SimpleFunctionFactory& factory);
 void register_function_uuid(SimpleFunctionFactory& factory);
 void register_function_uuid_numeric(SimpleFunctionFactory& factory);
 void register_function_uuid_transforms(SimpleFunctionFactory& factory);
@@ -116,18 +116,10 @@ void register_function_compress(SimpleFunctionFactory& factory);
 void register_function_bit_test(SimpleFunctionFactory& factory);
 void register_function_dict_get(SimpleFunctionFactory& factory);
 void register_function_dict_get_many(SimpleFunctionFactory& factory);
-void register_function_llm_translate(SimpleFunctionFactory& factory);
-void register_function_llm_sentiment(SimpleFunctionFactory& factory);
-void register_function_llm_similarity(SimpleFunctionFactory& factory);
-void register_function_llm_filter(SimpleFunctionFactory& factory);
-void register_function_llm_fixgrammar(SimpleFunctionFactory& factory);
-void register_function_llm_extract(SimpleFunctionFactory& factory);
-void register_function_llm_generate(SimpleFunctionFactory& factory);
-void register_function_llm_mask(SimpleFunctionFactory& factory);
-void register_function_llm_classify(SimpleFunctionFactory& factory);
-void register_function_llm_summarize(SimpleFunctionFactory& factory);
+void register_function_ai(SimpleFunctionFactory& factory);
 void register_function_score(SimpleFunctionFactory& factory);
 void register_function_variant_type(SimpleFunctionFactory& factory);
+void register_function_soundex(SimpleFunctionFactory& factory);
 
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
 void register_function_throw_exception(SimpleFunctionFactory& factory);
@@ -269,7 +261,6 @@ public:
             register_function_encode_varchar(instance);
             register_function_decode_as_varchar(instance);
             register_function_logical(instance);
-            register_function_case(instance);
             register_function_cast(instance);
             register_function_conv(instance);
             register_function_plus(instance);
@@ -309,6 +300,7 @@ public:
             register_function_like(instance);
             register_function_regexp(instance);
             register_function_random(instance);
+            register_function_uniform(instance);
             register_function_uuid(instance);
             register_function_uuid_numeric(instance);
             register_function_uuid_transforms(instance);
@@ -343,17 +335,9 @@ public:
             register_function_compress(instance);
             register_function_dict_get(instance);
             register_function_dict_get_many(instance);
-            register_function_llm_translate(instance);
-            register_function_llm_sentiment(instance);
-            register_function_llm_similarity(instance);
-            register_function_llm_filter(instance);
-            register_function_llm_fixgrammar(instance);
-            register_function_llm_extract(instance);
-            register_function_llm_generate(instance);
-            register_function_llm_mask(instance);
-            register_function_llm_classify(instance);
-            register_function_llm_summarize(instance);
+            register_function_ai(instance);
             register_function_score(instance);
+            register_function_soundex(instance);
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
             register_function_throw_exception(instance);
 #endif

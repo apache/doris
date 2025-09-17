@@ -674,12 +674,17 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (is_variant_type() && !column.has_column_path_info()) {
         // set path info for variant root column, to prevent from missing
         _column_path = std::make_shared<vectorized::PathInData>(_col_name_lower_case);
+        // _parent_col_unique_id = _unique_id;
     }
     if (column.has_variant_max_subcolumns_count()) {
         _variant_max_subcolumns_count = column.variant_max_subcolumns_count();
     }
     if (column.has_variant_enable_typed_paths_to_sparse()) {
         _variant_enable_typed_paths_to_sparse = column.variant_enable_typed_paths_to_sparse();
+    }
+    if (column.has_variant_max_sparse_column_statistics_size()) {
+        _variant_max_sparse_column_statistics_size =
+                column.variant_max_sparse_column_statistics_size();
     }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
@@ -764,6 +769,8 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_max_subcolumns_count(_variant_max_subcolumns_count);
     column->set_pattern_type(_pattern_type);
     column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
+    column->set_variant_max_sparse_column_statistics_size(
+            _variant_max_sparse_column_statistics_size);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {
@@ -874,6 +881,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     case TIndexType::INVERTED:
         _index_type = IndexType::INVERTED;
         break;
+    case TIndexType::ANN:
+        _index_type = IndexType::ANN;
+        break;
     case TIndexType::BLOOMFILTER:
         _index_type = IndexType::BLOOMFILTER;
         break;
@@ -900,6 +910,9 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         break;
     case TIndexType::INVERTED:
         _index_type = IndexType::INVERTED;
+        break;
+    case TIndexType::ANN:
+        _index_type = IndexType::ANN;
         break;
     case TIndexType::BLOOMFILTER:
         _index_type = IndexType::BLOOMFILTER;
@@ -1020,26 +1033,6 @@ void TabletSchema::append_index(TabletIndex&& index) {
             _col_id_suffix_to_index[key].push_back(index_pos);
         }
     }
-}
-
-void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
-                                std::vector<TabletIndex>&& indexes) {
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
-    IndexKey key(index_type, col_unique_id, suffix_path);
-    auto iter = _col_id_suffix_to_index.find(key);
-    if (iter != _col_id_suffix_to_index.end()) {
-        if (iter->second.size() == indexes.size()) {
-            for (size_t i = 0; i < iter->second.size(); ++i) {
-                size_t pos = iter->second[i];
-                if (pos < _indexes.size()) {
-                    _indexes[pos] = std::make_shared<TabletIndex>(std::move(indexes[i]));
-                }
-            }
-        }
-    }
-    LOG(WARNING) << " failed to update_index: " << index_type << " " << col_unique_id << " "
-                 << suffix_path;
 }
 
 void TabletSchema::replace_column(size_t pos, TabletColumn new_col) {
@@ -1614,6 +1607,7 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
     if (!segment_v2::IndexColumnWriter::check_support_inverted_index(col)) {
         return {};
     }
+
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
@@ -1654,6 +1648,32 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
         }
     }
     return result;
+}
+
+const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
+                                           const std::string& suffix_path) const {
+    for (size_t i = 0; i < _indexes.size(); i++) {
+        if (_indexes[i]->index_type() == IndexType::ANN) {
+            for (int32_t id : _indexes[i]->col_unique_ids()) {
+                if (id == col_unique_id &&
+                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path)) {
+                    return _indexes[i].get();
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+const TabletIndex* TabletSchema::ann_index(const TabletColumn& col) const {
+    // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
+    if (!segment_v2::IndexColumnWriter::check_support_ann_index(col)) {
+        return nullptr;
+    }
+    // TODO use more efficient impl
+    // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+    return ann_index(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {

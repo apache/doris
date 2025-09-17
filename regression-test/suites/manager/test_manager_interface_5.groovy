@@ -74,7 +74,7 @@ suite('test_manager_interface_5',"p0") {
             def fe = fes[0]
             def url = "http://${fe.Host}:${fe.HttpPort}/rest/v2/manager/query/trace_id/test_manager_interface_5_trace_id?is_all_node=true"
             def (code, out, err) = curl("GET", url, null, 10, context.config.jdbcUser, context.config.jdbcPassword)
-            println "${out}"
+            logger.info("${out}")
             assertTrue(code == 0)
             def getQueryId = parseJson(out).get("data");
             assertEquals(queryid2, getQueryId);
@@ -82,7 +82,7 @@ suite('test_manager_interface_5',"p0") {
             // 2. test get realtime query statistics by trace id
             url = "http://${fe.Host}:${fe.HttpPort}/rest/v2/manager/query/statistics/test_manager_interface_5_trace_id?is_all_node=true"
             (code, out, err) = curl("GET", url, null, 10, context.config.jdbcUser, context.config.jdbcPassword)
-            println "${out}"
+            logger.info("${out}")
             assertTrue(code == 0)
             def stats = parseJson(out).get("data");
             assertTrue(stats.containsKey("cpuMs"));
@@ -90,7 +90,7 @@ suite('test_manager_interface_5',"p0") {
             // 3. test cancel query by query id
             url = "http://${fe.Host}:${fe.HttpPort}/rest/v2/manager/query/kill/${queryid2}?is_all_node=true"
             (code, out, err) = curl("POST", url, null, 10, context.config.jdbcUser, context.config.jdbcPassword)
-            println "${out}"
+            logger.info("${out}")
             assertTrue(code == 0)
         })
         futures.each { it.get() }

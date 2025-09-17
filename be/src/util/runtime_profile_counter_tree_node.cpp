@@ -54,7 +54,7 @@ RuntimeProfileCounterTreeNode RuntimeProfileCounterTreeNode::from_map(
 // 1. Remove all leaf nodes whose level is greater than the given level.
 // 2. Remove all nodes whose children are all pruned.
 RuntimeProfileCounterTreeNode RuntimeProfileCounterTreeNode::prune_the_tree(
-        RuntimeProfileCounterTreeNode node, int level) {
+        RuntimeProfileCounterTreeNode node, int64_t level) {
     // Iterate through the children and prune them recursively
     for (auto it = node.children.begin(); it != node.children.end();) {
         *it = prune_the_tree(*it, level);

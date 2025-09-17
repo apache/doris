@@ -71,10 +71,10 @@ public class S3URI {
     public static final String SCHEME_DELIM = "://";
     public static final String PATH_DELIM = "/";
     private static final Set<String> VALID_SCHEMES = ImmutableSet.of("http", "https", "s3", "s3a", "s3n",
-            "bos", "oss", "cos", "cosn", "obs", "azure");
+            "bos", "oss", "cos", "cosn", "obs", "gs", "azure");
 
     private static final Set<String> OS_SCHEMES = ImmutableSet.of("s3", "s3a", "s3n",
-            "bos", "oss", "cos", "cosn", "obs", "azure");
+            "bos", "oss", "cos", "cosn", "gs", "obs", "azure");
 
     /** Suffix of S3Express storage bucket names. */
     private static final String S3_DIRECTORY_BUCKET_SUFFIX = "--x-s3";

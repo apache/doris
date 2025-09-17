@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -301,8 +302,12 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
@@ -358,28 +363,14 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** dynamicComputePropertiesOfArray */
-    public static FunctionSignature dynamicComputePropertiesOfArray(
-            FunctionSignature signature, List<Expression> arguments) {
+    /** ensureNestedNullableOfArray */
+    public static FunctionSignature ensureNestedNullableOfArray(FunctionSignature signature,
+            List<Expression> arguments) {
         if (!(signature.returnType instanceof ArrayType)) {
             return signature;
         }
-
-        // fill item type by the type of first item
         ArrayType arrayType = (ArrayType) signature.returnType;
-
-        // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
-        boolean containsNull = true;
-
-        // fill containsNull if any array argument contains null
-        /* boolean containsNull = arguments
-                .stream()
-                .map(Expression::getDataType)
-                .filter(argType -> argType instanceof ArrayType)
-                .map(ArrayType.class::cast)
-                .anyMatch(ArrayType::containsNull);*/
-        return signature.withReturnType(
-                ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
+        return signature.withReturnType(ArrayType.of(arrayType.getItemType(), true));
     }
 
     // for time type with precision(now are DateTimeV2Type and TimeV2Type),

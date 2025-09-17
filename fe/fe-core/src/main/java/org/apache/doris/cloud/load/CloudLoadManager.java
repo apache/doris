@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.load;
 
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
@@ -29,7 +28,6 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
-import org.apache.doris.common.UserException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.JobState;
@@ -69,13 +67,6 @@ public class CloudLoadManager extends LoadManager {
     public CloudLoadManager(LoadJobScheduler loadJobScheduler, CleanCopyJobScheduler cleanCopyJobScheduler) {
         super(loadJobScheduler);
         this.cleanCopyJobScheduler = cleanCopyJobScheduler;
-    }
-
-    @Override
-    public long createLoadJobFromStmt(LoadStmt stmt) throws DdlException, UserException {
-        ((CloudSystemInfoService) Env.getCurrentSystemInfo()).waitForAutoStartCurrentCluster();
-
-        return super.createLoadJobFromStmt(stmt);
     }
 
     public LoadJob createLoadJobFromCopyIntoCommand(CopyIntoCommand command) throws DdlException {

@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeAcquire;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 
@@ -97,28 +97,25 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
         }
         // get current time
         Expression now = DateTimeAcquire.now();
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("now() should return DateTimeLiteral, now: " + now);
+        if (!(now instanceof DateTimeV2Literal)) {
+            throw new AnalysisException("now() should return DateTimeV2Literal, now: " + now);
         }
-        DateTimeLiteral nowLiteral = (DateTimeLiteral) now;
+        DateTimeV2Literal nowLiteral = (DateTimeV2Literal) now;
         // date trunc
         now = DateTimeExtractAndTransform
                 .dateTrunc(nowLiteral, new VarcharLiteral(timeUnit.name()));
-        if (!(now instanceof DateTimeLiteral)) {
-            throw new AnalysisException("dateTrunc() should return DateTimeLiteral, now: " + now);
+        if (!(now instanceof DateTimeV2Literal)) {
+            throw new AnalysisException("dateTrunc() should return DateTimeV2Literal, now: " + now);
         }
-        nowLiteral = (DateTimeLiteral) now;
+        nowLiteral = (DateTimeV2Literal) now;
         // date sub
         if (syncLimit > 1) {
             nowLiteral = dateSub(nowLiteral, timeUnit, syncLimit - 1);
         }
-        return ((BigIntLiteral) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue();
+        return ((DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(nowLiteral)).getValue().longValue();
     }
 
-
-    private DateTimeLiteral dateSub(
-            org.apache.doris.nereids.trees.expressions.literal.DateLiteral date, MTMVPartitionSyncTimeUnit timeUnit,
-            int num)
+    private DateTimeV2Literal dateSub(DateTimeV2Literal date, MTMVPartitionSyncTimeUnit timeUnit, int num)
             throws AnalysisException {
         IntegerLiteral integerLiteral = new IntegerLiteral(num);
         Expression result;
@@ -136,9 +133,9 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
                 throw new AnalysisException(
                         "async materialized view partition limit not support timeUnit: " + timeUnit.name());
         }
-        if (!(result instanceof DateTimeLiteral)) {
+        if (!(result instanceof DateTimeV2Literal)) {
             throw new AnalysisException("sub() should return  DateTimeLiteral, result: " + result);
         }
-        return (DateTimeLiteral) result;
+        return (DateTimeV2Literal) result;
     }
 }

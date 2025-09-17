@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.storage.exception.StoragePropertiesE
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -148,7 +150,7 @@ public class COSPropertiesTest {
     public void testMissingAccessKey() {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.secret_key", "myCOSSecretKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
                  "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
     }
 
@@ -156,7 +158,22 @@ public class COSPropertiesTest {
     public void testMissingSecretKey() {
         origProps.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         origProps.put("cos.access_key", "myCOSAccessKey");
-        Assertions.assertThrows(StoragePropertiesException.class, () -> StorageProperties.createPrimary(origProps),
-                 "Please set access_key and secret_key or omit both for anonymous access to public bucket.");
+        Assertions.assertThrows(IllegalArgumentException.class, () -> StorageProperties.createPrimary(origProps),
+                 "Both the access key and the secret key must be set.");
+        origProps.remove("cos.access_key");
+        Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.cos.support", "true");
+        props.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
+        COSProperties obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        props.put("cos.access_key", "myAccessKey");
+        props.put("cos.secret_key", "mySecretKey");
+        obsStorageProperties = (COSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
     }
 }

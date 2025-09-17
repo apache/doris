@@ -26,7 +26,7 @@ suite("shuffle") {
         """
 
     order_qt_4_phase_agg """
-        select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_MULTI_DISTINCT,TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI,THREE_PHASE_AGGREGATE_WITH_DISTINCT,FOUR_PHASE_AGGREGATE_WITH_DISTINCT')*/
+        select
         id, count(distinct value)
         from test_shuffle
         group by id

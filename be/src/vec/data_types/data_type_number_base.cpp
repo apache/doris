@@ -31,6 +31,7 @@
 
 #include "agent/be_exec_version_manager.h"
 #include "common/cast_set.h"
+#include "common/status.h"
 #include "runtime/large_int_value.h"
 #include "runtime/primitive_type.h"
 #include "util/mysql_global.h"
@@ -42,6 +43,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -59,17 +61,14 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
                                              TypeCheckOnRelease::DISABLE>(*ptr)
                                          .get_element(row_num));
         ostr.write(hex.data(), hex.size());
-    } else if constexpr (std::is_same_v<typename PrimitiveTypeTraits<T>::ColumnItemType, float>) {
-        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = to_buffer(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                        TypeCheckOnRelease::DISABLE>(*ptr)
-                                    .get_element(row_num),
-                            MAX_FLOAT_STR_LENGTH + 2, buf);
-        ostr.write(buf, len);
-    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value ||
-                         std::numeric_limits<
+    } else if constexpr (std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
+        auto str = CastToString::from_number(
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(*ptr)
+                        .get_element(row_num));
+        ostr.write(str.data(), str.size());
+    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value) {
         ostr.write_number(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
                                       TypeCheckOnRelease::DISABLE>(*ptr)
                                   .get_element(row_num));
@@ -87,9 +86,7 @@ std::string DataTypeNumberBase<T>::to_string(
         return std::to_string(value);
     } else if constexpr (std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        fmt::memory_buffer buffer; // only use in size-predictable type.
-        fmt::format_to(buffer, "{}", value);
-        return std::string(buffer.data(), buffer.size());
+        return CastToString::from_number(value);
     }
 }
 
@@ -109,7 +106,8 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
                                                            node.large_int_literal.value.size(),
                                                            &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            value = MAX_INT128;
+            throw Exception(ErrorCode::INVALID_ARGUMENT, fmt::format("Invalid largeint value: {}",
+                                                                     node.large_int_literal.value));
         }
         return Field::create_field<TYPE_LARGEINT>(Int128(value));
     }
@@ -142,12 +140,10 @@ std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_n
                                       .get_element(row_num));
     } else if constexpr (std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        fmt::memory_buffer buffer; // only use in size-predictable type.
-        fmt::format_to(buffer, "{}",
-                       assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                   TypeCheckOnRelease::DISABLE>(*ptr)
-                               .get_element(row_num));
-        return std::string(buffer.data(), buffer.size());
+        return CastToString::from_number(
+                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
+                            TypeCheckOnRelease::DISABLE>(*ptr)
+                        .get_element(row_num));
     }
 }
 

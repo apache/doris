@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_with_merge", "load_p0") {
+suite("test_broker_load_with_merge", "load_p0,external") {
     // define a sql table
     def testTable = "tbl_test_broker_load_with_merge"
 
@@ -26,7 +26,7 @@ suite("test_broker_load_with_merge", "load_p0") {
                 `k2` DATE NOT NULL,
                 `k3` INT(11) NOT NULL,
                 `k4` INT(11) NOT NULL,
-                `v5` BIGINT SUM NULL DEFAULT "0"
+                `v5` BIGINT NULL DEFAULT "0"
             ) ENGINE=OLAP
             UNIQUE KEY(`k1`)
             COMMENT 'OLAP'
@@ -174,9 +174,9 @@ suite("test_broker_load_with_merge", "load_p0") {
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
     // the test will run these case as below.
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
         def hdfs_csv_file_path = uploadToHdfs "load_p0/broker_load/broker_load_with_merge.csv"
 
         // case1: has delete on condition and without merge

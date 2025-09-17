@@ -19,16 +19,16 @@
 
 #include <sanitizer/asan_interface.h>
 
-class AsanPoisonDefer {
+class AsanPoisonGuard {
 #ifdef ADDRESS_SANITIZER
 public:
     // Poison the memory region to prevent accidental access
     // during the lifetime of this object.
-    AsanPoisonDefer(const void* start, size_t len) : start(start), len(len) {
+    AsanPoisonGuard(const void* start, size_t len) : start(start), len(len) {
         ASAN_POISON_MEMORY_REGION(start, len);
     }
     // Unpoison the memory region when this object goes out of scope.
-    ~AsanPoisonDefer() { ASAN_UNPOISON_MEMORY_REGION(start, len); }
+    ~AsanPoisonGuard() { ASAN_UNPOISON_MEMORY_REGION(start, len); }
 
 private:
     const void* start;
@@ -36,7 +36,7 @@ private:
 #else
 public:
     // No-op for platforms without ASAN_DEFINE_REGION_MACROS
-    AsanPoisonDefer(const void*, size_t) {}
-    ~AsanPoisonDefer() = default;
+    AsanPoisonGuard(const void*, size_t) {}
+    ~AsanPoisonGuard() = default;
 #endif
 };

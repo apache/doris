@@ -292,7 +292,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
-        Aws::Client::ClientConfiguration clientConfiguration;
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
                     get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
@@ -363,7 +364,7 @@ int S3Accessor::init() {
         uri_ = normalize_http_uri(uri_);
 
         // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config;
+        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
         // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck

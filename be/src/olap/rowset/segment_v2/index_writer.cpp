@@ -39,6 +39,11 @@ bool IndexColumnWriter::check_support_inverted_index(const TabletColumn& column)
     return true;
 }
 
+bool IndexColumnWriter::check_support_ann_index(const TabletColumn& column) {
+    // bellow types are not supported in inverted index for extracted columns
+    return column.is_array_type();
+}
+
 Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
                                  IndexFileWriter* index_file_writer,
                                  const TabletIndex* index_meta) {

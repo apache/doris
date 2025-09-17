@@ -25,10 +25,13 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeRes
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
@@ -54,17 +58,26 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -105,14 +118,6 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visit(Plan plan, PlanContext context) {
-        if (plan instanceof RequirePropertiesSupplier) {
-            RequireProperties requireProperties = ((RequirePropertiesSupplier<?>) plan).getRequireProperties();
-            List<PhysicalProperties> requestPhysicalProperties =
-                    requireProperties.computeRequirePhysicalProperties(plan, requestPropertyFromParent);
-            addRequestPropertyToChildren(requestPhysicalProperties);
-            return null;
-        }
-
         List<PhysicalProperties> requiredPropertyList =
                 Lists.newArrayListWithCapacity(context.arity());
         for (int i = context.arity(); i > 0; --i) {
@@ -411,6 +416,76 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
                             : new OrderSpec(keysNeedToBeSorted)));
         }
         return null;
+    }
+
+    @Override
+    public Void visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
+        DistributionSpec parentDist = requestPropertyFromParent.getDistributionSpec();
+        if (agg.getAggPhase().isLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+            return null;
+        } else if (agg.getAggPhase().isGlobal()) {
+            if (agg.getPartitionExpressions().isPresent() && !agg.getPartitionExpressions().get().isEmpty()) {
+                addRequestPropertyToChildren(
+                        PhysicalProperties.createHash(agg.getPartitionExpressions().get(), ShuffleType.REQUIRE));
+                return null;
+            }
+            if (agg.getGroupByExpressions().isEmpty()) {
+                addRequestPropertyToChildren(PhysicalProperties.GATHER);
+                return null;
+            }
+            List<ExprId> groupByExprIds = agg.getGroupByExpressions().stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .map(SlotReference::getExprId)
+                    .collect(Collectors.toList());
+            // If the request received by agg is (a), the request sent by agg is (a,b), and (a) is a subset of (a,b),
+            // then agg sends (a) to the child
+            if (parentDist instanceof DistributionSpecHash) {
+                DistributionSpecHash distributionRequestFromParent = (DistributionSpecHash) parentDist;
+                List<ExprId> parentHashExprIds = distributionRequestFromParent.getOrderedShuffledColumns();
+                Set<ExprId> intersectId = Sets.intersection(new HashSet<>(parentHashExprIds),
+                        new HashSet<>(groupByExprIds));
+                if (!intersectId.isEmpty() && intersectId.size() < groupByExprIds.size()) {
+                    if (shouldUseParent(parentHashExprIds, agg)) {
+                        addRequestPropertyToChildren(PhysicalProperties.createHash(
+                                Utils.fastToImmutableList(intersectId), ShuffleType.REQUIRE));
+                    }
+                    addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+                    return null;
+                }
+            }
+            addRequestPropertyToChildren(PhysicalProperties.createHash(groupByExprIds, ShuffleType.REQUIRE));
+            return null;
+        }
+        return null;
+    }
+
+    private boolean shouldUseParent(List<ExprId> parentHashExprIds, PhysicalHashAggregate<? extends Plan> agg) {
+        Optional<GroupExpression> groupExpression = agg.getGroupExpression();
+        if (!groupExpression.isPresent()) {
+            return true;
+        }
+        Statistics aggChildStats = groupExpression.get().childStatistics(0);
+        if (aggChildStats == null) {
+            return true;
+        }
+        List<Slot> aggChildOutput = agg.child().getOutput();
+        Map<ExprId, Slot> exprIdSlotMap = new HashMap<>();
+        for (Slot slot : aggChildOutput) {
+            exprIdSlotMap.put(slot.getExprId(), slot);
+        }
+        List<Expression> parentHashExprs = new ArrayList<>(parentHashExprIds.size());
+        for (ExprId exprId : parentHashExprIds) {
+            if (exprIdSlotMap.containsKey(exprId)) {
+                parentHashExprs.add(exprIdSlotMap.get(exprId));
+            }
+        }
+        if (AggregateUtils.hasUnknownStatistics(parentHashExprs, aggChildStats)) {
+            return true;
+        }
+        double combinedNdv = StatsCalculator.estimateGroupByRowCount(parentHashExprs, aggChildStats);
+        return combinedNdv > AggregateUtils.LOW_NDV_THRESHOLD;
     }
 
     private List<PhysicalProperties> createHashRequestAccordingToParent(

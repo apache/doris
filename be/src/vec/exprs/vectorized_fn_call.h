@@ -22,9 +22,12 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
+#include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/function.h"
@@ -59,7 +62,13 @@ public:
                 FunctionContext::FunctionStateScope scope) override;
     void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override;
     const std::string& expr_name() const override;
+    std::string function_name() const;
     std::string debug_string() const override;
+    bool is_blockable() const override {
+        return _function->is_blockable() ||
+               std::any_of(_children.begin(), _children.end(),
+                           [](VExprSPtr child) { return child->is_blockable(); });
+    }
     bool is_constant() const override {
         if (!_function->is_use_default_implementation_for_constants() ||
             // udf function with no argument, can't sure it's must return const column
@@ -74,6 +83,17 @@ public:
     bool equals(const VExpr& other) override;
 
     size_t estimate_memory(const size_t rows) override;
+
+    Status evaluate_ann_range_search(
+            const segment_v2::AnnRangeSearchRuntime& runtime,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats) override;
+
+    void prepare_ann_range_search(const doris::VectorSearchUserParams& params,
+                                  segment_v2::AnnRangeSearchRuntime& runtime,
+                                  bool& suitable_for_ann_index) override;
 
 protected:
     FunctionBasePtr _function;

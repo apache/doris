@@ -93,10 +93,9 @@ void SpillableOperatorTestHelper::SetUp() {
 }
 
 void SpillableOperatorTestHelper::TearDown() {
-    ExecEnv::GetInstance()->spill_stream_mgr()->async_cleanup_query(runtime_state->query_id());
-    doris::ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->wait();
     doris::ExecEnv::GetInstance()->spill_stream_mgr()->stop();
     SAFE_DELETE(ExecEnv::GetInstance()->_spill_stream_mgr);
+    runtime_state.reset();
 }
 
 } // namespace doris::pipeline

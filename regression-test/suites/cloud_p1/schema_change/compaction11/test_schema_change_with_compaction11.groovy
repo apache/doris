@@ -139,7 +139,10 @@ suite('test_schema_change_with_compaction11', 'docker') {
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
 
-        } finally {
+        } catch (Exception e) {
+            logger.info("Exception: " + e)
+        }
+        finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
             }

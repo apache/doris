@@ -151,14 +151,14 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                             physicalNestedLoopJoin(
                                                     physicalProject(
                                                     physicalHashAggregate(
-                                                            physicalHashAggregate(
-                                                                    physicalDistribute(
+                                                            physicalDistribute(
+                                                                    physicalHashAggregate(
                                                                             physicalHashAggregate(any()))))),
                                                     physicalDistribute(
                                                             physicalProject(
                                                             physicalHashAggregate(
-                                                                    physicalHashAggregate(
-                                                                            physicalDistribute(
+                                                                    physicalDistribute(
+                                                                            physicalHashAggregate(
                                                                                     physicalHashAggregate(any()))))))
                                             )
 
@@ -184,13 +184,11 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                                                             physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
-                                                                            physicalDistribute(
-                                                                                    physicalHashAggregate(any()))))),
+                                                                            physicalDistribute(any())))),
                                                             physicalProject(
                                                             physicalHashAggregate(
                                                                     physicalHashAggregate(
-                                                                            physicalDistribute(
-                                                                                    physicalHashAggregate(any())))))
+                                                                            physicalDistribute(any()))))
                                                     ).when(join ->
                                                         join.getJoinType() == JoinType.INNER_JOIN && join.getHashJoinConjuncts().get(0) instanceof NullSafeEqual
                                                     )
@@ -199,6 +197,21 @@ public class SplitMultiDistinctTest extends TestWithFeService implements MemoPat
                             )
                     )
             );
+        });
+    }
+
+    @Test
+    void multiSumWithGby() {
+        String sql = "select sum(distinct b), sum(distinct a) from test_distinct_multi group by c";
+        PlanChecker.from(connectContext).checkExplain(sql, planner -> {
+            Plan plan = planner.getOptimizedPlan();
+            MatchingUtils.assertMatches(plan,
+                    physicalResultSink(
+                            physicalDistribute(
+                                    physicalProject(
+                                            physicalHashAggregate(
+                                                    physicalDistribute(
+                                                            physicalHashAggregate(any())))))));
         });
     }
 }

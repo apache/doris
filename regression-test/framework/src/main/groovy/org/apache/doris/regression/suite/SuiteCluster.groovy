@@ -91,6 +91,9 @@ class ClusterOptions {
     // if not specific, docker will let each be contains 1 HDD disk.
     List<String> beDisks = null
 
+    String tdeAk = "";
+    String tdeSk = "";
+
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
         beConfigs.add('enable_debug_points=true')
@@ -365,6 +368,16 @@ class SuiteCluster {
         }
         if (options.beClusterId) {
             cmd += ['--be-cluster-id']
+        }
+
+        if (options.tdeAk != null && options.tdeAk != "") {
+            cmd += ['--tde-ak']
+            cmd += options.tdeAk
+        }
+
+        if (options.tdeSk != null && options.tdeSk != "") {
+            cmd += ['--tde-sk']
+            cmd += options.tdeSk
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]

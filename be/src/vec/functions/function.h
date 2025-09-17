@@ -211,6 +211,8 @@ public:
     virtual bool is_udf_function() const { return false; }
 
     virtual bool can_push_down_to_index() const { return false; }
+
+    virtual bool is_blockable() const { return false; }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -424,54 +426,6 @@ protected:
     }
 };
 
-/// Wrappers over IFunction. If we (default)use DefaultFunction as wrapper, all function execution will go through this.
-
-class DefaultExecutable final : public PreparedFunctionImpl {
-public:
-    explicit DefaultExecutable(std::shared_ptr<IFunction> function_)
-            : function(std::move(function_)) {}
-
-    String get_name() const override { return function->get_name(); }
-
-protected:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const final {
-        return function->execute_impl(context, block, arguments, result, input_rows_count);
-    }
-
-    Status evaluate_inverted_index(
-            const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-        return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
-                                                 num_rows, bitmap_result);
-    }
-
-    Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, uint32_t result,
-                                size_t input_rows_count) const final {
-        return function->execute_impl_dry_run(context, block, arguments, result, input_rows_count);
-    }
-    bool use_default_implementation_for_nulls() const final {
-        return function->use_default_implementation_for_nulls();
-    }
-
-    bool skip_return_type_check() const final { return function->skip_return_type_check(); }
-    bool need_replace_null_data_to_default() const final {
-        return function->need_replace_null_data_to_default();
-    }
-    bool use_default_implementation_for_constants() const final {
-        return function->use_default_implementation_for_constants();
-    }
-    ColumnNumbers get_arguments_that_are_always_constant() const final {
-        return function->get_arguments_that_are_always_constant();
-    }
-
-private:
-    std::shared_ptr<IFunction> function;
-};
-
 /*
  * when we register a function which didn't specify its base(i.e. inherited from IFunction), actually we use this as a wrapper.
  * it saves real implementation as `function`. 
@@ -493,7 +447,7 @@ public:
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 uint32_t /*result*/) const override {
-        return std::make_shared<DefaultExecutable>(function);
+        return function;
     }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
@@ -519,6 +473,8 @@ public:
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
 
+    bool is_blockable() const override { return function->is_blockable(); }
+
 private:
     std::shared_ptr<IFunction> function;
     DataTypes arguments;
@@ -531,7 +487,7 @@ public:
             : function(std::move(function_)) {}
 
     void check_number_of_arguments(size_t number_of_arguments) const override {
-        return function->check_number_of_arguments(number_of_arguments);
+        function->check_number_of_arguments(number_of_arguments);
     }
 
     String get_name() const override { return function->get_name(); }
