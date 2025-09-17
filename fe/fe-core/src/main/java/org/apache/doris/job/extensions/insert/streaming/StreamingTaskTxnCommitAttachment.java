@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
@@ -36,6 +37,15 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         this.fileNumber = fileNumber;
         this.fileSize = fileSize;
         this.offset = offset;
+    }
+
+    public StreamingTaskTxnCommitAttachment(StreamingTaskCommitAttachmentPB pb) {
+        super(TransactionState.LoadJobSourceType.STREAMING_JOB);
+        this.scannedRows = pb.getScannedRows();
+        this.loadBytes = pb.getLoadBytes();
+        this.fileNumber = pb.getFileNumber();
+        this.fileSize = pb.getFileSize();
+        this.offset.setEndOffset(pb.getOffset());
     }
 
     @Getter

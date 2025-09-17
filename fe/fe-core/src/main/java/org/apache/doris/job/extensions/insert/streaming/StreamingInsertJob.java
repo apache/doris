@@ -19,7 +19,10 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
@@ -49,6 +52,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
@@ -266,6 +270,17 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     @Override
+    public void onRegister() throws JobException {
+        Env.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(this);
+    }
+
+    @Override
+    public void onReplayCreate() throws JobException {
+        onRegister();
+        super.onReplayCreate();
+    }
+
+    @Override
     public ShowResultSetMetaData getTaskMetaData() {
         return InsertJob.TASK_META_DATA;
     }
@@ -388,6 +403,35 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
         updateJobStatisticAndOffset(attachment);
+    }
+
+    public void replayOnCloudMode() throws UserException {
+        Cloud.GetStreamingTaskCommitAttachRequest.Builder builder =
+                Cloud.GetStreamingTaskCommitAttachRequest.newBuilder();
+        builder.setCloudUniqueId(Config.cloud_unique_id);
+        builder.setDbId(dbId);
+        builder.setJobId(getJobId());
+
+        Cloud.GetStreamingTaskCommitAttachResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().getStreamingTaskCommitAttach(builder.build());
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                log.warn("failed to get streaming task commit attach, response: {}", response);
+                if (response.getStatus().getCode() == Cloud.MetaServiceCode.STREAMING_JOB_PROGRESS_NOT_FOUND) {
+                    log.warn("not found streaming job progress, response: {}", response);
+                    return;
+                } else {
+                    throw new UserException(response.getStatus().getMsg());
+                }
+            }
+        } catch (RpcException e) {
+            log.info("failed to get streaming task commit attach {}", e);
+            throw new UserException(e.getMessage());
+        }
+
+        StreamingTaskTxnCommitAttachment commitAttach =
+                new StreamingTaskTxnCommitAttachment(response.getCommitAttach());
+        updateJobStatisticAndOffset(commitAttach);
     }
 
     @Override
