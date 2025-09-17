@@ -18,7 +18,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 
 
-suite('test_balance_warm_up', 'docker') {
+suite('test_balance_warm_up_sync_cache', 'docker') {
     if (!isCloudMode()) {
         return;
     }
@@ -29,7 +29,8 @@ suite('test_balance_warm_up', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'cloud_warm_up_for_rebalance_type=warmup_cache'
+        'cloud_warm_up_for_rebalance_type=sync_cache',
+        'cloud_pre_heating_time_limit_sec=30'
     ]
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
@@ -41,6 +42,12 @@ suite('test_balance_warm_up', 'docker') {
     options.setBeNum(1)
     options.cloudMode = true
     options.enableDebugPoints()
+
+    def mergeDirs = { base, add ->
+        base + add.collectEntries { host, hashFiles ->
+            [(host): base[host] ? (base[host] + hashFiles) : hashFiles]
+        }
+    }
     
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
@@ -73,22 +80,43 @@ suite('test_balance_warm_up', 'docker') {
         def beforeCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
         logger.info("cache dir version 3 {}", beforeCacheDirVersion3)
 
-        def beforeMergedCacheDir = beforeCacheDirVersion2 + beforeCacheDirVersion3.collectEntries { host, hashFiles ->
-            [(host): beforeCacheDirVersion2[host] ? (beforeCacheDirVersion2[host] + hashFiles) : hashFiles]
-        }
-        logger.info("before fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, beforeMergedCacheDir)
-
         def beforeWarmUpResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
         logger.info("before warm up result {}", beforeWarmUpResult)
 
+        // disable cloud balance
+        setFeConfig('enable_cloud_multi_replica', true)
         cluster.addBackend(1, "compute_cluster")
+        GetDebugPoint().enableDebugPointForAllBEs("CloudBackendService.check_warm_up_cache_async.return_task_false")
+        setFeConfig('enable_cloud_multi_replica', false)
+
+        sleep(5 * 1000)
+        sql """
+            insert into $table values (50, '4'), (60, '6')
+        """
+        // version 4, new rs after warm up task
+        def beforeCacheDirVersion4 = getTabletFileCacheDirFromBe(msHttpPort, table, 4)
+        logger.info("cache dir version 4 {}", beforeCacheDirVersion4)
+        def afterMerged23CacheDir = [beforeCacheDirVersion2, beforeCacheDirVersion3, beforeCacheDirVersion4]
+            .inject([:]) { acc, m -> mergeDirs(acc, m) }
+        logger.info("after version 4 fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, afterMerged23CacheDir)
+
+        // after cloud_pre_heating_time_limit_sec = 50s 
+        sleep(40 * 1000)
+        // check tablet still in old be
+        def beforeWarmUpTaskOkDis = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
+        logger.info("before warm up dis result {}", beforeWarmUpTaskOkDis)
+        assert beforeWarmUpTaskOkDis.any { row ->
+            Integer.valueOf((String) row.ReplicaNum) == 2
+        }
+
+        GetDebugPoint().disableDebugPointForAllBEs("CloudBackendService.check_warm_up_cache_async.return_task_false")
         def oldBe = sql_return_maparray('show backends').get(0)
         def newAddBe = sql_return_maparray('show backends').get(1)
         // balance tablet
         awaitUntil(500) {
-            def afterWarmUpResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
-            logger.info("after warm up result {}", afterWarmUpResult)
-            afterWarmUpResult.any { row -> 
+            def afterWarmUpTaskOkResult = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""
+            logger.info("after warm up result {}", afterWarmUpTaskOkResult)
+            afterWarmUpTaskOkResult.any { row -> 
                 Integer.valueOf((String) row.ReplicaNum) == 1
             }
         }
@@ -103,15 +131,19 @@ suite('test_balance_warm_up', 'docker') {
         // version 3
         def afterCacheDirVersion3 = getTabletFileCacheDirFromBe(msHttpPort, table, 3)
         logger.info("after cache dir version 3 {}", afterCacheDirVersion3)
+        sleep(5 * 1000)
+        // version 4
+        def afterCacheDirVersion4 = getTabletFileCacheDirFromBe(msHttpPort, table, 4)
+        logger.info("after cache dir version 4 {}", afterCacheDirVersion4)
 
-        def afterMergedCacheDir = afterCacheDirVersion2 + afterCacheDirVersion3.collectEntries { host, hashFiles ->
-            [(host): afterCacheDirVersion2[host] ? (afterCacheDirVersion2[host] + hashFiles) : hashFiles]
-        }
+        def afterMergedCacheDir = [afterCacheDirVersion2, afterCacheDirVersion3, afterCacheDirVersion4]
+            .inject([:]) { acc, m -> mergeDirs(acc, m) }
+
         logger.info("after fe tablets {}, be tablets {}, cache dir {}", afterGetFromFe, afterGetFromBe, afterMergedCacheDir)
         def newAddBeCacheDir = afterMergedCacheDir.get(newAddBe.Host)
         logger.info("new add be cache dir {}", newAddBeCacheDir)
         assert newAddBeCacheDir.size() != 0
-        assert beforeMergedCacheDir[oldBe.Host].containsAll(afterMergedCacheDir[newAddBe.Host])
+        assert afterMerged23CacheDir[oldBe.Host].containsAll(afterMergedCacheDir[newAddBe.Host])
 
         def be = cluster.getBeByBackendId(newAddBe.BackendId.toLong())
         def dataPath = new File("${be.path}/storage/file_cache")
@@ -142,6 +174,6 @@ suite('test_balance_warm_up', 'docker') {
     }
 
     docker(options) {
-        testCase("test_balance_warm_up_tbl")
+        testCase("test_balance_warm_up_sync_tbl")
     }
 }
