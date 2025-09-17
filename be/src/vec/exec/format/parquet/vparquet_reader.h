@@ -108,8 +108,10 @@ public:
                   bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
+#ifdef BE_TEST
     // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
+#endif
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -242,7 +244,6 @@ private:
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_other_children_is_literal(const VExprSPtr& expr);
 
-private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;

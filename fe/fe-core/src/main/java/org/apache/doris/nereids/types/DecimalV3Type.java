@@ -24,6 +24,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -182,11 +183,19 @@ public class DecimalV3Type extends FractionalType {
         if (connectContext != null) {
             enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
         }
-        if (range + scale > (enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION)
-                && overflowToDouble) {
-            return DoubleType.INSTANCE;
+        int maxPrecision = enableDecimal256 ? MAX_DECIMAL256_PRECISION : MAX_DECIMAL128_PRECISION;
+        if (range + scale > maxPrecision) {
+            if (overflowToDouble) {
+                return DoubleType.INSTANCE;
+            } else {
+                int overFlowScale = SessionVariable.getDecimalOverFlowScale();
+                int maxScale = maxPrecision - range;
+                scale = Math.max(Math.min(scale, overFlowScale), maxScale);
+                return DecimalV3Type.createDecimalV3Type(maxPrecision, scale);
+            }
+        } else {
+            return DecimalV3Type.createDecimalV3Type(range + scale, scale);
         }
-        return DecimalV3Type.createDecimalV3Type(range + scale, scale);
     }
 
     @Override

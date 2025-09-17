@@ -61,6 +61,11 @@ public class GlobalVarPersistInfo implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         try {
+            if (varNames == null && persistJsonString != null) {
+                Text.writeString(out, persistJsonString);
+                return;
+            }
+
             JSONObject root = new JSONObject();
             for (String varName : varNames) {
                 // find attr in defaultSessionVariable or GlobalVariables

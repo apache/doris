@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -49,11 +48,6 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
-        throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
-    }
-
-    @Override
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'create table'");
     }
 

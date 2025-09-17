@@ -442,6 +442,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                     if (request.__isset.wal_id) {
                         task_runtime_state->set_wal_id(request.wal_id);
                     }
+                    if (request.__isset.content_length) {
+                        task_runtime_state->set_content_length(request.content_length);
+                    }
 
                     task_runtime_state->set_desc_tbl(_desc_tbl);
                     task_runtime_state->set_per_fragment_instance_idx(local_params.sender_id);

@@ -232,14 +232,6 @@ suite("test_union") {
             check2_doris(res3, res4)
         }
     }
-    test {
-        sql """(select k1, k2 from ${tbName2}) union (select k2, k10 from ${tbName1} order by k10)
-            order by k1, k2"""
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
-    }
     // cast类型
     // cast date/dateime to int is not supported anymore
     // def res5 = sql"""(select k1, k2 from ${tbName2}) union (select k2, cast(k11 as int) from ${tbName1})
@@ -255,10 +247,7 @@ suite("test_union") {
     // 不同类型不同个数
     test {
         sql """select k1, k2 from ${tbName2} union select k11, k10, k9  from ${tbName1} order by k1, k2"""
-        check {result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        exception ""
     }
 
     // test_union_different_schema

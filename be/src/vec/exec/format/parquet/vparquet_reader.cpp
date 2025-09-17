@@ -126,11 +126,13 @@ ParquetReader::~ParquetReader() {
     _close_internal();
 }
 
+#ifdef BE_TEST
 // for unit test
 void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
     _file_reader = file_reader;
     _tracing_file_reader = file_reader;
 }
+#endif
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
@@ -1030,7 +1032,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type ||
         _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();

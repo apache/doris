@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -197,12 +196,6 @@ public interface CatalogIf<T extends DatabaseIf> {
      * return false otherwise
      */
     boolean createTable(CreateTableInfo createTableInfo) throws UserException;
-
-    /**
-     * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
-     * return false otherwise
-     */
-    boolean createTable(CreateTableStmt stmt) throws UserException;
 
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
             boolean mustTemporary, boolean force) throws DdlException;

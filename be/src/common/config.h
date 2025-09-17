@@ -1636,9 +1636,6 @@ DECLARE_String(fuzzy_test_type);
 // The maximum csv line reader output buffer size
 DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 
-// The maximum number of threads supported when executing LLMFunction
-DECLARE_mInt32(llm_max_concurrent_requests);
-
 // Maximum number of OpenMP threads that can be used by each Doris thread
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.

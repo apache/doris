@@ -508,6 +508,7 @@ public:
     uint8_t hour() const { return _hour; }
     uint8_t minute() const { return _minute; }
     uint16_t second() const { return _second; }
+    uint8_t microsecond() const { return 0; }
 
     int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;

@@ -43,7 +43,7 @@ public:
                                DropSnapshotResponse* response);
     virtual void list_snapshot(std::string_view instance_id, const ListSnapshotRequest& request,
                                ListSnapshotResponse* response);
-    virtual void clone_instance(std::string_view instance_id, const CloneInstanceRequest& request,
+    virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
