@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
@@ -93,10 +94,6 @@ Status OlapScanLocalState::_init_profile() {
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
 
     // 2. init timer and counters
-    // Scanner builder stats
-    _scanner_builder_remote_io = ADD_COUNTER(_scanner_profile, "BuilderRemoteIO", TUnit::UNIT);
-    _scanner_builder_remote_bytes =
-            ADD_COUNTER(_scanner_profile, "BuilderRemoteBytes", TUnit::BYTES);
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
@@ -498,11 +495,16 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
-        COUNTER_UPDATE(_scanner_builder_remote_io,
-                       scanner_builder.builder_stats()->file_cache_stats.num_remote_io_total);
-        COUNTER_UPDATE(_scanner_builder_remote_bytes,
-                       scanner_builder.builder_stats()->file_cache_stats.bytes_scanned_from_remote);
-        custom_profile()->add_info_string("TabletIds", tablets_id_to_string(_scan_ranges));
+
+        const OlapReaderStatistics *stats = scanner_builder.builder_stats();
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
+
         return Status::OK();
     }
 

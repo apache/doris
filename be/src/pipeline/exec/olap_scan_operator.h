@@ -116,10 +116,6 @@ private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
 
-    // Scanner builder stats
-    RuntimeProfile::Counter* _scanner_builder_remote_io = nullptr;
-    RuntimeProfile::Counter* _scanner_builder_remote_bytes = nullptr;
-
     RuntimeProfile::Counter* _tablet_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
