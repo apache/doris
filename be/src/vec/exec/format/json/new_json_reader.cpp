@@ -1328,18 +1328,18 @@ Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
     const char* data = reinterpret_cast<const char*>(_json_str);
 
     size_t i;
-    for (i = 0; i < size; i ++) {
+    for (i = 0; i < size; i++) {
         if (data[i] == '[') {
             break;
         }
     }
-    for (; i < size; i ++) {
+    for (; i < size; i++) {
         if (data[i] == ']') {
             break;
         }
     }
 
-    for (; i < size; i ++) {
+    for (; i < size; i++) {
         if (data[i] == '[') {
             return Status::DataQualityError(
                     "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
