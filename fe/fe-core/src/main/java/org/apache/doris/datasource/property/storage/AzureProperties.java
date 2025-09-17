@@ -94,6 +94,10 @@ public class AzureProperties extends StorageProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
+    public static final String ENDPOINT = "azure.endpoint";
+    public static final String REGION = "azure.region";
+    public static final String ACCESS_KEY = "azure.access_key";
+    public static final String SECRET_KEY = "azure.secret_key";
 
     public AzureProperties(Map<String, String> origProps) {
         super(Type.AZURE, origProps);
@@ -109,7 +113,7 @@ public class AzureProperties extends StorageProperties {
             throw new IllegalArgumentException(String.format("Endpoint '%s' is not valid. It should end with '%s'.",
                     endpoint, AZURE_ENDPOINT_SUFFIX));
         }
-        this.endpoint = formatAzureEndpoint(endpoint);
+        this.endpoint = formatAzureEndpoint(endpoint, accessKey);
     }
 
     public static boolean guessIsMe(Map<String, String> origProps) {
@@ -144,7 +148,7 @@ public class AzureProperties extends StorageProperties {
 
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    private String formatAzureEndpoint(String endpoint) {
+    public static String formatAzureEndpoint(String endpoint, String accessKey) {
         if (Config.force_azure_blob_global_endpoint) {
             return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
         }

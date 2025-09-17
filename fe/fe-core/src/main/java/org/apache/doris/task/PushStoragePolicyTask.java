@@ -21,10 +21,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.thrift.TCredProviderType;
 import org.apache.doris.thrift.TPushStoragePolicyReq;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TStoragePolicy;
 import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TTaskType;
@@ -34,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class PushStoragePolicyTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PushStoragePolicyTask.class);
@@ -88,7 +91,7 @@ public class PushStoragePolicyTask extends AgentTask {
             item.setName(r.getName());
             item.setVersion(r.getVersion());
             if (r.getType() == ResourceType.S3) {
-                item.setS3StorageParam(S3Properties.getS3TStorageParam(r.getCopiedProperties()));
+                item.setS3StorageParam(getS3TStorageParam(r.getCopiedProperties()));
             } else if (r.getType() == ResourceType.HDFS) {
                 item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
             }
@@ -99,5 +102,38 @@ public class PushStoragePolicyTask extends AgentTask {
 
         ret.setDroppedStoragePolicy(droppedStoragePolicy);
         return ret;
+    }
+
+    private static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        TS3StorageParam s3Info = new TS3StorageParam();
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            s3Info.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                s3Info.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            s3Info.setCredProviderType(TCredProviderType.INSTANCE_PROFILE);
+        }
+
+        s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        s3Info.setRegion(properties.get(S3Properties.REGION));
+        s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
+        s3Info.setSk(properties.get(S3Properties.SECRET_KEY));
+        s3Info.setToken(properties.get(S3Properties.SESSION_TOKEN));
+
+        s3Info.setRootPath(properties.get(S3Properties.ROOT_PATH));
+        s3Info.setBucket(properties.get(S3Properties.BUCKET));
+        String maxConnections = properties.get(S3Properties.MAX_CONNECTIONS);
+        s3Info.setMaxConn(Integer.parseInt(maxConnections == null
+                ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
+        String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
+        s3Info.setRequestTimeoutMs(Integer.parseInt(requestTimeoutMs == null
+                ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
+        String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
+        s3Info.setConnTimeoutMs(Integer.parseInt(connTimeoutMs == null
+                ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        String usePathStyle = properties.getOrDefault(S3Properties.USE_PATH_STYLE, "false");
+        s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
+        return s3Info;
     }
 }

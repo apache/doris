@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
@@ -36,6 +37,8 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sts.StsClient;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,8 +47,26 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class S3Properties extends AbstractS3CompatibleProperties {
+
     public static final String USE_PATH_STYLE = "use_path_style";
 
+    public static final String S3_PREFIX = "s3.";
+
+    public static final String ENDPOINT = "s3.endpoint";
+    public static final String EXTERNAL_ENDPOINT = "s3.external_endpoint";
+    public static final String REGION = "s3.region";
+    public static final String ACCESS_KEY = "s3.access_key";
+    public static final String SECRET_KEY = "s3.secret_key";
+    public static final String SESSION_TOKEN = "s3.session_token";
+    public static final String MAX_CONNECTIONS = "s3.connection.maximum";
+    public static final String REQUEST_TIMEOUT_MS = "s3.connection.request.timeout";
+    public static final String CONNECTION_TIMEOUT_MS = "s3.connection.timeout";
+
+    public static final String ROLE_ARN = "s3.role_arn";
+    public static final String EXTERNAL_ID = "s3.external_id";
+    public static final String ROOT_PATH = "s3.root.path";
+    public static final String BUCKET = "s3.bucket";
+    public static final String VALIDITY_CHECK = "s3_validity_check";
     private static final String[] ENDPOINT_NAMES_FOR_GUESSING = {
             "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint", "glue.endpoint",
             "aws.glue.endpoint"
@@ -54,6 +75,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     private static final String[] REGION_NAMES_FOR_GUESSING = {
             "s3.region", "glue.region", "aws.glue.region", "iceberg.rest.signing-region"
     };
+
+    public static List<String> SENSITIVE_KEYS = Arrays.asList("s3.secret_key", "AWS_SECRET_KEY", "secret_key",
+            "SECRET_KEY", "glue.secret_key",
+            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
+            "s3.secret-access-key");
 
     @Setter
     @Getter
@@ -153,6 +179,34 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             required = false,
             description = "The external id of S3.")
     protected String s3ExternalId = "";
+
+    public static class Env {
+        public static final String PROPERTIES_PREFIX = "AWS";
+        // required
+        public static final String ENDPOINT = "AWS_ENDPOINT";
+        public static final String REGION = "AWS_REGION";
+        public static final String ACCESS_KEY = "AWS_ACCESS_KEY";
+        public static final String SECRET_KEY = "AWS_SECRET_KEY";
+        public static final String TOKEN = "AWS_TOKEN";
+        // required by storage policy
+        public static final String ROOT_PATH = "AWS_ROOT_PATH";
+        public static final String BUCKET = "AWS_BUCKET";
+        // optional
+        public static final String MAX_CONNECTIONS = "AWS_MAX_CONNECTIONS";
+        public static final String REQUEST_TIMEOUT_MS = "AWS_REQUEST_TIMEOUT_MS";
+        public static final String CONNECTION_TIMEOUT_MS = "AWS_CONNECTION_TIMEOUT_MS";
+        public static final String DEFAULT_MAX_CONNECTIONS = "50";
+        public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
+        public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
+        public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
+
+        public static final String ROLE_ARN = "AWS_ROLE_ARN";
+        public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+
+        public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
+        public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
+                ROOT_PATH, BUCKET, MAX_CONNECTIONS, REQUEST_TIMEOUT_MS, CONNECTION_TIMEOUT_MS);
+    }
 
     public static S3Properties of(Map<String, String> properties) {
         S3Properties propertiesObj = new S3Properties(properties);
@@ -326,6 +380,123 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return "";
         }
         return "https://s3." + region + ".amazonaws.com";
+    }
+
+    public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
+
+    public static void requiredS3Properties(Map<String, String> properties) throws DdlException {
+        // Try to convert env properties to uniform properties
+        // compatible with old version
+        convertToStdProperties(properties);
+        if (properties.containsKey(Env.ENDPOINT)
+                && !properties.containsKey(ENDPOINT)) {
+            for (String field : Env.REQUIRED_FIELDS) {
+                checkRequiredProperty(properties, field);
+            }
+        } else {
+            for (String field : REQUIRED_FIELDS) {
+                checkRequiredProperty(properties, field);
+            }
+        }
+        if (StringUtils.isNotBlank(properties.get(StorageProperties.FS_PROVIDER_KEY))) {
+            // S3 Provider properties should be case insensitive.
+            if (!PROVIDERS.stream().anyMatch(s -> s.equals(properties.get(FS_PROVIDER_KEY).toUpperCase()))) {
+                throw new DdlException("Provider must be one of OSS, OBS, AZURE, BOS, COS, S3, GCP");
+            }
+        }
+
+    }
+
+    public static final List<String> PROVIDERS = Arrays.asList("COS", "OSS", "S3", "OBS", "BOS", "AZURE", "GCP", "TOS");
+
+    public static void checkRequiredProperty(Map<String, String> properties, String propertyKey)
+            throws DdlException {
+        String value = properties.get(propertyKey);
+        if (StringUtils.isBlank(value)) {
+            throw new DdlException("Missing [" + propertyKey + "] in properties.");
+        }
+    }
+
+    public static void requiredS3PingProperties(Map<String, String> properties) throws DdlException {
+        requiredS3Properties(properties);
+        checkRequiredProperty(properties, BUCKET);
+    }
+
+    public static void convertToStdProperties(Map<String, String> properties) {
+        if (properties.containsKey(Env.ENDPOINT)) {
+            properties.putIfAbsent(ENDPOINT, properties.get(Env.ENDPOINT));
+        }
+        if (properties.containsKey(Env.REGION)) {
+            properties.putIfAbsent(REGION, properties.get(Env.REGION));
+        }
+        if (properties.containsKey(Env.ACCESS_KEY)) {
+            properties.putIfAbsent(ACCESS_KEY, properties.get(Env.ACCESS_KEY));
+        }
+        if (properties.containsKey(Env.SECRET_KEY)) {
+            properties.putIfAbsent(SECRET_KEY, properties.get(Env.SECRET_KEY));
+        }
+        if (properties.containsKey(Env.TOKEN)) {
+            properties.putIfAbsent(SESSION_TOKEN, properties.get(Env.TOKEN));
+        }
+        if (properties.containsKey(Env.MAX_CONNECTIONS)) {
+            properties.putIfAbsent(MAX_CONNECTIONS, properties.get(Env.MAX_CONNECTIONS));
+        }
+        if (properties.containsKey(Env.REQUEST_TIMEOUT_MS)) {
+            properties.putIfAbsent(REQUEST_TIMEOUT_MS,
+                    properties.get(Env.REQUEST_TIMEOUT_MS));
+
+        }
+        if (properties.containsKey(Env.CONNECTION_TIMEOUT_MS)) {
+            properties.putIfAbsent(CONNECTION_TIMEOUT_MS,
+                    properties.get(Env.CONNECTION_TIMEOUT_MS));
+        }
+        if (properties.containsKey(Env.ROOT_PATH)) {
+            properties.putIfAbsent(ROOT_PATH, properties.get(Env.ROOT_PATH));
+        }
+        if (properties.containsKey(Env.BUCKET)) {
+            properties.putIfAbsent(BUCKET, properties.get(Env.BUCKET));
+        }
+        if (properties.containsKey(USE_PATH_STYLE)) {
+            properties.putIfAbsent(USE_PATH_STYLE, properties.get(USE_PATH_STYLE));
+        }
+
+        if (properties.containsKey(Env.ROLE_ARN)) {
+            properties.putIfAbsent(ROLE_ARN, properties.get(Env.ROLE_ARN));
+        }
+
+        if (properties.containsKey(Env.EXTERNAL_ID)) {
+            properties.putIfAbsent(EXTERNAL_ID, properties.get(Env.EXTERNAL_ID));
+        }
+    }
+
+    private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
+
+    public static String getRegionOfEndpoint(String endpoint) {
+        if (IPV4_PORT_PATTERN.matcher(endpoint).find()) {
+            // if endpoint contains '192.168.0.1:8999', return null region
+            return null;
+        }
+        String[] endpointSplit = endpoint.replace("http://", "")
+                .replace("https://", "")
+                .split("\\.");
+        if (endpointSplit.length < 2) {
+            return null;
+        }
+        if (endpointSplit[0].contains("oss-")) {
+            // compatible with the endpoint: oss-cn-bejing.aliyuncs.com
+            return endpointSplit[0];
+        }
+        return endpointSplit[1];
+    }
+
+    public static void optionalS3Property(Map<String, String> properties) {
+        properties.putIfAbsent(MAX_CONNECTIONS, Env.DEFAULT_MAX_CONNECTIONS);
+        properties.putIfAbsent(REQUEST_TIMEOUT_MS, Env.DEFAULT_REQUEST_TIMEOUT_MS);
+        properties.putIfAbsent(CONNECTION_TIMEOUT_MS, Env.DEFAULT_CONNECTION_TIMEOUT_MS);
+        // compatible with old version
+        properties.putIfAbsent(Env.MAX_CONNECTIONS, Env.DEFAULT_MAX_CONNECTIONS);
+        properties.putIfAbsent(Env.REQUEST_TIMEOUT_MS, Env.DEFAULT_REQUEST_TIMEOUT_MS);
+        properties.putIfAbsent(Env.CONNECTION_TIMEOUT_MS, Env.DEFAULT_CONNECTION_TIMEOUT_MS);
     }
 }
 
