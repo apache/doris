@@ -78,6 +78,9 @@ private:
     std::unique_ptr<ColumnWriter> _root_writer;
     // for sparse column
     std::unique_ptr<ColumnWriter> _sparse_column_writer;
+    // for bucketized sparse columns
+    std::vector<std::unique_ptr<ColumnWriter>> _sparse_bucket_writers;
+    std::vector<ColumnWriterOptions> _sparse_bucket_opts;
     std::vector<std::unique_ptr<ColumnWriter>> _subcolumn_writers;
     std::vector<ColumnWriterOptions> _subcolumn_opts;
 
