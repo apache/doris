@@ -1339,13 +1339,11 @@ Status NewJsonReader::_check_multiple_json_arrays(size_t size) {
         }
     }
 
-    if (data[i+1] == '\n') {
-        for (; i < size; i ++) {
-            if (data[i] == '[') {
-                return Status::DataQualityError(
-                        "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
-                        "true.");
-            }
+    for (; i < size; i ++) {
+        if (data[i] == '[') {
+            return Status::DataQualityError(
+                    "Multiple JSON arrays detected. Please set 'read_json_by_line' to "
+                    "true.");
         }
     }
 
