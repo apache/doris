@@ -164,9 +164,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
-            if (!status.equals(JobStatus.RUNNING)) {
-                runningStreamTask.cancel(false);
-            }
         } finally {
             lock.writeLock().unlock();
         }
