@@ -253,7 +253,8 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
 }
 
 // CLOSE_LOAD
-Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit) {
+Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commit,
+                                  int num_incremental_streams) {
     if (!_is_open.load()) {
         return _status;
     }
@@ -264,6 +265,7 @@ Status LoadStreamStub::close_load(const std::vector<PTabletID>& tablets_to_commi
     for (const auto& tablet : tablets_to_commit) {
         *header.add_tablets() = tablet;
     }
+    header.set_num_incremental_streams(num_incremental_streams);
     _status = _encode_and_send(header);
     if (!_status.ok()) {
         LOG(WARNING) << "stream " << _stream_id << " close failed: " << _status;

@@ -685,7 +685,15 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
                 close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
         std::lock_guard<bthread::Mutex> lock_guard(_lock);
-        _closing_stream_ids.push_back(id);
+        // if incremental stream, we need to wait for all non-incremental streams to be closed
+        // before closing incremental streams. We need a fencing mechanism to avoid use after closing
+        // across different be.
+        if (hdr.has_num_incremental_streams() && hdr.num_incremental_streams() > 0) {
+            _closing_stream_ids.push_back(id);
+        } else {
+            brpc::StreamClose(id);
+        }
+
         if (all_closed) {
             for (auto& closing_id : _closing_stream_ids) {
                 brpc::StreamClose(closing_id);
