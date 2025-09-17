@@ -231,6 +231,10 @@ public:
         _variant_max_sparse_column_statistics_size = variant_max_sparse_column_statistics_size;
     }
 
+    void set_variant_sparse_hash_shard_count(int32_t variant_sparse_hash_shard_count) {
+        _variant_sparse_hash_shard_count = variant_sparse_hash_shard_count;
+    }
+
     int32_t variant_max_subcolumns_count() const { return _variant_max_subcolumns_count; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
@@ -242,6 +246,8 @@ public:
     int32_t variant_max_sparse_column_statistics_size() const {
         return _variant_max_sparse_column_statistics_size;
     }
+
+    int32_t variant_sparse_hash_shard_count() const { return _variant_sparse_hash_shard_count; }
 
     bool is_decimal() const { return _is_decimal; }
 
@@ -292,6 +298,8 @@ private:
     // set variant_max_sparse_column_statistics_size
     int32_t _variant_max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
+    // default to 0, no shard
+    int32_t _variant_sparse_hash_shard_count = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

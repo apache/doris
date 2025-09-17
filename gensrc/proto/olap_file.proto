@@ -362,6 +362,8 @@ message ColumnPB {
     optional bool is_on_update_current_timestamp = 28 [default = false];
     // variant_max_sparse_column_statistics_size 
     optional int32 variant_max_sparse_column_statistics_size = 29 [default = 10000];
+    // number of buckets used to store sparse map
+    optional int32 variant_sparse_hash_shard_count = 30;
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

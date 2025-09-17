@@ -49,6 +49,9 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantMaxSparseColumnStatisticsSize")
     private int variantMaxSparseColumnStatisticsSize = 10000;
 
+    @SerializedName(value = "variantSparseHashShardCount")
+    private int variantSparseHashShardCount = 0;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -86,7 +89,8 @@ public class VariantType extends ScalarType {
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
                                                         boolean enableTypedPathsToSparse,
-                                                        int variantMaxSparseColumnStatisticsSize) {
+                                                        int variantMaxSparseColumnStatisticsSize,
+                                                        int variantSparseHashShardCount) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -96,6 +100,7 @@ public class VariantType extends ScalarType {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+        this.variantSparseHashShardCount = variantSparseHashShardCount;
     }
 
     @Override
@@ -135,6 +140,11 @@ public class VariantType extends ScalarType {
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
+        }
+        if (variantSparseHashShardCount != 0 && variantSparseHashShardCount != 1) {
+            sb.append(",");
+            sb.append("\"variant_sparse_hash_shard_count\" = \"")
+                                    .append(String.valueOf(variantSparseHashShardCount)).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -208,5 +218,13 @@ public class VariantType extends ScalarType {
 
     public void setVariantMaxSparseColumnStatisticsSize(int variantMaxSparseColumnStatisticsSize) {
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+    }
+
+    public int getVariantSparseHashShardCount() {
+        return variantSparseHashShardCount;
+    }
+
+    public void setVariantSparseHashShardCount(int variantSparseHashShardCount) {
+        this.variantSparseHashShardCount = variantSparseHashShardCount;
     }
 }

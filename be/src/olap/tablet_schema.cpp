@@ -686,6 +686,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _variant_max_sparse_column_statistics_size =
                 column.variant_max_sparse_column_statistics_size();
     }
+    if (column.has_variant_sparse_hash_shard_count()) {
+        _variant_sparse_hash_shard_count = column.variant_sparse_hash_shard_count();
+    }
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
@@ -771,6 +774,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
     column->set_variant_max_sparse_column_statistics_size(
             _variant_max_sparse_column_statistics_size);
+    column->set_variant_sparse_hash_shard_count(_variant_sparse_hash_shard_count);
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

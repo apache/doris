@@ -65,7 +65,8 @@ Status VariantStatsCaculator::calculate_variant_stats(const vectorized::Block* b
             const auto& column = block->get_by_position(i).column;
 
             // Check if this is a sparse column or sub column
-            if (column_path.ends_with("__DORIS_VARIANT_SPARSE__")) {
+            // Treat both single sparse column and bucketized sparse columns (.b{i}) as sparse
+            if (column_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
                 // This is a sparse column from variant column
                 // get variant_max_sparse_column_statistics_size from tablet_schema
                 size_t variant_max_sparse_column_statistics_size =
