@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import com.google.common.collect.Maps;
 
@@ -44,9 +45,9 @@ public class BuildIndexClause extends AlterTableClause {
     // index internal class
     private Index index;
     private String indexName;
-    private PartitionNames partitionNames;
+    private PartitionNamesInfo partitionNames;
 
-    public BuildIndexClause(TableName tableName, String indexName, PartitionNames partitionNames, boolean alter) {
+    public BuildIndexClause(TableName tableName, String indexName, PartitionNamesInfo partitionNames, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexName = indexName;

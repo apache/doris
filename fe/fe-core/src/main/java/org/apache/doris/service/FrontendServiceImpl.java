@@ -3715,9 +3715,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        PartitionNames partitionNames = null;
+        PartitionNamesInfo partitionNames = null;
         if (target.partitions != null) {
-            partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
+            partitionNames = new PartitionNamesInfo(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
