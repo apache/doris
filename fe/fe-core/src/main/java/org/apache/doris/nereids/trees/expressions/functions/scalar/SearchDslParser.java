@@ -116,6 +116,8 @@ public class SearchDslParser {
      */
     private static class QsAstBuilder extends SearchParserBaseVisitor<QsNode> {
         private final Set<String> fieldNames = new HashSet<>();
+        // Context stack to track current field name during parsing
+        private String currentFieldName = null;
 
         public Set<String> getFieldNames() {
             return fieldNames;
@@ -180,74 +182,125 @@ public class SearchDslParser {
             }
             fieldNames.add(fieldName);
 
-            return visit(ctx.searchValue());
+            // Set current field context before visiting search value
+            String previousFieldName = currentFieldName;
+            currentFieldName = fieldName;
+
+            try {
+                return visit(ctx.searchValue());
+            } finally {
+                // Restore previous context
+                currentFieldName = previousFieldName;
+            }
         }
 
         @Override
         public QsNode visitSearchValue(SearchParser.SearchValueContext ctx) {
             String fieldName = getCurrentFieldName();
+
+            // Handle each search value type independently for better readability
             if (ctx.TERM() != null) {
-                return new QsNode(QsClauseType.TERM, fieldName, ctx.TERM().getText());
-            } else
-                if (ctx.PREFIX() != null) {
-                    return new QsNode(QsClauseType.PREFIX, fieldName, ctx.PREFIX().getText());
-                } else
-                    if (ctx.WILDCARD() != null) {
-                        return new QsNode(QsClauseType.WILDCARD, fieldName, ctx.WILDCARD().getText());
-                    } else
-                        if (ctx.REGEXP() != null) {
-                            String regexp = ctx.REGEXP().getText();
-                            // Remove surrounding slashes
-                            if (regexp.startsWith("/") && regexp.endsWith("/")) {
-                                regexp = regexp.substring(1, regexp.length() - 1);
-                            }
-                            return new QsNode(QsClauseType.REGEXP, fieldName, regexp);
-                        } else
-                            if (ctx.QUOTED() != null) {
-                                String quoted = ctx.QUOTED().getText();
-                                // Remove surrounding quotes
-                                if (quoted.startsWith("\"") && quoted.endsWith("\"")) {
-                                    quoted = quoted.substring(1, quoted.length() - 1);
-                                }
-                                return new QsNode(QsClauseType.PHRASE, fieldName, quoted);
-                            } else
-                                if (ctx.rangeValue() != null) {
-                                    return new QsNode(QsClauseType.RANGE, fieldName, ctx.rangeValue().getText());
-                                } else
-                                    if (ctx.listValue() != null) {
-                                        return new QsNode(QsClauseType.LIST, fieldName, ctx.listValue().getText());
-                                    } else
-                                        if (ctx.anyAllValue() != null) {
-                                            String anyAllText = ctx.anyAllValue().getText();
-                                            String innerContent = "";
+                return createTermNode(fieldName, ctx.TERM().getText());
+            }
 
-                                            // Extract content between parentheses
-                                            int openParen = anyAllText.indexOf('(');
-                                            int closeParen = anyAllText.lastIndexOf(')');
-                                            if (openParen >= 0 && closeParen > openParen) {
-                                                innerContent = anyAllText.substring(openParen + 1, closeParen).trim();
-                                            }
+            if (ctx.PREFIX() != null) {
+                return createPrefixNode(fieldName, ctx.PREFIX().getText());
+            }
 
-                                            if (anyAllText.toUpperCase().startsWith("ANY(") || anyAllText.toLowerCase()
-                                                    .startsWith("any(")) {
-                                                return new QsNode(QsClauseType.ANY, fieldName, innerContent);
-                                            } else
-                                                if (anyAllText.toUpperCase().startsWith("ALL(")
-                                                        || anyAllText.toLowerCase().startsWith("all(")) {
-                                                    return new QsNode(QsClauseType.ALL, fieldName, innerContent);
-                                                } else {
-                                                    // Fallback to ANY for unknown cases
-                                                    return new QsNode(QsClauseType.ANY, fieldName, innerContent);
-                                                }
-                                        }
+            if (ctx.WILDCARD() != null) {
+                return createWildcardNode(fieldName, ctx.WILDCARD().getText());
+            }
 
-            return new QsNode(QsClauseType.TERM, fieldName, ctx.getText());
+            if (ctx.REGEXP() != null) {
+                return createRegexpNode(fieldName, ctx.REGEXP().getText());
+            }
+
+            if (ctx.QUOTED() != null) {
+                return createPhraseNode(fieldName, ctx.QUOTED().getText());
+            }
+
+            if (ctx.rangeValue() != null) {
+                return createRangeNode(fieldName, ctx.rangeValue().getText());
+            }
+
+            if (ctx.listValue() != null) {
+                return createListNode(fieldName, ctx.listValue().getText());
+            }
+
+            if (ctx.anyAllValue() != null) {
+                return createAnyAllNode(fieldName, ctx.anyAllValue().getText());
+            }
+
+            // Fallback for unknown types
+            return createTermNode(fieldName, ctx.getText());
+        }
+
+        private QsNode createTermNode(String fieldName, String value) {
+            return new QsNode(QsClauseType.TERM, fieldName, value);
+        }
+
+        private QsNode createPrefixNode(String fieldName, String value) {
+            return new QsNode(QsClauseType.PREFIX, fieldName, value);
+        }
+
+        private QsNode createWildcardNode(String fieldName, String value) {
+            return new QsNode(QsClauseType.WILDCARD, fieldName, value);
+        }
+
+        private QsNode createRegexpNode(String fieldName, String regexpText) {
+            String regexp = regexpText;
+            // Remove surrounding slashes
+            if (regexp.startsWith("/") && regexp.endsWith("/")) {
+                regexp = regexp.substring(1, regexp.length() - 1);
+            }
+            return new QsNode(QsClauseType.REGEXP, fieldName, regexp);
+        }
+
+        private QsNode createPhraseNode(String fieldName, String quotedText) {
+            String quoted = quotedText;
+            // Remove surrounding quotes
+            if (quoted.startsWith("\"") && quoted.endsWith("\"")) {
+                quoted = quoted.substring(1, quoted.length() - 1);
+            }
+            return new QsNode(QsClauseType.PHRASE, fieldName, quoted);
+        }
+
+        private QsNode createRangeNode(String fieldName, String rangeText) {
+            return new QsNode(QsClauseType.RANGE, fieldName, rangeText);
+        }
+
+        private QsNode createListNode(String fieldName, String listText) {
+            return new QsNode(QsClauseType.LIST, fieldName, listText);
+        }
+
+        private QsNode createAnyAllNode(String fieldName, String anyAllText) {
+            // Extract content between parentheses
+            String innerContent = extractParenthesesContent(anyAllText);
+
+            if (anyAllText.toUpperCase().startsWith("ANY(") || anyAllText.toLowerCase().startsWith("any(")) {
+                return new QsNode(QsClauseType.ANY, fieldName, innerContent);
+            }
+
+            if (anyAllText.toUpperCase().startsWith("ALL(") || anyAllText.toLowerCase().startsWith("all(")) {
+                return new QsNode(QsClauseType.ALL, fieldName, innerContent);
+            }
+
+            // Fallback to ANY for unknown cases
+            return new QsNode(QsClauseType.ANY, fieldName, innerContent);
+        }
+
+        private String extractParenthesesContent(String text) {
+            int openParen = text.indexOf('(');
+            int closeParen = text.lastIndexOf(')');
+            if (openParen >= 0 && closeParen > openParen) {
+                return text.substring(openParen + 1, closeParen).trim();
+            }
+            return "";
         }
 
         private String getCurrentFieldName() {
-            // This is a simplified approach - in a real implementation,
-            // we'd need to track context properly
-            return fieldNames.isEmpty() ? "_all" : fieldNames.iterator().next();
+            // Use the current field name from parsing context
+            return currentFieldName != null ? currentFieldName : "_all";
         }
     }
 
