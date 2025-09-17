@@ -353,7 +353,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             if (!st.ok()) {
                 LOG(WARNING) << "search: Failed to init index file reader for field: " << field_name
                              << ", error: " << st.to_string();
-                continue;
+                return Status::InternalError("Failed to init index file reader for field: " +
+                                             field_name + ", error: " + st.to_string());
             }
 
             // Open directory directly
@@ -370,12 +371,13 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             } catch (const CLuceneError& e) {
                 LOG(WARNING) << "search: Failed to open lucene IndexReader for field: "
                              << field_name << ", error: " << e.what();
-                continue;
+                return Status::InternalError("Failed to open IndexReader for field: " + field_name +
+                                             ", error: " + std::string(e.what()));
             }
 
             if (!index_reader) {
                 LOG(WARNING) << "search: lucene IndexReader is null for field: " << field_name;
-                continue;
+                return Status::InternalError("IndexReader is null for field: " + field_name);
             }
 
             // Set reader in composite reader and keep ownership
