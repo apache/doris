@@ -325,8 +325,8 @@ public class NereidsLoadScanProvider {
                 // check Bitmap Compatibility and check QuantileState Compatibility need be checked after binding
                 // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
                 // and if input string is not a valid json string, return null. this need be handled after binding
-                expression = ExpressionUtils.replace(expression, replaceMap);
-                replaceMap.put(new UnboundSlot(columnName), expression);
+                // expression = ExpressionUtils.replace(expression, replaceMap);
+                // replaceMap.put(new UnboundSlot(columnName), expression);
                 context.exprMap.put(column.getName(), expression);
             }
         }
