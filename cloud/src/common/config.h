@@ -365,4 +365,6 @@ CONF_mBool(enable_logging_conflict_keys, "false");
 // Default is 1 hour (3600 seconds).
 CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 
+CONF_mBool(enable_custom_aws_credentials_chain, "true");
+
 } // namespace doris::cloud::config
