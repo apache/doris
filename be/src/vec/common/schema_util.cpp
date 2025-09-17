@@ -69,6 +69,7 @@
 #include "vec/columns/column_variant.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/field_visitors.h"
+#include "vec/common/sip_hash.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -648,6 +649,32 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.add_sub_column(child_tcolumn);
     res.add_sub_column(child_tcolumn);
     return res;
+}
+
+TabletColumn create_sparse_bucket_column(const TabletColumn& variant, int bucket_index) {
+    TabletColumn res;
+    std::string name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b" +
+                       std::to_string(bucket_index);
+    res.set_name(name);
+    res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
+    res.set_aggregation_method(variant.aggregation());
+    res.set_parent_unique_id(variant.unique_id());
+    res.set_default_value("NULL");
+    PathInData path(name);
+    res.set_path_info(path);
+    TabletColumn child_tcolumn;
+    child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    res.add_sub_column(child_tcolumn);
+    res.add_sub_column(child_tcolumn);
+    return res;
+}
+
+uint32_t variant_sparse_bucket_of(const StringRef& path, uint32_t bucket_num) {
+    if (bucket_num <= 1) return 0;
+    SipHash hash;
+    hash.update(path.data, path.size);
+    uint64_t h = hash.get64();
+    return static_cast<uint32_t>(h % bucket_num);
 }
 
 Status VariantCompactionUtil::aggregate_path_to_stats(

@@ -228,10 +228,14 @@ private:
                                        SparseColumnCacheSPtr sparse_column_cache,
                                        ColumnReaderCache* column_reader_cache);
 
-    Result<SparseColumnCacheSPtr> _get_shared_column_cache(
-            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path);
+    static Result<SparseColumnCacheSPtr> _get_shared_column_cache(
+            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path,
+            std::shared_ptr<ColumnReader> sparse_column_reader);
+
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
+    // bucketized sparse columns support
+    std::vector<std::shared_ptr<ColumnReader>> _sparse_bucket_readers;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     // key: subcolumn path, value: subcolumn indexes

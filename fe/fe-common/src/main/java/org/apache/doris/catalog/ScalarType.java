@@ -1262,4 +1262,13 @@ public class ScalarType extends Type {
         }
         return 0; // The old variant type had a default value of 0.
     }
+
+    public int getVariantSparseBucketNum() {
+        // In the past, variant metadata used the ScalarType type.
+        // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
+        if (this instanceof VariantType) {
+            return ((VariantType) this).getVariantSparseBucketNum();
+        }
+        return 0; // The old variant type had a default value of 0.
+    }
 }
