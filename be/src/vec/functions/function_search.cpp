@@ -67,91 +67,6 @@ Status FunctionSearch::evaluate_inverted_index(
         const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
         std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-    if (arguments.empty()) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "query_string requires at least the query text argument");
-    }
-
-    // First argument: query DSL text
-    const auto& query_arg = arguments[0];
-    auto param_type = query_arg.type->get_primitive_type();
-    if (!is_string_type(param_type)) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "first argument for query_string must be string");
-    }
-    auto query_ref = query_arg.column->get_data_at(0);
-    std::string dsl_str(query_ref.data, query_ref.size);
-
-    // New parameter structure: arguments[1..n] are SlotReferences corresponding to DSL fields
-    // This eliminates JSON parsing overhead and provides better type safety
-    LOG(INFO) << "search: Processing DSL '" << dsl_str << "' with " << (arguments.size() - 1)
-              << " slot reference arguments";
-
-    // If no indexed columns provided, nothing to evaluate.
-    if (iterators.empty() || data_type_with_names.empty()) {
-        return Status::OK();
-    }
-
-    std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-
-    // Use MATCH_ANY query type for legacy DSL execution
-    // TODO: Parse DSL to determine appropriate query types for different clauses
-    auto query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
-
-    // Build target field set from available indexed columns
-    // FE has already ensured that only relevant fields are included via SlotReferences
-    std::set<std::string> target_fields;
-    for (const auto& field_type_pair : data_type_with_names) {
-        target_fields.insert(field_type_pair.first);
-    }
-
-    LOG(INFO) << "search: Executing on " << target_fields.size()
-              << " indexed fields for DSL: " << dsl_str;
-
-    // Execute query on target columns
-    size_t evaluated_columns = 0;
-    for (size_t i = 0; i < data_type_with_names.size(); ++i) {
-        auto* iter = iterators[i];
-        if (iter == nullptr) {
-            continue;
-        }
-
-        const std::string& column_name = data_type_with_names[i].first;
-
-        // Only evaluate columns in our target set
-        if (!target_fields.empty() && target_fields.find(column_name) == target_fields.end()) {
-            continue;
-        }
-
-        doris::segment_v2::InvertedIndexParam param;
-        param.query_value = &query_ref;
-        param.query_type = query_type;
-        param.num_rows = num_rows;
-        param.column_name = column_name;
-        param.column_type = data_type_with_names[i].second;
-        param.roaring = std::make_shared<roaring::Roaring>();
-
-        auto st = iter->read_from_index(&param);
-        if (!st.ok()) {
-            LOG(WARNING) << "search: Failed to evaluate column " << column_name
-                         << " with error: " << st.to_string();
-            continue;
-        }
-
-        // Combine results with OR operation
-        (*roaring) |= (*param.roaring);
-        evaluated_columns++;
-
-        VLOG(1) << "search: Successfully evaluated column " << column_name << ", found "
-                << param.roaring->cardinality() << " matches";
-    }
-
-    LOG(INFO) << "search: Evaluated " << evaluated_columns << " columns, "
-              << "total matches: " << roaring->cardinality();
-
-    segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-    bitmap_result = result;
     return Status::OK();
 }
 
@@ -240,10 +155,10 @@ std::shared_ptr<query_v2::Query> FunctionSearch::build_leaf_query(
     if (clause_type == "TERM") {
         return std::make_shared<query_v2::TermQuery>(context, field_wstr, value_wstr);
     } else if (category == ClauseTypeCategory::TOKENIZED) {
-        // Tokenized queries: QUOTED, MATCH, ANY, ALL - need tokenization
-        if (clause_type == "QUOTED") {
+        // Tokenized queries: PHRASE, MATCH, ANY, ALL - need tokenization
+        if (clause_type == "PHRASE") {
             // TODO: Implement PhraseQuery
-            LOG(INFO) << "TODO: QUOTED query type not yet implemented, using TermQuery";
+            LOG(INFO) << "TODO: PHRASE query type not yet implemented, using TermQuery";
             return std::make_shared<query_v2::TermQuery>(context, field_wstr, value_wstr);
         } else if (clause_type == "MATCH") {
             // TODO: Implement MatchQuery
@@ -353,15 +268,14 @@ std::shared_ptr<query_v2::Query> FunctionSearch::build_leaf_query(
     }
 }
 
-// New implementation using TSearchParam
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const TSearchParam& search_param,
         const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                 data_type_with_names,
         std::unordered_map<std::string, segment_v2::IndexIterator*> iterators, uint32_t num_rows,
         segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-    LOG(INFO) << "search: Processing structured query with DSL: " << search_param.original_dsl;
-    LOG(INFO) << "Available " << data_type_with_names.size() << " indexed columns, "
+    LOG(INFO) << "search: Processing structured query with DSL: " << search_param.original_dsl 
+              << ", available " << data_type_with_names.size() << " indexed columns, "
               << iterators.size() << " iterators";
 
     if (iterators.empty() || data_type_with_names.empty()) {
@@ -398,16 +312,8 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         }
         LOG(INFO) << "search: Built leaf query for clause type: " << root_clause_type;
     }
-
-    // Multi-value query execution using CompositeReader for multiple index readers
-    LOG(INFO) << "search: Executing multi-value query using CompositeReader...";
-
     // Analyze query type to determine appropriate InvertedIndexQueryType for reader selection
     InvertedIndexQueryType query_type = analyze_query_type(search_param.root);
-    LOG(INFO) << "search: Analyzed query type: "
-              << (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ? "MATCH_ANY_QUERY"
-                                                                        : "EQUAL_QUERY");
-
     // Initialize result bitmaps
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
@@ -416,9 +322,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         // Create CompositeReader to manage multiple index readers
         auto composite_reader = std::make_unique<query_v2::CompositeReader>();
 
-        // Build individual lucene IndexReaders for each field
-        std::vector<std::unique_ptr<lucene::index::IndexReader>> lucene_readers;
-        lucene_readers.reserve(data_type_with_names.size());
+        // Build individual IndexReaders for each field
+        std::vector<std::unique_ptr<lucene::index::IndexReader>> index_readers;
+        index_readers.reserve(data_type_with_names.size());
 
         for (const auto& field_pair : data_type_with_names) {
             const std::string& field_name = field_pair.first;
@@ -455,9 +361,9 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                     index_file_reader->open(&inverted_reader->get_index_meta(), context->io_ctx));
 
             // Create lucene IndexReader for this field
-            std::unique_ptr<lucene::index::IndexReader> lucene_reader;
+            std::unique_ptr<lucene::index::IndexReader> index_reader;
             try {
-                lucene_reader = std::unique_ptr<lucene::index::IndexReader>(
+                index_reader = std::unique_ptr<lucene::index::IndexReader>(
                         lucene::index::IndexReader::open(directory.get(),
                                                          config::inverted_index_read_buffer_size,
                                                          false)); // don't close directory
@@ -467,26 +373,26 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                 continue;
             }
 
-            if (!lucene_reader) {
+            if (!index_reader) {
                 LOG(WARNING) << "search: lucene IndexReader is null for field: " << field_name;
                 continue;
             }
 
             // Set reader in composite reader and keep ownership
-            composite_reader->set_reader(field_wstr, lucene_reader.get());
-            lucene_readers.push_back(std::move(lucene_reader));
+            composite_reader->set_reader(field_wstr, index_reader.get());
+            index_readers.push_back(std::move(index_reader));
 
             LOG(INFO) << "search: Successfully added IndexReader for field: " << field_name;
         }
 
-        if (lucene_readers.empty()) {
+        if (index_readers.empty()) {
             LOG(WARNING) << "search: No valid IndexReaders created for any field";
             segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
             bitmap_result = result;
             return Status::OK();
         }
 
-        LOG(INFO) << "search: Created CompositeReader with " << lucene_readers.size()
+        LOG(INFO) << "search: Created CompositeReader with " << index_readers.size()
                   << " IndexReaders";
 
         // Execute the Boolean query using the CompositeReader-based approach
@@ -498,7 +404,6 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             return Status::OK();
         }
 
-        // Use the new CompositeReader-based scorer method
         auto scorer = weight->scorer(composite_reader);
         if (!scorer) {
             LOG(WARNING) << "search: Failed to create scorer from weight";
@@ -525,13 +430,10 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
 
     } catch (const std::exception& e) {
         LOG(WARNING) << "search: Exception during direct Boolean query execution: " << e.what();
-        segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
-        bitmap_result = result;
-        return Status::OK();
+        return Status::InternalError("Exception during search query execution: " + std::string(e.what()));
     }
 }
 
-// Get the category of a clause type (DRY principle - shared by analyze_query_type and build_leaf_query)
 // Aligned with FE QsClauseType enum - uses enum.name() as clause_type
 FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
         const std::string& clause_type) const {
@@ -541,7 +443,7 @@ FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
                clause_type == "REGEXP" || clause_type == "RANGE" || clause_type == "LIST") {
         // Non-tokenized queries: exact matching, pattern matching, range, list operations
         return ClauseTypeCategory::NON_TOKENIZED;
-    } else if (clause_type == "QUOTED" || clause_type == "MATCH" || clause_type == "ANY" ||
+    } else if (clause_type == "PHRASE" || clause_type == "MATCH" || clause_type == "ANY" ||
                clause_type == "ALL") {
         // Tokenized queries: phrase search, full-text search, multi-value matching
         // Note: ANY and ALL require tokenization of their input values
@@ -584,7 +486,7 @@ segment_v2::InvertedIndexQueryType FunctionSearch::analyze_query_type(
     return InvertedIndexQueryType::EQUAL_QUERY;
 }
 
-// Helper function to get InvertedIndexReader for a field (DRY principle)
+// Helper function to get InvertedIndexReader for a field
 segment_v2::InvertedIndexReaderPtr FunctionSearch::get_field_inverted_reader(
         const std::string& field_name,
         const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators,
@@ -624,7 +526,7 @@ segment_v2::InvertedIndexReaderPtr FunctionSearch::get_field_inverted_reader(
     return reader;
 }
 
-// Helper function to get index properties for a field (DRY principle)
+// Helper function to get index properties for a field
 std::map<std::string, std::string> FunctionSearch::get_field_index_properties(
         const std::string& field_name,
         const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators) const {

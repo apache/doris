@@ -83,7 +83,6 @@ public class SearchPredicate extends Predicate {
         msg.node_type = TExprNodeType.SEARCH_EXPR;
         msg.setSearchParam(buildThriftParam());
 
-        // DEBUG: Print thrift structure being sent to BE
         LOG.info("SearchPredicate.toThrift: dsl='{}', num_children_in_base={}, children_size={}",
                 dslString, msg.num_children, this.children.size());
 
@@ -114,9 +113,6 @@ public class SearchPredicate extends Predicate {
                 }
             }
         }
-
-        // NOTE: Children (slot references) are automatically handled by base class treeToThriftHelper()
-        // which sets msg.num_children = children.size() and recursively processes all children
     }
 
     private TSearchParam buildThriftParam() {
@@ -129,8 +125,17 @@ public class SearchPredicate extends Predicate {
             SearchDslParser.QsFieldBinding binding = qsPlan.fieldBindings.get(i);
             TSearchFieldBinding thriftBinding = new TSearchFieldBinding();
             thriftBinding.setFieldName(binding.fieldName);
-            thriftBinding.setSlotIndex(binding.slotIndex);
-            LOG.info("buildThriftParam: binding: {}", binding);
+
+            if (i < this.children.size() && this.children.get(i) instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) this.children.get(i);
+                int actualSlotId = slotRef.getSlotId().asInt();
+                thriftBinding.setSlotIndex(actualSlotId);
+                LOG.info("buildThriftParam: binding field='{}', actual slotId={}", binding.fieldName, actualSlotId);
+            } else {
+                LOG.warn("buildThriftParam: No corresponding SlotRef for field '{}'", binding.fieldName);
+                thriftBinding.setSlotIndex(i); // fallback to position
+            }
+
             bindings.add(thriftBinding);
         }
         param.setFieldBindings(bindings);

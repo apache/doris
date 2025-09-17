@@ -88,9 +88,8 @@ public class SearchDslParser {
             return new QsPlan(root, bindings);
 
         } catch (Exception e) {
-            LOG.warn("Failed to parse DSL: {}", dsl, e);
-            // Fallback: treat as simple term search
-            return new QsPlan(new QsNode(QsClauseType.TERM, "_all", dsl), new ArrayList<>());
+            LOG.error("Failed to parse search DSL: '{}'", dsl, e);
+            throw new RuntimeException("Invalid search DSL syntax: " + dsl + ". Error: " + e.getMessage(), e);
         }
     }
 
@@ -99,7 +98,7 @@ public class SearchDslParser {
      */
     public enum QsClauseType {
         TERM,       // field:value
-        QUOTED,     // field:"quoted value"
+        PHRASE,     // field:"phrase search"
         PREFIX,     // field:prefix*
         WILDCARD,   // field:*wild*card*
         REGEXP,     // field:/pattern/
@@ -210,7 +209,7 @@ public class SearchDslParser {
                                 if (quoted.startsWith("\"") && quoted.endsWith("\"")) {
                                     quoted = quoted.substring(1, quoted.length() - 1);
                                 }
-                                return new QsNode(QsClauseType.QUOTED, fieldName, quoted);
+                                return new QsNode(QsClauseType.PHRASE, fieldName, quoted);
                             } else
                                 if (ctx.rangeValue() != null) {
                                     return new QsNode(QsClauseType.RANGE, fieldName, ctx.rangeValue().getText());
