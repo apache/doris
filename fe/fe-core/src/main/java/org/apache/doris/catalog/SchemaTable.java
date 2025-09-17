@@ -727,33 +727,44 @@ public class SchemaTable extends Table {
                                     .build()))
             .put("activity_async_mview",
                     new SchemaTable(SystemIdGenerator.getNextId(), "activity_async_mview", TableType.SCHEMA,
-                            builder().column("ASYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            builder().column("ASYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT), null, true)
                                     .column("ASYNC_MVIEW_CATALOG", ScalarType.createStringType())
                                     .column("ASYNC_MVIEW_SCHEMA", ScalarType.createStringType())
                                     .column("ASYNC_MVIEW_NAME", ScalarType.createStringType())
-                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FULL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_PARTIAL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_STALE_DATA", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FULL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_PARTIAL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_STALE_DATA", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
                                     .column("REWRITE_FAILURE_SHAPE_MISMATCH",
-                                            ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
+                                            ScalarType.createType(PrimitiveType.BIGINT), SchemaTableAggregateType.SUM,
+                                            false)
+                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
                                     .column("MANUAL_REFRESHES_ON_AUTO", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("MANUAL_REFRESHES_ON_PARTITIONS",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("MANUAL_REFRESHES_ON_COMPLETE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AUTO_REFRESHES_ON_SCHEDULE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("AUTO_REFRESHES_ON_COMMIT", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("LAST_REWRITE_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
-                                    .column("LAST_QUERY_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("LAST_REWRITE_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .column("LAST_QUERY_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2),
+                                            SchemaTableAggregateType.MAX, false)
                                     .column("REFRESHES_SKIPPED", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REFRESHES_FAST", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REFRESHES_PCT", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REFRESHES_COMPLETE", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .build()))
+                                    .build(), true))
             .put("mview_tasks",
                     new SchemaTable(SystemIdGenerator.getNextId(), "mview_tasks", TableType.SCHEMA,
                             builder().column("TASK_ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -788,18 +799,24 @@ public class SchemaTable extends Table {
                                     .build()))
             .put("activity_sync_mview",
                     new SchemaTable(SystemIdGenerator.getNextId(), "activity_sync_mview", TableType.SCHEMA,
-                            builder().column("SYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            builder().column("SYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT), null, true)
                                     .column("SYNC_MVIEW_CATALOG", ScalarType.createStringType())
                                     .column("SYNC_MVIEW_SCHEMA", ScalarType.createStringType())
                                     .column("SYNC_MVIEW_TABLE", ScalarType.createStringType())
                                     .column("SYNC_MVIEW_NAME", ScalarType.createStringType())
-                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
                                     .column("REWRITE_FAILURE_SHAPE_MISMATCH",
-                                            ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT))
+                                            ScalarType.createType(PrimitiveType.BIGINT), SchemaTableAggregateType.SUM,
+                                            false)
+                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
                                     .build()))
             .put("analyze_table_level_status",
                     new SchemaTable(SystemIdGenerator.getNextId(), "analyze_table_level_status", TableType.SCHEMA,

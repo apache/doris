@@ -504,6 +504,7 @@ public class MetadataGenerator {
             case GRANTS_TO_USERS:
                 result = grantsToUsersMetadataResult(schemaTableParams);
                 columnIndex = GRANTS_TO_USERS_COLUMN_TO_INDEX;
+                break;
             case SQL_BLOCK_RULE_STATUS:
                 result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
                 columnIndex = SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
