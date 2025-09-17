@@ -896,8 +896,8 @@ public class NereidsPlanner extends Planner {
                     }
                 }
         }
-        if (ConnectContext.get() != null && cascadesContext.getMemo() != null
-                && cascadesContext.getMemo().getGroupExpressionsSize()
+        if (ConnectContext.get() != null && cascadesContext != null
+                && cascadesContext.getGroupExpressionCount()
                         > ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize) {
             plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
                     + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
