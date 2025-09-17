@@ -25,7 +25,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
@@ -558,10 +557,6 @@ public class ConnectContext {
     public void setEnv(Env env) {
         this.env = env;
         defaultCatalog = env.getInternalCatalog().getName();
-    }
-
-    public void setUserVar(SetVar setVar) {
-        userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
     }
 
     public void setUserVar(String name, LiteralExpr value) {
