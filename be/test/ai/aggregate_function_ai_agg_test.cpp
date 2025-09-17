@@ -309,7 +309,7 @@ TEST_F(AggregateFunctionAIAggTest, return_type_and_name_test) {
     EXPECT_EQ(_agg_function->get_name(), "ai_agg");
 }
 
-TEST_F(AggregateFunctionAIAggTest, add_batch_test) {
+TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_test) {
     auto resource_col = ColumnString::create();
     auto text_col = ColumnString::create();
     auto task_col = ColumnString::create();
@@ -323,34 +323,26 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_test) {
     }
 
     constexpr size_t batch_size = 3;
-    constexpr size_t place_offset = 0;
-    std::vector<std::unique_ptr<char[]>> memories;
-    std::vector<AggregateDataPtr> places;
-    for (size_t i = 0; i < batch_size; ++i) {
-        memories.emplace_back(new char[_agg_function->size_of_data()]);
-        places.push_back(memories.back().get());
-        _agg_function->create(places[i]);
-    }
+
+    std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    _agg_function->create(place);
 
     const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
 
-    _agg_function->add_batch(batch_size, places.data(), place_offset, columns, _arena);
-    for (size_t i = 0; i < batch_size; ++i) {
-        const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(places[i]);
-        EXPECT_TRUE(data.inited);
-        EXPECT_EQ(data.get_task(), "summarize");
+    _agg_function->add_batch_single_place(batch_size, place, columns, _arena);
+    const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
+    EXPECT_TRUE(data.inited);
+    EXPECT_EQ(data.get_task(), "summarize");
 
-        std::string expected = texts[i];
-        std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
-        EXPECT_EQ(actual, expected);
-    }
+    std::string expected = "First batch text\nSecond batch text\nThird batch text";
+    std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+    EXPECT_EQ(actual, expected);
 
-    for (size_t i = 0; i < batch_size; ++i) {
-        _agg_function->destroy(places[i]);
-    }
+    _agg_function->destroy(place);
 }
 
-TEST_F(AggregateFunctionAIAggTest, add_batch_multiple_calls_test) {
+TEST_F(AggregateFunctionAIAggTest, add_batch_single_place_multiple_calls_test) {
     auto resource_col = ColumnString::create();
     auto text_col = ColumnString::create();
     auto task_col = ColumnString::create();
@@ -363,20 +355,14 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_multiple_calls_test) {
     }
 
     constexpr size_t batch_size = 2;
-    constexpr size_t place_offset = 0;
 
-    std::vector<std::unique_ptr<char[]>> memories;
-    std::vector<AggregateDataPtr> places;
-
-    for (size_t i = 0; i < batch_size; ++i) {
-        memories.emplace_back(new char[_agg_function->size_of_data()]);
-        places.push_back(memories.back().get());
-        _agg_function->create(places[i]);
-    }
+    std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    _agg_function->create(place);
 
     const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
 
-    _agg_function->add_batch(batch_size, places.data(), place_offset, columns, _arena);
+    _agg_function->add_batch_single_place(batch_size, place, columns, _arena);
     auto resource_col2 = ColumnString::create();
     auto text_col2 = ColumnString::create();
     auto task_col2 = ColumnString::create();
@@ -390,21 +376,17 @@ TEST_F(AggregateFunctionAIAggTest, add_batch_multiple_calls_test) {
 
     const IColumn* columns2[3] = {resource_col2.get(), text_col2.get(), task_col2.get()};
 
-    _agg_function->add_batch(batch_size, places.data(), place_offset, columns2, _arena);
+    _agg_function->add_batch_single_place(batch_size, place, columns2, _arena);
 
-    for (size_t i = 0; i < batch_size; ++i) {
-        const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(places[i]);
-        EXPECT_TRUE(data.inited);
-        EXPECT_EQ(data.get_task(), "analyze");
+    const auto& data = *reinterpret_cast<const AggregateFunctionAIAggData*>(place);
+    EXPECT_TRUE(data.inited);
+    EXPECT_EQ(data.get_task(), "analyze");
 
-        std::string expected = first_batch[i] + "\n" + second_batch[i];
-        std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
-        EXPECT_EQ(actual, expected);
-    }
+    std::string expected = "Initial text 1\nInitial text 2\nAdditional text 1\nAdditional text 2";
+    std::string actual(reinterpret_cast<const char*>(data.data.data()), data.data.size());
+    EXPECT_EQ(actual, expected);
 
-    for (size_t i = 0; i < batch_size; ++i) {
-        _agg_function->destroy(places[i]);
-    }
+    _agg_function->destroy(place);
 }
 
 TEST_F(AggregateFunctionAIAggTest, mock_resource_send_request_test) {
