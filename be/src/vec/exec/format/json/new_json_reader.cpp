@@ -1289,7 +1289,9 @@ Status NewJsonReader::_simdjson_parse_json(size_t* size, bool* is_empty_row, boo
         *size -= 3;
     }
 
-    RETURN_IF_ERROR(_check_multiple_json_arrays(*size));
+    if(!_read_json_by_line && _strip_outer_array) {
+        RETURN_IF_ERROR(_check_multiple_json_arrays(*size));
+    }
 
     memcpy(&_simdjson_ondemand_padding_buffer.front(), _json_str, *size);
     _original_doc_size = *size;
