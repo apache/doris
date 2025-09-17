@@ -95,7 +95,8 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     // Scanner builder stats
     _scanner_builder_remote_io = ADD_COUNTER(_scanner_profile, "BuilderRemoteIO", TUnit::UNIT);
-    _scanner_builder_remote_bytes = ADD_COUNTER(_scanner_profile, "BuilderRemoteBytes", TUnit::BYTES);
+    _scanner_builder_remote_bytes =
+            ADD_COUNTER(_scanner_profile, "BuilderRemoteBytes", TUnit::BYTES);
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
