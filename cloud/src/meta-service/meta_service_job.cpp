@@ -798,6 +798,17 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("before compaction, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
+
     if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
         stats->set_cumulative_point(compaction.output_cumulative_point());
@@ -869,7 +880,27 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
                << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("before merge, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
     merge_tablet_stats(*stats, detached_stats); // this is to check
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("after merge, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
                             << " stats.num_rows=" << stats->num_rows()
@@ -926,6 +957,30 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         msg = ss.str();
         return;
     }
+
+    auto compaction_rowset_start_version = compaction.input_versions(0);
+    auto compaction_rowset_end_version = compaction.input_versions(1);
+    GetRowsetResponse get_rowset_response;
+    internal_get_rowset(txn.get(), compaction_rowset_start_version, compaction_rowset_end_version,
+                        instance_id, tablet_id, code, msg, &get_rowset_response);
+    std::string compaction_rowsets = std::accumulate(
+            get_rowset_response.rowset_meta().begin(), get_rowset_response.rowset_meta().end(),
+            std::string(), [](const std::string& a, const doris::RowsetMetaCloudPB& b) {
+                return a + (a.empty() ? "" : ",") +
+                       fmt::format("[{}-{}]", b.start_version(), b.end_version());
+            });
+    internal_get_rowset(txn.get(), 0, std::numeric_limits<int64_t>::max() - 1, instance_id,
+                        tablet_id, code, msg, &get_rowset_response);
+    std::string tablet_rowsets = std::accumulate(
+            get_rowset_response.rowset_meta().begin(), get_rowset_response.rowset_meta().end(),
+            std::string(), [](const std::string& a, const doris::RowsetMetaCloudPB& b) {
+                return a + (a.empty() ? "" : ",") +
+                       fmt::format("[{}-{}]", b.start_version(), b.end_version());
+            });
+    LOG_INFO("wyx_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("compaction_rowsets", compaction_rowsets)
+            .tag("tablet_rowsets", tablet_rowsets);
 
     auto start = compaction.input_versions(0);
     auto end = compaction.input_versions(1);

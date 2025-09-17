@@ -2219,8 +2219,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
                          std::string& msg, GetRowsetResponse* response) {
-    LOG(INFO) << "get_rowset start=" << start << ", end="
-              << " tablet_id=" << tablet_id;
+    LOG(INFO) << "get_rowset start=" << start << ", end=" << end << " tablet_id=" << tablet_id;
     MetaRowsetKeyInfo key_info0 {instance_id, tablet_id, start};
     MetaRowsetKeyInfo key_info1 {instance_id, tablet_id, end + 1};
     std::string key0;
