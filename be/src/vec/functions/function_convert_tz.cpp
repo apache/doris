@@ -135,13 +135,9 @@ public:
         auto const_data_to_tz = const_to_tz->column_ptr->get_data_at(0);
 
         // from_tz and to_tz must both be non-null.
-        if (const_data_from_tz.data == nullptr) [[unlikely]] {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} invalid timezone: NULL",
-                            name);
-        }
-        if (const_data_to_tz.data == nullptr) [[unlikely]] {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} invalid timezone: NULL",
-                            name);
+        if (const_data_from_tz.data == nullptr || const_data_to_tz.data == nullptr) {
+            state->is_valid = false;
+            return;
         }
 
         auto from_tz_name = const_data_from_tz.to_string();

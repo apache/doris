@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "vec/data_types/data_type_date.h"
 #include "vec/functions/date_time_transforms.h"
@@ -37,10 +38,14 @@ struct Transformer {
         vec_to.resize(size);
 
         for (size_t i = 0; i < size; ++i) {
+            //FIXME: seems external table still generates invalid date/datetime. but where?
+            if (!binary_cast<FromType, CppType>(vec_from[i]).is_valid_date()) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} meets invalid data: {}",
+                                Transform::name, vec_from[i]);
+            }
             auto res = Transform::execute(vec_from[i]);
             using RESULT_TYPE = std::decay_t<decltype(res)>;
             vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
-            DCHECK((binary_cast<FromType, CppType>(vec_from[i]).is_valid_date()));
         }
     }
 };
@@ -148,6 +153,7 @@ public:
         const auto* sources = assert_cast<const ColumnVector<FromType>*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ColumnVector<ToType>::create();
+        LOG(WARNING) << "zclll: " << block.dump_data();
         Op::vector(sources->get_data(), col_to->get_data());
         block.replace_by_position(result, std::move(col_to));
 

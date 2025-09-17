@@ -325,10 +325,15 @@ suite("test_from_millisecond_microsecond") {
     """ 
 
     sql " set time_zone='Asia/Shanghai' "
-    qt_sql " select from_second(-1) "
+    test {
+        sql " select from_second(-1) "
+        exception "out of range"
+    }
     qt_sql " select from_microsecond(253402271999999999) "
-    qt_sql " select from_microsecond(253402272000000000) "
-
+    test {
+        sql " select from_microsecond(253402272000000000) "
+        exception "out of range"
+    }
 
     qt_sql_all_constent """
         select microseconds_add('2010-11-30 23:50:50', 2) , microseconds_sub('2010-11-30 23:50:50', 2) , milliseconds_add('2010-11-30 23:50:50', 2) , milliseconds_sub('2010-11-30 23:50:50', 2);
