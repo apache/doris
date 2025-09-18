@@ -19,6 +19,7 @@
 
 #include <brpc/controller.h>
 
+#include "cloud/balance_warm_up_cache_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -179,6 +180,12 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     LOG(INFO) << "warm_up_cache_async: enter, request=" << request.host << ":" << request.brpc_port
               << ", tablets num=" << request.tablet_ids.size() << ", tablet_ids=" << oss.str();
 
+    // Record each tablet in manager
+    for (int64_t tablet_id : request.tablet_ids) {
+        cloud::BalanceWarmUpCacheMgr::instance().record_tablet(tablet_id, request.host,
+                                                               request.brpc_port);
+    }
+
     std::string host = request.host;
     auto dns_cache = ExecEnv::GetInstance()->dns_cache();
     if (dns_cache == nullptr) {
@@ -188,6 +195,8 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
         if (!status.ok()) {
             LOG(WARNING) << "failed to get ip from host " << request.host << ": "
                          << status.to_string();
+            // Remove failed tablets from tracking
+            cloud::BalanceWarmUpCacheMgr::instance().remove_balanced_tablets(request.tablet_ids);
             return;
         }
     }
@@ -199,6 +208,8 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
     if (!brpc_stub) {
         st = Status::RpcError("Address {} is wrong", brpc_addr);
         LOG(WARNING) << "warm_up_cache_async: failed to get brpc_stub for addr " << brpc_addr;
+        // Remove failed tablets from tracking
+        cloud::BalanceWarmUpCacheMgr::instance().remove_balanced_tablets(request.tablet_ids);
         return;
     }
     brpc::Controller cntl;
@@ -215,13 +226,22 @@ void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& respons
                 << brpc_response.file_cache_block_metas().size();
         _engine.file_cache_block_downloader().submit_download_task(
                 std::move(*brpc_response.mutable_file_cache_block_metas()));
+        LOG(INFO) << "warm_up_cache_async: successfully submitted download task for tablets="
+                  << oss.str();
     } else {
         st = Status::RpcError("{} isn't connected", brpc_addr);
+        // Remove failed tablets from tracking
+        cloud::BalanceWarmUpCacheMgr::instance().remove_balanced_tablets(request.tablet_ids);
         LOG(WARNING) << "warm_up_cache_async: brpc call failed, addr=" << brpc_addr
                      << ", error=" << cntl.ErrorText();
     }
     st.to_thrift(&t_status);
     response.status = t_status;
+
+    // Due to Src be, exceeding g_tablet_report_inactive_duration_ms will trigger a report to clean up the tablet
+    // Clear expired tablets from tracking
+    cloud::BalanceWarmUpCacheMgr::instance().clear_expired_balanced_tablets(
+            std::chrono::milliseconds(g_tablet_report_inactive_duration_ms));
 }
 
 void CloudBackendService::check_warm_up_cache_async(TCheckWarmUpCacheAsyncResponse& response,
