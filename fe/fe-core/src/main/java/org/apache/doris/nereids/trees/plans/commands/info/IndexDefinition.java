@@ -298,8 +298,7 @@ public class IndexDefinition {
      */
     public IndexDef translateToLegacyIndexDef() {
         if (isBuildDeferred) {
-            return new IndexDef(name, partitionNames != null ? partitionNames.translateToLegacyPartitionNames() : null,
-                    indexType, true);
+            return new IndexDef(name, partitionNames, indexType, true);
         } else {
             return new IndexDef(name, ifNotExists, cols, indexType, properties, comment);
         }

@@ -1142,6 +1142,14 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         auto rowset_key = meta_rowset_key({instance_id, tablet_id, input_version_end});
         std::string rowset_val;
         EXPECT_EQ(txn->get(rowset_key, &rowset_val), TxnErrorCode::TXN_OK) << hex(rowset_key);
+        doris::RowsetMetaCloudPB rowset_meta;
+        ASSERT_TRUE(rowset_meta.ParseFromString(rowset_val));
+        ASSERT_TRUE(rowset_meta.has_visible_ts_ms() && rowset_meta.visible_ts_ms() > 0);
+        using namespace std::chrono;
+        auto visible_tp = time_point<system_clock>(milliseconds(rowset_meta.visible_ts_ms()));
+        std::time_t visible_time = system_clock::to_time_t(visible_tp);
+        std::cout << "visible time: "
+                  << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
     };
 
     auto test_abort_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
@@ -3630,6 +3638,12 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
             EXPECT_EQ(saved_rowset.start_version(), rs.start_version());
             EXPECT_EQ(saved_rowset.end_version(), rs.end_version());
             EXPECT_EQ(saved_rowset.rowset_id_v2(), rs.rowset_id_v2());
+            ASSERT_TRUE(saved_rowset.has_visible_ts_ms() && saved_rowset.visible_ts_ms() > 0);
+            using namespace std::chrono;
+            auto visible_tp = time_point<system_clock>(milliseconds(saved_rowset.visible_ts_ms()));
+            std::time_t visible_time = system_clock::to_time_t(visible_tp);
+            std::cout << "visible time: "
+                      << std::put_time(std::localtime(&visible_time), "%Y%m%d %H:%M:%S") << "\n";
         }
         for (int i = 3; i < 5; ++i) { // [14-14][15-15]
             auto [k, v] = it->next();

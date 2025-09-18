@@ -1646,6 +1646,10 @@ DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
 DECLARE_mBool(enable_wal_tde);
 
+DECLARE_mBool(print_stack_when_cache_miss);
+
+DECLARE_mBool(read_cluster_cache_opt_verbose_log);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

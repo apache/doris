@@ -218,9 +218,15 @@ Status OlapScanner::prepare() {
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_hotspot().count(*tablet);
             }
 
+            CaptureRsReaderOptions opts {
+                    .skip_missing_version = _state->skip_missing_version(),
+                    .enable_prefer_cached_rowset =
+                            config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+                    .query_freshness_tolerance_ms =
+                            config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+            };
             auto st = tablet->capture_rs_readers(_tablet_reader_params.version,
-                                                 &read_source.rs_splits,
-                                                 _state->skip_missing_version());
+                                                 &read_source.rs_splits, opts);
             if (!st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << st;
                 return st;
