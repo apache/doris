@@ -991,6 +991,7 @@ message PStreamHeader {
     optional TabletSchemaPB flush_schema = 11;
     optional uint64 offset = 12;
     optional FileType file_type = 13;
+    optional int64 num_incremental_streams = 14;
 }
 
 message PGetWalQueueSizeRequest{
