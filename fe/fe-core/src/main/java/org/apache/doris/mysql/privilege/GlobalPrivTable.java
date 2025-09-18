@@ -17,10 +17,15 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /*
  * GlobalPrivTable saves all global privs and also password for users
@@ -40,5 +45,17 @@ public class GlobalPrivTable extends PrivTable {
         // so the length of entries can only be 1 at most.
         Preconditions.checkArgument(entries.size() == 1);
         savedPrivs.or(entries.get(0).getPrivSet());
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        if (CollectionUtils.isEmpty(entries)) {
+            return res;
+        }
+        PrivBitSet privSet = entries.get(0).getPrivSet();
+        if (!privSet.isEmpty()) {
+            res.add(new PrivObject(null, null, null, null, PrivObjectType.GLOBAL, privSet.toPrivilegeNames()));
+        }
+        return res;
     }
 }

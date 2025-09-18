@@ -28,6 +28,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -43,6 +44,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -60,23 +62,39 @@ import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache.HivePartitionValues;
 import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
 import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskRefreshMode;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.AsyncMvMetrics;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
+import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.SyncMvMetrics;
+import org.apache.doris.mysql.privilege.PrivObject;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.FrontendConjunctsUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.plsql.metastore.PlsqlManager;
 import org.apache.doris.plsql.metastore.PlsqlProcedureKey;
 import org.apache.doris.plsql.metastore.PlsqlStoredProcedure;
@@ -85,9 +103,12 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.statistics.AnalysisInfo;
+import org.apache.doris.statistics.AnalysisState;
+import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
@@ -114,8 +135,11 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
@@ -124,11 +148,15 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -154,77 +182,167 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> PARTITIONS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> MVIEW_TASKS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> SYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ACTIVITY_SYNC_MVIEW_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ANALYZE_TABLE_LEVEL_STATUS_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ANALYZE_JOB_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ANALYZE_TASK_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> ACTIVITY_AUTO_ANALYZE_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> GRANTS_TO_ROLES_COLUMN_TO_INDEX;
+    private static final ImmutableMap<String, Integer> GRANTS_TO_USERS_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> activeQueriesbuilder = new Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
         for (int i = 0; i < activeQueriesColList.size(); i++) {
             activeQueriesbuilder.put(activeQueriesColList.get(i).getName().toLowerCase(), i);
         }
         ACTIVE_QUERIES_COLUMN_TO_INDEX = activeQueriesbuilder.build();
 
-        ImmutableMap.Builder<String, Integer> workloadGroupBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> workloadGroupBuilder = new Builder();
         for (int i = 0; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
             workloadGroupBuilder.put(WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         WORKLOAD_GROUPS_COLUMN_TO_INDEX = workloadGroupBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> routineInfoBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> routineInfoBuilder = new Builder();
         for (int i = 0; i < PlsqlManager.ROUTINE_INFO_TITLE_NAMES.size(); i++) {
             routineInfoBuilder.put(PlsqlManager.ROUTINE_INFO_TITLE_NAMES.get(i).toLowerCase(), i);
         }
         ROUTINE_INFO_COLUMN_TO_INDEX = routineInfoBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> policyBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> policyBuilder = new Builder();
         List<Column> policyColList = SchemaTable.TABLE_MAP.get("workload_policy").getFullSchema();
         for (int i = 0; i < policyColList.size(); i++) {
             policyBuilder.put(policyColList.get(i).getName().toLowerCase(), i);
         }
         WORKLOAD_SCHED_POLICY_COLUMN_TO_INDEX = policyBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> optionBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> optionBuilder = new Builder();
         List<Column> optionColList = SchemaTable.TABLE_MAP.get("table_options").getFullSchema();
         for (int i = 0; i < optionColList.size(); i++) {
             optionBuilder.put(optionColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_OPTIONS_COLUMN_TO_INDEX = optionBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> wgPrivsBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> wgPrivsBuilder = new Builder();
         List<Column> wgPrivsColList = SchemaTable.TABLE_MAP.get("workload_group_privileges").getFullSchema();
         for (int i = 0; i < wgPrivsColList.size(); i++) {
             wgPrivsBuilder.put(wgPrivsColList.get(i).getName().toLowerCase(), i);
         }
         WORKLOAD_GROUP_PRIVILEGES_COLUMN_TO_INDEX = wgPrivsBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> propertiesBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> propertiesBuilder = new Builder();
         List<Column> propertiesColList = SchemaTable.TABLE_MAP.get("table_properties").getFullSchema();
         for (int i = 0; i < propertiesColList.size(); i++) {
             propertiesBuilder.put(propertiesColList.get(i).getName().toLowerCase(), i);
         }
         TABLE_PROPERTIES_COLUMN_TO_INDEX = propertiesBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> metaCacheBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> metaCacheBuilder = new Builder();
         List<Column> metaCacheColList = SchemaTable.TABLE_MAP.get("catalog_meta_cache_statistics").getFullSchema();
         for (int i = 0; i < metaCacheColList.size(); i++) {
             metaCacheBuilder.put(metaCacheColList.get(i).getName().toLowerCase(), i);
         }
         META_CACHE_STATS_COLUMN_TO_INDEX = metaCacheBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> partitionsBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> partitionsBuilder = new Builder();
         List<Column> partitionsColList = SchemaTable.TABLE_MAP.get("partitions").getFullSchema();
         for (int i = 0; i < partitionsColList.size(); i++) {
             partitionsBuilder.put(partitionsColList.get(i).getName().toLowerCase(), i);
         }
         PARTITIONS_COLUMN_TO_INDEX = partitionsBuilder.build();
 
-        ImmutableMap.Builder<String, Integer> viewDependencyBuilder = new ImmutableMap.Builder();
+        Builder<String, Integer> viewDependencyBuilder = new Builder();
         List<Column> viewDependencyBuilderColList = SchemaTable.TABLE_MAP.get("view_dependency").getFullSchema();
         for (int i = 0; i < viewDependencyBuilderColList.size(); i++) {
             viewDependencyBuilder.put(viewDependencyBuilderColList.get(i).getName().toLowerCase(), i);
         }
         VIEW_DEPENDENCY_COLUMN_TO_INDEX = viewDependencyBuilder.build();
+
+        Builder<String, Integer> asyncMviewStatusBuilder = new Builder();
+        List<Column> asyncMviewStatusBuilderColList = SchemaTable.TABLE_MAP.get("async_mview_status").getFullSchema();
+        for (int i = 0; i < asyncMviewStatusBuilderColList.size(); i++) {
+            asyncMviewStatusBuilder.put(asyncMviewStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX = asyncMviewStatusBuilder.build();
+
+        Builder<String, Integer> activityAsyncMviewBuilder = new Builder();
+        List<Column> activityAsyncMviewBuilderColList = SchemaTable.TABLE_MAP.get("activity_async_mview")
+                .getFullSchema();
+        for (int i = 0; i < activityAsyncMviewBuilderColList.size(); i++) {
+            activityAsyncMviewBuilder.put(activityAsyncMviewBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX = activityAsyncMviewBuilder.build();
+
+        Builder<String, Integer> mviewTasksBuilder = new Builder();
+        List<Column> mviewTasksBuilderColList = SchemaTable.TABLE_MAP.get("mview_tasks").getFullSchema();
+        for (int i = 0; i < mviewTasksBuilderColList.size(); i++) {
+            mviewTasksBuilder.put(mviewTasksBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        MVIEW_TASKS_COLUMN_TO_INDEX = mviewTasksBuilder.build();
+
+        Builder<String, Integer> syncMviewStatusBuilder = new Builder();
+        List<Column> syncMviewStatusBuilderColList = SchemaTable.TABLE_MAP.get("sync_mview_status").getFullSchema();
+        for (int i = 0; i < syncMviewStatusBuilderColList.size(); i++) {
+            syncMviewStatusBuilder.put(syncMviewStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        SYNC_MVIEW_STATUS_COLUMN_TO_INDEX = syncMviewStatusBuilder.build();
+
+        Builder<String, Integer> activitySyncMviewBuilder = new Builder();
+        List<Column> activitySyncMviewBuilderColList = SchemaTable.TABLE_MAP.get("activity_sync_mview").getFullSchema();
+        for (int i = 0; i < activitySyncMviewBuilderColList.size(); i++) {
+            activitySyncMviewBuilder.put(activitySyncMviewBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ACTIVITY_SYNC_MVIEW_COLUMN_TO_INDEX = activitySyncMviewBuilder.build();
+
+        Builder<String, Integer> analyzeTableLevelStatusBuilder = new Builder();
+        List<Column> analyzeTableLevelStatusBuilderColList = SchemaTable.TABLE_MAP.get("analyze_table_level_status")
+                .getFullSchema();
+        for (int i = 0; i < analyzeTableLevelStatusBuilderColList.size(); i++) {
+            analyzeTableLevelStatusBuilder.put(analyzeTableLevelStatusBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ANALYZE_TABLE_LEVEL_STATUS_COLUMN_TO_INDEX = analyzeTableLevelStatusBuilder.build();
+
+        Builder<String, Integer> analyzeJobBuilder = new Builder();
+        List<Column> analyzeJobBuilderColList = SchemaTable.TABLE_MAP.get("analyze_job").getFullSchema();
+        for (int i = 0; i < analyzeJobBuilderColList.size(); i++) {
+            analyzeJobBuilder.put(analyzeJobBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ANALYZE_JOB_COLUMN_TO_INDEX = analyzeJobBuilder.build();
+
+        Builder<String, Integer> analyzeTaskBuilder = new Builder();
+        List<Column> analyzeTaskBuilderColList = SchemaTable.TABLE_MAP.get("analyze_task").getFullSchema();
+        for (int i = 0; i < analyzeTaskBuilderColList.size(); i++) {
+            analyzeTaskBuilder.put(analyzeTaskBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ANALYZE_TASK_COLUMN_TO_INDEX = analyzeTaskBuilder.build();
+
+        Builder<String, Integer> activityAutoAnalyzeBuilder = new Builder();
+        List<Column> activityAutoAnalyzeBuilderColList = SchemaTable.TABLE_MAP.get("analyze_task").getFullSchema();
+        for (int i = 0; i < activityAutoAnalyzeBuilderColList.size(); i++) {
+            activityAutoAnalyzeBuilder.put(activityAutoAnalyzeBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        ACTIVITY_AUTO_ANALYZE_COLUMN_TO_INDEX = activityAutoAnalyzeBuilder.build();
+
+        Builder<String, Integer> grantsToRolesBuilder = new Builder();
+        List<Column> grantsToRolesBuilderColList = SchemaTable.TABLE_MAP.get("grants_to_roles").getFullSchema();
+        for (int i = 0; i < grantsToRolesBuilderColList.size(); i++) {
+            grantsToRolesBuilder.put(grantsToRolesBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        GRANTS_TO_ROLES_COLUMN_TO_INDEX = grantsToRolesBuilder.build();
+
+        Builder<String, Integer> grantsToUsersBuilder = new Builder();
+        List<Column> grantsToUsersBuilderColList = SchemaTable.TABLE_MAP.get("grants_to_users").getFullSchema();
+        for (int i = 0; i < grantsToUsersBuilderColList.size(); i++) {
+            grantsToUsersBuilder.put(grantsToUsersBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        GRANTS_TO_USERS_COLUMN_TO_INDEX = grantsToUsersBuilder.build();
 
         ImmutableMap.Builder<String, Integer> sqlBlockRuleStatusBuilder = new ImmutableMap.Builder();
         List<Column> sqlBlockRuleStatusBuilderColList = SchemaTable.TABLE_MAP.get("sql_block_rule_status")
@@ -342,6 +460,50 @@ public class MetadataGenerator {
             case VIEW_DEPENDENCY:
                 result = viewDependencyMetadataResult(schemaTableParams);
                 columnIndex = VIEW_DEPENDENCY_COLUMN_TO_INDEX;
+                break;
+            case ASYNC_MVIEW_STATUS:
+                result = asyncMviewStatusMetadataResult(schemaTableParams);
+                columnIndex = ASYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+                break;
+            case ACTIVITY_ASYNC_MVIEW:
+                result = activityAsyncMviewMetadataResult(schemaTableParams);
+                columnIndex = ACTIVITY_ASYNC_MVIEW_COLUMN_TO_INDEX;
+                break;
+            case MVIEW_TASKS:
+                result = mviewTasksMetadataResult(schemaTableParams);
+                columnIndex = MVIEW_TASKS_COLUMN_TO_INDEX;
+                break;
+            case SYNC_MVIEW_STATUS:
+                result = syncMviewStatusMetadataResult(schemaTableParams);
+                columnIndex = SYNC_MVIEW_STATUS_COLUMN_TO_INDEX;
+                break;
+            case ACTIVITY_SYNC_MVIEW:
+                result = activitySyncMviewMetadataResult(schemaTableParams);
+                columnIndex = ACTIVITY_SYNC_MVIEW_COLUMN_TO_INDEX;
+                break;
+            case ANALYZE_TABLE_LEVEL_STATUS:
+                result = analyzeTableLevelStatusMetadataResult(schemaTableParams);
+                columnIndex = ANALYZE_TABLE_LEVEL_STATUS_COLUMN_TO_INDEX;
+                break;
+            case ANALYZE_JOB:
+                result = analyzeJobMetadataResult(schemaTableParams);
+                columnIndex = ANALYZE_JOB_COLUMN_TO_INDEX;
+                break;
+            case ANALYZE_TASK:
+                result = analyzeTaskMetadataResult(schemaTableParams);
+                columnIndex = ANALYZE_TASK_COLUMN_TO_INDEX;
+                break;
+            case ACTIVITY_AUTO_ANALYZE:
+                result = activityAutoAnalyzeMetadataResult(schemaTableParams);
+                columnIndex = ACTIVITY_AUTO_ANALYZE_COLUMN_TO_INDEX;
+                break;
+            case GRANTS_TO_ROLES:
+                result = grantsToRolesMetadataResult(schemaTableParams);
+                columnIndex = GRANTS_TO_ROLES_COLUMN_TO_INDEX;
+                break;
+            case GRANTS_TO_USERS:
+                result = grantsToUsersMetadataResult(schemaTableParams);
+                columnIndex = GRANTS_TO_USERS_COLUMN_TO_INDEX;
                 break;
             case SQL_BLOCK_RULE_STATUS:
                 result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
@@ -576,7 +738,7 @@ public class MetadataGenerator {
             trow.addToColumnValue(new TCell().setStringVal(catalog.getType()));
 
             Map<String, String> properties = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
+            for (Entry<String, String> entry : properties.entrySet()) {
                 TRow subTrow = new TRow(trow);
                 subTrow.addToColumnValue(new TCell().setStringVal(entry.getKey()));
                 subTrow.addToColumnValue(new TCell().setStringVal(entry.getValue()));
@@ -730,7 +892,7 @@ public class MetadataGenerator {
                     }
                     String inlineViewDef = ((View) table).getInlineViewDef();
                     Map<List<String>, TableIf> tablesMap = PlanUtils.tableCollect(inlineViewDef, ctx);
-                    for (Map.Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
+                    for (Entry<List<String>, TableIf> info : tablesMap.entrySet()) {
                         List<String> fullName = info.getKey();
                         TableIf tbl = info.getValue();
                         TRow trow = new TRow();
@@ -745,6 +907,995 @@ public class MetadataGenerator {
                         dataBatch.add(trow);
                     }
                 }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult asyncMviewStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
+                    String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long tableId = table.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", tableId)) {
+                        continue;
+                    }
+                    TRow trow = new TRow();
+                    MTMVStatus mtmvStatus = mtmv.getStatus();
+                    // ASYNC_MVIEW_ID
+                    trow.addToColumnValue(new TCell().setLongVal(tableId));
+                    // ASYNC_MVIEW_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                    // ASYNC_MVIEW_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(dbName));
+                    // ASYNC_MVIEW_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(tableName));
+                    // IS_ACTIVE
+                    trow.addToColumnValue(new TCell().setBoolVal(mtmvStatus.getState().equals(MTMVState.NORMAL)));
+                    // INACTIVE_REASON
+                    String inactiveReason = "";
+                    if (mtmvStatus.getState().equals(MTMVState.INIT)) {
+                        inactiveReason = "init";
+                    } else if (mtmvStatus.getState().equals(MTMVState.SCHEMA_CHANGE)) {
+                        inactiveReason = mtmvStatus.getSchemaChangeDetail();
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal(inactiveReason));
+                    // PCT_TABLES
+                    List<String> pctTables = Lists.newArrayList();
+                    if (!mtmv.getMvPartitionInfo().getPartitionType().equals(MTMVPartitionType.SELF_MANAGE)) {
+                        BaseTableInfo relatedTableInfo = mtmv.getMvPartitionInfo().getRelatedTableInfo();
+                        String relatedCol = mtmv.getMvPartitionInfo().getRelatedCol();
+                        pctTables.add(String.format("%s.%s.%s.%s", relatedTableInfo.getCtlName(),
+                                relatedTableInfo.getDbName(), relatedTableInfo.getTableName(), relatedCol));
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(pctTables)));
+                    // IS_SYNC_WITH_BASE_TABLES
+                    MTMVRefreshContext mtmvRefreshContext;
+                    try {
+                        mtmvRefreshContext = MTMVRefreshContext.buildContext(mtmv);
+                    } catch (AnalysisException e) {
+                        LOG.warn(e.getMessage(), e);
+                        continue;
+                    }
+                    List<String> needRefreshPartitions = MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
+                            mtmvRefreshContext, mtmv.getRelation().getBaseTablesOneLevel());
+                    trow.addToColumnValue(new TCell().setBoolVal(CollectionUtils.isEmpty(needRefreshPartitions)));
+                    // UNSYNC_PARTITIONS_IN_ASYNC_MVIEW
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(needRefreshPartitions)));
+                    // REFRESH_TYPE
+                    MTMVRefreshTriggerInfo refreshTriggerInfo = mtmv.getRefreshInfo().getRefreshTriggerInfo();
+                    trow.addToColumnValue(new TCell().setStringVal(refreshTriggerInfo.getRefreshTrigger()
+                            .name()));
+                    // REFRESH_JOB_STATUS
+                    // SCHEDULE_PERIOD
+                    String schedulePeriod = "";
+                    if (refreshTriggerInfo.getRefreshTrigger().equals(RefreshTrigger.SCHEDULE)) {
+                        schedulePeriod = refreshTriggerInfo.getIntervalTrigger().toString();
+                    }
+                    trow.addToColumnValue(new TCell().setStringVal(schedulePeriod));
+                    // PARTITION_TYPE
+                    trow.addToColumnValue(
+                            new TCell().setStringVal(mtmv.getMvPartitionInfo().getPartitionType().name()));
+                    // ROW_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(mtmv.getRowCount()));
+                    // PARTITION_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(mtmv.getPartitionNum()));
+                    // DEFINITION
+                    trow.addToColumnValue(new TCell().setStringVal(mtmv.getQuerySql()));
+                    // PROPERTIES
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(mtmv.getMvProperties())));
+                    dataBatch.add(trow);
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult activityAsyncMviewMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
+                    String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long tableId = table.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", tableId)) {
+                        continue;
+                    }
+                    TRow trow = new TRow();
+                    AsyncMvMetrics asyncMvMetrics = mtmv.getAsyncMvMetrics();
+                    // ASYNC_MVIEW_ID
+                    trow.addToColumnValue(new TCell().setLongVal(tableId));
+                    // ASYNC_MVIEW_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                    // ASYNC_MVIEW_SCHEMA
+                    trow.addToColumnValue(new TCell().setStringVal(dbName));
+                    // ASYNC_MVIEW_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(tableName));
+                    long rewriteFullSuccess = asyncMvMetrics.getRewriteFullSuccess().getValue();
+                    long rewritePartialSuccess = asyncMvMetrics.getRewritePartialSuccess().getValue();
+                    // REWRITE_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewriteFullSuccess + rewritePartialSuccess));
+                    // REWRITE_FULL_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewriteFullSuccess));
+                    // REWRITE_PARTIAL_SUCCESS
+                    trow.addToColumnValue(new TCell().setLongVal(rewritePartialSuccess));
+                    // REWRITE_SUCCESS_WITH_HINT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getRewriteSuccessWithHint().getValue()));
+                    long staleDate = asyncMvMetrics.getRewriteFailureStaleData().getValue();
+                    long cboRejected = asyncMvMetrics.getRewriteFailureCboRejected().getValue();
+                    long shapeMismatch = asyncMvMetrics.getRewriteFailureShapeMismatch().getValue();
+                    long withHint = asyncMvMetrics.getRewriteFailureWithHint().getValue();
+                    // REWRITE_FAILURE
+                    trow.addToColumnValue(new TCell().setLongVal(staleDate + cboRejected + shapeMismatch + withHint));
+                    // REWRITE_FAILURE_STALE_DATA
+                    trow.addToColumnValue(new TCell().setLongVal(staleDate));
+                    // REWRITE_FAILURE_SHAPE_MISMATCH
+                    trow.addToColumnValue(new TCell().setLongVal(shapeMismatch));
+                    // REWRITE_FAILURE_CBO_REJECTED
+                    trow.addToColumnValue(new TCell().setLongVal(cboRejected));
+                    // REWRITE_FAILURE_WITH_HINT
+                    trow.addToColumnValue(new TCell().setLongVal(withHint));
+                    // MANUAL_REFRESHES_ON_AUTO
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnAuto().getValue()));
+                    // MANUAL_REFRESHES_ON_PARTITIONS
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnPartitions().getValue()));
+                    // MANUAL_REFRESHES_ON_COMPLETE
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getManualRefreshesOnComplete().getValue()));
+                    // AUTO_REFRESHES_ON_SCHEDULE
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(asyncMvMetrics.getAutoRefreshesOnSchedule().getValue()));
+                    // AUTO_REFRESHES_ON_COMMIT
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getAutoRefreshesOnCommit().getValue()));
+                    // LAST_REWRITE_TIME
+                    // todo long type ==> date type
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getLastRewriteTime()));
+                    // LAST_QUERY_TIME
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getLastQueryTime()));
+                    // REFRESHES_SKIPPED
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesSkipped().getValue()));
+                    // REFRESHES_FAST
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesFast().getValue()));
+                    // REFRESHES_PCT
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesPct().getValue()));
+                    // REFRESHES_COMPLETE
+                    trow.addToColumnValue(new TCell().setLongVal(asyncMvMetrics.getRefreshesComplete().getValue()));
+                    dataBatch.add(trow);
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult mviewTasksMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "ASYNC_MVIEW_SCHEMA");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ASYNC_MVIEW_NAME");
+        List<Expression> taskIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TASK_ID");
+
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "ASYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof MTMV) {
+                    MTMV mtmv = (MTMV) table;
+                    String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "ASYNC_MVIEW_NAME", tableName)) {
+                        continue;
+                    }
+                    long mtmvId = mtmv.getId();
+                    if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "ASYNC_MVIEW_ID", mtmvId)) {
+                        continue;
+                    }
+                    MTMVJob mtmvJob = MTMVJobManager.getJobByMTMV(mtmv);
+                    List<MTMVTask> mtmvTasks = mtmvJob.queryAllTasks();
+                    for (MTMVTask mtmvTask : mtmvTasks) {
+                        long taskId = mtmvTask.getTaskId();
+                        if (FrontendConjunctsUtils.isFiltered(taskIdConjuncts, "TASK_ID", taskId)) {
+                            continue;
+                        }
+                        TRow trow = new TRow();
+                        // TASK_ID
+                        trow.addToColumnValue(new TCell().setLongVal(taskId));
+                        // ASYNC_MVIEW_ID
+                        trow.addToColumnValue(new TCell().setLongVal(mtmvId));
+                        // ASYNC_MVIEW_CATALOG
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        // ASYNC_MVIEW_SCHEMA
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        // ASYNC_MVIEW_NAME
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        // TYPE
+                        trow.addToColumnValue(
+                                new TCell().setStringVal(mtmvTask.getTaskContext().getTriggerMode().getDisplayName()));
+                        // METHOD
+                        MTMVTaskRefreshMode refreshMode = mtmvTask.getRefreshMode();
+                        trow.addToColumnValue(
+                                new TCell().setStringVal(refreshMode == null ? "" : refreshMode.getDisplayName()));
+                        // CREATE_TIME
+                        // todo long datetime
+                        trow.addToColumnValue(new TCell().setLongVal(mtmvTask.getCreateTimeMs()));
+                        // START_TIME
+                        Long startTimeMs = mtmvTask.getStartTimeMs();
+                        trow.addToColumnValue(new TCell().setLongVal(startTimeMs));
+                        // FINISHED_TIME
+                        long finishTimeMs = mtmvTask.getFinishTimeMs();
+                        trow.addToColumnValue(new TCell().setLongVal(finishTimeMs));
+                        // DURATION_MS
+                        trow.addToColumnValue(
+                                new TCell().setLongVal(finishTimeMs == 0 ? 0L : finishTimeMs - startTimeMs));
+                        // STATUS
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getStatus().name()));
+                        // IS_FORCE_REFRESH
+                        trow.addToColumnValue(new TCell().setBoolVal(mtmvTask.getTaskContext().isComplete()));
+                        // ERROR_CODE
+                        trow.addToColumnValue(new TCell().setIntVal(0));
+                        // ERROR_MESSAGE
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getErrMsg()));
+                        // MV_REFRESH_PARTITIONS
+                        // todo array
+                        List<String> needRefreshPartitions = mtmvTask.getNeedRefreshPartitions();
+                        List<String> completedPartitions = mtmvTask.getCompletedPartitions();
+                        trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(needRefreshPartitions)));
+                        // MV_COMPLETED_PARTITIONS
+                        trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(completedPartitions)));
+                        // PROGRESS
+                        trow.addToColumnValue(new TCell().setDoubleVal(
+                                completedPartitions.size() * 100 / needRefreshPartitions.size()));
+                        // LAST_QUERY_ID
+                        trow.addToColumnValue(new TCell().setStringVal(mtmvTask.getLastQueryId()));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult syncMviewStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "SYNC_MVIEW_SCHEMA");
+        List<Expression> mviewTableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_TABLE");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_NAME");
+
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "SYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) table;
+                    String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (FrontendConjunctsUtils.isFiltered(mviewTableConjuncts, "SYNC_MVIEW_TABLE", tableName)) {
+                        continue;
+                    }
+                    Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
+                    for (Entry<String, Long> entry : indexNameToId.entrySet()) {
+                        long mviewId = entry.getValue();
+                        String mviewName = entry.getKey();
+                        if (mviewId == olapTable.getBaseIndexId()) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "SYNC_MVIEW_ID", mviewId)) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "SYNC_MVIEW_NAME", mviewName)) {
+                            continue;
+                        }
+                        TRow trow = new TRow();
+                        // SYNC_MVIEW_ID
+                        trow.addToColumnValue(new TCell().setLongVal(mviewId));
+                        // SYNC_MVIEW_CATALOG
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        // SYNC_MVIEW_SCHEMA
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        // SYNC_MVIEW_TABLE
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        // SYNC_MVIEW_NAME
+                        trow.addToColumnValue(new TCell().setStringVal(mviewName));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult activitySyncMviewMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> mviewIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_ID");
+        List<Expression> mviewSchemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts,
+                "SYNC_MVIEW_SCHEMA");
+        List<Expression> mviewTableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_TABLE");
+        List<Expression> mviewNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "SYNC_MVIEW_NAME");
+
+        Collection<DatabaseIf<? extends TableIf>> allDbs = Env.getCurrentEnv().getInternalCatalog().getAllDbs();
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (DatabaseIf<? extends TableIf> db : allDbs) {
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(mviewSchemaConjuncts, "SYNC_MVIEW_SCHEMA", dbName)) {
+                continue;
+            }
+            List<? extends TableIf> tables = db.getTables();
+            for (TableIf table : tables) {
+                if (table instanceof OlapTable) {
+                    OlapTable olapTable = (OlapTable) table;
+                    String tableName = table.getName();
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (FrontendConjunctsUtils.isFiltered(mviewTableConjuncts, "SYNC_MVIEW_TABLE", tableName)) {
+                        continue;
+                    }
+                    Map<String, Long> indexNameToId = olapTable.getIndexNameToId();
+                    Map<Long, MaterializedIndexMeta> indexIdToMeta = olapTable.getIndexIdToMeta();
+                    for (Entry<String, Long> entry : indexNameToId.entrySet()) {
+                        long mviewId = entry.getValue();
+                        String mviewName = entry.getKey();
+                        if (mviewId == olapTable.getBaseIndexId()) {
+                            continue;
+                        }
+                        MaterializedIndexMeta materializedIndexMeta = indexIdToMeta.get(mviewId);
+                        if (materializedIndexMeta == null) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewIdConjuncts, "SYNC_MVIEW_ID", mviewId)) {
+                            continue;
+                        }
+                        if (FrontendConjunctsUtils.isFiltered(mviewNameConjuncts, "SYNC_MVIEW_NAME", mviewName)) {
+                            continue;
+                        }
+                        TRow trow = new TRow();
+                        // SYNC_MVIEW_ID
+                        trow.addToColumnValue(new TCell().setLongVal(mviewId));
+                        // SYNC_MVIEW_CATALOG
+                        trow.addToColumnValue(new TCell().setStringVal(InternalCatalog.INTERNAL_CATALOG_NAME));
+                        // SYNC_MVIEW_SCHEMA
+                        trow.addToColumnValue(new TCell().setStringVal(dbName));
+                        // SYNC_MVIEW_TABLE
+                        trow.addToColumnValue(new TCell().setStringVal(tableName));
+                        // SYNC_MVIEW_NAME
+                        trow.addToColumnValue(new TCell().setStringVal(mviewName));
+                        SyncMvMetrics syncMvMetrics = materializedIndexMeta.getSyncMvMetrics();
+                        // REWRITE_SUCCESS
+                        trow.addToColumnValue(new TCell().setLongVal(syncMvMetrics.getRewriteSuccess().getValue()));
+                        // REWRITE_SUCCESS_WITH_HINT
+                        trow.addToColumnValue(
+                                new TCell().setLongVal(syncMvMetrics.getRewriteSuccessWithHint().getValue()));
+                        // REWRITE_FAILURE
+                        Long cboRejected = syncMvMetrics.getRewriteFailureCboRejected().getValue();
+                        Long withHint = syncMvMetrics.getRewriteFailureWithHint().getValue();
+                        Long shapeMismatch = syncMvMetrics.getRewriteFailureShapeMismatch().getValue();
+                        trow.addToColumnValue(new TCell().setLongVal(cboRejected + withHint + shapeMismatch));
+                        // REWRITE_FAILURE_SHAPE_MISMATCH
+                        trow.addToColumnValue(new TCell().setLongVal(shapeMismatch));
+                        // REWRITE_FAILURE_CBO_REJECTED
+                        trow.addToColumnValue(new TCell().setLongVal(cboRejected));
+                        // REWRITE_FAILURE_WITH_HINT
+                        trow.addToColumnValue(new TCell().setLongVal(withHint));
+                        dataBatch.add(trow);
+                    }
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult analyzeTableLevelStatusMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> catalogConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_CATALOG");
+        List<Expression> schemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_SCHEMA");
+        List<Expression> tableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_NAME");
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
+        for (CatalogIf catalog : catalogs) {
+            String catalogName = catalog.getName();
+            if (FrontendConjunctsUtils.isFiltered(catalogConjuncts, "TABLE_CATALOG", catalogName)) {
+                continue;
+            }
+            Collection<DatabaseIf> dbs = catalog.getAllDbs();
+            for (DatabaseIf db : dbs) {
+                String dbName = db.getFullName();
+                if (FrontendConjunctsUtils.isFiltered(schemaConjuncts, "TABLE_SCHEMA", dbName)) {
+                    continue;
+                }
+                List<TableIf> tables = db.getTables();
+                for (TableIf table : tables) {
+                    String tableName = table.getName();
+                    if (FrontendConjunctsUtils.isFiltered(tableConjuncts, "TABLE_NAME", tableName)) {
+                        continue;
+                    }
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(catalogName));
+                    trow.addToColumnValue(new TCell().setStringVal(dbName));
+                    trow.addToColumnValue(new TCell().setStringVal(tableName));
+                    Pair<Boolean, String> canAutoAnalyze = table.canAutoAnalyze();
+                    trow.addToColumnValue(new TCell().setBoolVal(canAutoAnalyze.first));
+                    trow.addToColumnValue(new TCell().setStringVal(canAutoAnalyze.second));
+                    List<String> analyzedColumnNames = Lists.newArrayList();
+                    String lowestHealthRateColumnName = "";
+                    double lowestHealthRate = StatisticsUtil.MAX_HEALTH_RATE;
+                    int totalColumnCount = 0;
+                    if (table instanceof OlapTable) {
+                        OlapTable olapTable = (OlapTable) table;
+                        Map<Long, List<Column>> indexIdToSchema = olapTable.getIndexIdToSchema();
+                        for (Entry<Long, List<Column>> entry : indexIdToSchema.entrySet()) {
+                            Long indexId = entry.getKey();
+                            String indexName = olapTable.getIndexNameById(indexId);
+                            if (StringUtils.isEmpty(indexName)) {
+                                continue;
+                            }
+                            List<Column> columns = entry.getValue();
+                            for (Column column : columns) {
+                                totalColumnCount += 1;
+                                boolean isUnsupportedType = StatisticsUtil.isUnsupportedType(column.getType());
+                                if (!isUnsupportedType) {
+                                    String columnNameWithIndexName = indexName + "." + column.getName();
+                                    double columnHealthRate = StatisticsUtil.getColumnHealthRate(table,
+                                            Pair.of(indexName, column.getName()));
+                                    if (columnHealthRate <= lowestHealthRate) {
+                                        lowestHealthRate = columnHealthRate;
+                                        lowestHealthRateColumnName = columnNameWithIndexName;
+                                    }
+                                    analyzedColumnNames.add(columnNameWithIndexName);
+                                }
+                            }
+                        }
+                    } else {
+                        List<Column> columns = table.getColumns();
+                        for (Column column : columns) {
+                            totalColumnCount += 1;
+                            boolean isUnsupportedType = StatisticsUtil.isUnsupportedType(column.getType());
+                            if (!isUnsupportedType) {
+                                double columnHealthRate = StatisticsUtil.getColumnHealthRate(table,
+                                        Pair.of(tableName, column.getName()));
+                                if (columnHealthRate <= lowestHealthRate) {
+                                    lowestHealthRate = columnHealthRate;
+                                    lowestHealthRateColumnName = column.getName();
+                                }
+                                analyzedColumnNames.add(column.getName());
+                            }
+                        }
+                    }
+                    trow.addToColumnValue(new TCell().setIntVal(totalColumnCount));
+                    trow.addToColumnValue(new TCell().setIntVal(totalColumnCount - analyzedColumnNames.size()));
+                    trow.addToColumnValue(new TCell().setIntVal(analyzedColumnNames.size()));
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(analyzedColumnNames)));
+                    trow.addToColumnValue(new TCell().setDoubleVal(lowestHealthRate));
+                    trow.addToColumnValue(new TCell().setStringVal(lowestHealthRateColumnName));
+                    dataBatch.add(trow);
+                }
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult generateEmptySchemaTableDataResult() {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult analyzeJobMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> catalogConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_CATALOG");
+        List<Expression> schemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_SCHEMA");
+        List<Expression> tableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_NAME");
+        List<Expression> jobIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "JOB_ID");
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisJobInfoMap().values();
+        NavigableMap<Long, AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisTaskInfoMap();
+        for (AnalysisInfo job : jobs) {
+            long jobId = job.jobId;
+            if (FrontendConjunctsUtils.isFiltered(jobIdConjuncts, "JOB_ID", jobId)) {
+                continue;
+            }
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalog(job.catalogId);
+            if (catalog == null) {
+                continue;
+            }
+            String catalogName = catalog.getName();
+            if (FrontendConjunctsUtils.isFiltered(catalogConjuncts, "TABLE_CATALOG", catalogName)) {
+                continue;
+            }
+            Optional<? extends DatabaseIf<? extends TableIf>> optionalDb = catalog.getDb(job.dbId);
+            if (!optionalDb.isPresent()) {
+                continue;
+            }
+            DatabaseIf<? extends TableIf> db = optionalDb.get();
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(schemaConjuncts, "TABLE_SCHEMA", dbName)) {
+                continue;
+            }
+            Optional<? extends TableIf> optionalTable = db.getTable(job.tblId);
+            if (!optionalTable.isPresent()) {
+                continue;
+            }
+            TableIf table = optionalTable.get();
+            String tableName = table.getName();
+            if (FrontendConjunctsUtils.isFiltered(tableConjuncts, "TABLE_NAME", tableName)) {
+                continue;
+            }
+            TRow trow = new TRow();
+            // JOB_ID
+            trow.addToColumnValue(new TCell().setLongVal(jobId));
+            // TABLE_CATALOG
+            trow.addToColumnValue(new TCell().setStringVal(catalogName));
+            // TABLE_SCHEMA
+            trow.addToColumnValue(new TCell().setStringVal(dbName));
+            // TABLE_NAME
+            trow.addToColumnValue(new TCell().setStringVal(tableName));
+            // COLUMN_NAMES
+            trow.addToColumnValue(new TCell().setStringVal(job.getJobColumns()));
+            // TYPE
+            trow.addToColumnValue(new TCell().setStringVal(job.jobType.name()));
+            // METHOD
+            trow.addToColumnValue(new TCell().setStringVal(job.analysisMethod.name()));
+            // STATUS
+            trow.addToColumnValue(new TCell().setStringVal(job.state.name()));
+            // PRIORITY
+            trow.addToColumnValue(new TCell().setStringVal(job.priority.name()));
+            // ERROR_CODE
+            trow.addToColumnValue(new TCell().setIntVal(0));
+            // ERROR_MESSAGE
+            trow.addToColumnValue(new TCell().setStringVal(job.message));
+            int pendingNum = 0;
+            int runningNum = 0;
+            int finishedNum = 0;
+            int failedNum = 0;
+            long rootFailedTaskId = 0L;
+            List<Long> taskIds = job.taskIds;
+            for (Long taskId : taskIds) {
+                AnalysisInfo task = tasks.get(taskId);
+                if (task == null) {
+                    continue;
+                }
+                switch (task.state) {
+                    case RUNNING:
+                        runningNum++;
+                        break;
+                    case PENDING:
+                        pendingNum++;
+                        break;
+                    case FAILED:
+                        if (rootFailedTaskId == 0) {
+                            rootFailedTaskId = taskId;
+                        }
+                        failedNum++;
+                        break;
+                    case FINISHED:
+                        finishedNum++;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            // TOTAL_TASK_COUNT
+            trow.addToColumnValue(new TCell().setIntVal(pendingNum + runningNum + finishedNum + failedNum));
+            // FINISHED_TASK_COUNT
+            trow.addToColumnValue(new TCell().setIntVal(finishedNum));
+            // RUNNING_TASK_COUNT
+            trow.addToColumnValue(new TCell().setIntVal(runningNum + pendingNum));
+            // FAILED_TASK_COUNT
+            trow.addToColumnValue(new TCell().setIntVal(failedNum));
+            // ROOT_FAILED_TASK_ID
+            trow.addToColumnValue(new TCell().setLongVal(rootFailedTaskId));
+            // START_TIME
+            trow.addToColumnValue(new TCell().setLongVal(job.startTime));
+            // END_TIME
+            trow.addToColumnValue(new TCell().setLongVal(job.endTime));
+            // DURATION_MS
+            trow.addToColumnValue(new TCell().setLongVal(job.endTime - job.startTime));
+            dataBatch.add(trow);
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult analyzeTaskMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> catalogConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_CATALOG");
+        List<Expression> schemaConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_SCHEMA");
+        List<Expression> tableConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TABLE_NAME");
+        List<Expression> jobIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "JOB_ID");
+        List<Expression> taskIdConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TASK_ID");
+
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisJobInfoMap().values();
+        NavigableMap<Long, AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager()
+                .getAnalysisTaskInfoMap();
+        for (AnalysisInfo job : jobs) {
+            long jobId = job.jobId;
+            if (FrontendConjunctsUtils.isFiltered(jobIdConjuncts, "JOB_ID", jobId)) {
+                continue;
+            }
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalog(job.catalogId);
+            if (catalog == null) {
+                continue;
+            }
+            String catalogName = catalog.getName();
+            if (FrontendConjunctsUtils.isFiltered(catalogConjuncts, "TABLE_CATALOG", catalogName)) {
+                continue;
+            }
+            Optional<? extends DatabaseIf<? extends TableIf>> optionalDb = catalog.getDb(job.dbId);
+            if (!optionalDb.isPresent()) {
+                continue;
+            }
+            DatabaseIf<? extends TableIf> db = optionalDb.get();
+            String dbName = db.getFullName();
+            if (FrontendConjunctsUtils.isFiltered(schemaConjuncts, "TABLE_SCHEMA", dbName)) {
+                continue;
+            }
+            Optional<? extends TableIf> optionalTable = db.getTable(job.tblId);
+            if (!optionalTable.isPresent()) {
+                continue;
+            }
+            TableIf table = optionalTable.get();
+            String tableName = table.getName();
+            if (FrontendConjunctsUtils.isFiltered(tableConjuncts, "TABLE_NAME", tableName)) {
+                continue;
+            }
+            List<Long> taskIds = job.taskIds;
+            for (Long taskId : taskIds) {
+                AnalysisInfo task = tasks.get(taskId);
+                if (task == null) {
+                    continue;
+                }
+                if (FrontendConjunctsUtils.isFiltered(taskIdConjuncts, "TASK_ID", taskId)) {
+                    continue;
+                }
+                TRow trow = new TRow();
+                // TASK_ID
+                trow.addToColumnValue(new TCell().setLongVal(taskId));
+                // JOB_ID
+                trow.addToColumnValue(new TCell().setLongVal(jobId));
+                // TABLE_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(catalogName));
+                // TABLE_SCHEMA
+                trow.addToColumnValue(new TCell().setStringVal(dbName));
+                // TABLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(tableName));
+                // COLUMN_NAME
+                trow.addToColumnValue(new TCell().setStringVal(task.colName));
+                // STATUS
+                trow.addToColumnValue(new TCell().setStringVal(task.state.name()));
+                // PRIORITY
+                trow.addToColumnValue(new TCell().setStringVal(task.priority.name()));
+                // ERROR_CODE
+                trow.addToColumnValue(new TCell().setIntVal(0));
+                // ERROR_MESSAGE
+                trow.addToColumnValue(new TCell().setStringVal(task.message));
+                // ERROR_SQL
+                trow.addToColumnValue(new TCell().setStringVal(task.sql));
+                // START_TIME
+                trow.addToColumnValue(new TCell().setLongVal(task.startTime));
+                // END_TIME
+                trow.addToColumnValue(new TCell().setLongVal(task.endTime));
+                // DURATION_MS
+                trow.addToColumnValue(new TCell().setLongVal(task.endTime - task.startTime));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult activityAutoAnalyzeMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.ADMIN)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        TRow trow = new TRow();
+        // AUTO_ANALYZE_ENABLE
+        trow.addToColumnValue(new TCell().setBoolVal(StatisticsUtil.enableAutoAnalyze()));
+        // AUTO_ANALYZE_THREAD
+        trow.addToColumnValue(new TCell().setIntVal(Config.auto_analyze_simultaneously_running_task_num));
+        Pair<LocalTime, LocalTime> startEndTime = StatisticsUtil.findConfigFromGlobalSessionVar();
+        // AUTO_ANALYZE_START_TIME
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime == null ? null : startEndTime.first.toString()));
+        // AUTO_ANALYZE_END_TIME
+        trow.addToColumnValue(new TCell().setStringVal(startEndTime == null ? null : startEndTime.second.toString()));
+        // AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD
+        trow.addToColumnValue(new TCell().setIntVal(StatisticsUtil.getAutoAnalyzeTableWidthThreshold()));
+        // AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD
+        trow.addToColumnValue(new TCell().setIntVal((int) StatisticsUtil.getTableStatsHealthThreshold()));
+        Collection<AnalysisInfo> jobs = Env.getCurrentEnv().getAnalysisManager().getAnalysisJobInfoMap().values();
+        long successJob = 0;
+        long failedJob = 0;
+        for (AnalysisInfo job : jobs) {
+            if (job.state == AnalysisState.FINISHED) {
+                successJob++;
+            }
+            if (job.state == AnalysisState.FAILED) {
+                failedJob++;
+            }
+        }
+        // SUCCESS_JOB
+        trow.addToColumnValue(new TCell().setLongVal(successJob));
+        // FAILED_JOB
+        trow.addToColumnValue(new TCell().setLongVal(failedJob));
+        Collection<AnalysisInfo> tasks = Env.getCurrentEnv().getAnalysisManager().getAnalysisTaskInfoMap().values();
+        long successTask = 0;
+        long failedTask = 0;
+        for (AnalysisInfo task : tasks) {
+            if (task.state == AnalysisState.FINISHED) {
+                successTask++;
+            }
+            if (task.state == AnalysisState.FAILED) {
+                failedTask++;
+            }
+        }
+        // SUCCESS_TASK
+        trow.addToColumnValue(new TCell().setLongVal(successTask));
+        // FAILED_TASK
+        trow.addToColumnValue(new TCell().setLongVal(failedTask));
+        // HIGH_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().highPriorityJobs.size()));
+        // MEDIUM_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().midPriorityJobs.size()));
+        // LOW_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().lowPriorityJobs.size()));
+        // VERY_LOW_PRIORITY_QUEUE_SIZE
+        trow.addToColumnValue(
+                new TCell().setLongVal(Env.getCurrentEnv().getAnalysisManager().veryLowPriorityJobs.size()));
+        dataBatch.add(trow);
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult grantsToRolesMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.GRANT)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> roleNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "ROLE_NAME");
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Collection<Role> roles = Env.getCurrentEnv().getAuth().getRoles();
+        for (Role role : roles) {
+            String roleName = role.getRoleName();
+            if (FrontendConjunctsUtils.isFiltered(roleNameConjuncts, "ROLE_NAME", roleName)) {
+                continue;
+            }
+            List<PrivObject> privObjects = role.getPrivObjects();
+            for (PrivObject privObject : privObjects) {
+                TRow trow = new TRow();
+                // ROLE_NAME
+                trow.addToColumnValue(new TCell().setStringVal(roleName));
+                // OBJECT_CATALOG
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getCatalog()));
+                // OBJECT_DATABASE
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getDatabase()));
+                // OBJECT_NAME
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getName()));
+                // OBJECT_TYPE
+                trow.addToColumnValue(new TCell().setStringVal(privObject.getType().name()));
+                // PRIVILEGE_TYPE
+                trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(privObject.getType())));
+                dataBatch.add(trow);
+            }
+        }
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult grantsToUsersMetadataResult(TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkGlobalPriv(UserIdentity.fromThrift(params.getCurrentUserIdent()), PrivPredicate.GRANT)) {
+            return generateEmptySchemaTableDataResult();
+        }
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> userNameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "USER_NAME");
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Map<String, List<User>> nameToUsers = Env.getCurrentEnv().getAuth().getUserManager().getNameToUsers();
+        for (List<User> users : nameToUsers.values()) {
+            for (User user : users) {
+                String userName = user.getUserIdentity().toString();
+                if (FrontendConjunctsUtils.isFiltered(userNameConjuncts, "USER_NAME", userName)) {
+                    continue;
+                }
+                List<PrivObject> privObjects = Env.getCurrentEnv().getAuth()
+                        .getUserPrivObjects(user.getUserIdentity());
+                for (PrivObject privObject : privObjects) {
+                    TRow trow = new TRow();
+                    // USER_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(userName));
+                    // OBJECT_CATALOG
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getCatalog()));
+                    // OBJECT_DATABASE
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getDatabase()));
+                    // OBJECT_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getName()));
+                    // OBJECT_TYPE
+                    trow.addToColumnValue(new TCell().setStringVal(privObject.getType().name()));
+                    // PRIVILEGE_TYPE
+                    trow.addToColumnValue(new TCell().setStringVal(GsonUtils.GSON.toJson(privObject.getType())));
+                    dataBatch.add(trow);
+                }
+
             }
         }
         result.setDataBatch(dataBatch);
@@ -820,7 +1971,7 @@ public class MetadataGenerator {
         if (tSchemaTableParams.isSetTimeZone()) {
             timeZone = tSchemaTableParams.getTimeZone();
         }
-        for (Map.Entry<String, QueryInfo> entry : queryInfoMap.entrySet()) {
+        for (Entry<String, QueryInfo> entry : queryInfoMap.entrySet()) {
             String queryId = entry.getKey();
             QueryInfo queryInfo = entry.getValue();
 
@@ -905,7 +2056,7 @@ public class MetadataGenerator {
         List<TFetchSchemaTableDataResult> results = new ArrayList<>();
         List<Pair<String, Integer>> frontends = FrontendsProcNode.getFrontendWithRpcPort(Env.getCurrentEnv(), false);
 
-        FrontendService.Client client = null;
+        Client client = null;
         int waitTimeOut = ConnectContext.get() == null ? 300 : ConnectContext.get().getExecTimeoutS();
         for (Pair<String, Integer> fe : frontends) {
             TNetworkAddress thriftAddress = new TNetworkAddress(fe.key(), fe.value());
@@ -1167,9 +2318,9 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
-        List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
+        List<AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
-        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+        for (AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
@@ -1196,9 +2347,9 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
-        List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
+        List<AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
-        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+        for (AbstractJob job : jobList) {
             if (job instanceof MTMVJob) {
                 MTMVJob mtmvJob = (MTMVJob) job;
                 if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
@@ -1229,7 +2380,7 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
 
         Map<PlsqlProcedureKey, PlsqlStoredProcedure> allProc = plSqlClient.getAllPlsqlStoredProcedures();
-        for (Map.Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
+        for (Entry<PlsqlProcedureKey, PlsqlStoredProcedure> entry : allProc.entrySet()) {
             PlsqlStoredProcedure proc = entry.getValue();
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setStringVal(proc.getName())); // SPECIFIC_NAME
@@ -1723,10 +2874,10 @@ public class MetadataGenerator {
 
     private static void fillBatch(List<TRow> dataBatch, Map<String, Map<String, String>> stats,
             String catalogName) {
-        for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
+        for (Entry<String, Map<String, String>> entry : stats.entrySet()) {
             String cacheName = entry.getKey();
             Map<String, String> cacheStats = entry.getValue();
-            for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
+            for (Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
                 String metricName = cacheStatsEntry.getKey();
                 String metricValue = cacheStatsEntry.getValue();
                 TRow trow = new TRow();
@@ -1790,11 +2941,11 @@ public class MetadataGenerator {
 
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) tbl.getCatalog());
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+        HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 tbl, tbl.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(tbl)));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();
-        for (Map.Entry<Long, List<String>> entry : valuesMap.entrySet()) {
+        for (Entry<Long, List<String>> entry : valuesMap.entrySet()) {
             TRow trow = new TRow();
             List<String> values = entry.getValue();
             if (values.size() != partitionCols.size()) {

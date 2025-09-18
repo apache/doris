@@ -122,6 +122,16 @@ public class PrivBitSet {
         return privs;
     }
 
+    public List<String> toPrivilegeNames() {
+        List<String> privs = Lists.newArrayList();
+        Privilege.privileges.keySet().forEach(idx -> {
+            if (get(idx)) {
+                privs.add(Privilege.getPriv(idx).getName());
+            }
+        });
+        return privs;
+    }
+
     public static PrivBitSet of(Privilege... privs) {
         PrivBitSet bitSet = new PrivBitSet();
         for (Privilege priv : privs) {

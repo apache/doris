@@ -49,6 +49,7 @@ import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
@@ -80,6 +81,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -1558,6 +1560,54 @@ public class Auth implements Writable {
         return table;
     }
 
+    public List<PrivObject> getUserPrivObjects(UserIdentity userIdentity) {
+        List<PrivObject> res = Lists.newArrayList();
+        res.addAll(getUserGlobalPrivTable(userIdentity).getPrivObjects());
+        res.addAll(getUserCtlPrivTable(userIdentity).getPrivObjects());
+        res.addAll(getUserDbPrivTable(userIdentity).getPrivObjects());
+        res.addAll(getUserTblPrivTable(userIdentity).getPrivObjects());
+        res.addAll(getUserResourcePrivTable(userIdentity).getPrivObjects(PrivObjectType.RESOURCE));
+        res.addAll(getUserCloudClusterPrivTable(userIdentity).getPrivObjects(PrivObjectType.COMPUTE_GROUP));
+        res.addAll(getUserCloudStagePrivTable(userIdentity).getPrivObjects(PrivObjectType.CLOUD_STAGE));
+        res.addAll(getUserStorageVaultPrivTable(userIdentity).getPrivObjects(PrivObjectType.STORAGE_VAULT));
+        res.addAll(getUserWorkloadGroupPrivTable(userIdentity).getPrivObjects());
+        res.addAll(colPrivToPrivObjects(getUserColPrivMap(userIdentity)));
+        return res;
+    }
+
+    public static List<PrivObject> colPrivToPrivObjects(Map<ColPrivilegeKey, Set<String>> colPrivMap) {
+        List<PrivObject> res = Lists.newArrayList();
+        Map<ColInfo, Set<Integer>> colToPriv = transferToColInfoMap(colPrivMap);
+        for (Entry<ColInfo, Set<Integer>> entry : colToPriv.entrySet()) {
+            ColInfo colInfo = entry.getKey();
+            Set<Integer> privIndexs = entry.getValue();
+            List<String> privNames = Lists.newArrayListWithCapacity(privIndexs.size());
+            for (Integer index : privIndexs) {
+                Privilege priv = Privilege.getPriv(index);
+                if (priv != null) {
+                    privNames.add(priv.getName());
+                }
+            }
+            res.add(new PrivObject(colInfo.getCtl(), colInfo.getDb(), colInfo.getTable(), colInfo.getCol(),
+                    PrivObjectType.COL, privNames));
+        }
+        return res;
+    }
+
+    private static Map<ColInfo, Set<Integer>> transferToColInfoMap(Map<ColPrivilegeKey, Set<String>> colPrivMap) {
+        Map<ColInfo, Set<Integer>> colToPriv = Maps.newHashMap();
+        for (Entry<ColPrivilegeKey, Set<String>> entry : colPrivMap.entrySet()) {
+            ColPrivilegeKey colPrivilegeKey = entry.getKey();
+            for (String col : entry.getValue()) {
+                ColInfo colInfo = new ColInfo(colPrivilegeKey.getCtl(), colPrivilegeKey.getDb(),
+                        colPrivilegeKey.getTbl(), col);
+                colToPriv.computeIfAbsent(colInfo, k -> Sets.newHashSet()).add(colPrivilegeKey.getPrivilegeIdx());
+
+            }
+        }
+        return colToPriv;
+    }
+
     private GlobalPrivTable getUserGlobalPrivTable(UserIdentity userIdentity) {
         GlobalPrivTable table = new GlobalPrivTable();
         Set<Role> roles = getRolesByUserWithLdap(userIdentity);
@@ -1682,6 +1732,10 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
+    }
+
+    public Collection<Role> getRoles() {
+        return roleManager.getRoles().values();
     }
 
     // Used for creating table_privileges table in information_schema.

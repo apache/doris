@@ -133,6 +133,8 @@ public class StatisticsUtil {
 
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     public static final int UPDATED_PARTITION_THRESHOLD = 3;
+    public static final double MAX_HEALTH_RATE = 100;
+    public static final double MIN_HEALTH_RATE = 0;
 
     public static List<ResultRow> executeQuery(String template, Map<String, String> params) {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
@@ -860,7 +862,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
+    public static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
                     findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_START_TIME)
@@ -1154,6 +1156,93 @@ public class StatisticsUtil {
             // External is hard to calculate change rate, use time interval to control analyze frequency.
             return System.currentTimeMillis()
                     - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+        }
+    }
+
+    /**
+     * getColumnHealthRate
+     *
+     * @param table
+     * @param column indexName:colName
+     * @return health
+     */
+    public static double getColumnHealthRate(TableIf table, Pair<String, String> column) {
+        if (column == null) {
+            return MAX_HEALTH_RATE;
+        }
+        if (!table.autoAnalyzeEnabled()) {
+            return MAX_HEALTH_RATE;
+        }
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        // Table never been analyzed, need analyze.
+        if (tableStatsStatus == null) {
+            return MIN_HEALTH_RATE;
+        }
+        // User injected column stats, don't do auto analyze, avoid overwrite user injected stats.
+        if (tableStatsStatus.userInjected) {
+            return MAX_HEALTH_RATE;
+        }
+        ColStatsMeta columnStatsMeta = tableStatsStatus.findColumnStatsMeta(column.first, column.second);
+        // Column never been analyzed, need analyze.
+        if (columnStatsMeta == null) {
+            return MIN_HEALTH_RATE;
+        }
+        // Partition table partition stats never been collected.
+        if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()
+                && columnStatsMeta.partitionUpdateRows == null) {
+            return MIN_HEALTH_RATE;
+        }
+        if (table instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) table;
+            // 0. Check new partition first time loaded flag.
+            if (tableStatsStatus.partitionChanged.get()) {
+                return MIN_HEALTH_RATE;
+            }
+            // 1. Check row count.
+            // TODO: One conner case. Last analyze row count is 0, but actually it's not 0 because isEmptyTable waiting.
+            long currentRowCount = olapTable.getRowCount();
+            long lastAnalyzeRowCount = columnStatsMeta.rowCount;
+            // 1.1 Empty table -> non-empty table. Need analyze.
+            if (currentRowCount != 0 && lastAnalyzeRowCount == 0) {
+                return MIN_HEALTH_RATE;
+            }
+            // 1.2 Non-empty table -> empty table. Need analyze;
+            if (currentRowCount == 0 && lastAnalyzeRowCount != 0) {
+                return MIN_HEALTH_RATE;
+            }
+            // 1.3 Table is still empty. Not need to analyze. lastAnalyzeRowCount == 0 is always true here.
+            if (currentRowCount == 0) {
+                return MAX_HEALTH_RATE;
+            }
+            // 3. Check partition
+            if (needAnalyzePartition(olapTable, tableStatsStatus, columnStatsMeta)) {
+                return MIN_HEALTH_RATE;
+            }
+
+            // 1.4 If row count changed more than the threshold, need analyze.
+            // lastAnalyzeRowCount == 0 is always false here.
+            double changeRate =
+                    ((double) Math.abs(currentRowCount - lastAnalyzeRowCount) / lastAnalyzeRowCount) * 100.0;
+            // 2. Check update rows.
+            long currentUpdatedRows = tableStatsStatus.updatedRows.get();
+            long lastAnalyzeUpdateRows = columnStatsMeta.updatedRows;
+            double updateChangeRate =
+                    ((double) Math.abs(currentUpdatedRows - lastAnalyzeUpdateRows) / lastAnalyzeRowCount) * 100.0;
+            return Math.max(MAX_HEALTH_RATE - Math.max(changeRate, updateChangeRate), MIN_HEALTH_RATE);
+        } else {
+            // Now, we only support Hive external table auto analyze.
+            if (!(table instanceof HMSExternalTable)) {
+                return MAX_HEALTH_RATE;
+            }
+            HMSExternalTable hmsTable = (HMSExternalTable) table;
+            if (!hmsTable.getDlaType().equals(DLAType.HIVE)) {
+                return MAX_HEALTH_RATE;
+            }
+            // External is hard to calculate change rate, use time interval to control analyze frequency.
+            return System.currentTimeMillis()
+                    - tableStatsStatus.lastAnalyzeTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis()
+                    ? MIN_HEALTH_RATE : MAX_HEALTH_RATE;
         }
     }
 

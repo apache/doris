@@ -43,6 +43,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mtmv.MvMetrics;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
@@ -225,6 +226,7 @@ public abstract class ConnectProcessor {
             return;
         }
         AuditLogHelper.logAuditLog(ctx, origStmt, parsedStmt, statistics, printFuzzyVariables);
+        MvMetrics.recordRewriteMetrics(ctx);
     }
 
     // only throw an exception when there is a problem interacting with the requesting client

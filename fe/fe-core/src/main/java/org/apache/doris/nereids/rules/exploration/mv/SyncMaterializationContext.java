@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.MvMetrics;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -79,6 +81,18 @@ public class SyncMaterializationContext extends MaterializationContext {
     }
 
     @Override
+    public Optional<MvMetrics> getMaterializationMetrics() {
+        OlapTable olapTable = getOlapTable();
+        long indexId = getIndexId();
+        MaterializedIndexMeta indexMetaByIndexId = olapTable.getIndexMetaByIndexId(indexId);
+        if (indexMetaByIndexId != null) {
+            return Optional.of(indexMetaByIndexId.getSyncMvMetrics());
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    @Override
     String getStringInfo() {
         StringBuilder failReasonBuilder = new StringBuilder("[").append("\n");
         for (Map.Entry<ObjectId, Collection<Pair<String, String>>> reasonEntry : this.failReason.asMap().entrySet()) {
@@ -133,6 +147,18 @@ public class SyncMaterializationContext extends MaterializationContext {
             }, null);
         }
         return scanPlan;
+    }
+
+    public long getIndexId() {
+        return indexId;
+    }
+
+    public String getIndexName() {
+        return indexName;
+    }
+
+    public OlapTable getOlapTable() {
+        return olapTable;
     }
 
     /**

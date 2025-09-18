@@ -17,9 +17,14 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 /*
  * DbPrivTable saves all database level privs
@@ -79,5 +84,20 @@ public class DbPrivTable extends PrivTable {
             }
         }
         return false;
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        for (PrivEntry entry : entries) {
+            DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
+            String origCtl = dbPrivEntry.getOrigCtl();
+            String origDb = dbPrivEntry.getOrigDb();
+            PrivBitSet privSet = dbPrivEntry.getPrivSet();
+            if (!privSet.isEmpty()) {
+                res.add(new PrivObject(origCtl, origDb, null, null, PrivObjectType.DATABASE,
+                        privSet.toPrivilegeNames()));
+            }
+        }
+        return res;
     }
 }

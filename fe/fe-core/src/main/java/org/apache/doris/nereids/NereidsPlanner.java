@@ -33,6 +33,7 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.mtmv.AsyncMvMetrics;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -245,6 +246,7 @@ public class NereidsPlanner extends Planner {
                 statementContext.getConnectContext().getExecutor().getSummaryProfile()
                         .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
             }
+            AsyncMvMetrics.recordLastQueryTime(statementContext.getTables().values());
             return resultPlan;
         } finally {
             statementContext.releasePlannerResources();

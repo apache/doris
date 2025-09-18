@@ -17,6 +17,12 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.mysql.privilege.PrivObject.PrivObjectType;
+
+import com.google.common.collect.Lists;
+
+import java.util.List;
+
 public class WorkloadGroupPrivTable extends PrivTable {
 
     public void getPrivs(String workloadGroupName, PrivBitSet savedPrivs) {
@@ -28,5 +34,19 @@ public class WorkloadGroupPrivTable extends PrivTable {
                 savedPrivs.or(workloadGroupPrivEntry.getPrivSet());
             }
         }
+    }
+
+    public List<PrivObject> getPrivObjects() {
+        List<PrivObject> res = Lists.newArrayList();
+        for (PrivEntry entry : entries) {
+            WorkloadGroupPrivEntry workloadGroupPrivEntry = (WorkloadGroupPrivEntry) entry;
+            String origWorkloadGroupName = workloadGroupPrivEntry.getOrigWorkloadGroupName();
+            PrivBitSet privSet = workloadGroupPrivEntry.getPrivSet();
+            if (!privSet.isEmpty()) {
+                res.add(new PrivObject(null, null, null, origWorkloadGroupName, PrivObjectType.WORKLOAD_GROUP,
+                        privSet.toPrivilegeNames()));
+            }
+        }
+        return res;
     }
 }

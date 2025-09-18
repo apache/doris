@@ -703,6 +703,213 @@ public class SchemaTable extends Table {
                             .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .build()))
+            .put("async_mview_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "async_mview_status", TableType.SCHEMA,
+                            builder().column("ASYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ASYNC_MVIEW_CATALOG", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_SCHEMA", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_NAME", ScalarType.createStringType())
+                                    .column("IS_ACTIVE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("INACTIVE_REASON", ScalarType.createStringType())
+                                    .column("PCT_TABLES", new ArrayType(ScalarType.createStringType()))
+                                    .column("IS_SYNC_WITH_BASE_TABLES", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("UNSYNC_PARTITIONS_IN_ASYNC_MVIEW",
+                                            new ArrayType(ScalarType.createStringType()))
+                                    .column("REFRESH_TYPE", ScalarType.createStringType())
+                                    .column("REFRESH_JOB_STATUS", ScalarType.createStringType())
+                                    .column("SCHEDULE_PERIOD", ScalarType.createStringType())
+                                    .column("PARTITION_TYPE", ScalarType.createStringType())
+                                    .column("ROW_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("PARTITION_COUNT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("DEFINITION", ScalarType.createStringType())
+                                    .column("PROPERTIES",
+                                            new MapType(ScalarType.createStringType(), ScalarType.createStringType()))
+                                    .build()))
+            .put("activity_async_mview",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "activity_async_mview", TableType.SCHEMA,
+                            builder().column("ASYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT), null, true)
+                                    .column("ASYNC_MVIEW_CATALOG", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_SCHEMA", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_NAME", ScalarType.createStringType())
+                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FULL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_PARTIAL_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_STALE_DATA", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH",
+                                            ScalarType.createType(PrimitiveType.BIGINT), SchemaTableAggregateType.SUM,
+                                            false)
+                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("MANUAL_REFRESHES_ON_AUTO", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MANUAL_REFRESHES_ON_PARTITIONS",
+                                            ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MANUAL_REFRESHES_ON_COMPLETE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("AUTO_REFRESHES_ON_SCHEDULE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("AUTO_REFRESHES_ON_COMMIT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LAST_REWRITE_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .column("LAST_QUERY_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .column("REFRESHES_SKIPPED", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REFRESHES_FAST", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REFRESHES_PCT", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("REFRESHES_COMPLETE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build(), true))
+            .put("mview_tasks",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "mview_tasks", TableType.SCHEMA,
+                            builder().column("TASK_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ASYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("ASYNC_MVIEW_CATALOG", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_SCHEMA", ScalarType.createStringType())
+                                    .column("ASYNC_MVIEW_NAME", ScalarType.createStringType())
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("METHOD", ScalarType.createStringType())
+                                    .column("CREATE_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("FINISHED_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("DURATION_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("STATUS", ScalarType.createStringType())
+                                    .column("IS_FORCE_REFRESH", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ERROR_CODE", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ERROR_MESSAGE", ScalarType.createStringType())
+                                    .column("MV_REFRESH_PARTITIONS",
+                                            new ArrayType(ScalarType.createStringType()))
+                                    .column("MV_COMPLETED_PARTITIONS",
+                                            new ArrayType(ScalarType.createStringType()))
+                                    .column("PROGRESS", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("LAST_QUERY_ID", ScalarType.createStringType())
+                                    .build()))
+            .put("sync_mview_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "sync_mview_status", TableType.SCHEMA,
+                            builder().column("SYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SYNC_MVIEW_CATALOG", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_SCHEMA", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_TABLE", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_NAME", ScalarType.createStringType())
+                                    .build()))
+            .put("activity_sync_mview",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "activity_sync_mview", TableType.SCHEMA,
+                            builder().column("SYNC_MVIEW_ID", ScalarType.createType(PrimitiveType.BIGINT), null, true)
+                                    .column("SYNC_MVIEW_CATALOG", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_SCHEMA", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_TABLE", ScalarType.createStringType())
+                                    .column("SYNC_MVIEW_NAME", ScalarType.createStringType())
+                                    .column("REWRITE_SUCCESS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_SUCCESS_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_SHAPE_MISMATCH",
+                                            ScalarType.createType(PrimitiveType.BIGINT), SchemaTableAggregateType.SUM,
+                                            false)
+                                    .column("REWRITE_FAILURE_CBO_REJECTED", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("REWRITE_FAILURE_WITH_HINT", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .build()))
+            .put("analyze_table_level_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "analyze_table_level_status", TableType.SCHEMA,
+                            builder().column("TABLE_CATALOG", ScalarType.createStringType())
+                                    .column("TABLE_SCHEMA", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("AUTO_ANALYZE_SUPPORTED", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ANALYZE_LIMITATION", ScalarType.createStringType())
+                                    .column("COLUMN_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("SKIP_ANALYZE_COLUMN_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ANALYZED_COLUMN_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ANALYZED_COLUMN_NAMES", new ArrayType(ScalarType.createStringType()))
+                                    .column("LOWEST_HEALTH_RATE", ScalarType.createType(PrimitiveType.DOUBLE))
+                                    .column("LOWEST_HEALTH_RATE_COLUMN_NAME", ScalarType.createStringType())
+                                    .build()))
+            .put("analyze_job",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "analyze_job", TableType.SCHEMA,
+                            builder().column("JOB_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_CATALOG", ScalarType.createStringType())
+                                    .column("TABLE_SCHEMA", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("COLUMN_NAMES", new ArrayType(ScalarType.createStringType()))
+                                    .column("TYPE", ScalarType.createStringType())
+                                    .column("METHOD", ScalarType.createStringType())
+                                    .column("STATUS", ScalarType.createStringType())
+                                    .column("PRIORITY", ScalarType.createStringType())
+                                    .column("ERROR_CODE", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ERROR_MESSAGE", ScalarType.createStringType())
+                                    .column("TOTAL_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("FINISHED_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("RUNNING_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("FAILED_TASK_COUNT", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ROOT_FAILED_TASK_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("END_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("DURATION_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
+            .put("analyze_task",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "analyze_task", TableType.SCHEMA,
+                            builder().column("TASK_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("JOB_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLE_CATALOG", ScalarType.createStringType())
+                                    .column("TABLE_SCHEMA", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("COLUMN_NAME", ScalarType.createStringType())
+                                    .column("STATUS", ScalarType.createStringType())
+                                    .column("PRIORITY", ScalarType.createStringType())
+                                    .column("ERROR_CODE", ScalarType.createType(PrimitiveType.INT))
+                                    .column("ERROR_MESSAGE", ScalarType.createStringType())
+                                    .column("ERROR_SQL", ScalarType.createStringType())
+                                    .column("START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("END_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("DURATION_MS", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
+            .put("activity_auto_analyze",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "activity_auto_analyze", TableType.SCHEMA,
+                            builder().column("AUTO_ANALYZE_ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("AUTO_ANALYZE_THREAD", ScalarType.createType(PrimitiveType.INT))
+                                    .column("AUTO_ANALYZE_START_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("AUTO_ANALYZE_END_TIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
+                                    .column("AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD",
+                                            ScalarType.createType(PrimitiveType.INT))
+                                    .column("AUTO_ANALYZE_TABLE_HEALTH_THRESHOLD",
+                                            ScalarType.createType(PrimitiveType.INT))
+                                    .column("SUCCESS_JOB", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FAILED_JOB", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("SUCCESS_TASK", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FAILED_TASK", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("HIGH_PRIORITY_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("MEDIUM_PRIORITY_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("LOW_PRIORITY_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("VERY_LOW_PRIORITY_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .build()))
+            .put("grants_to_roles",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "grants_to_roles", TableType.SCHEMA,
+                            builder().column("ROLE_NAME", ScalarType.createStringType())
+                                    .column("OBJECT_CATALOG", ScalarType.createStringType())
+                                    .column("OBJECT_DATABASE", ScalarType.createStringType())
+                                    .column("OBJECT_TABLE", ScalarType.createStringType())
+                                    .column("OBJECT_NAME", ScalarType.createStringType())
+                                    .column("OBJECT_TYPE", ScalarType.createStringType())
+                                    .column("PRIVILEGE_TYPE", new ArrayType(ScalarType.createStringType()))
+                                    .build()))
+            .put("grants_to_users",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "grants_to_users", TableType.SCHEMA,
+                            builder().column("USER_NAME", ScalarType.createStringType())
+                                    .column("OBJECT_CATALOG", ScalarType.createStringType())
+                                    .column("OBJECT_DATABASE", ScalarType.createStringType())
+                                    .column("OBJECT_TABLE", ScalarType.createStringType())
+                                    .column("OBJECT_NAME", ScalarType.createStringType())
+                                    .column("OBJECT_TYPE", ScalarType.createStringType())
+                                    .column("PRIVILEGE_TYPE", new ArrayType(ScalarType.createStringType()))
+                                    .build()))
             .put("sql_block_rule_status",
                     new SchemaTable(SystemIdGenerator.getNextId(), "sql_block_rule_status", TableType.SCHEMA,
                             builder().column("NAME", ScalarType.createStringType(), null, true)
@@ -772,7 +979,7 @@ public class SchemaTable extends Table {
     public static class SchemaColumn extends Column {
         private SchemaTableAggregateType schemaTableAggregateType;
 
-        public SchemaColumn(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+        public SchemaColumn(String name, Type type, SchemaTableAggregateType schemaTableAggregateType,
                 boolean isKey) {
             super(name, type, true);
             this.schemaTableAggregateType = schemaTableAggregateType;
@@ -794,12 +1001,12 @@ public class SchemaTable extends Table {
             columns = Lists.newArrayList();
         }
 
-        public Builder column(String name, ScalarType type) {
+        public Builder column(String name, Type type) {
             columns.add(new SchemaColumn(name, type, null, false));
             return this;
         }
 
-        public Builder column(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+        public Builder column(String name, Type type, SchemaTableAggregateType schemaTableAggregateType,
                 boolean isKey) {
             columns.add(new SchemaColumn(name, type, schemaTableAggregateType, isKey));
             return this;

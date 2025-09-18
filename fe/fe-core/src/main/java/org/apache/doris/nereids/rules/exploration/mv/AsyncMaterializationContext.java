@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MvMetrics;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -50,6 +51,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     private static final Logger LOG = LogManager.getLogger(AsyncMaterializationContext.class);
     private final MTMV mtmv;
+    private boolean partitionNeedUnion = false;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -76,6 +78,11 @@ public class AsyncMaterializationContext extends MaterializationContext {
             super.identifier = MaterializationContext.generateMaterializationIdentifier(mtmv, null);
         }
         return super.identifier;
+    }
+
+    @Override
+    public Optional<MvMetrics> getMaterializationMetrics() {
+        return Optional.of(getMtmv().getAsyncMvMetrics());
     }
 
     @Override
@@ -173,5 +180,13 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     public boolean isSuccess() {
         return success;
+    }
+
+    public boolean isPartitionNeedUnion() {
+        return partitionNeedUnion;
+    }
+
+    public void setPartitionNeedUnion(boolean partitionNeedUnion) {
+        this.partitionNeedUnion = partitionNeedUnion;
     }
 }
