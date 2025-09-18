@@ -121,7 +121,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("Refrain streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
+        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
@@ -701,14 +701,11 @@ public class LoadAction extends RestBaseController {
     private String getAllHeaders(HttpServletRequest request) {
         StringBuilder headers = new StringBuilder();
         Enumeration<String> headerNames = request.getHeaderNames();
-        LOG.info("Refrain FE Stream Load Columns Header Debug");
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
             String headerValue = request.getHeader(headerName);
-            LOG.info("Refrain Columns header value: [{} : {}]", headerName, headerValue);
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
-        LOG.info("Refrain End FE Debug");
         return headers.toString();
     }
 

@@ -2128,17 +2128,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive stream load put request: {}, backend: {}", request, clientAddr);
         }
 
-        if (request.isSetColumns()) {
-            LOG.info("Refrain FE StreamLoadPut Columns Debug");
-            LOG.info("Refrain BE sent columns to FE: [{}]", request.getColumns());
-            String columns = request.getColumns();
-            if (columns != null) {
-                byte[] bytes = columns.getBytes();
-                LOG.info("BE request columns raw bytes: [{}]", bytes);
-            }
-            LOG.info("Refrain End FE StreamLoadPut Debug");
-        }
-
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);

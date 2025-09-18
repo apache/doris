@@ -50,7 +50,6 @@ int HttpRequest::init_from_evhttp() {
         return -1;
     }
     _uri = evhttp_request_get_uri(_ev_req);
-    
     // conver header
     auto headers = evhttp_request_get_input_headers(_ev_req);
     for (auto header = headers->tqh_first; header != nullptr; header = header->next.tqe_next) {
