@@ -728,9 +728,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         break;
                     }
                 }
-                //record current last object file name
-                S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
-                currentMaxFile = lastS3Object.key();
+                if (!response.contents().isEmpty()) {
+                    //record current last object file name
+                    S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
+                    currentMaxFile = lastS3Object.key();
+                }
 
                 isTruncated = response.isTruncated();
                 if (isTruncated) {

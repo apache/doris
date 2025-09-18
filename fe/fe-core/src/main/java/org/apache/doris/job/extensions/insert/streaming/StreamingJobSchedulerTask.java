@@ -29,6 +29,8 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Arrays;
 import java.util.List;
 
@@ -110,7 +112,14 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getLabelName()));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getStatus().name()));
-        trow.addToColumnValue(new TCell().setStringVal(runningTask.getErrMsg()));
+
+        trow.addToColumnValue(new TCell().setStringVal(null == runningTask.getOtherMsg()
+                ? FeConstants.null_string : runningTask.getOtherMsg()));
+        // err msg
+        String errMsg = StringUtils.isNotBlank(runningTask.getErrMsg())
+                ? runningTask.getErrMsg() : runningTask.getOtherMsg();
+        trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotBlank(errMsg)
+                ? errMsg : FeConstants.null_string));
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? FeConstants.null_string
@@ -143,10 +152,9 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         } else {
             trow.addToColumnValue(new TCell().setStringVal(runningTask.getUserIdentity().getQualifiedUser()));
         }
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getRunningOffset() == null ? FeConstants.null_string
                 : runningTask.getRunningOffset().toJson()));
-        trow.addToColumnValue(new TCell().setStringVal(null == runningTask.getOtherMsg()
-                ? FeConstants.null_string : runningTask.getOtherMsg()));
         return trow;
     }
 }

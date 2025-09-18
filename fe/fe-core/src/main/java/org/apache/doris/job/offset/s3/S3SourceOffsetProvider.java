@@ -33,6 +33,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -136,8 +137,13 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
             String uri = storageProperties.validateAndGetUri(copiedProps);
             String filePath = storageProperties.validateAndNormalizeUri(uri);
-            maxRemoteEndFile = fileSystem.globListWithLimit(filePath, new ArrayList<>(), startFile,
-                    1, 1);
+            List<RemoteFile> objects = new ArrayList<>();
+            String endFile = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
+            if (!objects.isEmpty() && StringUtils.isNotEmpty(endFile)) {
+                maxRemoteEndFile = endFile;
+            } else {
+                maxRemoteEndFile = startFile;
+            }
         } catch (Exception e) {
             throw e;
         }
