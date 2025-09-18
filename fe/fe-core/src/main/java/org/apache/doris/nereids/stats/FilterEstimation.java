@@ -574,7 +574,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         literalMap.put(newMaxExpr.get(), (StringLiteral) colStats.maxExpr);
 
         Map<Literal, Float> newHotValues = new HashMap<>();
-        if (!colStats.hotValues.isEmpty()) {
+        if (colStats.hotValues != null) {
             for (Literal oneHot : colStats.hotValues.keySet()) {
                 try {
                     DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());

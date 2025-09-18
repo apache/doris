@@ -1375,7 +1375,7 @@ class FilterEstimationTest {
         statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
         Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
         Assertions.assertEquals(0, stats.getRowCount(), 0.1);
-        Assertions.assertNull(stats.findColumnStatistics(slots.get(0)));
+        Assertions.assertNull(stats.findColumnStatistics(slots.get(0)).getHotValues());
     }
 
     @Test
