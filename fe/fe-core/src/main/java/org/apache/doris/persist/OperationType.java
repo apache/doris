@@ -414,6 +414,8 @@ public class OperationType {
 
     public static final short OP_OPERATE_KEY = 492;
 
+    public static final short OP_UPDATE_STREAMING_JOB = 493;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated

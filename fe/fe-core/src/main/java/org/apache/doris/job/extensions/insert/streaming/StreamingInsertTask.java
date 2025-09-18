@@ -118,7 +118,7 @@ public class StreamingInsertTask {
         this.startTimeMs = System.currentTimeMillis();
 
         if (isCanceled.get()) {
-            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
+            throw new JobException("Streaming insert task has been canceled, task id: {}", getTaskId());
         }
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
         ctx.setSessionVariable(jobProperties.getSessionVariable());

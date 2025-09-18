@@ -27,9 +27,11 @@ import lombok.Setter;
 @Getter
 @Setter
 public class S3Offset implements Offset {
+    // path/1.csv
     String startFile;
-    @SerializedName("ef")
+    @SerializedName("endFile")
     String endFile;
+    // s3://bucket/path/{1.csv,2.csv}
     String fileLists;
 
     @Override

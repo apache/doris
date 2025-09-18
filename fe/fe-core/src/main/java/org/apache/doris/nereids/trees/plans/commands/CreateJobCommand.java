@@ -67,7 +67,7 @@ public class CreateJobCommand extends Command implements ForwardWithSync {
         if (createJobInfo.streamingJob()) {
             int streamingJobCnt = Env.getCurrentEnv().getJobManager().getStreamingJobCnt();
             if (streamingJobCnt >= Config.max_streaming_job_num) {
-                throw new JobException("Exceed max streaming job num limit " + Config.max_streaming_job_num);
+                throw new JobException("Exceed max streaming job num limit in fe.conf:" + Config.max_streaming_job_num);
             }
         }
     }

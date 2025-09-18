@@ -33,6 +33,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * alter job command.
@@ -75,22 +76,16 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
     private AbstractJob analyzeAndBuildJobInfo(ConnectContext ctx) throws JobException {
         AbstractJob job = Env.getCurrentEnv().getJobManager().getJobByName(jobName);
         if (job instanceof StreamingInsertJob) {
-            StreamingInsertJob originJob = (StreamingInsertJob) job;
-            String updateSQL = StringUtils.isEmpty(sql) ? originJob.getExecuteSql() : sql;
-            Map<String, String> updateProps =
-                    properties == null || properties.isEmpty() ? originJob.getProperties() : properties;
-
-            StreamingInsertJob streamingInsertJob = new StreamingInsertJob(jobName,
-                    job.getJobStatus(),
-                    job.getCurrentDbName(),
-                    job.getComment(),
-                    ConnectContext.get().getCurrentUserIdentity(),
-                    originJob.getJobConfig(),
-                    System.currentTimeMillis(),
-                    updateSQL,
-                    updateProps);
-            streamingInsertJob.setJobId(job.getJobId());
-            return streamingInsertJob;
+            StreamingInsertJob updateJob = (StreamingInsertJob) job;
+            // update sql
+            if (StringUtils.isNotEmpty(sql)) {
+                updateJob.setExecuteSql(sql);
+            }
+            // update properties
+            if (!properties.isEmpty()) {
+                updateJob.getProperties().putAll(properties);
+            }
+            return updateJob;
         } else {
             throw new JobException("Unsupported job type for ALTER:" + job.getJobType());
         }
@@ -119,20 +114,20 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
     }
 
     private boolean checkProperties(Map<String, String> originProps) {
-        if (originProps.isEmpty()) {
+        if (this.properties == null || this.properties.isEmpty()) {
             return false;
         }
-        if (!originProps.equals(properties)) {
+        if (!Objects.equals(this.properties, originProps)) {
             return true;
         }
         return false;
     }
 
-    private boolean checkSql(String sql) {
-        if (sql == null || sql.isEmpty()) {
+    private boolean checkSql(String originSql) {
+        if (originSql == null || originSql.isEmpty()) {
             return false;
         }
-        if (!sql.equals(sql)) {
+        if (!originSql.equals(this.sql)) {
             return true;
         }
         return false;

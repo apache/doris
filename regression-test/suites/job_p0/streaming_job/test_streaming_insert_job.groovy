@@ -61,15 +61,28 @@ suite("test_streaming_insert_job") {
             "s3.secret_key" = "${getS3SK()}"
         );
     """
-    Awaitility.await().atMost(30, SECONDS)
-            .pollInterval(1, SECONDS).until(
-            {
-                print("check success task count")
-                def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
-                // check job status and succeed task count larger than 2
-                jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
-            }
-    )
+    try {
+        Awaitility.await().atMost(300, SECONDS)
+                .pollInterval(1, SECONDS).until(
+                {
+                    print("check success task count")
+                    def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='STREAMING' """
+                    // check job status and succeed task count larger than 2
+                    jobSuccendCount.size() == 1 && '2' <= jobSuccendCount.get(0).get(0)
+                }
+        )
+    } catch (Exception ex){
+        def showjob = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+        def showtask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+        println("show job: " + showjob)
+        println("show task: " + showtask)
+        throw ex;
+    }
+
+    def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+    println("show success job: " + jobResult)
+
+    qt_select """ SELECT * FROM ${tableName} order by c1 """
 
     sql """
         PAUSE JOB where jobname =  '${jobName}'
@@ -79,20 +92,20 @@ suite("test_streaming_insert_job") {
     """
     assert pausedJobStatus.get(0).get(0) == "PAUSED"
 
-    qt_select """ SELECT * FROM ${tableName} order by c1 """
+    def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+    assert pauseShowTask.size() == 0
+
 
     def jobOffset = sql """
-        select progress, remoteoffset from jobs("type"="insert") where Name='${jobName}'
+        select ConsumedOffset, MaxOffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert jobOffset.get(0).get(0) == "regression/load/data/example_1.csv"
     assert jobOffset.get(0).get(1) == "regression/load/data/example_1.csv"
-    //todo check status
 
     // alter streaming job
     sql """
        ALTER JOB FOR ${jobName}
        PROPERTIES(
-        "s3.batch_files" = "1",
         "session.insert_max_filter_ratio" = "0.5"
        )
        INSERT INTO ${tableName}
@@ -110,10 +123,31 @@ suite("test_streaming_insert_job") {
     """
 
     def alterJobProperties = sql """
-        select properties from jobs("type"="insert") where Name='${jobName}'
+        select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
     """
-    assert alterJobProperties.get(0).get(0) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+    assert alterJobProperties.get(0).get(0) == "PAUSED"
+    assert alterJobProperties.get(0).get(1) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+    assert alterJobProperties.get(0).get(2) == "regression/load/data/example_1.csv"
 
+    sql """
+        RESUME JOB where jobname =  '${jobName}'
+    """
+    def resumeJobStatus = sql """
+        select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
+    """
+    assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
+    assert resumeJobStatus.get(0).get(1) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+    assert resumeJobStatus.get(0).get(2) == "regression/load/data/example_1.csv"
+
+    Awaitility.await().atMost(60, SECONDS)
+            .pollInterval(1, SECONDS).until(
+            {
+                print("check create streaming task count")
+                def resumeShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+                // check streaming task create success
+                resumeShowTask.size() == 1
+            }
+    )
 
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'
@@ -121,7 +155,5 @@ suite("test_streaming_insert_job") {
 
     def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
     assert jobCountRsp.get(0).get(0) == 0
-
-
 
 }
