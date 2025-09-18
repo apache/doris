@@ -666,6 +666,90 @@ static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
     return http_json_reply(MetaServiceCode::OK, "");
 }
 
+static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    ListSnapshotRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    ListSnapshotResponse resp;
+    service->list_snapshot(ctrl, &req, &resp, nullptr);
+    return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_set_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    AlterInstanceRequest req;
+    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+    AlterInstanceResponse resp;
+    service->alter_instance(ctrl, &req, &resp, nullptr);
+    return http_json_reply(resp.status());
+}
+
+static HttpResponse process_get_snapshot_property(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string_view instance_id = http_query(uri, "instance_id");
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+
+    if (instance_id.empty() && cloud_unique_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "empty instance_id and cloud_unique_id");
+    }
+
+    InstanceInfoPB instance;
+    auto [code, msg] = service->get_instance_info(std::string(instance_id),
+                                                  std::string(cloud_unique_id), &instance);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    // Build snapshot properties response
+    rapidjson::Document doc;
+    doc.SetObject();
+    auto& allocator = doc.GetAllocator();
+
+    // Add snapshot properties
+    rapidjson::Value properties(rapidjson::kObjectType);
+
+    // Snapshot switch status
+    std::string switch_status;
+    switch (instance.snapshot_switch_status()) {
+    case SNAPSHOT_SWITCH_DISABLED:
+        switch_status = "disabled";
+        break;
+    case SNAPSHOT_SWITCH_OFF:
+        switch_status = "false";
+        break;
+    case SNAPSHOT_SWITCH_ON:
+        switch_status = "true";
+        break;
+    default:
+        switch_status = "unknown";
+        break;
+    }
+    properties.AddMember("enabled", rapidjson::Value(switch_status.c_str(), allocator), allocator);
+
+    // Max reserved snapshots
+    if (instance.has_max_reserved_snapshot()) {
+        properties.AddMember("max_reserved_snapshots", instance.max_reserved_snapshot(), allocator);
+    }
+
+    // Snapshot interval seconds
+    if (instance.has_snapshot_interval_seconds()) {
+        properties.AddMember("snapshot_interval_seconds", instance.snapshot_interval_seconds(),
+                             allocator);
+    }
+
+    doc.AddMember("code", "OK", allocator);
+    doc.AddMember("msg", "", allocator);
+    doc.AddMember("result", properties, allocator);
+
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    doc.Accept(writer);
+
+    return http_json_reply(MetaServiceCode::OK, "", buffer.GetString());
+}
+
 void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
                            const MetaServiceHttpRequest*, MetaServiceHttpResponse*,
                            ::google::protobuf::Closure* done) {
@@ -753,6 +837,13 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_tablet_stats", process_get_tablet_stats},
             {"v1/get_stage", process_get_stage},
             {"v1/get_cluster_status", process_get_cluster_status},
+            // snapshot related
+            {"list_snapshot", process_list_snapshot},
+            {"set_snapshot_property", process_set_snapshot_property},
+            {"get_snapshot_property", process_get_snapshot_property},
+            {"v1/list_snapshot", process_list_snapshot},
+            {"v1/set_snapshot_property", process_set_snapshot_property},
+            {"v1/get_snapshot_property", process_get_snapshot_property},
             // misc
             {"abort_txn", process_abort_txn},
             {"abort_tablet_job", process_abort_tablet_job},
