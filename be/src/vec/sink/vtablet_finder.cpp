@@ -22,6 +22,7 @@
 #include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 
+#include <set>
 #include <string>
 #include <utility>
 
@@ -85,8 +86,13 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
         _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index);
     } else {
         // for random distribution
-        _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
-                                  &_partition_to_tablet_map);
+        if (_find_tablet_mode == FindTabletMode::FIND_TABLET_ROW_BASED) {
+            _find_tablets_with_row_based_switching(block, qualified_rows, partitions, tablet_index);
+        } else {
+            _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
+                                      &_partition_to_tablet_map);
+        }
+
         if (_find_tablet_mode == FindTabletMode::FIND_TABLET_EVERY_BATCH) {
             for (auto it : _partition_to_tablet_map) {
                 // do round-robin for next batch
@@ -96,9 +102,55 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
             }
             _partition_to_tablet_map.clear();
         }
+        // For ROW_BASED mode, don't clear the map to maintain tablet assignment consistency
     }
 
     return Status::OK();
+}
+
+
+void OlapTabletFinder::_find_tablets_with_row_based_switching(
+        vectorized::Block* block, const std::vector<uint32_t>& qualified_rows,
+        const std::vector<VOlapTablePartition*>& partitions, std::vector<uint32_t>& tablet_index) {
+    // Simplified logic: first write all data to one tablet, then check if we need to switch for next batch
+
+    // Get unique partitions in this batch
+    std::set<VOlapTablePartition*> unique_partitions;
+    for (auto row_index : qualified_rows) {
+        unique_partitions.insert(partitions[row_index]);
+    }
+
+    // Check if we need to switch tablets before processing this batch
+    for (auto* partition : unique_partitions) {
+        int64_t current_accumulated_rows = _partition_row_counts[partition];
+
+        LOG(INFO) << "TABLET_SWITCH_DEBUG: partition_id=" << partition->id
+                  << ", load_tablet_idx=" << partition->load_tablet_idx
+                  << ", current_batch_size=" << qualified_rows.size()
+                  << ", accumulated_rows=" << current_accumulated_rows
+                  << ", threshold=" << _tablet_switch_row_threshold;
+
+        // If accumulated rows exceed threshold, switch to next tablet before processing this batch
+        if (current_accumulated_rows >= _tablet_switch_row_threshold) {
+            if (partition->load_tablet_idx != -1) {
+                int64_t old_idx = partition->load_tablet_idx;
+                partition->load_tablet_idx++;
+                LOG(INFO) << "TABLET_SWITCH_DEBUG: Switching tablet from " << old_idx << " to "
+                          << partition->load_tablet_idx << " for partition " << partition->id;
+                // Reset row count for this partition after switching
+                _partition_row_counts[partition] = 0;
+            }
+        }
+    }
+
+    // Process the entire batch with current tablet assignment
+    _vpartition->find_tablets(block, qualified_rows, partitions, tablet_index,
+                              &_partition_to_tablet_map);
+
+    // Update row counts after processing this batch
+    for (auto* partition : unique_partitions) {
+        _partition_row_counts[partition] += qualified_rows.size();
+    }
 }
 
 } // namespace doris::vectorized

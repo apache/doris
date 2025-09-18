@@ -307,8 +307,6 @@ struct TReportExecStatusParams {
   30: optional string label
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
-
-  33: optional string first_error_msg
 }
 
 struct TFeResult {
@@ -346,7 +344,7 @@ struct TGroupCommitInfo{
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
     5: optional bool updateLoadData
-    6: optional i64 tableId 
+    6: optional i64 tableId
     7: optional i64 receiveData
 }
 
@@ -424,6 +422,12 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+}
+
+struct TUpdateExportTaskStatusRequest {
+    1: required FrontendServiceVersion protocolVersion
+    2: required Types.TUniqueId taskId
+    3: required PaloInternalService.TExportStatusResult taskStatus
 }
 
 struct TLoadTxnBeginRequest {
@@ -554,6 +558,7 @@ struct TStreamLoadPutRequest {
     57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     58: optional Descriptors.TPartialUpdateNewRowPolicy partial_update_new_key_policy
     59: optional bool empty_field_as_null
+    60: optional i64 tablet_switch_row_threshold
 
     // For cloud
     1000: optional string cloud_cluster
@@ -563,7 +568,7 @@ struct TStreamLoadPutRequest {
 struct TStreamLoadPutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    //2: optional PaloInternalService.TExecPlanFragmentParams params # deprecated
+    2: optional PaloInternalService.TExecPlanFragmentParams params
     3: optional PaloInternalService.TPipelineFragmentParams pipeline_params
     // used for group commit
     4: optional i64 base_schema_version
@@ -577,7 +582,7 @@ struct TStreamLoadPutResult {
 struct TStreamLoadMultiTablePutResult {
     1: required Status.TStatus status
     // valid when status is OK
-    // 2: optional list<PaloInternalService.TExecPlanFragmentParams> params # deprecated
+    2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
 }
 
@@ -634,7 +639,7 @@ struct TLoadTxnCommitRequest {
     17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
-    20: optional i64 backendId 
+    20: optional i64 backendId
 }
 
 struct TLoadTxnCommitResult {
@@ -1661,6 +1666,8 @@ service FrontendService {
     TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
     TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
 
+    TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
+
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
     TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)
     TLoadTxn2PCResult loadTxn2PC(1: TLoadTxn2PCRequest request)
@@ -1713,7 +1720,7 @@ service FrontendService {
     TGetBinlogLagResult getBinlogLag(1: TGetBinlogLagRequest request)
 
     Status.TStatus updateStatsCache(1: TUpdateFollowerStatsCacheRequest request)
-    
+
     Status.TStatus updatePlanStatsCache(1: TUpdatePlanStatsCacheRequest request)
 
     TAutoIncrementRangeResult getAutoIncrementRange(1: TAutoIncrementRangeRequest request)

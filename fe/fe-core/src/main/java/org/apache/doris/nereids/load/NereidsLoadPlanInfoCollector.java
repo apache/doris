@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -158,8 +159,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
             int numColumnsFromFile = srcSlotIds.size() - columnCountFromPath;
             Preconditions.checkState(numColumnsFromFile >= 0,
-                    "srcSlotIds.size is: " + srcSlotIds.size() + ", num columns from path: "
-                            + columnCountFromPath);
+                    "srcSlotIds.size is: " + srcSlotIds.size() + ", num columns from path: " + columnCountFromPath);
             params.setNumOfColumnsFromFile(numColumnsFromFile);
 
             for (int i = 0; i < srcSlotIds.size(); ++i) {
@@ -248,8 +248,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      */
     public NereidsLoadPlanInfoCollector(OlapTable destTable, NereidsLoadTaskInfo taskInfo, TUniqueId loadId, long dbId,
             TUniqueKeyUpdateMode uniquekeyUpdateMode, TPartialUpdateNewRowPolicy uniquekeyUpdateNewRowPolicy,
-            HashSet<String> partialUpdateInputColumns,
-            Map<String, Expression> exprMap) {
+            HashSet<String> partialUpdateInputColumns, Map<String, Expression> exprMap) {
         loadPlanInfo = new LoadPlanInfo();
         this.destTable = destTable;
         this.taskInfo = taskInfo;
@@ -266,8 +265,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      */
     public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan) {
         this.logicalPlan = logicalPlan;
-        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
-                logicalPlan, PhysicalProperties.ANY);
+        CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(), logicalPlan,
+                PhysicalProperties.ANY);
         PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
         logicalPlan.accept(this, context);
         loadPlanInfo.descriptorTable = context.getDescTable();
@@ -285,8 +284,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
         loadPlanInfo.destSlotIdToSrcSlotIdWithoutTrans = Maps.newHashMap();
         for (int i = 0; i < targetTableSlots.size(); ++i) {
             if (targetTableSlots.get(i).isColumnFromTable()) {
-                SlotDescriptor srcSlot = srcSlots
-                        .get(((SlotReference) targetTableSlots.get(i)).getOriginalColumn().get().getName());
+                SlotDescriptor srcSlot = srcSlots.get(
+                        ((SlotReference) targetTableSlots.get(i)).getOriginalColumn().get().getName());
                 if (srcSlot != null) {
                     loadPlanInfo.destSlotIdToSrcSlotIdWithoutTrans.put(destSlots.get(i).getId(), srcSlot.getId());
                 }
@@ -308,24 +307,32 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
         boolean enableMemtableOnSinkNode = destTable.getTableProperty().getUseSchemaLightChange()
-                ? taskInfo.isMemtableOnSinkNode()
-                : false;
+                ? taskInfo.isMemtableOnSinkNode() : false;
         boolean enableSingleReplicaLoad = enableMemtableOnSinkNode ? false : Config.enable_single_replica_load;
         if (taskInfo instanceof NereidsStreamLoadTask && ((NereidsStreamLoadTask) taskInfo).getGroupCommit() != null) {
             loadPlanInfo.olapTableSink = new GroupCommitBlockSink(destTable, olapTuple, partitionIds,
                     enableSingleReplicaLoad, partitionExprs, syncMvWhereClauses,
-                    ((NereidsStreamLoadTask) taskInfo).getGroupCommit(),
-                    taskInfo.getMaxFilterRatio());
+                    ((NereidsStreamLoadTask) taskInfo).getGroupCommit(), taskInfo.getMaxFilterRatio());
         } else {
             loadPlanInfo.olapTableSink = new OlapTableSink(destTable, olapTuple, partitionIds, enableSingleReplicaLoad,
                     partitionExprs, syncMvWhereClauses);
         }
         int timeout = taskInfo.getTimeout();
         try {
+            long tabletSwitchRowThreshold = 10000000L; // default 10M rows
+            if (taskInfo instanceof NereidsStreamLoadTask) {
+                tabletSwitchRowThreshold = ((NereidsStreamLoadTask) taskInfo).getTabletSwitchRowThreshold();
+            } else {
+                // For insert into select, use session variable
+                ConnectContext ctx = ConnectContext.get();
+                if (ctx != null) {
+                    tabletSwitchRowThreshold = ctx.getSessionVariable().tabletSwitchRowThreshold;
+                }
+            }
             loadPlanInfo.olapTableSink.init(loadId, taskInfo.getTxnId(), dbId, timeout,
-                    taskInfo.getSendBatchParallelism(),
-                    taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode(), timeout, uniquekeyUpdateMode,
-                    uniquekeyUpdateNewRowPolicy, partialUpdateInputColumns);
+                    taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), tabletSwitchRowThreshold,
+                    taskInfo.isStrictMode(), timeout, uniquekeyUpdateMode, uniquekeyUpdateNewRowPolicy,
+                    partialUpdateInputColumns);
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
@@ -374,8 +381,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             Expr expr = projectList.get(i);
             PrimitiveType dstType = slotDescriptor.getType().getPrimitiveType();
             PrimitiveType srcType = expr.getType().getPrimitiveType();
-            if (!(dstType == PrimitiveType.JSONB
-                    && (srcType == PrimitiveType.VARCHAR || srcType == PrimitiveType.STRING))) {
+            if (!(dstType == PrimitiveType.JSONB && (srcType == PrimitiveType.VARCHAR
+                    || srcType == PrimitiveType.STRING))) {
                 try {
                     expr = castToSlot(slotDescriptor, expr);
                 } catch (org.apache.doris.common.AnalysisException e) {
@@ -420,22 +427,18 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             PlanTranslatorContext context) {
         logicalPreFilter.child(0).accept(this, context);
         loadPlanInfo.preFilterExprList = new ArrayList<>(logicalPreFilter.getConjuncts().size());
-        logicalPreFilter.getConjuncts().stream()
-                .map(e -> ExpressionTranslator.translate(e, context))
+        logicalPreFilter.getConjuncts().stream().map(e -> ExpressionTranslator.translate(e, context))
                 .forEach(loadPlanInfo.preFilterExprList::add);
         return null;
     }
 
     @Override
-    public Void visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation,
-            PlanTranslatorContext context) {
+    public Void visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, PlanTranslatorContext context) {
         List<Slot> slots = oneRowRelation.getLogicalProperties().getOutput();
         TupleDescriptor oneRowTuple = generateTupleDesc(slots, null, context);
 
-        List<Expr> legacyExprs = oneRowRelation.getProjects()
-                .stream()
-                .map(expr -> ExpressionTranslator.translate(expr, context))
-                .collect(Collectors.toList());
+        List<Expr> legacyExprs = oneRowRelation.getProjects().stream()
+                .map(expr -> ExpressionTranslator.translate(expr, context)).collect(Collectors.toList());
 
         for (int i = 0; i < legacyExprs.size(); i++) {
             SlotDescriptor slotDescriptor = oneRowTuple.getSlots().get(i);
@@ -526,8 +529,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 PartitionInfo partitionInfo = destTable.getPartitionInfo();
                 Map<Long, PartitionItem> idToPartitions = partitionInfo.getIdToItem(false);
                 Optional<SortedPartitionRanges<Long>> sortedPartitionRanges = Optional.empty();
-                List<Long> prunedPartitions = PartitionPruner.prune(
-                        partitionSlots, filterPredicate, idToPartitions,
+                List<Long> prunedPartitions = PartitionPruner.prune(partitionSlots, filterPredicate, idToPartitions,
                         CascadesContext.initContext(new StatementContext(), logicalPlan, PhysicalProperties.ANY),
                         PartitionPruner.PartitionTableType.OLAP, sortedPartitionRanges);
                 return prunedPartitions;

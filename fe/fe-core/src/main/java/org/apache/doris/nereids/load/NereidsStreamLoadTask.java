@@ -77,6 +77,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private int sendBatchParallelism = 1;
     private double maxFilterRatio = 0.0;
     private boolean loadToSingleTablet = false;
+    private long tabletSwitchRowThreshold = 10000000L; // default 10M rows
     private String headerType = "";
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
@@ -185,6 +186,10 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     @Override
     public boolean isLoadToSingleTablet() {
         return loadToSingleTablet;
+    }
+
+    public long getTabletSwitchRowThreshold() {
+        return tabletSwitchRowThreshold;
     }
 
     public PartitionNames getPartitions() {
@@ -351,8 +356,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
      */
     public static NereidsStreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         NereidsStreamLoadTask streamLoadTask = new NereidsStreamLoadTask(request.getLoadId(), request.getTxnId(),
-                request.getFileType(), request.getFormatType(),
-                request.getCompressType());
+                request.getFileType(), request.getFormatType(), request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         streamLoadTask.setGroupCommit(request.getGroupCommitMode());
         if (request.isSetFileSize()) {
@@ -369,9 +373,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.columnSeparator = task.getColumnSeparator();
         this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl()) : null;
         this.partitions = task.getPartitions();
-        this.deleteCondition = task.getDeleteCondition() != null
-                ? parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl())
-                : null;
+        this.deleteCondition = task.getDeleteCondition() != null ? parseWhereExpr(
+                task.getDeleteCondition().toSqlWithoutTbl()) : null;
         this.lineDelimiter = task.getLineDelimiter();
         this.strictMode = task.isStrictMode();
         this.timezone = task.getTimezone();
@@ -474,6 +477,12 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         if (request.isSetLoadToSingleTablet()) {
             loadToSingleTablet = request.isLoadToSingleTablet();
         }
+        if (request.isSetTabletSwitchRowThreshold()) {
+            tabletSwitchRowThreshold = request.getTabletSwitchRowThreshold();
+            if (tabletSwitchRowThreshold <= 0) {
+                throw new UserException("Invalid tablet_switch_row_threshold: " + tabletSwitchRowThreshold);
+            }
+        }
         if (request.isSetHiddenColumns()) {
             hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
         }
@@ -490,8 +499,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             try {
                 uniquekeyUpdateMode = request.getUniqueKeyUpdateMode();
             } catch (IllegalArgumentException e) {
-                throw new UserException("unknown unique_key_update_mode: "
-                        + request.getUniqueKeyUpdateMode().toString());
+                throw new UserException(
+                        "unknown unique_key_update_mode: " + request.getUniqueKeyUpdateMode().toString());
             }
         } else {
             if (request.isSetPartialUpdate() && request.isPartialUpdate()) {
@@ -524,8 +533,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
                 if (!(expr.child(0) instanceof UnboundSlot)) {
                     throw new UserException(String.format("% is unsupported", expr));
                 }
-                columnExprDescs.descs
-                        .add(new NereidsImportColumnDesc(((UnboundSlot) expr.child(0)).getName(), expr.child(1)));
+                columnExprDescs.descs.add(
+                        new NereidsImportColumnDesc(((UnboundSlot) expr.child(0)).getName(), expr.child(1)));
             } else {
                 if (!(expr instanceof UnboundSlot)) {
                     throw new UserException(String.format("% is unsupported", expr));

@@ -108,6 +108,10 @@ public interface NereidsLoadTaskInfo {
 
     boolean isLoadToSingleTablet();
 
+    default long getTabletSwitchRowThreshold() {
+        return 0L; // 0 means use BE default config
+    }
+
     String getHeaderType();
 
     List<String> getHiddenColumns();

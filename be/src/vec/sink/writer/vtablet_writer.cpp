@@ -1457,15 +1457,24 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
     // for the whole olap table sink
     auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
+    int64_t tablet_switch_row_threshold = config::single_tablet_load_rows_threshold;
+
     if (table_sink.partition.distributed_columns.empty()) {
+        // For random distribution tables, determine the tablet finding mode
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
             find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_SINK;
         } else {
-            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_BATCH;
+            // Use row-based switching with threshold (either from import property or BE config)
+            find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_ROW_BASED;
+            if (table_sink.__isset.tablet_switch_row_threshold && table_sink.tablet_switch_row_threshold > 0) {
+                tablet_switch_row_threshold = table_sink.tablet_switch_row_threshold;
+            }
+            // else: use BE config value (already set above)
         }
     }
     _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
-    _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode);
+    _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode,
+                                                        tablet_switch_row_threshold);
     RETURN_IF_ERROR(_vpartition->init());
 
     _state = state;
