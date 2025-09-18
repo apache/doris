@@ -2652,8 +2652,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
         }
     }
     if constexpr (is_datetime) {
-        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond,
-                                        !(part_used & ~TIME_PART));
+        return check_range_and_set_time(year, month, day, hour, minute, second, microsecond);
     } else {
         return check_range_and_set_time(year, month, day, 0, 0, 0, 0);
     }
