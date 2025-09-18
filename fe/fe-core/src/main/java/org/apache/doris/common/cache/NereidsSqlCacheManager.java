@@ -34,7 +34,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
@@ -297,32 +296,15 @@ public class NereidsSqlCacheManager {
                     .getSqlCacheContext().ifPresent(ctx -> ctx.setCacheKeyType(CacheKeyType.MD5));
 
             if (sqlCacheContextWithVariable != null) {
-                return tryParseSqlAndRecordMetrics(
+                return tryParseSql(
                         connectContext, md5CacheKey, sqlCacheContextWithVariable, currentUserIdentity, true
                 );
             } else {
                 return Optional.empty();
             }
         } else {
-            return tryParseSqlAndRecordMetrics(connectContext, key, sqlCacheContext, currentUserIdentity, false);
+            return tryParseSql(connectContext, key, sqlCacheContext, currentUserIdentity, false);
         }
-    }
-
-    private Optional<LogicalSqlCache> tryParseSqlAndRecordMetrics(
-            ConnectContext connectContext, String key, SqlCacheContext sqlCacheContext,
-            UserIdentity currentUserIdentity, boolean checkUserVariable) {
-        Optional<LogicalSqlCache> logicalSqlCache = tryParseSql(connectContext, key, sqlCacheContext,
-                currentUserIdentity, checkUserVariable);
-        if (logicalSqlCache.isPresent()) {
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
-            }
-        } else {
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
-            }
-        }
-        return logicalSqlCache;
     }
 
     private String generateCacheKey(ConnectContext connectContext, String sqlOrMd5) {

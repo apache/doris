@@ -432,6 +432,13 @@ public abstract class ConnectProcessor {
             }
             Env env = ctx.getEnv();
             Optional<LogicalSqlCache> sqlCachePlanOpt = env.getSqlCacheManager().tryParseSql(ctx, cacheSqlKey);
+            if (MetricRepo.isInit) {
+                if (sqlCachePlanOpt.isPresent()) {
+                    MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+                } else {
+                    MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
+                }
+            }
             if (sqlCachePlanOpt.isPresent()) {
                 LogicalSqlCache logicalSqlCache = sqlCachePlanOpt.get();
                 LogicalPlan parsedPlan = logicalSqlCache;
