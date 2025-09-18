@@ -34,20 +34,17 @@ public class JobExecutionConfigurationTest {
     @Test
     public void testGetTriggerDelayTimesOneTime() {
         JobExecutionConfiguration configuration = new JobExecutionConfiguration();
-        configuration.setExecuteType(JobExecuteType.STREAMING);
+        configuration.setExecuteType(JobExecuteType.ONE_TIME);
 
         TimerDefinition timerDefinition = new TimerDefinition();
-        timerDefinition.setStartTimeMs(System.currentTimeMillis()); // Start time set to 1 second in the future
-        timerDefinition.setInterval(10L);
-        timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
+        timerDefinition.setStartTimeMs(1000L); // Start time set to 1 second in the future
         configuration.setTimerDefinition(timerDefinition);
 
         List<Long> delayTimes = configuration.getTriggerDelayTimes(
-                1758115306000L, 1758115303000L, 1758115888000L);
+                0L, 0L, 5000L);
 
-        System.out.println(delayTimes);
-        // Assertions.assertEquals(1, delayTimes.size());
-        // Assertions.assertEquals(1, delayTimes.get(0).longValue());
+        Assertions.assertEquals(1, delayTimes.size());
+        Assertions.assertEquals(1, delayTimes.get(0).longValue());
     }
 
     @Test

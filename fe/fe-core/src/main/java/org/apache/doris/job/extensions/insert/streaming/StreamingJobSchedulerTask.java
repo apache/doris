@@ -49,7 +49,6 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             case PENDING:
                 streamingInsertJob.createStreamingInsertTask();
                 streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
-                streamingInsertJob.setAutoResumeCount(0);
                 break;
             case RUNNING:
                 streamingInsertJob.fetchMeta();
@@ -80,6 +79,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 if (autoResumeCount < Long.MAX_VALUE) {
                     streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
                 }
+                streamingInsertJob.createStreamingInsertTask();
                 streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
                 return;
             }
@@ -88,9 +88,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
 
     @Override
     protected void closeOrReleaseResources() {
-        if (streamingInsertJob.getRunningStreamTask() != null) {
-            streamingInsertJob.getRunningStreamTask().closeOrReleaseResources();
-        }
+        // do nothing
     }
 
     @Override
@@ -112,14 +110,17 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getLabelName()));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getStatus().name()));
-
-        trow.addToColumnValue(new TCell().setStringVal(null == runningTask.getOtherMsg()
-                ? FeConstants.null_string : runningTask.getOtherMsg()));
         // err msg
-        String errMsg = StringUtils.isNotBlank(runningTask.getErrMsg())
-                ? runningTask.getErrMsg() : runningTask.getOtherMsg();
+        String errMsg = "";
+        if (StringUtils.isNotBlank(runningTask.getErrMsg())
+                && !FeConstants.null_string.equals(runningTask.getErrMsg())) {
+            errMsg = runningTask.getErrMsg();
+        } else {
+            errMsg = runningTask.getOtherMsg();
+        }
         trow.addToColumnValue(new TCell().setStringVal(StringUtils.isNotBlank(errMsg)
                 ? errMsg : FeConstants.null_string));
+
         // create time
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(runningTask.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(null == getStartTimeMs() ? FeConstants.null_string

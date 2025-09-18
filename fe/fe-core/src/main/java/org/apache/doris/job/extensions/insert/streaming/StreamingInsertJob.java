@@ -42,8 +42,6 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
-import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
@@ -90,7 +88,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected long latestAutoResumeTimestamp;
     @Getter
     @Setter
-    protected long autoResumeCount;
+    protected long autoResumeCount = 0L;
     @Getter
     @SerializedName("props")
     private Map<String, String> properties;
@@ -107,8 +105,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private long lastScheduleTaskTimestamp = -1L;
     private InsertIntoTableCommand baseCommand;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    // other info msg
-    private String extraInfo = "";
 
     public StreamingInsertJob(String jobName,
             JobStatus jobStatus,
@@ -119,7 +115,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             Long createTimeMs,
             String executeSql,
             Map<String, String> properties) {
-        super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
+        super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
         this.properties = properties;
@@ -169,6 +165,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         lock.writeLock().lock();
         try {
             super.updateJobStatus(status);
+            if (JobStatus.PAUSED.equals(getJobStatus())) {
+                clearRunningStreamTask();
+            }
             if (isFinalStatus()) {
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
@@ -201,7 +200,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected StreamingInsertTask createStreamingInsertTask() {
-        this.runningStreamTask = new StreamingInsertTask(getJobId(), AbstractTask.getNextTaskId(), getExecuteSql(),
+        this.runningStreamTask = new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(), getExecuteSql(),
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
         this.runningStreamTask.setStatus(TaskStatus.PENDING);
@@ -223,6 +222,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return (getJobStatus().equals(JobStatus.RUNNING) || getJobStatus().equals(JobStatus.PENDING));
     }
 
+    public void clearRunningStreamTask() {
+        if (runningStreamTask != null) {
+            runningStreamTask.closeOrReleaseResources();
+            runningStreamTask = null;
+        }
+    }
+
     // When consumer to EOF, delay schedule task appropriately can avoid too many small transactions.
     public boolean needDelayScheduleTask() {
         return System.currentTimeMillis() - lastScheduleTaskTimestamp > jobProperties.getMaxIntervalSecond() * 1000;
@@ -234,8 +240,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public void logUpdateOperation() {
-        AlterStreamingJobOperationLog log = new AlterStreamingJobOperationLog(this.getJobId(), this.getJobStatus(),
-                properties, getExecuteSql(), getComment(), "");
+        AlterStreamingJobOperationLog log =
+                new AlterStreamingJobOperationLog(this.getJobId(), this.getJobStatus(), properties, getExecuteSql());
         Env.getCurrentEnv().getEditLog().logUpdateStreamingJob(log);
     }
 
@@ -309,7 +315,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.properties = operationLog.getJobProperties();
         this.jobProperties = new StreamingJobProperties(properties);
         setExecuteSql(operationLog.getExecuteSql());
-        setComment(operationLog.getComment());
     }
 
     @Override
@@ -391,22 +396,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             ArrayList<Long> taskIds = new ArrayList<>();
             taskIds.add(runningStreamTask.getTaskId());
-            List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIds);
-            if (loadJobs.size() != 1) {
-                shouldReleaseLock = true;
-                // todo: need throw exception
-                log.error("load job not found, insert job id is " + runningStreamTask.getTaskId());
-            }
-            LoadJob loadJob = loadJobs.get(0);
+            // todo: Check whether the taskid of runningtask is consistent with the taskid associated with txn
 
-            if (txnState.getTransactionId() != loadJob.getTransactionId()
-                    || !runningStreamTask.getStatus().equals(TaskStatus.RUNNING)) {
-                shouldReleaseLock = true;
-                // todo: need throw exception
-                log.error("txn " + txnState.getTransactionId() + "should be aborted.");
-            }
-
-            //todo: need get loadStatistic
+            // todo: need get loadStatistic, load manager statistic is empty
             LoadStatistic loadStatistic = new LoadStatistic();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),

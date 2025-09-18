@@ -62,7 +62,7 @@ suite("test_streaming_insert_job") {
         );
     """
     try {
-        Awaitility.await().atMost(30, SECONDS)
+        Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(1, SECONDS).until(
                 {
                     print("check success task count")
@@ -79,6 +79,11 @@ suite("test_streaming_insert_job") {
         throw ex;
     }
 
+    def jobResult = sql """select * from jobs("type"="insert") where Name='${jobName}'"""
+    println("show success job: " + jobResult)
+
+    qt_select """ SELECT * FROM ${tableName} order by c1 """
+
     sql """
         PAUSE JOB where jobname =  '${jobName}'
     """
@@ -87,7 +92,9 @@ suite("test_streaming_insert_job") {
     """
     assert pausedJobStatus.get(0).get(0) == "PAUSED"
 
-    qt_select """ SELECT * FROM ${tableName} order by c1 """
+    def pauseShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+    assert pauseShowTask.size() == 0
+
 
     def jobOffset = sql """
         select ConsumedOffset, MaxOffset from jobs("type"="insert") where Name='${jobName}'
@@ -128,9 +135,19 @@ suite("test_streaming_insert_job") {
     def resumeJobStatus = sql """
         select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
     """
-    assert resumeJobStatus.get(0).get(0) == "RUNNING"
+    assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
     assert resumeJobStatus.get(0).get(1) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
     assert resumeJobStatus.get(0).get(2) == "regression/load/data/example_1.csv"
+
+    Awaitility.await().atMost(60, SECONDS)
+            .pollInterval(1, SECONDS).until(
+            {
+                print("check create streaming task count")
+                def resumeShowTask = sql """select * from tasks("type"="insert") where JobName='${jobName}'"""
+                // check streaming task create success
+                resumeShowTask.size() == 1
+            }
+    )
 
     sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'

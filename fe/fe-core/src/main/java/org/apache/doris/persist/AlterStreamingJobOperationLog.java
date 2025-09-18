@@ -38,19 +38,13 @@ public class AlterStreamingJobOperationLog implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "sql")
     String executeSql;
-    @SerializedName(value = "c")
-    private String comment;
-    @SerializedName(value = "ei")
-    private String extraInfo;
 
-    public AlterStreamingJobOperationLog(long jobId, JobStatus status, Map<String, String> jobProperties,
-            String executeSql, String comment, String extraInfo) {
+    public AlterStreamingJobOperationLog(long jobId, JobStatus status,
+            Map<String, String> jobProperties, String executeSql) {
         this.jobId = jobId;
         this.status = status;
         this.jobProperties = jobProperties;
         this.executeSql = executeSql;
-        this.comment = comment;
-        this.extraInfo = extraInfo;
     }
 
     public long getJobId() {
@@ -69,14 +63,6 @@ public class AlterStreamingJobOperationLog implements Writable {
         return status;
     }
 
-    public String getComment() {
-        return comment;
-    }
-
-    public String getExtraInfo() {
-        return extraInfo;
-    }
-
     public static AlterStreamingJobOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterStreamingJobOperationLog.class);
@@ -91,12 +77,10 @@ public class AlterStreamingJobOperationLog implements Writable {
     @Override
     public String toString() {
         return "AlterStreamingJobOperationLog{"
-                + "jobId=" + jobId
+                +  "jobId=" + jobId
                 + ", status=" + status
                 + ", jobProperties=" + jobProperties
                 + ", executeSql='" + executeSql + '\''
-                + ", comment='" + comment + '\''
-                + ", extraInfo='" + extraInfo + '\''
                 + '}';
     }
 }
