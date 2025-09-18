@@ -27,8 +27,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.datasource.property.constants.S3Properties;
-import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -210,7 +210,7 @@ public class StorageVaultMgr {
                 properties.keySet().stream()
                         .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
                                 || key.toLowerCase().contains(S3Properties.S3_PREFIX)
-                                || key.toLowerCase().contains(S3Properties.PROVIDER))
+                                || key.toLowerCase().contains(StorageProperties.FS_PROVIDER_KEY))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
@@ -238,11 +238,6 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
-    }
-
-    @VisibleForTesting
-    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-        setDefaultStorageVault(stmt.getStorageVaultName());
     }
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {

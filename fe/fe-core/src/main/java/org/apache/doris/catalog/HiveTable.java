@@ -21,8 +21,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.security.authentication.AuthType;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -48,6 +48,8 @@ public class HiveTable extends Table {
             + " when create table";
     private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s')"
             + " is illegal or not supported. Please check it";
+
+    public static final String AWS_PROPERTIES_PREFIX = "AWS";
 
     @SerializedName("hdb")
     private String hiveDb;
@@ -164,7 +166,7 @@ public class HiveTable extends Table {
                 String key = entry.getKey();
                 if (key.startsWith(HdfsResource.HADOOP_FS_PREFIX)
                         || key.startsWith(S3Properties.S3_PREFIX)
-                        || key.startsWith(S3Properties.Env.PROPERTIES_PREFIX)) {
+                        || key.startsWith(AWS_PROPERTIES_PREFIX)) {
                     hiveProperties.put(key, entry.getValue());
                     iter.remove();
                 }
