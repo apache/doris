@@ -932,6 +932,7 @@ message PGroupCommitInsertResponse {
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
     optional string error_url = 6;
+    optional string first_error_msg = 7;
 }
 
 message POpenLoadStreamRequest {

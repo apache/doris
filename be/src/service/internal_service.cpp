@@ -2185,6 +2185,9 @@ void PInternalService::group_commit_insert(google::protobuf::RpcController* cont
                                 response->set_error_url(
                                         to_load_error_http_path(state->get_error_log_file_path()));
                             }
+                            if (!state->get_first_error_msg().empty()) {
+                                response->set_first_error_msg(state->get_first_error_msg());
+                            }
                             _exec_env->new_load_stream_mgr()->remove(load_id);
                         });
             } catch (const Exception& e) {

@@ -307,6 +307,8 @@ struct TReportExecStatusParams {
   30: optional string label
 
   31: optional list<TFragmentInstanceReport> fragment_instance_reports;
+
+  33: optional string first_error_msg
 }
 
 struct TFeResult {

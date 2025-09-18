@@ -943,11 +943,14 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errMsg = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null, String errMsg2 = null) {
         try {
             userFunction()
         } catch (Exception e) {
             if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
+                throw e
+            }
+            if (!Strings.isNullOrEmpty(errMsg2) && !e.getMessage().contains(errMsg2)) {
                 throw e
             }
         }

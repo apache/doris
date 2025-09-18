@@ -280,6 +280,8 @@ public:
 
     std::string get_error_log_file_path();
 
+    std::string get_first_error_msg() const { return _first_error_msg; }
+
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
@@ -768,6 +770,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    std::string _first_error_msg = "";
     mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;

@@ -470,6 +470,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!req.load_error_url.empty()) {
         params.__set_tracking_url(req.load_error_url);
     }
+    if (!req.first_error_msg.empty()) {
+        params.__set_first_error_msg(req.first_error_msg);
+    }
     for (auto* rs : req.runtime_states) {
         if (rs->wal_id() > 0) {
             params.__set_txn_id(rs->wal_id());
