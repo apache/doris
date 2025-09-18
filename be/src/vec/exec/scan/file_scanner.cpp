@@ -440,7 +440,7 @@ Status FileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
 // _convert_to_output_block     -     -    -  -                 -                -      x
 Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* eof) {
     do {
-        RETURN_IF_CANCELeED(state);
+        RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
