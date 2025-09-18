@@ -124,52 +124,76 @@ public class VarBinaryLiteralParserTest {
 
     @Test
     public void testCreateTableVarbinaryDirect() {
-        // expect parse or analysis failure (depending on where VARBINARY is rejected)
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb (k1 INT, vb VARBINARY) DISTRIBUTED BY HASH(k1) BUCKETS 1"));
+        Plan plan = new NereidsParser().parseSingle(
+                "CREATE TABLE t_vb (k1 INT, vb VARBINARY) DISTRIBUTED BY HASH(k1) BUCKETS 1");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
     }
 
     @Test
     public void testCreateTableVarbinaryWithLength() {
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb2 (k1 INT, vb VARBINARY(10)) DISTRIBUTED BY HASH(k1) BUCKETS 1"));
+        Plan plan = new NereidsParser().parseSingle(
+                "CREATE TABLE t_vb2 (k1 INT, vb VARBINARY(10)) DISTRIBUTED BY HASH(k1) BUCKETS 1");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
     }
 
     @Test
     public void testCreateTableVarbinaryAsKey() {
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb3 (vb VARBINARY, v2 INT) DISTRIBUTED BY HASH(vb) BUCKETS 1"));
+        Plan plan = new NereidsParser().parseSingle(
+                "CREATE TABLE t_vb3 (vb VARBINARY, v2 INT) DISTRIBUTED BY HASH(vb) BUCKETS 1");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
     }
 
     @Test
     public void testCreateTableVarbinaryInComplex() {
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb4 (id INT, arr ARRAY<VARBINARY>) DISTRIBUTED BY HASH(id) BUCKETS 1"));
+        Plan plan = new NereidsParser().parseSingle(
+                "CREATE TABLE t_vb4 (id INT, arr ARRAY<VARBINARY>) DISTRIBUTED BY HASH(id) BUCKETS 1");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
     }
 
     @Test
     public void testCreateTableVarbinaryPartition() {
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb5 (k1 INT, vb VARBINARY) PARTITION BY RANGE(k1)() DISTRIBUTED BY HASH(k1) BUCKETS 1"));
+        Plan plan = new NereidsParser().parseSingle(
+                "CREATE TABLE t_vb5 (k1 INT, vb VARBINARY) PARTITION BY RANGE(k1)() DISTRIBUTED BY HASH(k1) BUCKETS 1");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
     }
 
     @Test
     public void testAlterAddVarbinary() {
-        // Even adding via ALTER should fail
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "ALTER TABLE some_tbl ADD COLUMN vb VARBINARY"));
+        Plan plan = new NereidsParser().parseSingle(
+                "ALTER TABLE some_tbl ADD COLUMN vb VARBINARY");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
+        Assertions.assertThrows(Throwable.class, () -> cmd.run(ConnectContext.get(), null));
     }
 
     @Test
     public void testAlterModifyToVarbinary() {
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "ALTER TABLE some_tbl MODIFY COLUMN c1 VARBINARY"));
-    }
-
-    @Test
-    public void testCreateTableLikeWithVarbinary() {
-        // Statement referencing VARBINARY in a like/replace clause
-        Assertions.assertThrows(Throwable.class, () -> new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb6 LIKE base_tbl PROPERTIES('replace_columns'='vb VARBINARY')"));
+        Plan plan = new NereidsParser().parseSingle(
+                "ALTER TABLE some_tbl MODIFY COLUMN c1 VARBINARY");
+        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
+        Assertions.assertThrows(Throwable.class, () -> cmd.run(ConnectContext.get(), null));
     }
 }

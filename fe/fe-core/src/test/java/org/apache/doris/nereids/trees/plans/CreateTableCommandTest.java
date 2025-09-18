@@ -1086,4 +1086,35 @@ public class CreateTableCommandTest extends TestWithFeService {
 
         return command.getCreateMTMVInfo();
     }
+
+    @Test
+    public void testVarBinaryCreateTableRejected() {
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> createTable("create table test.vb_ct_1 (k1 int, vb VARBINARY)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1');"));
+        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> createTable("create table test.vb_ct_2 (k1 int, vb ARRAY<VARBINARY>)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num' = '1');"));
+    }
+
+    @Test
+    public void testVarBinaryModifyColumnRejected() throws Exception {
+        createTable("create table test.vb_alt (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        org.apache.doris.nereids.trees.plans.logical.LogicalPlan plan =
+                new org.apache.doris.nereids.parser.NereidsParser()
+                        .parseSingle("alter table test.vb_alt modify column v1 VARBINARY");
+        Assertions.assertTrue(
+                plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
+                (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
+        Assertions.assertThrows(Throwable.class, () -> cmd.run(connectContext, null));
+    }
 }
