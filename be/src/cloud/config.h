@@ -160,5 +160,9 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
+DECLARE_mBool(enable_standby_passive_compaction);
+
+DECLARE_mDouble(standby_compaction_version_ratio);
+
 #include "common/compile_check_end.h"
 } // namespace doris::config

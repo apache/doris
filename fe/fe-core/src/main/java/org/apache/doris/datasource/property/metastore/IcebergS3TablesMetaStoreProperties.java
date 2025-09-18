@@ -22,6 +22,7 @@ import org.apache.doris.datasource.iceberg.s3tables.CustomAwsCredentialsProvider
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.catalog.Catalog;
 import software.amazon.s3tables.iceberg.S3TablesCatalog;
 
@@ -60,7 +61,8 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
             return catalog;
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize S3TablesCatalog for Iceberg. "
-                    + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion(), e);
+                    + "CatalogName=" + catalogName + ", region=" + s3Properties.getRegion()
+                    + ", msg: " + ExceptionUtils.getRootCauseMessage(e), e);
         }
     }
 

@@ -56,7 +56,6 @@ String IDataType::do_get_name() const {
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
-    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }

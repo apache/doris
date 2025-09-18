@@ -410,5 +410,11 @@ Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
     return Status::OK();
 }
 
+bool AggFnEvaluator::is_blockable() const {
+    return _function->is_blockable() ||
+           std::any_of(_input_exprs_ctxs.begin(), _input_exprs_ctxs.end(),
+                       [](VExprContextSPtr ctx) { return ctx->root()->is_blockable(); });
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

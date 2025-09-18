@@ -63,6 +63,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -259,6 +260,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
             return;
         }
         StringBuilder sb = new StringBuilder(t.getMessage());
+        if (!Strings.isNullOrEmpty(coordinator.getFirstErrorMsg())) {
+            sb.append(". first_error_msg: ").append(
+                    StringUtils.abbreviate(coordinator.getFirstErrorMsg(), Config.first_error_msg_max_length));
+        }
         if (!Strings.isNullOrEmpty(coordinator.getTrackingUrl())) {
             sb.append(". url: ").append(coordinator.getTrackingUrl());
         }
@@ -291,7 +296,9 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
                                 table.getId(),
                                 etlJobType, createTime, errMsg,
-                                coordinator.getTrackingUrl(), userIdentity, jobId);
+                                coordinator.getTrackingUrl(),
+                                coordinator.getFirstErrorMsg(),
+                                userIdentity, jobId);
             }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);

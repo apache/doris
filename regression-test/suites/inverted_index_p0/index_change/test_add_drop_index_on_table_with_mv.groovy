@@ -18,24 +18,12 @@
 suite("test_add_drop_index_on_table_with_mv") {
     def tableName = "test_add_drop_index_on_table_with_mv"
 
+    sql "set enable_add_index_for_new_data = true"
+
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(10000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -121,16 +109,13 @@ suite("test_add_drop_index_on_table_with_mv") {
     }
     // create inverted index
     sql """ CREATE INDEX idx1 ON ${tableName}(class) USING INVERTED; """
-    wait_for_latest_op_on_table_finish(tableName, timeout)
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 1)
     assertEquals(show_result[0][2], "idx1")
 
     // build index
-    if (!isCloudMode()) {
-        sql """ BUILD INDEX idx1 ON ${tableName}; """
+    build_index_on_table("idx1", tableName)
         // wait for index build finish
-        wait_for_build_index_on_partition_finish(tableName, timeout)
-    }
+    wait_for_build_index_on_partition_finish(tableName, timeout)
 }

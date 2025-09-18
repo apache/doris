@@ -933,6 +933,11 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "limit_per_scanner: " << _limit_per_scanner
+                  << ", sort_limit: " << _olap_scan_node.sort_limit
+                  << ", isset.sort_limit: " << _olap_scan_node.__isset.sort_limit;
+    })
 }
 
 #include "common/compile_check_end.h"

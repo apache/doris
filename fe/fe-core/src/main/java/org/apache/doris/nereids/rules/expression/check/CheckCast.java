@@ -312,7 +312,19 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         );
     }
 
-    protected static boolean check(DataType originalType, DataType targetType, boolean isStrictMode) {
+    public static boolean checkWithLooseAggState(DataType originalType, DataType targetType, boolean isStrictMode) {
+        return check(originalType, targetType, isStrictMode, true);
+    }
+
+    public static boolean check(DataType originalType, DataType targetType, boolean isStrictMode) {
+        return check(originalType, targetType, isStrictMode, false);
+    }
+
+    /**
+     * check cast valid or not.
+     */
+    public static boolean check(DataType originalType, DataType targetType,
+            boolean isStrictMode, boolean looseAggState) {
         if (originalType.isVariantType() && targetType.isVariantType()) {
             return originalType.equals(targetType);
         }
@@ -325,6 +337,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         }
         if (originalType.equals(targetType)) {
             return true;
+        }
+        // for plan, we will first add a cast on AggStateType, and then apply a rule to remove cast if could be.
+        // so here, we should only check function name and parameters list size.
+        if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
+            AggStateType originalAggState = (AggStateType) originalType;
+            AggStateType targetAggState = (AggStateType) targetType;
+            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+                    && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
+                return true;
+            }
         }
         // New check strict and un-strict cast logic, the check logic is not completed yet.
         // So for now, if the new check logic return false,
