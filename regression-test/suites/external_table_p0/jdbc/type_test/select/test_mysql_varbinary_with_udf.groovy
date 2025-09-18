@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,external_docker_mysql") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -34,27 +34,27 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql """use mysql_all_type_test.doris_test"""
-
-        qt_desc_all_types_null """desc all_types_nullable;"""
-        qt_select_all_types_null """select * from all_types_nullable order by 1;"""
-
-        qt_desc_all_types_non_null """desc all_types_non_nullable;"""
-        qt_select_all_types_non_null """select * from all_types_non_nullable order by 1;"""
-
-        qt_select_varchar """select * from t_varchar order by 1;"""
-        qt_select_char """select * from t_char order by 1;"""
-
-        qt_select_all_types_multi_block """select count(`int`),count(`varchar`) from all_types_multi_block;"""
-
-
         sql """use mysql_all_type_test.test_varbinary_db"""
-        qt_desc_varbinary_type """desc test_varbinary;"""
-        qt_select_varbinary_type """select * from test_varbinary order by id;"""
-        qt_select_varbinary_type2 """insert into test_varbinary values(3, X'48656C6C6F20576F726C6421');"""
-        qt_select_varbinary_type3 """insert into test_varbinary values(4, NULL);"""
-        qt_select_varbinary_type4 """insert into test_varbinary values(5, X'AB');"""
-        qt_select_varbinary_type5 """select * from test_varbinary order by id;"""
+        qt_desc_varbinary_type """desc test_varbinary_udf;"""
+        qt_select_varbinary_type """select * from test_varbinary_udf order by id;"""
+
+        sql """switch internal"""
+        sql """create database if not exists test_mysql_udf;"""
+        sql """use internal.test_mysql_udf;"""
+
+        def jarPath = """${context.file.parent}/../../../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
+        scp_udf_file_to_all_be(jarPath)
+        log.info("Jar path: ${jarPath}".toString())
+
+        try_sql("DROP FUNCTION IF EXISTS udf_test_varbinary(varbinary);")
+        sql """ CREATE FUNCTION udf_test_varbinary(varbinary) RETURNS varbinary PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.VarBinaryTest",
+            "always_nullable"="true",
+            "type"="JAVA_UDF"
+        ); """
+
+        qt_select_varbinary_type4 """select id, varbinary_c, udf_test_varbinary(varbinary_c) as col_varbinary_reversed from mysql_all_type_test.test_varbinary_db.test_varbinary_udf order by id;"""
 
         sql """drop catalog if exists mysql_all_type_test """
     }
