@@ -29,9 +29,10 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
 
     options.beConfigs.add('enable_flush_file_cache_async=false')
     options.beConfigs.add('file_cache_enter_disk_resource_limit_mode_percent=99')
+    options.beConfigs.add('file_cache_exit_disk_resource_limit_mode_percent=99')
+    options.beConfigs.add('file_cache_keep_base_compaction_output_min_hit_ratio=0.5')
     options.beConfigs.add('enable_evict_file_cache_in_advance=false')
-    // 80MB file cache size
-    options.beConfigs.add('file_cache_path=[{"path":"/opt/apache-doris/be/storage/file_cache","total_size":83886080,"query_limit":83886080}]')
+    options.beConfigs.add('file_cache_path=[{"path":"/opt/apache-doris/be/storage/file_cache","total_size":94371840,"query_limit":94371840}]')
 
     def testTable = "test_filecache_with_base_compaction_thresthold"
     def backendId_to_backendIP = [:]
@@ -113,12 +114,16 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         def url = "jdbc:mysql://${fes[0].Host}:${fes[0].QueryPort}/"
         logger.info("url: " + url)
 
+        sql """ set global enable_auto_analyze = false;"""
         def result = sql 'SELECT DATABASE()'
 
         sql """ DROP TABLE IF EXISTS ${testTable} force;"""
 
-        // ================= case1: input_rowsets_hit_cache_ratio=0.703611, _input_rowsets_cached_size=79656542, _input_rowsets_total_size=113210974 =================
-        // real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0.7, it will write file cache
+        // ================= case1 file_cache_keep_base_compaction_output_min_hit_ratio = 0.5 =================
+        // real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0.5, it will write file cache
+        // should_cache_compaction_output, tablet_id=1758186443350, input_rowsets_hit_cache_ratio=0.685087,
+        // _input_rowsets_cached_size=77559390, _input_rowsets_total_size=113210974,enable_file_cache_keep_base_compaction_output=0,
+        // file_cache_keep_base_compaction_output_min_hit_ratio=0.5
         sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
                 ss_sold_date_sk bigint,
@@ -197,7 +202,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         sql """ delete from ${testTable} where ss_item_sk=2; """
 
         sql """ sync """
-        sql "select * from ${testTable}"
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         def tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
@@ -240,7 +245,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             logger.info("file cache data: ${data}")
             assertTrue(data.size() > 0)
             def segments = data.stream()
-                .filter(item -> !item.endsWith("_idx"))
+                .filter(item -> !item.endsWith("_idx") && !item.endsWith("_disposable"))
                 .count();
             logger.info("segments: ${segments}")
             assertTrue(segments > 0)
@@ -256,8 +261,11 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         size = out_0.trim().split(":")[1].trim().toInteger()
         assertTrue(size > 70 * 1024 * 1024)
 
-        // =================case2: input_rowsets_hit_cache_ratio=0.703524, total_cached_size=62914560 (60MB), total_size=113177376 =================
-        //  real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 0.8, so not write file cache
+        // ================= case2 file_cache_keep_base_compaction_output_min_hit_ratio = 0.9 =================
+        // real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 0.9, so not write file cache
+        // should_cache_compaction_output, tablet_id=1758186443391, input_rowsets_hit_cache_ratio=0.666563,
+        // _input_rowsets_cached_size=75462238, _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
+        // file_cache_keep_base_compaction_output_min_hit_ratio=0.9
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
 
@@ -276,7 +284,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             assertTrue(data.size() == 0)
         }
 
-        def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", be_host, be_http_port, "file_cache_keep_base_compaction_output_min_hit_ratio", 0.8))
+        def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", be_host, be_http_port, "file_cache_keep_base_compaction_output_min_hit_ratio", 0.9))
         assertTrue(out.contains("OK"))
         sql """ DROP TABLE IF EXISTS ${testTable} force;"""
 
@@ -355,7 +363,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         sql """ delete from ${testTable} where ss_item_sk=2; """
 
         sql """ sync """
-        sql "select * from ${testTable}"
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
@@ -363,6 +371,8 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         waitForCompaction(tablet)
         triggerCumulativeCompaction(tablet)
         waitForCompaction(tablet)
+
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         triggerBaseCompaction(tablet)
         waitForCompaction(tablet)
 
@@ -398,7 +408,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             logger.info("file cache data: ${data}")
 
             def segments = data.stream()
-                .filter(item -> !item.endsWith("_idx"))
+                .filter(item -> !item.endsWith("_idx") && !item.endsWith("_disposable"))
                 .count();
             logger.info("segments: ${segments}")
             assertTrue(segments == 0)
@@ -414,8 +424,11 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         size = out_0.trim().split(":")[1].trim().toInteger()
         assertTrue(size > 70 * 1024 * 1024)
 
-        // =================case3: file_cache_keep_base_compaction_output_min_hit_ratio = 0 =================
-        //  real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0, it will write file cache
+        // ================= case3: file_cache_keep_base_compaction_output_min_hit_ratio = 0 =================
+        // real_ratio > file_cache_keep_base_compaction_output_min_hit_ratio = 0, it will write file cache
+        // should_cache_compaction_output, tablet_id=1758186443436, input_rowsets_hit_cache_ratio=0.657301,
+        // _input_rowsets_cached_size=74413662, _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
+        // file_cache_keep_base_compaction_output_min_hit_ratio=0
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
 
@@ -513,7 +526,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         sql """ delete from ${testTable} where ss_item_sk=2; """
 
         sql """ sync """
-        sql "select * from ${testTable}"
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
@@ -556,7 +569,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             logger.info("file cache data: ${data}")
 
             def segments = data.stream()
-                .filter(item -> !item.endsWith("_idx"))
+                .filter(item -> !item.endsWith("_idx") && !item.endsWith("_disposable"))
                 .count();
             logger.info("segments: ${segments}")
             assertTrue(segments > 0)
@@ -573,8 +586,11 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         size = out_0.trim().split(":")[1].trim().toInteger()
         assertTrue(size > 70 * 1024 * 1024)
 
-        // =================case4: file_cache_keep_base_compaction_output_min_hit_ratio = 1 =================
-        //  real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 1, it will write not file cache
+        // ================= case4: file_cache_keep_base_compaction_output_min_hit_ratio = 1 =================
+        // real_ratio < file_cache_keep_base_compaction_output_min_hit_ratio = 1, it will write not file cache
+        // should_cache_compaction_output, tablet_id=1758186443474, input_rowsets_hit_cache_ratio=0.666563, _input_rowsets_cached_size=75462238,
+        // _input_rowsets_total_size=113210974, enable_file_cache_keep_base_compaction_output=0,
+        // file_cache_keep_base_compaction_output_min_hit_ratio=1
         result = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=clear&sync=true", true)
         logger.info("clear file cache data: ${result}")
 
@@ -673,7 +689,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
 
         sql """ sync """
 
-        sql "select * from ${testTable}"
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
@@ -682,7 +698,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
         triggerCumulativeCompaction(tablet)
         waitForCompaction(tablet)
 
-        sql "select * from ${testTable}"
+        sql """ select * from ${testTable} order by ss_ticket_number,ss_ext_sales_price limit 32769 """
         tablet_status = getTabletStatus(tablet)
         logger.info("tablet status: ${tablet_status}")
 
@@ -721,7 +737,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             logger.info("file cache data: ${data}")
 
             def segments = data.stream()
-                .filter(item -> !item.endsWith("_idx"))
+                .filter(item -> !item.endsWith("_idx") && !item.endsWith("_disposable"))
                 .count();
             logger.info("segments: ${segments}")
             assertTrue(segments == 0)
