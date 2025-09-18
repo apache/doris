@@ -696,7 +696,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
 
         if (all_closed) {
             for (auto& closing_id : _closing_stream_ids) {
-                brpc::StreamClose(closing_id);             
+                brpc::StreamClose(closing_id);
             }
             _closing_stream_ids.clear();
         }
