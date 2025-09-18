@@ -690,10 +690,16 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    CaptureRsReaderOptions opts {
+            .skip_missing_version = _state->skip_missing_version(),
+            .enable_prefer_cached_rowset =
+                    config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
+            .query_freshness_tolerance_ms =
+                    config::is_cloud_mode() ? _state->query_freshness_tolerance_ms() : -1,
+    };
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
         RETURN_IF_ERROR(_tablets[i].tablet->capture_rs_readers({0, _tablets[i].version},
-                                                               &_read_sources[i].rs_splits,
-                                                               _state->skip_missing_version()));
+                                                               &_read_sources[i].rs_splits, opts));
         if (!PipelineXLocalState<>::_state->skip_delete_predicate()) {
             _read_sources[i].fill_delete_predicates();
         }
@@ -933,6 +939,11 @@ OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         _limit_per_scanner = _olap_scan_node.sort_limit;
     }
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "limit_per_scanner: " << _limit_per_scanner
+                  << ", sort_limit: " << _olap_scan_node.sort_limit
+                  << ", isset.sort_limit: " << _olap_scan_node.__isset.sort_limit;
+    })
 }
 
 #include "common/compile_check_end.h"

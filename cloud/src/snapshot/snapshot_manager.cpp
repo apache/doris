@@ -56,8 +56,7 @@ void SnapshotManager::list_snapshot(std::string_view instance_id,
     response->mutable_status()->set_msg("Not implemented");
 }
 
-void SnapshotManager::clone_instance(std::string_view instance_id,
-                                     const CloneInstanceRequest& request,
+void SnapshotManager::clone_instance(const CloneInstanceRequest& request,
                                      CloneInstanceResponse* response) {
     response->mutable_status()->set_code(MetaServiceCode::UNDEFINED_ERR);
     response->mutable_status()->set_msg("Not implemented");
@@ -67,9 +66,11 @@ int SnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
     return 0;
 }
 
-int SnapshotManager::recycle_snapshot_meta_and_data(StorageVaultAccessor* accessor,
-                                                    Versionstamp* snapshot_version,
-                                                    const SnapshotPB* snapshot_pb) {
+int SnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id,
+                                                    std::string_view resource_id,
+                                                    StorageVaultAccessor* accessor,
+                                                    Versionstamp snapshot_version,
+                                                    const SnapshotPB& snapshot_pb) {
     return 0;
 }
 

@@ -126,7 +126,6 @@ class TableSchemaChangeHelper {
 public:
     ~TableSchemaChangeHelper() = default;
 
-public:
     class Node {
     public:
         virtual ~Node() = default;
@@ -169,41 +168,45 @@ public:
     class ScalarNode : public Node {};
 
     class StructNode : public Node {
-        using ChildrenType = std::tuple<std::shared_ptr<Node>, std::string, bool>;
+        struct StructChild {
+            const std::shared_ptr<Node> node;
+            const std::string column_name;
+            const bool exists;
+        };
 
         // table column name -> { node, file_column_name, exists_in_file}
-        std::map<std::string, ChildrenType> children;
+        std::map<std::string, StructChild> children;
 
     public:
         std::shared_ptr<Node> get_children_node(
                 const std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
-            return std::get<0>(children.at(table_column_name));
+            return children.at(table_column_name).node;
         }
 
         std::string children_file_column_name(const std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
             DCHECK(children_column_exists(table_column_name));
-            return std::get<1>(children.at(table_column_name));
+            return children.at(table_column_name).column_name;
         }
 
         bool children_column_exists(std::string table_column_name) const override {
             DCHECK(children.contains(table_column_name));
-            return std::get<2>(children.at(table_column_name));
+            return children.at(table_column_name).exists;
         }
 
         void add_not_exist_children(std::string table_column_name) override {
-            children.emplace(table_column_name, std::make_tuple(nullptr, "", false));
+            children.emplace(table_column_name, StructChild {nullptr, "", false});
         }
 
         void add_children(std::string table_column_name, std::string file_column_name,
                           std::shared_ptr<Node> children_node) override {
             children.emplace(table_column_name,
-                             std::make_tuple(children_node, file_column_name, true));
+                             StructChild {children_node, file_column_name, true});
         }
 
-        const std::map<std::string, ChildrenType>& get_childrens() const { return children; }
+        const std::map<std::string, StructChild>& get_children() const { return children; }
     };
 
     class ArrayNode : public Node {
