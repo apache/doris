@@ -522,6 +522,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_json_root(http_req->header(HTTP_JSONROOT));
     }
     // (TODO Refrain)For json load parameters, we need a more elegant way to handle them
+    // If the user does not explicitly specify any parameter, we default the JSON loading
+    // behavior to read_json_by_line. (read_json_by_line = true, strip_outer_array = false)
     bool has_read_json_by_line = !http_req->header(HTTP_READ_JSON_BY_LINE).empty();
     bool has_strip_outer_array = !http_req->header(HTTP_STRIP_OUTER_ARRAY).empty();
     bool read_json_by_line = false;

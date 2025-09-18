@@ -59,6 +59,9 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "", isRemoveOriginProperty);
             jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                     "", isRemoveOriginProperty);
+            // Since the behavior of JSON loading using TVF load will be affected by
+            // FileFormatProperties, we maintain the same parsing behavior here as in
+            // `StreamLoadAction::_process_put`.
             boolean hasReadJsonByLine = formatProperties.containsKey(PROP_READ_JSON_BY_LINE);
             boolean hasStripOuterArray = formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY);
             if (!hasReadJsonByLine && !hasStripOuterArray) {
