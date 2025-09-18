@@ -6469,8 +6469,7 @@ public class Env {
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         TableNameInfo nameInfo = command.getTableNameInfo();
         PartitionNamesInfo partitionNamesInfo = command.getPartitionNamesInfo().orElse(null);
-        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(),
-                partitionNamesInfo == null ? null : partitionNamesInfo.translateToLegacyPartitionNames(),
+        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(), partitionNamesInfo,
                 command.isForceDrop(), command.toSqlWithoutTable());
     }
 
