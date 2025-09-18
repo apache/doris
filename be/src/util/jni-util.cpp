@@ -187,6 +187,9 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
 
 Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix) {
     jthrowable exc = env->ExceptionOccurred();
+    Defer def{
+        [&](){ env->DeleteLocalRef(exc); }
+    };
     if (exc == nullptr) {
         return Status::OK();
     }
@@ -224,7 +227,6 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
         env->ReleaseStringUTFChars(stack, stask_str);
     }
 
-    env->DeleteLocalRef(exc);
     return Status::JniError("{}{}", prefix, return_msg);
 }
 

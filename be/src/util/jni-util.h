@@ -543,7 +543,7 @@ public:
 
     template <RefType R>
     static Status create(JNIEnv* env, const Object<R>& other, Object<Ref>* result) {
-        DCHECK(other._obj != nullptr);
+        DCHECK(!other.uninitialized());
         DCHECK(result->uninitialized());
 
         result->_obj = RefHelper<Ref>::create(env, other._obj);
@@ -906,6 +906,7 @@ template <CallTag tag>
 Status FunctionCall<tag>::call(Object<Global>* result) {
     Object<Local> local_result;
     local_result._obj = CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
+    RETURN_ERROR_IF_EXC(this->_env);
     return local_to_global_ref(_env, local_result, result);
 }
 

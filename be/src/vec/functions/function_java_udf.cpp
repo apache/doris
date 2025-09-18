@@ -57,13 +57,14 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
                 ctor_params.__set_location(local_location);
             }
 
+            RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
+
+
             Jni::LocalArray ctor_params_bytes;
             RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
             RETURN_IF_ERROR(jni_ctx->executor_cl.new_object(env, jni_ctx->executor_ctor_id)
                                     .with_arg(ctor_params_bytes)
                                     .call(&jni_ctx->executor));
-
-            RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
 
             RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
                                                             &jni_ctx->executor_ctor_id));
