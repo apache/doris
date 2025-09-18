@@ -2237,6 +2237,7 @@ private:
 
 void init_exec_env() {
     auto* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->init_mem_tracker();
     std::unique_ptr<doris::ThreadPool> s3_upload_pool;
     static_cast<void>(doris::ThreadPoolBuilder("MicrobenchS3FileUploadThreadPool")
                               .set_min_threads(256)
