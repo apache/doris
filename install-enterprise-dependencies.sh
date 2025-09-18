@@ -5,8 +5,17 @@ TMP_DIR="/tmp/${SELECTDB_JARS}"
 ZIP_PATH="/tmp/${SELECTDB_JARS}.zip"
 
 if [[ ! -f "${ZIP_PATH}" ]] || [[ "$(md5sum ${ZIP_PATH} | awk '{print $1}')" != "0a48f652fc7b16e6ce8439ac6a1abb3b" ]]; then
-    wget -O "${ZIP_PATH}" "https://qa-build.oss-cn-beijing.aliyuncs.com/zero-trust/${SELECTDB_JARS}.zip"
+    wget -q -O "${ZIP_PATH}" "https://qa-build.oss-cn-beijing.aliyuncs.com/zero-trust/${SELECTDB_JARS}.zip"
 fi
+
+if [[ -f custom_env.sh ]]; then
+    source custom_env.sh
+fi
+if [[ "$JAVA_HOME" == "" ]]; then
+    echo "JAVA_HOME not set"
+    exit -1
+fi
+export PATH=$JAVA_HOME/bin:$PATH
 
 rm -rf "${TMP_DIR}"
 unzip -q "${ZIP_PATH}" -d "/tmp"
