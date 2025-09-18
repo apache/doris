@@ -26,9 +26,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
-#include <cctype>
 
-#include "glog/logging.h"
 #include "http/http_handler.h"
 
 namespace doris {
@@ -53,39 +51,9 @@ int HttpRequest::init_from_evhttp() {
     }
     _uri = evhttp_request_get_uri(_ev_req);
     
-    // Helper function to decode URL-encoded UTF-8 strings
-    auto decode_utf8_header = [](const std::string& encoded) -> std::string {
-        std::string decoded;
-        decoded.reserve(encoded.length());
-        
-        for (size_t i = 0; i < encoded.length(); ++i) {
-            if (encoded[i] == '%' && i + 2 < encoded.length()) {
-                // Check if next two characters are hex digits
-                char c1 = encoded[i + 1];
-                char c2 = encoded[i + 2];
-                if (std::isxdigit(c1) && std::isxdigit(c2)) {
-                    // Convert hex to char
-                    int val = (std::isdigit(c1) ? c1 - '0' : std::tolower(c1) - 'a' + 10) * 16 +
-                              (std::isdigit(c2) ? c2 - '0' : std::tolower(c2) - 'a' + 10);
-                    decoded += static_cast<char>(val);
-                    i += 2; // Skip the two hex digits
-                } else {
-                    decoded += encoded[i];
-                }
-            } else {
-                decoded += encoded[i];
-            }
-        }
-        return decoded;
-    };
-    
     // conver header
     auto headers = evhttp_request_get_input_headers(_ev_req);
     for (auto header = headers->tqh_first; header != nullptr; header = header->next.tqe_next) {
-        std::string decoded_value = decode_utf8_header(header->value);
-        if (header->key == std::string("columns")) {
-            LOG(INFO) << "HTTP header 'columns' - original: [" << header->value << "], decoded: [" << decoded_value << "]";
-        }
         _headers.emplace(header->key, decoded_value);
     }
     // parse

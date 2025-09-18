@@ -443,8 +443,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->data_saved_path = request.path;
     }
     if (!http_req->header(HTTP_COLUMNS).empty()) {
-        const std::string& columns_header = http_req->header(HTTP_COLUMNS);
-        LOG(INFO) << "StreamLoad columns header received: [" << columns_header << "]";
         request.__set_columns(columns_header);
     }
     if (!http_req->header(HTTP_WHERE).empty()) {
@@ -756,24 +754,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
-    
-    // Log the request being sent to FE
-    LOG(INFO) << "StreamLoad request to FE - columns: [" << request.columns << "]";
-    LOG(INFO) << "StreamLoad request to FE - table: " << request.table_names;
-    LOG(INFO) << "StreamLoad request to FE - db: " << request.db;
-    
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
-    
-    // Log the response from FE
-    LOG(INFO) << "StreamLoad response from FE - status: " << ctx->put_result.status.status_code;
-    if (!ctx->put_result.status.error_msgs.empty()) {
-        LOG(INFO) << "StreamLoad response from FE - error messages: " << ctx->put_result.status.error_msgs[0];
-    }
 #else
     ctx->put_result = k_stream_load_put_result;
 #endif
