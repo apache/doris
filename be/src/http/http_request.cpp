@@ -54,7 +54,7 @@ int HttpRequest::init_from_evhttp() {
     // conver header
     auto headers = evhttp_request_get_input_headers(_ev_req);
     for (auto header = headers->tqh_first; header != nullptr; header = header->next.tqe_next) {
-        _headers.emplace(header->key, decoded_value);
+        _headers.emplace(header->key, header->value);
     }
     // parse
     auto ev_uri = evhttp_request_get_evhttp_uri(_ev_req);
