@@ -99,6 +99,7 @@ CloudStorageEngine::CloudStorageEngine(const EngineOptions& options)
             std::make_shared<CloudSizeBasedCumulativeCompactionPolicy>();
     _cumulative_compaction_policies[CUMULATIVE_TIME_SERIES_POLICY] =
             std::make_shared<CloudTimeSeriesCumulativeCompactionPolicy>();
+    _startup_timepoint = std::chrono::system_clock::now();
 }
 
 CloudStorageEngine::~CloudStorageEngine() {
