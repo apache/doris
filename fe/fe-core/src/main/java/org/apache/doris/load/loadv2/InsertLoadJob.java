@@ -54,7 +54,7 @@ public class InsertLoadJob extends LoadJob {
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-            long createTimestamp, String failMsg, String trackingUrl,
+            long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
             UserIdentity userInfo) throws MetaNotFoundException {
         super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
@@ -72,11 +72,12 @@ public class InsertLoadJob extends LoadJob {
         }
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
         this.userInfo = userInfo;
     }
 
     public InsertLoadJob(String label, long transactionId, long dbId, long tableId,
-                         long createTimestamp, String failMsg, String trackingUrl,
+                         long createTimestamp, String failMsg, String trackingUrl, String firstErrorMsg,
                          UserIdentity userInfo, Long jobId) throws MetaNotFoundException {
         super(EtlJobType.INSERT_JOB, dbId, label, jobId);
         this.tableId = tableId;
@@ -94,6 +95,7 @@ public class InsertLoadJob extends LoadJob {
         }
         this.authorizationInfo = gatherAuthInfo();
         this.loadingStatus.setTrackingUrl(trackingUrl);
+        this.loadingStatus.setFirstErrorMsg(firstErrorMsg);
         this.userInfo = userInfo;
     }
 

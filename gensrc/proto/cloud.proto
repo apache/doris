@@ -768,6 +768,8 @@ enum SnapshotStatus {
     SNAPSHOT_NORMAL = 1;
     // This snapshot was aborted due to an error.
     SNAPSHOT_ABORTED = 2;
+    // This snapshot was recycled.
+    SNAPSHOT_RECYCLED = 3;
 }
 
 // A cluster snapshot.

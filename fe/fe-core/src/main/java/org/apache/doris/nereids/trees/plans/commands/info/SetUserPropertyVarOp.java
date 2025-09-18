@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
  * SetUserPropertyVarOp
  */
 public class SetUserPropertyVarOp {
+    public static final String DOT_SEPARATOR = ".";
+
     private final String user;
     private final String key;
     private final String value;

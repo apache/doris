@@ -251,6 +251,13 @@ public:
                                std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
     TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
 
+    // Whether the snapshot has references.
+    TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
+                                         bool snapshot = false);
+    TxnErrorCode has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                         bool* has_references, bool snapshot = false);
+
+    // Whether the table has no indexes.
     TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
     TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,

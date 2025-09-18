@@ -307,7 +307,8 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 if (num_selected_rows > 0 &&
                     (double)state->num_rows_load_filtered() / (double)num_selected_rows >
                             _max_filter_ratio) {
-                    return Status::DataQualityError("too many filtered rows");
+                    return Status::DataQualityError("too many filtered rows, {}",
+                                                    state->get_first_error_msg());
                 }
                 RETURN_IF_ERROR(local_state._add_blocks(state, true));
             }

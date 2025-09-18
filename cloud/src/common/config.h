@@ -361,4 +361,8 @@ CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 CONF_Bool(enable_logging_for_single_version_reading, "false");
 CONF_mBool(enable_logging_conflict_keys, "false");
 
+// The time after which an aborted snapshot can be recycled, in seconds.
+// Default is 1 hour (3600 seconds).
+CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
+
 } // namespace doris::cloud::config

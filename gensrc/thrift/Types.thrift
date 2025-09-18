@@ -685,13 +685,6 @@ struct TResourceInfo {
     2: required string group
 }
 
-enum TExportState {
-    RUNNING = 0,
-    FINISHED = 1,
-    CANCELLED = 2,
-    UNKNOWN = 3
-}
-
 enum TFileType {
     FILE_LOCAL = 0,
     FILE_BROKER = 1,

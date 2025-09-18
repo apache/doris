@@ -470,6 +470,9 @@ set(DORIS_CLOUD_LIBS
 
 if (EXISTS ${SRC_DIR}/enterprise/CMakeLists.txt)
     add_subdirectory(${SRC_DIR}/enterprise)
+    if (DORIS_ADDITIONAL_DEFINITIONS)
+        add_definitions(${DORIS_ADDITIONAL_DEFINITIONS})
+    endif()
 endif()
 
 add_subdirectory(${SRC_DIR}/common)

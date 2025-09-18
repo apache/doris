@@ -137,7 +137,29 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
         test_col_topn("p1_col")
         test_col_topn("p2_col")
     }
+    def test_topn_abs = {
+        def test_col_topn = { String col -> 
+            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col asc limit 10; """
+            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col desc limit 10; """
+        }
 
+        test_col_topn("tinyint_col")
+        test_col_topn("smallint_col")
+        test_col_topn("int_col")
+        test_col_topn("bigint_col")
+        test_col_topn("boolean_col")
+        test_col_topn("float_col")
+        test_col_topn("double_col")
+        test_col_topn("string_col")
+        test_col_topn("binary_col")
+        test_col_topn("timestamp_col")
+        test_col_topn("decimal_col")
+        test_col_topn("char_col")
+        test_col_topn("varchar_col")
+        test_col_topn("date_col")
+        test_col_topn("p1_col")
+        test_col_topn("p2_col")
+    }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -168,6 +190,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             string_col_dict_plain_mixed()
             predicate_pushdown()    
             test_topn()
+            test_topn_abs()
             
             sql """drop catalog if exists ${catalog_name}"""
 

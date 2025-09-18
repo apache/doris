@@ -22,8 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
@@ -970,12 +968,6 @@ public class StmtExecutor {
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
                 forward.afterForwardToMaster(context);
-            }
-        } else if (parsedStmt instanceof SetStmt) {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            setStmt.modifySetVarsForExecute();
-            for (SetVar var : setStmt.getSetVars()) {
-                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
             }
         }
     }

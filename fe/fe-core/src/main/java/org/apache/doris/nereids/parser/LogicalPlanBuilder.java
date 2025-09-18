@@ -2041,7 +2041,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     compressType,
                     srcTable,
                     mutableColumnsFromPath,
-                    false,
+                    ddc.negative == null ? false : true,
                     colMappings,
                     ddc.preFilter == null ? null : getExpression(ddc.preFilter.expression()),
                     ddc.where == null ? null : getExpression(ddc.where.booleanExpression()),
