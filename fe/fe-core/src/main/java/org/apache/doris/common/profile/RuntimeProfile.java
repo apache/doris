@@ -414,8 +414,6 @@ public class RuntimeProfile {
         // Cycle Reference Detection
         if (visitedProfiles.contains(this)) {
             LOG.warn(prefix, "[Circular Reference Detected] profile prefix:", prefix, " , profile name:", name);
-            builder.append("\n[Circular Reference Detected] profile prefix:").append(prefix).append(", profile name:")
-                .append(name);
             return;
         }
         visitedProfiles.add(this);
@@ -424,10 +422,7 @@ public class RuntimeProfile {
         // Out Of Memory Detection
         long appendSize = (long) builder.length() + prefix.length() + name.length();
         if (appendSize >= MAX_BUILDER_CAPACITY) {
-            LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                " ,size limit:", MAX_BUILDER_CAPACITY);
-            builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+            LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
             return;
         }
         builder.append(prefix).append(name).append(":");
@@ -447,10 +442,7 @@ public class RuntimeProfile {
                     // Out Of Memory Detection
                     appendSize = (long) builder.length() + repeatNum * 2;
                     if (appendSize >= MAX_BUILDER_CAPACITY) {
-                        LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                            " ,size limit:", MAX_BUILDER_CAPACITY);
-                        builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                            .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                        LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
                         return;
                     }
                     for (int i = 0; i < repeatNum; i++) {
@@ -461,10 +453,7 @@ public class RuntimeProfile {
                 // Out Of Memory Detection
                 appendSize = (long) builder.length() + key.length() + infoString.length();
                 if (appendSize >= MAX_BUILDER_CAPACITY) {
-                    LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                        " ,size limit:", MAX_BUILDER_CAPACITY);
-                    builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                        .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                    LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
                     return;
                 }
                 builder.append("   - ").append(key).append(": ")
@@ -502,10 +491,7 @@ public class RuntimeProfile {
         // Out Of Memory Detection
         long appendSize = (long) builder.length() + prefix.length();
         if (appendSize >= MAX_BUILDER_CAPACITY) {
-            LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                " ,size limit:", MAX_BUILDER_CAPACITY);
-            builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+            LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
             return;
         }
         builder.append(prefix).append("- ").append("PlanInfo\n");
@@ -514,10 +500,7 @@ public class RuntimeProfile {
             // Out Of Memory Detection
             appendSize = (long) builder.length() + prefix.length() + info.length();
             if (appendSize >= MAX_BUILDER_CAPACITY) {
-                LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                    " ,size limit:", MAX_BUILDER_CAPACITY);
-                builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                    .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
                 return;
             }
             builder.append(prefix).append("   - ").append(info).append("\n");
@@ -648,8 +631,6 @@ public class RuntimeProfile {
         // Cycle Reference Detection
         if (visitedCounters.contains(counterName)) {
             LOG.warn(prefix, "[Circular Reference Detected] counter prefix:", prefix, " , counter name:", name);
-            builder.append("\n[Circular Reference Detected] profile prefix:").append(prefix).append(", profile name:")
-                .append(name);
             return;
         }
         visitedCounters.add(counterName);
@@ -668,10 +649,7 @@ public class RuntimeProfile {
                     long appendSize = (long) builder.length() + prefix.length() + childCounterName.length() +
                         counter.print().length();
                     if (appendSize >= MAX_BUILDER_CAPACITY) {
-                        LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
-                            " ,size limit:", MAX_BUILDER_CAPACITY);
-                        builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
-                            .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                        LOG.warn("[StringBuilder truncated] append size: {}, limit: {}", appendSize, MAX_BUILDER_CAPACITY);
                         return;
                     }
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")

@@ -203,11 +203,12 @@ public class RuntimeProfileTest {
 
     @Test
     public void testStringBuilderExceedLimit() throws IOException {
-        RuntimeProfile.MAX_BUILDER_CAPACITY = 1048576;
+        final int MAX_BUILDER_LENGTH = 33554432;
+        RuntimeProfile.MAX_BUILDER_CAPACITY = MAX_BUILDER_LENGTH - 65536;
         RuntimeProfile profile = new RuntimeProfile("Node0");
         TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
-        int profileDepth = 8;
-        int counterDepth = 3;
+        int profileDepth = 10;
+        int counterDepth = 5;
 
         int totalNodes = (1 << profileDepth) - 1;
         int totalNonLeafNodes = (1 << (profileDepth - 1)) - 1;
@@ -285,7 +286,8 @@ public class RuntimeProfileTest {
         profile.computeTimeInProfile();
         profile.prettyPrint(builder, "");
 
-        LOG.info("profile:\n{}", builder.toString());
+        LOG.info("build.length():{}, MAX_BUILDER_LENGTH:{}", builder.length(), MAX_BUILDER_LENGTH);
+        Assert.assertTrue(builder.length() <= MAX_BUILDER_LENGTH);
 
         RuntimeProfile.MAX_BUILDER_CAPACITY = Integer.MAX_VALUE - 65536;
     }
