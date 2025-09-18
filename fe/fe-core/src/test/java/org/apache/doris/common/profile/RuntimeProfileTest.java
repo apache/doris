@@ -31,9 +31,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Set;
+import java.util.*;
 
 public class RuntimeProfileTest {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfileTest.class);
@@ -183,5 +181,112 @@ public class RuntimeProfileTest {
         profile.prettyPrint(builder, "");
 
         LOG.info("testUpdate profile:\n{}", builder.toString());
+    }
+
+    private void preorderTraversal(TRuntimeProfileNode[] nodes, int index, TRuntimeProfileTree tprofileTree) {
+        if (index >= nodes.length || nodes[index] == null) {
+            return;
+        }
+
+        tprofileTree.addToNodes(nodes[index]);
+
+        int leftChild = 2 * index + 1;
+        if (leftChild < nodes.length) {
+            preorderTraversal(nodes, leftChild, tprofileTree);
+        }
+
+        int rightChild = 2 * index + 2;
+        if (rightChild < nodes.length) {
+            preorderTraversal(nodes, rightChild, tprofileTree);
+        }
+    }
+
+    @Test
+    public void testStringBuilderExceedLimit() throws IOException {
+        RuntimeProfile.MAX_BUILDER_CAPACITY = 1048576;
+        RuntimeProfile profile = new RuntimeProfile("Node0");
+        TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
+        int profileDepth = 8;
+        int counterDepth = 3;
+
+        int totalNodes = (1 << profileDepth) - 1;
+        int totalNonLeafNodes = (1 << (profileDepth - 1)) - 1;
+        TRuntimeProfileNode[] tnodes = new TRuntimeProfileNode[totalNodes];
+
+        for (int i = 0; i < totalNodes; i++) {
+            tnodes[i] = new TRuntimeProfileNode();
+            tnodes[i].counters = Lists.newArrayList();
+            tnodes[i].info_strings = new HashMap<>();
+            tnodes[i].info_strings_display_order = new ArrayList<>();
+            tnodes[i].indent = true;
+            tnodes[i].name = "Node" + i;
+            tnodes[i].info_strings.put("key" + i, "value");
+            tnodes[i].info_strings_display_order.add("key" + i);
+
+            Queue<String> queue = new LinkedList<>();
+            tnodes[i].child_counters_map = Maps.newHashMap();
+            String counterNameA = "Counter" + i + "A";
+            String counterNameB = "Counter" + i + "B";
+            String counterNameC = "Counter" + i + "C";
+            String counterNameD = "Counter" + i + "D";
+            tnodes[i].counters.add(new TCounter(counterNameA, TUnit.UNIT, 1000000L));
+            tnodes[i].counters.add(new TCounter(counterNameB, TUnit.UNIT, 1000000L));
+            tnodes[i].counters.add(new TCounter(counterNameC, TUnit.UNIT, 1000000L));
+            tnodes[i].counters.add(new TCounter(counterNameD, TUnit.UNIT, 1000000L));
+            Set<String> set1 = Sets.newHashSet();
+            set1.add(counterNameA);
+            set1.add(counterNameB);
+            set1.add(counterNameC);
+            set1.add(counterNameD);
+            tnodes[i].child_counters_map.put("", set1);
+            queue.add(counterNameA);
+            queue.add(counterNameB);
+            queue.add(counterNameC);
+            queue.add(counterNameD);
+
+            for (int j = 1; j < counterDepth; j++) {
+                Queue<String> newQueue = new LinkedList<>();
+                while (!queue.isEmpty()) {
+                    String counterName = queue.poll();
+                    String counterNameSonA = counterName + "SonA";
+                    String counterNameSonB = counterName + "SonB";
+                    String counterNameSonC = counterName + "SonC";
+                    String counterNameSonD = counterName + "SonD";
+                    tnodes[i].counters.add(new TCounter(counterNameSonA, TUnit.UNIT, 1000000L));
+                    tnodes[i].counters.add(new TCounter(counterNameSonB, TUnit.UNIT, 1000000L));
+                    tnodes[i].counters.add(new TCounter(counterNameSonC, TUnit.UNIT, 1000000L));
+                    tnodes[i].counters.add(new TCounter(counterNameSonD, TUnit.UNIT, 1000000L));
+                    Set<String> set2 = Sets.newHashSet();
+                    set2.add(counterNameSonA);
+                    set2.add(counterNameSonB);
+                    set2.add(counterNameSonC);
+                    set2.add(counterNameSonD);
+                    tnodes[i].child_counters_map.put(counterName, set2);
+                    newQueue.add(counterNameSonA);
+                    newQueue.add(counterNameSonB);
+                    newQueue.add(counterNameSonC);
+                    newQueue.add(counterNameSonD);
+                }
+                queue = newQueue;
+            }
+        }
+
+        for (int i = 0; i < totalNonLeafNodes; i++) {
+            tnodes[i].num_children = 2;
+        }
+        for (int i = totalNonLeafNodes; i < totalNodes; i++) {
+            tnodes[i].num_children = 0;
+        }
+
+        preorderTraversal(tnodes, 0, tprofileTree);
+
+        profile.update(tprofileTree);
+        StringBuilder builder = new StringBuilder();
+        profile.computeTimeInProfile();
+        profile.prettyPrint(builder, "");
+
+        LOG.info("profile:\n{}", builder.toString());
+
+        RuntimeProfile.MAX_BUILDER_CAPACITY = Integer.MAX_VALUE - 65536;
     }
 }

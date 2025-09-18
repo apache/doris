@@ -52,6 +52,7 @@ import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.HashSet;
 
 /**
  * It is accessed by two kinds of thread, one is to create this RuntimeProfile
@@ -80,6 +81,7 @@ public class RuntimeProfile {
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";
     public static String SUM_TIME_PRE = "sum ";
+    public static int MAX_BUILDER_CAPACITY = Integer.MAX_VALUE - 65536;
     @SerializedName(value = "counterTotalTime")
     private Counter counterTotalTime;
     @SerializedName(value = "localTimePercent")
@@ -205,7 +207,6 @@ public class RuntimeProfile {
     public Map<String, TreeSet<String>> getChildCounterMap() {
         return childCounterMap;
     }
-
 
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
@@ -400,13 +401,35 @@ public class RuntimeProfile {
         return brief;
     }
 
+    public void prettyPrint(StringBuilder builder, String prefix) {
+        prettyPrint(builder, prefix, new HashSet<>());
+    }
+
     // Print the profile:
     // 1. Profile Name
     // 2. Info Strings
     // 3. Counters
     // 4. Children
-    public void prettyPrint(StringBuilder builder, String prefix) {
+    public void prettyPrint(StringBuilder builder, String prefix, Set<RuntimeProfile> visitedProfiles) {
+        // Cycle Reference Detection
+        if (visitedProfiles.contains(this)) {
+            LOG.warn(prefix, "[Circular Reference Detected] profile prefix:", prefix, " , profile name:", name);
+            builder.append("\n[Circular Reference Detected] profile prefix:").append(prefix).append(", profile name:")
+                .append(name);
+            return;
+        }
+        visitedProfiles.add(this);
+
         // 1. profile name
+        // Out Of Memory Detection
+        long appendSize = (long) builder.length() + prefix.length() + name.length();
+        if (appendSize >= MAX_BUILDER_CAPACITY) {
+            LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                " ,size limit:", MAX_BUILDER_CAPACITY);
+            builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+            return;
+        }
         builder.append(prefix).append(name).append(":");
 
         builder.append("\n");
@@ -420,9 +443,29 @@ public class RuntimeProfile {
             for (String key : this.infoStringsDisplayOrder) {
                 builder.append(prefix);
                 if (SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.containsKey(key)) {
-                    for (int i = 0; i < SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key); i++) {
+                    int repeatNum = Math.max(SummaryProfile.EXECUTION_SUMMARY_KEYS_INDENTATION.get(key), 0);
+                    // Out Of Memory Detection
+                    appendSize = (long) builder.length() + repeatNum * 2;
+                    if (appendSize >= MAX_BUILDER_CAPACITY) {
+                        LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                            " ,size limit:", MAX_BUILDER_CAPACITY);
+                        builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                            .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                        return;
+                    }
+                    for (int i = 0; i < repeatNum; i++) {
                         builder.append("  ");
                     }
+                }
+                String infoString = this.infoStrings.get(key);
+                // Out Of Memory Detection
+                appendSize = (long) builder.length() + key.length() + infoString.length();
+                if (appendSize >= MAX_BUILDER_CAPACITY) {
+                    LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                        " ,size limit:", MAX_BUILDER_CAPACITY);
+                    builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                        .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                    return;
                 }
                 builder.append("   - ").append(key).append(": ")
                         .append(this.infoStrings.get(key)).append("\n");
@@ -438,7 +481,6 @@ public class RuntimeProfile {
             builder.append("print child counters error: ").append(e.getMessage());
         }
 
-
         // 4. children
         childLock.readLock().lock();
         try {
@@ -446,7 +488,7 @@ public class RuntimeProfile {
                 Pair<RuntimeProfile, Boolean> pair = childList.get(i);
                 boolean indent = pair.second;
                 RuntimeProfile profile = pair.first;
-                profile.prettyPrint(builder, prefix + (indent ? "  " : ""));
+                profile.prettyPrint(builder, prefix + (indent ? "  " : ""), visitedProfiles);
             }
         } finally {
             childLock.readLock().unlock();
@@ -457,9 +499,27 @@ public class RuntimeProfile {
         if (planNodeInfos.isEmpty()) {
             return;
         }
+        // Out Of Memory Detection
+        long appendSize = (long) builder.length() + prefix.length();
+        if (appendSize >= MAX_BUILDER_CAPACITY) {
+            LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                " ,size limit:", MAX_BUILDER_CAPACITY);
+            builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+            return;
+        }
         builder.append(prefix).append("- ").append("PlanInfo\n");
 
         for (String info : planNodeInfos) {
+            // Out Of Memory Detection
+            appendSize = (long) builder.length() + prefix.length() + info.length();
+            if (appendSize >= MAX_BUILDER_CAPACITY) {
+                LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                    " ,size limit:", MAX_BUILDER_CAPACITY);
+                builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                    .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                return;
+            }
             builder.append(prefix).append("   - ").append(info).append("\n");
         }
     }
@@ -581,6 +641,19 @@ public class RuntimeProfile {
     }
 
     private void printChildCounters(String prefix, String counterName, StringBuilder builder) {
+        printChildCounters(prefix, counterName, builder, new HashSet<>());
+    }
+
+    private void printChildCounters(String prefix, String counterName, StringBuilder builder, Set<String> visitedCounters) {
+        // Cycle Reference Detection
+        if (visitedCounters.contains(counterName)) {
+            LOG.warn(prefix, "[Circular Reference Detected] counter prefix:", prefix, " , counter name:", name);
+            builder.append("\n[Circular Reference Detected] profile prefix:").append(prefix).append(", profile name:")
+                .append(name);
+            return;
+        }
+        visitedCounters.add(counterName);
+
         Set<String> childCounterSet = childCounterMap.get(counterName);
         if (childCounterSet == null) {
             return;
@@ -591,9 +664,19 @@ public class RuntimeProfile {
             for (String childCounterName : childCounterSet) {
                 Counter counter = this.counterMap.get(childCounterName);
                 if (counter != null) {
+                    // Out Of Memory Detection
+                    long appendSize = (long) builder.length() + prefix.length() + childCounterName.length() +
+                        counter.print().length();
+                    if (appendSize >= MAX_BUILDER_CAPACITY) {
+                        LOG.warn("[StringBuilder truncated due to size limit] append size:", appendSize,
+                            " ,size limit:", MAX_BUILDER_CAPACITY);
+                        builder.append("\n[StringBuilder truncated due to size limit] append size:").append(appendSize)
+                            .append(", size limit:").append(MAX_BUILDER_CAPACITY);
+                        return;
+                    }
                     builder.append(prefix).append("   - ").append(childCounterName).append(": ")
-                            .append(counter.print()).append("\n");
-                    this.printChildCounters(prefix + "  ", childCounterName, builder);
+                        .append(counter.print()).append("\n");
+                    this.printChildCounters(prefix + "  ", childCounterName, builder, visitedCounters);
                 } else {
                     throw new RuntimeException("Child counter " + childCounterName + " of " + counterName
                             + " not found in profile");
