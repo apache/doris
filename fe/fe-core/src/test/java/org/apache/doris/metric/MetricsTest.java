@@ -235,7 +235,7 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_num gauge"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_added counter"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_hit counter"));
-        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_not_hit counter"));
+        Assert.assertTrue(metricResult.contains("# TYPE doris_fe_sql_cache_total_search_times counter"));
     }
 
     @Test

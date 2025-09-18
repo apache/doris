@@ -435,9 +435,8 @@ public abstract class ConnectProcessor {
             if (MetricRepo.isInit) {
                 if (sqlCachePlanOpt.isPresent()) {
                     MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
-                } else {
-                    MetricRepo.COUNTER_SQL_CACHE_NOT_HIT.increase(1L);
                 }
+                MetricRepo.COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES.increase(1L);
             }
             if (sqlCachePlanOpt.isPresent()) {
                 LogicalSqlCache logicalSqlCache = sqlCachePlanOpt.get();

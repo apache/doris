@@ -107,7 +107,7 @@ public final class MetricRepo {
     public static GaugeMetric<Long> GAUGE_SQL_CACHE_NUM;
     public static LongCounterMetric COUNTER_SQL_CACHE_ADDED;
     public static LongCounterMetric COUNTER_SQL_CACHE_HIT;
-    public static LongCounterMetric COUNTER_SQL_CACHE_NOT_HIT;
+    public static LongCounterMetric COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES;
 
     public static LongCounterMetric COUNTER_UPDATE_TABLET_STAT_FAILED;
 
@@ -486,9 +486,10 @@ public final class MetricRepo {
                 "total hits query by sql cache");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_HIT);
 
-        COUNTER_SQL_CACHE_NOT_HIT = new LongCounterMetric("sql_cache_not_hit", MetricUnit.REQUESTS,
-                "total not hits query by sql cache");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_CACHE_NOT_HIT);
+        COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES = new LongCounterMetric("sql_cache_total_search_times",
+                MetricUnit.REQUESTS,
+                "sql cache total search times");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES);
 
         // edit log
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log", MetricUnit.OPERATIONS,
