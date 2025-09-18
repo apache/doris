@@ -479,6 +479,9 @@ public class SessionVariable implements Serializable, Writable {
     // Split size for ExternalFileScanNode. Default value 0 means use the block size of HDFS/S3.
     public static final String FILE_SPLIT_SIZE = "file_split_size";
 
+    // Maximum number of splits when querying external tables.
+    public static final String MAX_EXTERNAL_SPLIT_NUM = "max_external_split_num";
+
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
     public static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
@@ -2014,6 +2017,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = FILE_SPLIT_SIZE, needForward = true)
     public long fileSplitSize = 0;
+
+    @VariableMgr.VarAttr(name = MAX_EXTERNAL_SPLIT_NUM, needForward = true,
+            description = {"限制查询外部表时的最大split数量，用于控制资源使用和防止过度并行。",
+                    "Limit the maximum number of splits when querying external tables, "
+                            + "used to control resource usage and prevent excessive parallelism."})
+    public int maxExternalSplitNum = 10000;
 
     @VariableMgr.VarAttr(
             name = NUM_PARTITIONS_IN_BATCH_MODE,
@@ -3867,6 +3876,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFileSplitSize(long fileSplitSize) {
         this.fileSplitSize = fileSplitSize;
+    }
+
+    public int getMaxExternalSplitNum() {
+        return maxExternalSplitNum;
+    }
+
+    public void setMaxExternalSplitNum(int maxExternalSplitNum) {
+        this.maxExternalSplitNum = maxExternalSplitNum;
     }
 
     public int getNumPartitionsInBatchMode() {

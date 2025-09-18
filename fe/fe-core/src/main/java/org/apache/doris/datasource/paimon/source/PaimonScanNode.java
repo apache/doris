@@ -286,7 +286,24 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+        long realFileSplitSize = applyCountPushdown ? Long.MAX_VALUE : getRealFileSplitSize(0);
+
+        long max_external_split_num = sessionVariable.getMaxExternalSplitNum();
+        long total_raw_file_size = dataSplits.stream()
+                .mapToLong(split -> split.rawConvertible()
+                        ? split.convertToRawFiles().get().stream().mapToLong(RawFile::fileSize).sum()
+                        : 0)
+                .sum();
+        if (total_raw_file_size > 0 && realFileSplitSize > 0) {
+            long estimated_split_num = total_raw_file_size / realFileSplitSize;
+            if (estimated_split_num > max_external_split_num) {
+                realFileSplitSize = total_raw_file_size / max_external_split_num;
+                LOG.info("The estimated split num is {} which exceeds the limit {}, "
+                                + "so we adjust the file split size to {}",
+                        estimated_split_num, max_external_split_num, realFileSplitSize);
+            }
+        }
+
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -376,7 +393,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        for (Split split : splits) {
+            split.setTargetSplitSize(realFileSplitSize);
+        }
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
