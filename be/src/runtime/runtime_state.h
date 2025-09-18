@@ -502,7 +502,7 @@ public:
         _runtime_filter_mgr = runtime_filter_mgr;
     }
 
-    QueryContext* get_query_ctx() { return _query_ctx; }
+    QueryContext* get_query_ctx() const { return _query_ctx; }
 
     [[nodiscard]] bool low_memory_mode() const;
 
@@ -517,6 +517,12 @@ public:
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
+    }
+
+    int cte_max_recursion_depth() const {
+        return _query_options.__isset.cte_max_recursion_depth
+                       ? _query_options.cte_max_recursion_depth
+                       : 0;
     }
 
     int rpc_verbose_profile_max_instance_count() const {
@@ -701,6 +707,17 @@ public:
                                       _query_options.hnsw_bounded_queue);
     }
 
+    void reset_to_rerun();
+
+    void set_force_make_rf_wait_infinite() {
+        _query_options.__set_runtime_filter_wait_infinitely(true);
+    }
+
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
 private:
     Status create_error_log_file();
 
@@ -830,6 +847,9 @@ private:
 
     // used for encoding the global lazy materialize
     std::shared_ptr<IdFileMap> _id_file_map = nullptr;
+
+    // rec cte require child rf to wait infinitely to make sure all rpc done
+    bool _force_make_rf_wait_infinite = false;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

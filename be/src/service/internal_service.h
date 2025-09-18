@@ -140,6 +140,19 @@ public:
                         const ::doris::PPublishFilterRequestV2* request,
                         ::doris::PPublishFilterResponse* response,
                         ::google::protobuf::Closure* done) override;
+    void transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                const PTransmitRecCTEBlockParams* request,
+                                PTransmitRecCTEBlockResult* response,
+                                google::protobuf::Closure* done) override;
+    void reset_fragment(google::protobuf::RpcController* controller,
+                        const PResetFragmentParams* request, PResetFragmentResult* response,
+                        google::protobuf::Closure* done) override;
+    void rerun_fragment(google::protobuf::RpcController* controller,
+                        const PRerunFragmentParams* request, PRerunFragmentResult* response,
+                        google::protobuf::Closure* done) override;
+    void reset_global_rf(google::protobuf::RpcController* controller,
+                         const PResetGlobalRfParams* request, PResetGlobalRfResult* response,
+                         google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,

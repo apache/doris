@@ -710,6 +710,7 @@ struct TRecCTENode {
     2: optional list<TRecCTETarget> targets
     3: optional list<TRecCTEResetInfo> fragments_to_reset
     4: optional list<list<Exprs.TExpr>> result_expr_lists
+    5: optional list<i32> rec_side_runtime_filter_ids
 }
 
 struct TRecCTEScanNode {

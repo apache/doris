@@ -410,6 +410,7 @@ struct TQueryOptions {
 
   175: optional bool enable_fuzzy_blockable_task = false;
   176: optional list<i32> shuffled_agg_ids;
+  177: optional i32 cte_max_recursion_depth;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
