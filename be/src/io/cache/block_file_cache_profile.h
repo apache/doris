@@ -38,44 +38,34 @@ struct AtomicStatistics {
     std::atomic<int64_t> num_io_bytes_read_from_cache = 0;
     std::atomic<int64_t> num_io_bytes_read_from_remote = 0;
 };
-
-struct FileCacheProfile;
-
-struct FileCacheMetric {
-    FileCacheMetric(FileCacheProfile* profile) : profile(profile) {}
-
-    void register_entity();
-    void update_table_metrics() const;
-
-    FileCacheMetric& operator=(const FileCacheMetric&) = delete;
-    FileCacheMetric(const FileCacheMetric&) = delete;
-    FileCacheProfile* profile = nullptr;
-};
-
-struct FileCacheProfile {
-    static FileCacheProfile& instance() {
-        static FileCacheProfile s_profile;
-        return s_profile;
+class FileCacheMetrics {
+public:
+    static FileCacheMetrics& instance() {
+        static FileCacheMetrics s_metrics;
+        return s_metrics;
     }
 
-    FileCacheProfile() {
+    FileCacheMetrics() {
         FileCacheStatistics stats;
         update(&stats);
     }
 
     void update(FileCacheStatistics* stats);
 
+private:
+    std::shared_ptr<AtomicStatistics> report();
+    void register_entity();
+    void update_metrics_callback();
+
+private:
     std::mutex _mtx;
     // use shared_ptr for concurrent
-    std::shared_ptr<AtomicStatistics> _profile;
-    std::shared_ptr<FileCacheMetric> _file_cache_metric;
-    std::shared_ptr<AtomicStatistics> report();
+    std::shared_ptr<AtomicStatistics> _statistics;
 };
 
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
-    RuntimeProfile::Counter* num_inverted_index_remote_io_total = nullptr;
     RuntimeProfile::Counter* local_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
@@ -89,54 +79,16 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* get_timer = nullptr;
     RuntimeProfile::Counter* set_timer = nullptr;
 
-    FileCacheProfileReporter(RuntimeProfile* profile) {
-        static const char* cache_profile = "FileCache";
-        ADD_TIMER_WITH_LEVEL(profile, cache_profile, 1);
-        num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT,
-                                                          cache_profile, 1);
-        num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
-                                                           cache_profile, 1);
-        num_inverted_index_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
-                profile, "NumInvertedIndexRemoteIOTotal", TUnit::UNIT, cache_profile, 1);
-        local_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LocalIOUseTimer", cache_profile, 1);
-        remote_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "RemoteIOUseTimer", cache_profile, 1);
-        write_cache_io_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(profile, "WriteCacheIOUseTimer", cache_profile, 1);
-        bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesWriteIntoCache",
-                                                              TUnit::BYTES, cache_profile, 1);
-        num_skip_cache_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumSkipCacheIOTotal",
-                                                               TUnit::UNIT, cache_profile, 1);
-        bytes_scanned_from_cache = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromCache",
-                                                                TUnit::BYTES, cache_profile, 1);
-        bytes_scanned_from_remote = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BytesScannedFromRemote",
-                                                                 TUnit::BYTES, cache_profile, 1);
-        read_cache_file_directly_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(profile, "ReadCacheFileDirectlyTimer", cache_profile, 1);
-        cache_get_or_set_timer =
-                ADD_CHILD_TIMER_WITH_LEVEL(profile, "CacheGetOrSetTimer", cache_profile, 1);
-        lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
-        get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
-        set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
-    }
+    RuntimeProfile::Counter* inverted_index_num_local_io_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_num_remote_io_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_scanned_from_cache = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
+    RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
+    RuntimeProfile::Counter* inverted_index_io_timer = nullptr;
 
-    void update(const FileCacheStatistics* statistics) const {
-        COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
-        COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
-        COUNTER_UPDATE(num_inverted_index_remote_io_total,
-                       statistics->num_inverted_index_remote_io_total);
-        COUNTER_UPDATE(local_io_timer, statistics->local_io_timer);
-        COUNTER_UPDATE(remote_io_timer, statistics->remote_io_timer);
-        COUNTER_UPDATE(write_cache_io_timer, statistics->write_cache_io_timer);
-        COUNTER_UPDATE(bytes_write_into_cache, statistics->bytes_write_into_cache);
-        COUNTER_UPDATE(num_skip_cache_io_total, statistics->num_skip_cache_io_total);
-        COUNTER_UPDATE(bytes_scanned_from_cache, statistics->bytes_read_from_local);
-        COUNTER_UPDATE(bytes_scanned_from_remote, statistics->bytes_read_from_remote);
-        COUNTER_UPDATE(read_cache_file_directly_timer, statistics->read_cache_file_directly_timer);
-        COUNTER_UPDATE(cache_get_or_set_timer, statistics->cache_get_or_set_timer);
-        COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
-        COUNTER_UPDATE(get_timer, statistics->get_timer);
-        COUNTER_UPDATE(set_timer, statistics->set_timer);
-    }
+    FileCacheProfileReporter(RuntimeProfile* profile);
+    void update(const FileCacheStatistics* statistics) const;
 };
 
 } // namespace io

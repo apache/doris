@@ -113,7 +113,6 @@
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -122,6 +121,7 @@
 #include "util/work_thread_pool.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type.h"
@@ -130,6 +130,7 @@
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TupleDescriptor;
 
 namespace vectorized {
@@ -307,8 +308,14 @@ Status Tablet::_init_once_action() {
     }
 
     // init stale rowset
+    int64_t now = ::time(nullptr);
     for (const auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
+
+        if (!stale_rs_meta->has_stale_at()) {
+            stale_rs_meta->set_stale_at(now);
+        }
+
         RowsetSharedPtr rowset;
         res = create_rowset(stale_rs_meta, &rowset);
         if (!res.ok()) {
@@ -568,11 +575,13 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
     }
 
     std::vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    int64_t now = ::time(nullptr);
     for (auto& rs : to_delete) {
         rs_metas_to_delete.push_back(rs->rowset_meta());
         _rs_version_map.erase(rs->version());
 
         if (!same_version) {
+            rs->rowset_meta()->set_stale_at(now);
             // put compaction rowsets in _stale_rs_version_map.
             _stale_rs_version_map[rs->version()] = rs;
         }
@@ -639,7 +648,11 @@ Status Tablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, boo
     }
     std::vector<RowsetMetaSharedPtr> rs_metas;
     rs_metas.reserve(to_delete.size());
+    int64_t now = ::time(nullptr);
     for (const auto& rs : to_delete) {
+        if (move_to_stale) {
+            rs->rowset_meta()->set_stale_at(now);
+        }
         rs_metas.push_back(rs->rowset_meta());
         _rs_version_map.erase(rs->version());
     }
@@ -713,13 +726,14 @@ void Tablet::delete_expired_stale_rowset() {
         LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
     }
     int64_t now = UnixSeconds();
+    std::vector<std::pair<Version, std::vector<RowsetId>>> deleted_stale_rowsets;
     // hold write lock while processing stable rowset
     {
         std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         // Compute the end time to delete rowsets, when a expired rowset createtime less then this time, it will be deleted.
-        double expired_stale_sweep_endtime =
-                ::difftime(now, config::tablet_rowset_stale_sweep_time_sec);
+        int64_t expired_stale_sweep_endtime =
+                static_cast<int64_t>(::difftime(now, config::tablet_rowset_stale_sweep_time_sec));
         if (config::tablet_rowset_stale_sweep_by_size) {
             expired_stale_sweep_endtime = now;
         }
@@ -827,13 +841,13 @@ void Tablet::delete_expired_stale_rowset() {
         auto old_meta_size = _tablet_meta->all_stale_rs_metas().size();
 
         // do delete operation
-        std::vector<std::string> version_to_delete;
         auto to_delete_iter = stale_version_path_map.begin();
         while (to_delete_iter != stale_version_path_map.end()) {
             std::vector<TimestampedVersionSharedPtr>& to_delete_version =
                     to_delete_iter->second->timestamped_versions();
             int64_t start_version = -1;
             int64_t end_version = -1;
+            std::vector<RowsetId> remove_rowset_ids;
             for (auto& timestampedVersion : to_delete_version) {
                 auto it = _stale_rs_version_map.find(timestampedVersion->version());
                 if (it != _stale_rs_version_map.end()) {
@@ -841,6 +855,10 @@ void Tablet::delete_expired_stale_rowset() {
                     // delete rowset
                     if (it->second->is_local()) {
                         _engine.add_unused_rowset(it->second);
+                        if (keys_type() == UNIQUE_KEYS && enable_unique_key_merge_on_write()) {
+                            // mow does not support cold data in object storage
+                            remove_rowset_ids.emplace_back(it->second->rowset_id());
+                        }
                     }
                     _stale_rs_version_map.erase(it);
                     VLOG_NOTICE << "delete stale rowset tablet=" << tablet_id() << " version["
@@ -861,10 +879,11 @@ void Tablet::delete_expired_stale_rowset() {
                 _delete_stale_rowset_by_version(timestampedVersion->version());
             }
             Version version(start_version, end_version);
-            version_to_delete.emplace_back(version.to_string());
             to_delete_iter++;
+            if (!remove_rowset_ids.empty()) {
+                deleted_stale_rowsets.emplace_back(version, remove_rowset_ids);
+            }
         }
-        _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
 
         bool reconstructed = _reconstruct_version_tracker_if_necessary();
 
@@ -873,6 +892,23 @@ void Tablet::delete_expired_stale_rowset() {
                     << " current_meta_size=" << _tablet_meta->all_stale_rs_metas().size()
                     << " old_meta_size=" << old_meta_size << " sweep endtime " << std::fixed
                     << expired_stale_sweep_endtime << ", reconstructed=" << reconstructed;
+    }
+    if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap && !deleted_stale_rowsets.empty()) {
+        // agg delete bitmap for pre rowsets; record unused delete bitmap key ranges
+        OlapStopWatch watch;
+        for (const auto& [version, remove_rowset_ids] : deleted_stale_rowsets) {
+            // agg delete bitmap for pre rowset
+            DeleteBitmapKeyRanges remove_delete_bitmap_key_ranges;
+            agg_delete_bitmap_for_stale_rowsets(version, remove_delete_bitmap_key_ranges);
+            // add remove delete bitmap
+            if (!remove_delete_bitmap_key_ranges.empty()) {
+                _engine.add_unused_delete_bitmap_key_ranges(tablet_id(), remove_rowset_ids,
+                                                            remove_delete_bitmap_key_ranges);
+            }
+        }
+        LOG(INFO) << "agg pre rowsets delete bitmap. tablet_id=" << tablet_id()
+                  << ", size=" << deleted_stale_rowsets.size()
+                  << ", cost(us)=" << watch.get_elapse_time_us();
     }
 #ifndef BE_TEST
     {
@@ -883,6 +919,8 @@ void Tablet::delete_expired_stale_rowset() {
     if (config::enable_mow_verbose_log) {
         LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
     }
+    DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset",
+                    { _engine.start_delete_unused_rowset(); });
 }
 
 Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
@@ -918,7 +956,7 @@ Status Tablet::capture_consistent_versions_unlocked(const Version& spec_version,
     }
 
     DBUG_EXECUTE_IF("TTablet::capture_consistent_versions.inject_failure", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             status = Status::Error<VERSION_ALREADY_MERGED>("version already merged");
         }
@@ -1327,7 +1365,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
 std::tuple<int64_t, int64_t> Tablet::get_visible_version_and_time() const {
     // some old tablet has bug, its partition_id is 0, fe couldn't update its visible version.
     // so let this tablet's visible version become int64 max.
-    auto version_info = std::atomic_load_explicit(&_visible_version, std::memory_order_relaxed);
+    auto version_info = _visible_version.load();
     if (version_info != nullptr && partition_id() != 0) {
         return std::make_tuple(version_info->version.load(std::memory_order_relaxed),
                                version_info->update_ts);
@@ -1374,61 +1412,49 @@ void Tablet::get_compaction_status(std::string* json_result) {
     if (_cumulative_compaction_policy != nullptr) {
         policy_type_str = _cumulative_compaction_policy->name();
     }
-    cumulative_policy_type.SetString(policy_type_str.c_str(), policy_type_str.length(),
+    cumulative_policy_type.SetString(policy_type_str.c_str(),
+                                     cast_set<uint32_t>(policy_type_str.length()),
                                      root.GetAllocator());
     root.AddMember("cumulative policy type", cumulative_policy_type, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
-    rapidjson::Value cumu_value;
-    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
-    cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
-    rapidjson::Value base_value;
-    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
-    base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last base failure time", base_value, root.GetAllocator());
-    rapidjson::Value full_value;
-    format_str = ToStringFromUnixMillis(_last_full_compaction_failure_millis.load());
-    full_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last full failure time", full_value, root.GetAllocator());
-    rapidjson::Value cumu_success_value;
-    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
-    cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
-    rapidjson::Value base_success_value;
-    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
-    base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last base success time", base_success_value, root.GetAllocator());
-    rapidjson::Value full_success_value;
-    format_str = ToStringFromUnixMillis(_last_full_compaction_success_millis.load());
-    full_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last full success time", full_success_value, root.GetAllocator());
-    rapidjson::Value cumu_schedule_value;
-    format_str = ToStringFromUnixMillis(_last_cumu_compaction_schedule_millis.load());
-    cumu_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last cumulative schedule time", cumu_schedule_value, root.GetAllocator());
-    rapidjson::Value base_schedule_value;
-    format_str = ToStringFromUnixMillis(_last_base_compaction_schedule_millis.load());
-    base_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last base schedule time", base_schedule_value, root.GetAllocator());
-    rapidjson::Value full_schedule_value;
-    format_str = ToStringFromUnixMillis(_last_full_compaction_schedule_millis.load());
-    full_schedule_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
-    root.AddMember("last full schedule time", full_schedule_value, root.GetAllocator());
-    rapidjson::Value cumu_compaction_status_value;
-    cumu_compaction_status_value.SetString(_last_cumu_compaction_status.c_str(),
-                                           _last_cumu_compaction_status.length(),
-                                           root.GetAllocator());
-    root.AddMember("last cumulative status", cumu_compaction_status_value, root.GetAllocator());
-    rapidjson::Value base_compaction_status_value;
-    base_compaction_status_value.SetString(_last_base_compaction_status.c_str(),
-                                           _last_base_compaction_status.length(),
-                                           root.GetAllocator());
-    root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
-    rapidjson::Value full_compaction_status_value;
-    full_compaction_status_value.SetString(_last_full_compaction_status.c_str(),
-                                           _last_full_compaction_status.length(),
-                                           root.GetAllocator());
-    root.AddMember("last full status", full_compaction_status_value, root.GetAllocator());
+
+#define FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, key, unixmillis_value)                 \
+    {                                                                                \
+        rapidjson::Value value;                                                      \
+        std::string format_str = ToStringFromUnixMillis(unixmillis_value.load());    \
+        value.SetString(format_str.c_str(), cast_set<uint32_t>(format_str.length()), \
+                        root.GetAllocator());                                        \
+        root.AddMember(key, value, root.GetAllocator());                             \
+    }
+#define FORMAT_STRING_ADD_JSON_NODE(root, key, str_value)                          \
+    {                                                                              \
+        rapidjson::Value value;                                                    \
+        value.SetString(str_value.c_str(), cast_set<uint32_t>(str_value.length()), \
+                        root.GetAllocator());                                      \
+        root.AddMember(key, value, root.GetAllocator());                           \
+    }
+
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative failure time",
+                                    _last_cumu_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base failure time",
+                                    _last_base_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full failure time",
+                                    _last_full_compaction_failure_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative success time",
+                                    _last_cumu_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time",
+                                    _last_base_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full success time",
+                                    _last_full_compaction_success_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative schedule time",
+                                    _last_cumu_compaction_schedule_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base schedule time",
+                                    _last_base_compaction_schedule_millis)
+    FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full schedule time",
+                                    _last_full_compaction_schedule_millis)
+    FORMAT_STRING_ADD_JSON_NODE(root, "last cumulative status", _last_cumu_compaction_status)
+    FORMAT_STRING_ADD_JSON_NODE(root, "last base status", _last_base_compaction_status)
+    FORMAT_STRING_ADD_JSON_NODE(root, "last full status", _last_full_compaction_status)
 
     // last single replica compaction status
     // "single replica compaction status": {
@@ -1445,18 +1471,20 @@ void Tablet::get_compaction_status(std::string* json_result) {
         // remote peer
         rapidjson::Value peer_addr;
         std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
-        peer_addr.SetString(addr.c_str(), addr.length(), status.GetAllocator());
+        peer_addr.SetString(addr.c_str(), cast_set<uint32_t>(addr.length()), status.GetAllocator());
         status.AddMember("remote peer", peer_addr, status.GetAllocator());
         // last failure status
         rapidjson::Value compaction_status;
-        compaction_status.SetString(_last_single_compaction_failure_status.c_str(),
-                                    _last_single_compaction_failure_status.length(),
-                                    status.GetAllocator());
+        compaction_status.SetString(
+                _last_single_compaction_failure_status.c_str(),
+                cast_set<uint32_t>(_last_single_compaction_failure_status.length()),
+                status.GetAllocator());
         status.AddMember("last failure status", compaction_status, status.GetAllocator());
         // last fetched rowset
         rapidjson::Value version;
         std::string fetched_version = _last_fetched_version.to_string();
-        version.SetString(fetched_version.c_str(), fetched_version.length(), status.GetAllocator());
+        version.SetString(fetched_version.c_str(), cast_set<uint32_t>(fetched_version.length()),
+                          status.GetAllocator());
         status.AddMember("last fetched rowset", version, status.GetAllocator());
         root.AddMember("single replica compaction status", status, root.GetAllocator());
     }
@@ -1477,7 +1505,8 @@ void Tablet::get_compaction_status(std::string* json_result) {
         }
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(), versions_arr.GetAllocator());
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
+                        versions_arr.GetAllocator());
         versions_arr.PushBack(value, versions_arr.GetAllocator());
         last_version = ver.second;
     }
@@ -1490,7 +1519,7 @@ void Tablet::get_compaction_status(std::string* json_result) {
     for (auto& rowset : stale_rowsets) {
         rapidjson::Value value;
         std::string version_str = rowset->get_rowset_info_str();
-        value.SetString(version_str.c_str(), version_str.length(),
+        value.SetString(version_str.c_str(), cast_set<uint32_t>(version_str.length()),
                         stale_versions_arr.GetAllocator());
         stale_versions_arr.PushBack(value, stale_versions_arr.GetAllocator());
     }
@@ -1646,7 +1675,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.version_miss", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto miss = dp->param<bool>("version_miss", true);
             tablet_info->__set_version_miss(miss);
@@ -1696,7 +1725,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 
     DBUG_EXECUTE_IF("Tablet.build_tablet_report_info.used", {
-        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        auto tablet_id = dp->param<int64_t>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == _tablet_meta->tablet_id()) {
             auto used = dp->param<bool>("used", true);
             LOG_WARNING("Tablet.build_tablet_report_info.used")
@@ -1767,11 +1796,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
-            watch.elapsed_time() / 1e9 > config::cumulative_compaction_trace_threshold) {
+            static_cast<double>(watch.elapsed_time()) / 1e9 >
+                    config::cumulative_compaction_trace_threshold) {
             std::stringstream ss;
             compaction->runtime_profile()->pretty_print(&ss);
-            LOG(WARNING) << "prepare cumulative compaction cost " << watch.elapsed_time() / 1e9
-                         << std::endl
+            LOG(WARNING) << "prepare cumulative compaction cost "
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
 
@@ -1783,7 +1813,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(
                 config::enable_sleep_between_delete_cumu_compaction) {
                 tablet->set_last_cumu_compaction_failure_time(UnixMillis());
             }
-            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>() &&
+                !res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError("prepare cumulative compaction with err: {}",
                                              res.to_string());
@@ -1801,11 +1832,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
         Status res = compaction->prepare_compact();
         if (!config::disable_compaction_trace_log &&
-            watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold) {
+            static_cast<double>(watch.elapsed_time()) / 1e9 >
+                    config::base_compaction_trace_threshold) {
             std::stringstream ss;
             compaction->runtime_profile()->pretty_print(&ss);
-            LOG(WARNING) << "prepare base compaction cost " << watch.elapsed_time() / 1e9
-                         << std::endl
+            LOG(WARNING) << "prepare base compaction cost "
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
 
@@ -1913,17 +1945,18 @@ void Tablet::execute_compaction(CompactionMixin& compaction) {
     if (!config::disable_compaction_trace_log) {
         auto need_trace = [&compaction, &watch] {
             return compaction.compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION
-                           ? watch.elapsed_time() / 1e9 >
+                           ? static_cast<double>(watch.elapsed_time()) / 1e9 >
                                      config::cumulative_compaction_trace_threshold
                    : compaction.compaction_type() == ReaderType::READER_BASE_COMPACTION
-                           ? watch.elapsed_time() / 1e9 > config::base_compaction_trace_threshold
+                           ? static_cast<double>(watch.elapsed_time()) / 1e9 >
+                                     config::base_compaction_trace_threshold
                            : false;
         };
         if (need_trace()) {
             std::stringstream ss;
             compaction.runtime_profile()->pretty_print(&ss);
             LOG(WARNING) << "execute " << compaction.compaction_name() << " cost "
-                         << watch.elapsed_time() / 1e9 << std::endl
+                         << static_cast<double>(watch.elapsed_time()) / 1e9 << std::endl
                          << ss.str();
         }
     }
@@ -1988,7 +2021,7 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
     context.is_transient_rowset_writer = true;
     return create_transient_rowset_writer(context, rowset.rowset_id())
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(rowset.num_segments());
+                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
                 return writer;
             });
 }
@@ -2018,6 +2051,8 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
+
+    context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
@@ -2109,12 +2144,12 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
         return st;
     }
 
-    auto duration = std::chrono::duration<float>(std::chrono::steady_clock::now() - start);
+    auto duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - start);
     LOG(INFO) << "Upload rowset " << old_rowset->version() << " " << new_rowset_id.to_string()
               << " to " << storage_resource.fs->root_path().native()
               << ", tablet_id=" << tablet_id() << ", duration=" << duration.count()
               << ", capacity=" << old_rowset->total_disk_size()
-              << ", tp=" << old_rowset->total_disk_size() / duration.count()
+              << ", tp=" << static_cast<double>(old_rowset->total_disk_size()) / duration.count()
               << ", old rowset_id=" << old_rowset->rowset_id().to_string();
 
     // gen a new rowset
@@ -2162,10 +2197,10 @@ Status Tablet::_read_cooldown_meta(const StorageResource& storage_resource,
     RETURN_IF_ERROR(storage_resource.fs->open_file(remote_meta_path, &tablet_meta_reader));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
-    auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
+    auto buf = make_unique_buffer<uint8_t>(file_size);
     RETURN_IF_ERROR(tablet_meta_reader->read_at(0, {buf.get(), file_size}, &bytes_read));
     RETURN_IF_ERROR(tablet_meta_reader->close());
-    if (!tablet_meta_pb->ParseFromArray(buf.get(), file_size)) {
+    if (!tablet_meta_pb->ParseFromArray(buf.get(), cast_set<int>(file_size))) {
         return Status::InternalError("malformed tablet meta, path={}/{}",
                                      storage_resource.fs->root_path().native(), remote_meta_path);
     }
@@ -2249,7 +2284,7 @@ Status Tablet::write_cooldown_meta() {
 
     TabletMetaPB tablet_meta_pb;
     auto* rs_metas = tablet_meta_pb.mutable_rs_metas();
-    rs_metas->Reserve(cooldowned_rs_metas.size());
+    rs_metas->Reserve(cast_set<int>(cooldowned_rs_metas.size()));
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
@@ -2721,7 +2756,7 @@ void Tablet::gc_binlogs(int64_t version) {
         }
 
         BinlogMetaEntryPB binlog_meta_entry_pb;
-        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), value.size())) {
+        if (!binlog_meta_entry_pb.ParseFromArray(value.data(), cast_set<int>(value.size()))) {
             LOG(WARNING) << "failed to parse binlog meta entry, key:" << key;
             return true;
         }
@@ -2912,4 +2947,26 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
     return total_inverted_index_size;
 }
 
+Status Tablet::prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           const PUniqueId& load_id, bool ingest) {
+    std::shared_lock base_migration_lock(get_migration_lock(), std::defer_lock);
+
+    // TODO: rename debugpoint.
+    DBUG_EXECUTE_IF("PushHandler::_do_streaming_ingestion.try_lock_fail", {
+        return Status::Error<TRY_LOCK_FAILED>(
+                "PushHandler::_do_streaming_ingestion get lock failed");
+    })
+
+    if (!base_migration_lock.try_lock_for(
+                std::chrono::milliseconds(config::migration_lock_timeout_ms))) {
+        return Status::Error<TRY_LOCK_FAILED>("try_lock migration lock failed after {}ms",
+                                              config::migration_lock_timeout_ms);
+    }
+
+    std::lock_guard<std::mutex> push_lock(get_push_lock());
+    return _engine.txn_manager()->prepare_txn(partition_id, transaction_id, tablet_id(),
+                                              tablet_uid(), load_id, ingest);
+}
+
+#include "common/compile_check_end.h"
 } // namespace doris

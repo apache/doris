@@ -19,13 +19,15 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.PlannerHook;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.StatementContext.TableFrom;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -37,8 +39,9 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -53,9 +56,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -114,16 +117,17 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private Plan collectFromAny(MatchingContext<Plan> ctx) {
-        Set<SubqueryExpr> subqueryExprs = ctx.root.getExpressions().stream()
-                .<Set<SubqueryExpr>>map(p -> p.collect(SubqueryExpr.class::isInstance))
-                .flatMap(Set::stream)
-                .collect(Collectors.toSet());
-        for (SubqueryExpr subqueryExpr : subqueryExprs) {
-            CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
-                    ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
-            subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
-                    () -> subqueryContext.newTableCollector().collect());
-            ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
+        for (Expression expression : ctx.root.getExpressions()) {
+            expression.foreach(e -> {
+                if (e instanceof SubqueryExpr) {
+                    SubqueryExpr subqueryExpr = (SubqueryExpr) e;
+                    CascadesContext subqueryContext = CascadesContext.newContextWithCteContext(
+                            ctx.cascadesContext, subqueryExpr.getQueryPlan(), ctx.cteContext);
+                    subqueryContext.keepOrShowPlanProcess(ctx.cascadesContext.showPlanProcess(),
+                            () -> subqueryContext.newTableCollector().collect());
+                    ctx.cascadesContext.addPlanProcesses(subqueryContext.getPlanProcesses());
+                }
+            });
         }
         return null;
     }
@@ -140,7 +144,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             case 3:
                 // catalog.db.table
                 // Use catalog and database name from name parts.
-                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.INSERT_TARGET);
+                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.INSERT_TARGET, Optional.empty());
                 return null;
             default:
                 throw new IllegalStateException("Insert target name is invalid.");
@@ -159,7 +163,7 @@ public class CollectRelation implements AnalysisRuleFactory {
             case 3:
                 // catalog.db.table
                 // Use catalog and database name from name parts.
-                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.QUERY);
+                collectFromUnboundRelation(ctx.cascadesContext, nameParts, TableFrom.QUERY, Optional.of(ctx.root));
                 return null;
             default:
                 throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
@@ -167,7 +171,7 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectFromUnboundRelation(CascadesContext cascadesContext,
-            List<String> nameParts, TableFrom tableFrom) {
+            List<String> nameParts, TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
         if (nameParts.size() == 1) {
             String tableName = nameParts.get(0);
             // check if it is a CTE's name
@@ -186,10 +190,13 @@ public class CollectRelation implements AnalysisRuleFactory {
             table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
         } else {
             table = cascadesContext.getConnectContext().getStatementContext()
-                .getAndCacheTable(tableQualifier, tableFrom);
+                .getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
         }
-        LOG.info("collect table {} from {}", nameParts, tableFrom);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("collect table {} from {}", nameParts, tableFrom);
+        }
         if (tableFrom == TableFrom.QUERY) {
+            collectMVCandidates(table, cascadesContext);
             collectMTMVCandidates(table, cascadesContext);
         }
         if (tableFrom == TableFrom.INSERT_TARGET) {
@@ -204,22 +211,34 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
-    private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
-        boolean shouldCollect = false;
-        for (PlannerHook plannerHook : cascadesContext.getStatementContext().getPlannerHooks()) {
-            // only collect when InitMaterializationContextHook exists in planner hooks
-            if (plannerHook instanceof InitMaterializationContextHook) {
-                shouldCollect = true;
-                break;
+    // collect sync materialized view which maybe used for rewrite later
+    private void collectMVCandidates(TableIf tableIf, CascadesContext cascadesContext) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(statementContext);
+        if (shouldCollect && tableIf instanceof OlapTable) {
+            OlapTable olapTable = (OlapTable) tableIf;
+            long baseIndexId = olapTable.getBaseIndexId();
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
+                if (entry.getKey() != baseIndexId) {
+                    statementContext.getCandidateMVs().add(entry.getValue());
+                }
             }
         }
+    }
+
+    // collect async materialized view which maybe used for rewrite later
+    private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
+        boolean shouldCollect = MaterializedViewUtils.containMaterializedViewHook(
+                cascadesContext.getStatementContext());
         if (shouldCollect) {
+            boolean isDebugEnabled = LOG.isDebugEnabled();
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
-                    .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
-            if (LOG.isDebugEnabled()) {
+                    .getCandidateMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
+            if (isDebugEnabled) {
                 LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
             }
             for (MTMV mtmv : mtmvSet) {
+                cascadesContext.getStatementContext().getCandidateMTMVs().add(mtmv);
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
                 mtmv.readMvLock();
                 try {
@@ -227,12 +246,13 @@ public class CollectRelation implements AnalysisRuleFactory {
                         if (!baseTableInfo.isValid()) {
                             continue;
                         }
-                        if (LOG.isDebugEnabled()) {
+                        if (isDebugEnabled) {
                             LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
                         }
                         try {
+                            // Collect all base tables and lock them before querying
                             cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
-                                    TableFrom.MTMV);
+                                    TableFrom.MTMV, Optional.empty());
                         } catch (AnalysisException exception) {
                             LOG.warn("mtmv related base table get err, related table is {}",
                                     baseTableInfo.toList(), exception);
@@ -245,7 +265,7 @@ public class CollectRelation implements AnalysisRuleFactory {
         }
     }
 
-    private void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
+    protected void parseAndCollectFromView(List<String> tableQualifier, View view, CascadesContext parentContext) {
         Pair<String, Long> viewInfo = parentContext.getStatementContext().getAndCacheViewInfo(tableQualifier, view);
         long originalSqlMode = parentContext.getConnectContext().getSessionVariable().getSqlMode();
         parentContext.getConnectContext().getSessionVariable().setSqlMode(viewInfo.second);

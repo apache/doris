@@ -36,9 +36,9 @@
 #include "common/logging.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
-#include "meta-service/keys.h"
-#include "meta-service/mem_txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
 
@@ -85,7 +85,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(std::shared_ptr<TxnKv> txn_kv
     auto rs = std::make_shared<ResourceManager>(txn_kv);
     EXPECT_EQ(rs->init(), 0);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -360,6 +361,25 @@ TEST(ResourceTest, RestartResourceManager) {
         create_instance(meta_service.get(), "test_instance_id_2");
         create_cluster(meta_service.get(), "test_instance_id", "cluster_id", "cluster_name",
                        ClusterPB::SQL);
+
+        ASSERT_FALSE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
+
+        // instance_2 enable multi version status
+        std::unique_ptr<Transaction> txn;
+        std::string instance_info_value;
+        InstanceInfoPB instance_info;
+        std::string key = instance_key("test_instance_id_2");
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &instance_info_value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(instance_info.ParseFromString(instance_info_value));
+
+        instance_info.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+        txn->put(key, instance_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        auto [code, msg] = meta_service->resource_mgr()->refresh_instance("test_instance_id_2");
+        ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
     }
 
     {
@@ -378,6 +398,8 @@ TEST(ResourceTest, RestartResourceManager) {
             ASSERT_EQ(code, TxnErrorCode::TXN_OK) << msg;
             ASSERT_EQ(info.name(), "test_instance_id_2name");
         }
+
+        ASSERT_TRUE(meta_service->resource_mgr()->is_version_read_enabled("test_instance_id_2"));
     }
     sp->disable_processing();
     sp->clear_all_call_backs();

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -77,15 +78,18 @@ public class Index implements Writable {
         this.comment = comment;
         if (indexType == IndexDef.IndexType.INVERTED) {
             if (this.properties != null && !this.properties.isEmpty()) {
-                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
-                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
-                    if (!properties.containsKey(lowerCaseKey)) {
-                        this.properties.put(lowerCaseKey, "true");
-                    }
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                        || this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY)) {
                     String supportPhraseKey = InvertedIndexUtil
                             .INVERTED_INDEX_SUPPORT_PHRASE_KEY;
-                    if (!properties.containsKey(supportPhraseKey)) {
+                    if (!this.properties.containsKey(supportPhraseKey)) {
                         this.properties.put(supportPhraseKey, "true");
+                    }
+                }
+                if (this.properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)) {
+                    String lowerCaseKey = InvertedIndexUtil.INVERTED_INDEX_PARSER_LOWERCASE_KEY;
+                    if (!this.properties.containsKey(lowerCaseKey)) {
+                        this.properties.put(lowerCaseKey, "true");
                     }
                 }
             }
@@ -145,11 +149,16 @@ public class Index implements Writable {
             return "";
         }
 
-        return "(" + new PrintableMap(properties, "=", true, false, ",").toString() + ")";
+        // Use TreeMap to ensure consistent ordering of properties
+        return "(" + new PrintableMap(new java.util.TreeMap<>(properties), "=", true, false, ",").toString() + ")";
     }
 
     public String getInvertedIndexParser() {
         return InvertedIndexUtil.getInvertedIndexParser(properties);
+    }
+
+    public boolean isInvertedIndexParserNone() {
+        return InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equals(getInvertedIndexParser());
     }
 
     public String getInvertedIndexParserMode() {
@@ -168,17 +177,38 @@ public class Index implements Writable {
         return InvertedIndexUtil.getInvertedIndexParserStopwords(properties);
     }
 
+    public String getInvertedIndexFieldPattern() {
+        return InvertedIndexUtil.getInvertedIndexFieldPattern(properties);
+    }
+
+    public boolean getInvertedIndexSupportPhrase() {
+        return InvertedIndexUtil.getInvertedIndexSupportPhrase(properties);
+    }
+
     // Whether the index can be changed in light mode
-    // cloud mode only supports light change for ngram_bf index
-    // local mode supports light change for both inverted index and ngram_bf index
-    // the rest of the index types do not support light change
     public boolean isLightIndexChangeSupported() {
+        return indexType == IndexDef.IndexType.INVERTED || indexType == IndexType.NGRAM_BF;
+    }
+
+    // Whether the index can be added in light mode
+    // cloud mode supports light add for ngram_bf index and non-tokenized inverted index (parser="none")
+    // local mode supports light add for both inverted index and ngram_bf index
+    // the rest of the index types do not support light add
+    public boolean isLightAddIndexSupported(boolean enableAddIndexForNewData) {
         if (Config.isCloudMode()) {
-            return indexType == IndexDef.IndexType.NGRAM_BF;
-        } else {
-            return indexType == IndexDef.IndexType.INVERTED
-                || indexType == IndexDef.IndexType.NGRAM_BF;
+            if (indexType == IndexDef.IndexType.INVERTED) {
+                return isInvertedIndexParserNone() && enableAddIndexForNewData;
+            } else if (indexType == IndexDef.IndexType.NGRAM_BF) {
+                return enableAddIndexForNewData;
+            }
+            return false;
         }
+        return (indexType == IndexDef.IndexType.NGRAM_BF && enableAddIndexForNewData)
+                || (indexType == IndexDef.IndexType.INVERTED);
+    }
+
+    public String getInvertedIndexCustomAnalyzer() {
+        return InvertedIndexUtil.getInvertedIndexCustomAnalyzer(properties);
     }
 
     public String getComment() {
@@ -243,7 +273,7 @@ public class Index implements Writable {
             sb.append(getPropertiesString());
         }
         if (StringUtils.isNotBlank(comment)) {
-            sb.append(" COMMENT '").append(getComment(true)).append("'");
+            sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
         return sb.toString();
     }
@@ -304,6 +334,10 @@ public class Index implements Writable {
                 builder.setIndexType(OlapFile.IndexType.BLOOMFILTER);
                 break;
 
+            case ANN:
+                builder.setIndexType(OlapFile.IndexType.ANN);
+                break;
+
             default:
                 throw new RuntimeException("indexType " + indexType + " is not processed in toPb");
         }
@@ -341,5 +375,12 @@ public class Index implements Writable {
             }
             bfColumns.add(column);
         }
+    }
+
+    public boolean isAnalyzedInvertedIndex() {
+        return indexType == IndexDef.IndexType.INVERTED
+            && properties != null
+            && (properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_PARSER_KEY)
+                || properties.containsKey(InvertedIndexUtil.INVERTED_INDEX_CUSTOM_ANALYZER_KEY));
     }
 }

@@ -59,7 +59,7 @@ Status AvroJNIReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
-Status AvroJNIReader::init_fetch_table_reader(
+Status AvroJNIReader::init_reader(
         const std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     _colname_to_value_range = colname_to_value_range;
     std::ostringstream required_fields;
@@ -112,7 +112,8 @@ TFileType::type AvroJNIReader::get_file_type() const {
     return type;
 }
 
-Status AvroJNIReader::init_fetch_table_schema_reader() {
+// open the jni connector for parsing schema
+Status AvroJNIReader::init_schema_reader() {
     std::map<String, String> required_param = {{"uri", _range.path},
                                                {"file_type", std::to_string(get_file_type())},
                                                {"is_get_table_schema", "true"}};

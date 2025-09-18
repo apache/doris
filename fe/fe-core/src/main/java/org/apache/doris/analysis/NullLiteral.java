@@ -21,6 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -30,8 +32,6 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class NullLiteral extends LiteralExpr {
@@ -102,6 +102,12 @@ public class NullLiteral extends LiteralExpr {
     }
 
     @Override
+    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
+            TableIf table) {
+        return getStringValue();
+    }
+
+    @Override
     public String getStringValue() {
         return "NULL";
     }
@@ -156,15 +162,5 @@ public class NullLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.NULL_LITERAL;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-    }
-
-    public static NullLiteral read(DataInput in) throws IOException {
-        NullLiteral literal = new NullLiteral();
-        literal.readFields(in);
-        return literal;
     }
 }

@@ -33,7 +33,6 @@
 
 #include "common/status.h"
 #include "vec/columns/column.h"
-#include "vec/columns/column_impl.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
 #include "vec/common/sip_hash.h"
@@ -43,13 +42,8 @@
 
 class SipHash;
 
-namespace doris {
-namespace vectorized {
-class Arena;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+class Arena;
 
 /** Column, that is just group of few another columns.
   */
@@ -71,9 +65,9 @@ public:
       * Use IColumn::mutate in order to make mutable column and mutate shared nested columns.
       */
     using Base = COWHelper<IColumn, ColumnStruct>;
-    static Ptr create(const Columns& columns);
-    static Ptr create(const TupleColumns& columns);
-    static Ptr create(Columns&& arg) { return create(arg); }
+    static MutablePtr create(const Columns& columns);
+    static MutablePtr create(const TupleColumns& columns);
+    static MutablePtr create(Columns&& arg) { return create(arg); }
 
     template <typename Arg,
               typename = typename std::enable_if<std::is_rvalue_reference<Arg&&>::value>::type>
@@ -82,9 +76,20 @@ public:
     }
 
     std::string get_name() const override;
-    MutableColumnPtr clone_empty() const override;
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
+
+    void sanity_check() const override {
+        for (size_t i = 0; i < columns.size(); ++i) {
+            columns[i]->sanity_check();
+            if (i != 0 && columns[i]->size() != columns[0]->size()) {
+                throw doris::Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "Size of sub column({}) is not equal to size of first column({})",
+                        columns[i]->size(), columns[0]->size());
+            }
+        }
+    }
 
     bool is_variable_length() const override { return true; }
 
@@ -135,8 +140,7 @@ public:
                                            size_t length) override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
-    ColumnPtr permute(const Permutation& perm, size_t limit) const override;
-    ColumnPtr replicate(const Offsets& offsets) const override;
+    MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
@@ -179,6 +183,20 @@ public:
             col->erase(start, length);
         }
     }
+
+    size_t serialize_size_at(size_t row) const override;
+    size_t deserialize_impl(const char* pos) override;
+    size_t serialize_impl(char* pos, const size_t row) const override;
+    void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
+                         IColumn::Permutation& res) const override;
+    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const override;
+    void deserialize_vec(StringRef* keys, const size_t num_rows) override;
+    void serialize_vec(StringRef* keys, size_t num_rows) const override;
+    size_t get_max_row_byte_size() const override;
+    void replace_float_special_values() override;
+    template <bool positive>
+    struct less;
 };
 
 } // namespace doris::vectorized

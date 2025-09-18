@@ -50,13 +50,18 @@ public class JsonbExtractString extends ScalarFunction
         super("jsonb_extract_string", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbExtractString(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbExtractString withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new JsonbExtractString(children.get(0), children.get(1));
+        return new JsonbExtractString(getFunctionParams(children));
     }
 
     @Override

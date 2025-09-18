@@ -30,7 +30,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/string_ref.h"
@@ -63,26 +62,26 @@ struct OverlapSetImpl {
     using ElementNativeType = typename NativeType<typename T::value_type>::Type;
     using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
+    bool has_null = false;
 
-    template <bool nullable>
     void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
-                    continue;
-                }
+            if (nullmap[i]) {
+                has_null = true;
+                continue;
             }
             set.insert(vec[i]);
         }
     }
 
-    template <bool nullable>
     bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
+            if (nullmap[i]) {
+                if (has_null) {
+                    return true;
+                } else {
                     continue;
                 }
             }
@@ -99,24 +98,24 @@ template <>
 struct OverlapSetImpl<ColumnString> {
     using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
+    bool has_null = false;
 
-    template <bool nullable>
     void insert_array(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
-                    continue;
-                }
+            if (nullmap[i]) {
+                has_null = true;
+                continue;
             }
             set.insert(column->get_data_at(i));
         }
     }
 
-    template <bool nullable>
     bool find_any(const IColumn* column, const UInt8* nullmap, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if constexpr (nullable) {
-                if (nullmap[i]) {
+            if (nullmap[i]) {
+                if (has_null) {
+                    return true;
+                } else {
                     continue;
                 }
             }
@@ -165,7 +164,7 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
         DCHECK(arguments.size() == 1);
         DCHECK(data_type_with_names.size() == 1);
@@ -175,10 +174,9 @@ public:
             return Status::OK();
         }
         auto data_type_with_name = data_type_with_names[0];
-        if (iter->get_inverted_index_reader_type() ==
-            segment_v2::InvertedIndexReaderType::FULLTEXT) {
+        if (!segment_v2::IndexReaderHelper::has_string_or_bkd_index(iter)) {
             return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                    "Inverted index evaluate skipped, FULLTEXT reader can not support "
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
                     "array_overlap");
         }
         // in arrays_overlap param is array Field and const Field
@@ -212,19 +210,25 @@ public:
         }
         std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
         const Array& query_val = param_value.get<Array>();
+
+        InvertedIndexParam param;
+        param.column_name = data_type_with_name.first;
+        param.column_type = data_type_with_name.second;
+        param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
+        param.num_rows = num_rows;
         for (auto nested_query_val : query_val) {
             // any element inside array is NULL, return NULL
             // by current arrays_overlap execute logic.
             if (nested_query_val.is_null()) {
                 return Status::OK();
             }
-            std::shared_ptr<roaring::Roaring> single_res = std::make_shared<roaring::Roaring>();
             RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value(
                     nested_param_type, &nested_query_val, query_param));
-            RETURN_IF_ERROR(iter->read_from_inverted_index(
-                    data_type_with_name.first, query_param->get_value(),
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY, num_rows, single_res));
-            *roaring |= *single_res;
+            param.query_value = query_param->get_value();
+            param.roaring = std::make_shared<roaring::Roaring>();
+            ;
+            RETURN_IF_ERROR(iter->read_from_index(&param));
+            *roaring |= *param.roaring;
         }
 
         segment_v2::InvertedIndexResultBitmap result(roaring, null_bitmap);
@@ -262,8 +266,8 @@ public:
             return ret;
         }
         // prepare return column
-        auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
-        auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
+        auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
+        auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map_data = dst_null_map->get_data().data();
 
         RETURN_IF_ERROR(_execute_nullable(left_exec_data, dst_null_map_data));
@@ -360,6 +364,15 @@ public:
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
             break;
+
+        case TYPE_IPV4:
+            ret = _execute_internal<ColumnIPv4>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
+        case TYPE_IPV6:
+            ret = _execute_internal<ColumnIPv6>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+            break;
         default:
             break;
         }
@@ -383,17 +396,6 @@ private:
                 dst_nullmap_data[row] = 1;
                 continue;
             }
-
-            if (data.nested_nullmap_data) {
-                ssize_t start = (*data.offsets_ptr)[row - 1];
-                ssize_t size = (*data.offsets_ptr)[row] - start;
-                for (ssize_t i = start; i < start + size; ++i) {
-                    if (data.nested_nullmap_data[i]) {
-                        dst_nullmap_data[row] = 1;
-                        break;
-                    }
-                }
-            }
         }
         return Status::OK();
     }
@@ -404,6 +406,11 @@ private:
                              UInt8* dst_data) const {
         using ExecutorImpl = OverlapSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            // arrays_overlap(null, null) -> null
+            if (dst_nullmap_data[row]) {
+                continue;
+            }
+            dst_nullmap_data[row] = 0;
             ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
             ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
             ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
@@ -427,29 +434,10 @@ private:
             }
 
             ExecutorImpl impl;
-            if (small_data->nested_nullmap_data) {
-                impl.template insert_array<true>(small_data->nested_col.get(),
-                                                 small_data->nested_nullmap_data, small_start,
-                                                 small_size);
-            } else {
-                impl.template insert_array<true>(small_data->nested_col.get(),
-                                                 small_data->nested_nullmap_data, small_start,
-                                                 small_size);
-            }
-
-            if (large_data->nested_nullmap_data) {
-                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
-                                                             large_data->nested_nullmap_data,
-                                                             large_start, large_size);
-            } else {
-                dst_data[row] = impl.template find_any<true>(large_data->nested_col.get(),
-                                                             large_data->nested_nullmap_data,
-                                                             large_start, large_size);
-            }
-
-            if (dst_data[row]) {
-                dst_nullmap_data[row] = 0;
-            }
+            impl.insert_array(small_data->nested_col.get(), small_data->nested_nullmap_data,
+                              small_start, small_size);
+            dst_data[row] = impl.find_any(large_data->nested_col.get(),
+                                          large_data->nested_nullmap_data, large_start, large_size);
         }
         return Status::OK();
     }

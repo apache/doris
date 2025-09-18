@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.es.source;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionInfo;
@@ -44,7 +42,6 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.statistics.query.StatsDelta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
@@ -83,10 +80,6 @@ public class EsScanNode extends ExternalScanNode {
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
 
-    public EsScanNode(PlanNodeId id, TupleDescriptor desc) {
-        this(id, desc, false);
-    }
-
     /**
      * For multicatalog es.
      **/
@@ -102,21 +95,9 @@ public class EsScanNode extends ExternalScanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws UserException {
-        super.init(analyzer);
-        buildQuery();
-    }
-
-    @Override
     public void init() throws UserException {
         super.init();
         buildQuery();
-    }
-
-    @Override
-    public void finalize(Analyzer analyzer) throws UserException {
-        buildQuery();
-        doFinalize();
     }
 
     @Override
@@ -387,10 +368,4 @@ public class EsScanNode extends ExternalScanNode {
         }
     }
 
-    @Override
-    public StatsDelta genStatsDelta() throws AnalysisException {
-        return new StatsDelta(Env.getCurrentEnv().getCurrentCatalog().getId(),
-                Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException(table.getQualifiedDbName()).getId(),
-                table.getId(), -1L);
-    }
 }

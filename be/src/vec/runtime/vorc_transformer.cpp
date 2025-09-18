@@ -46,7 +46,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/string_ref.h"
@@ -233,11 +232,7 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
                 assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len());
         break;
     }
-    case TYPE_STRING: {
-        auto l = assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len();
-        type = l > 0 ? orc::createCharType(orc::VARCHAR, l) : orc::createPrimitiveType(orc::STRING);
-        break;
-    }
+    case TYPE_STRING:
     case TYPE_IPV6:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);
@@ -345,14 +340,7 @@ Status VOrcTransformer::write(const Block& block) {
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
-    std::vector<StringRef> buffer_list;
-    Defer defer {[&]() {
-        for (auto& bufferRef : buffer_list) {
-            if (bufferRef.data) {
-                free(const_cast<char*>(bufferRef.data));
-            }
-        }
-    }};
+    Arena arena;
 
     int sz = cast_set<int>(block.rows());
     auto row_batch = _create_row_batch(sz);
@@ -363,7 +351,7 @@ Status VOrcTransformer::write(const Block& block) {
             const auto& raw_column = col.column;
             RETURN_IF_ERROR(_resize_row_batch(col.type, *raw_column, root->fields[i]));
             RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(
-                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, buffer_list));
+                    _state->timezone(), *raw_column, nullptr, root->fields[i], 0, sz, arena));
         }
         root->numElements = sz;
         _writer->add(*row_batch);

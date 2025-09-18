@@ -35,7 +35,6 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -129,8 +128,8 @@ public:
 
 private:
     template <typename Element, typename Result>
-    static void impl(const Element* __restrict src, Result* __restrict dst, size_t begin,
-                     size_t end) {
+    NO_SANITIZE_UNDEFINED static void impl(const Element* __restrict src, Result* __restrict dst,
+                                           size_t begin, size_t end) {
         size_t curr_pos = begin;
         if (curr_pos < end) {
             Element prev_element = src[curr_pos];
@@ -146,16 +145,16 @@ private:
         }
     }
 
-    template <typename Element, typename Result>
+    template <PrimitiveType Element, PrimitiveType Result>
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
                                        const IColumn& nested_column,
                                        ColumnPtr nested_null_map) const {
-        using ColVecType = ColumnVectorOrDecimal<Element>;
-        using ColVecResult = ColumnVectorOrDecimal<Result>;
+        using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
+        using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
         typename ColVecResult::MutablePtr res_nested = nullptr;
 
         const auto& src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
-        if constexpr (IsDecimalNumber<Result>) {
+        if constexpr (is_decimal(Result)) {
             res_nested = ColVecResult::create(0, src_data.get_scale());
         } else {
             res_nested = ColVecResult::create();
@@ -172,7 +171,7 @@ private:
         if (nested_null_map) {
             auto null_map_col = ColumnUInt8::create(size, 0);
             auto& null_map_col_data = null_map_col->get_data();
-            auto nested_colum_data = static_cast<const ColumnVector<UInt8>*>(nested_null_map.get());
+            auto nested_colum_data = static_cast<const ColumnUInt8*>(nested_null_map.get());
             VectorizedUtils::update_null_map(null_map_col_data, nested_colum_data->get_data());
             for (size_t row = 0; row < offsets.size(); ++row) {
                 auto off = offsets[row - 1];
@@ -214,51 +213,56 @@ private:
                 remove_nullable(assert_cast<const DataTypeArray&>(*arg.type).get_nested_type());
         switch (left_element_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
-            res = _execute_number_expanded<UInt8, Int16>(offsets, *nested_column, nested_null_map);
+            res = _execute_number_expanded<TYPE_BOOLEAN, TYPE_SMALLINT>(offsets, *nested_column,
+                                                                        nested_null_map);
             break;
         case TYPE_TINYINT:
-            res = _execute_number_expanded<Int8, Int16>(offsets, *nested_column, nested_null_map);
+            res = _execute_number_expanded<TYPE_TINYINT, TYPE_SMALLINT>(offsets, *nested_column,
+                                                                        nested_null_map);
             break;
         case TYPE_SMALLINT:
-            res = _execute_number_expanded<Int16, Int32>(offsets, *nested_column, nested_null_map);
+            res = _execute_number_expanded<TYPE_SMALLINT, TYPE_INT>(offsets, *nested_column,
+                                                                    nested_null_map);
             break;
         case TYPE_INT:
-            res = _execute_number_expanded<Int32, Int64>(offsets, *nested_column, nested_null_map);
+            res = _execute_number_expanded<TYPE_INT, TYPE_BIGINT>(offsets, *nested_column,
+                                                                  nested_null_map);
             break;
         case TYPE_BIGINT:
-            res = _execute_number_expanded<Int64, Int128>(offsets, *nested_column, nested_null_map);
+            res = _execute_number_expanded<TYPE_BIGINT, TYPE_LARGEINT>(offsets, *nested_column,
+                                                                       nested_null_map);
             break;
         case TYPE_LARGEINT:
-            res = _execute_number_expanded<Int128, Int128>(offsets, *nested_column,
-                                                           nested_null_map);
+            res = _execute_number_expanded<TYPE_LARGEINT, TYPE_LARGEINT>(offsets, *nested_column,
+                                                                         nested_null_map);
             break;
         case TYPE_FLOAT:
-            res = _execute_number_expanded<Float32, Float64>(offsets, *nested_column,
-                                                             nested_null_map);
+            res = _execute_number_expanded<TYPE_FLOAT, TYPE_DOUBLE>(offsets, *nested_column,
+                                                                    nested_null_map);
             break;
         case TYPE_DOUBLE:
-            res = _execute_number_expanded<Float64, Float64>(offsets, *nested_column,
-                                                             nested_null_map);
+            res = _execute_number_expanded<TYPE_DOUBLE, TYPE_DOUBLE>(offsets, *nested_column,
+                                                                     nested_null_map);
             break;
         case TYPE_DECIMAL32:
-            res = _execute_number_expanded<Decimal32, Decimal32>(offsets, *nested_column,
-                                                                 nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL32, TYPE_DECIMAL32>(offsets, *nested_column,
+                                                                           nested_null_map);
             break;
         case TYPE_DECIMAL64:
-            res = _execute_number_expanded<Decimal64, Decimal64>(offsets, *nested_column,
-                                                                 nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL64, TYPE_DECIMAL64>(offsets, *nested_column,
+                                                                           nested_null_map);
             break;
         case TYPE_DECIMAL128I:
-            res = _execute_number_expanded<Decimal128V3, Decimal128V3>(offsets, *nested_column,
-                                                                       nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL128I, TYPE_DECIMAL128I>(
+                    offsets, *nested_column, nested_null_map);
             break;
         case TYPE_DECIMALV2:
-            res = _execute_number_expanded<Decimal128V2, Decimal128V2>(offsets, *nested_column,
-                                                                       nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMALV2, TYPE_DECIMALV2>(offsets, *nested_column,
+                                                                           nested_null_map);
             break;
         case TYPE_DECIMAL256:
-            res = _execute_number_expanded<Decimal256, Decimal256>(offsets, *nested_column,
-                                                                   nested_null_map);
+            res = _execute_number_expanded<TYPE_DECIMAL256, TYPE_DECIMAL256>(
+                    offsets, *nested_column, nested_null_map);
             break;
         default:
             return nullptr;

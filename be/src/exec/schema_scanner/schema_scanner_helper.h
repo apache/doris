@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstdint>
 #ifndef _SCHEMA_SCANNER_HELPER_H_
 
 #include <stdint.h>
@@ -39,6 +40,9 @@ public:
     static void insert_datetime_value(int col_index, int64_t timestamp, const cctz::time_zone& ctz,
                                       vectorized::Block* block);
 
+    static void insert_bool_value(int col_index, bool bool_val, vectorized::Block* block);
+
+    static void insert_int32_value(int col_index, int32_t int_val, vectorized::Block* block);
     static void insert_int64_value(int col_index, int64_t int_val, vectorized::Block* block);
     static void insert_double_value(int col_index, double double_val, vectorized::Block* block);
 };

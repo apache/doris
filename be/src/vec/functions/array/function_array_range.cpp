@@ -24,12 +24,12 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
@@ -41,7 +41,6 @@
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
@@ -86,10 +85,10 @@ public:
     }
 };
 
-template <typename SourceDataType, typename TimeUnitOrVoid = void>
+template <PrimitiveType SourceDataPType, typename TimeUnitOrVoid = void>
 struct RangeImplUtil {
-    using DataType = std::conditional_t<std::is_same_v<SourceDataType, Int32>, DataTypeInt32,
-                                        DataTypeDateTimeV2>;
+    using SourceDataType = typename PrimitiveTypeTraits<SourceDataPType>::ColumnItemType;
+    using DataType = typename PrimitiveTypeTraits<SourceDataPType>::DataType;
 
     static DataTypePtr get_data_type() { return std::make_shared<DataType>(); }
 
@@ -99,6 +98,10 @@ struct RangeImplUtil {
             if constexpr (std::is_same_v<TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::YEAR>>) {
                 return "array_range_year_unit";
+            } else if constexpr (std::is_same_v<
+                                         TimeUnitOrVoid,
+                                         std::integral_constant<TimeUnit, TimeUnit::QUARTER>>) {
+                return "array_range_quarter_unit";
             } else if constexpr (std::is_same_v<
                                          TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::MONTH>>) {
@@ -146,15 +149,14 @@ struct RangeImplUtil {
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
         }
         auto start_column =
-                assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[0].get());
+                assert_cast<const ColumnVector<SourceDataPType>*>(argument_columns[0].get());
         auto end_column =
-                assert_cast<const ColumnVector<SourceDataType>*>(argument_columns[1].get());
-        const auto* step_column =
-                assert_cast<const ColumnVector<Int32>*>(argument_columns[2].get());
+                assert_cast<const ColumnVector<SourceDataPType>*>(argument_columns[1].get());
+        const auto* step_column = assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
         DCHECK(dest_nested_column != nullptr);
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
-        auto nested_column = reinterpret_cast<ColumnVector<SourceDataType>*>(dest_nested_column);
+        auto nested_column = reinterpret_cast<ColumnVector<SourceDataPType>*>(dest_nested_column);
         dest_offsets.reserve(input_rows_count);
         dest_nested_column->reserve(input_rows_count);
         dest_nested_null_map.reserve(input_rows_count);
@@ -229,9 +231,8 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<UNIT::value, DataTypeDateTimeV2,
-                                                               DataTypeDateTimeV2>(idx, step_row,
-                                                                                   is_null);
+                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
+                                idx, step_row, is_null);
                     }
                     dest_offsets.push_back(offset);
                 }
@@ -241,34 +242,34 @@ private:
     }
 };
 
-template <typename SourceDataType, typename TimeUnitOrVoid = void>
-struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
+template <PrimitiveType SourceDataPType, typename TimeUnitOrVoid = void>
+struct RangeOneImpl : public RangeImplUtil<SourceDataPType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>()};
+        return {std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>()};
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        using ColumnType = std::conditional_t<std::is_same_v<SourceDataType, Int32>, ColumnInt32,
-                                              ColumnDateTimeV2>;
+        using ColumnType =
+                std::conditional_t<SourceDataPType == TYPE_INT, ColumnInt32, ColumnDateTimeV2>;
         auto start_column = ColumnType::create(input_rows_count, 0);
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(start_column),
-                      std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
+                      std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>(),
                       "start_column"});
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
         ColumnNumbers temp_arguments = {block.columns() - 2, arguments[0], block.columns() - 1};
-        return (RangeImplUtil<SourceDataType, TimeUnitOrVoid>::range_execute)(
+        return (RangeImplUtil<SourceDataPType, TimeUnitOrVoid>::range_execute)(
                 block, temp_arguments, result, input_rows_count);
     }
 };
 
-template <typename SourceDataType, typename TimeUnitOrVoid = void>
-struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
+template <PrimitiveType SourceDataPType, typename TimeUnitOrVoid = void>
+struct RangeTwoImpl : public RangeImplUtil<SourceDataPType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
-                std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>()};
+        return {std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>(),
+                std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>()};
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
@@ -277,51 +278,53 @@ struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
-        return (RangeImplUtil<SourceDataType, TimeUnitOrVoid>::range_execute)(
+        return (RangeImplUtil<SourceDataPType, TimeUnitOrVoid>::range_execute)(
                 block, temp_arguments, result, input_rows_count);
     }
 };
 
-template <typename SourceDataType, typename TimeUnitOrVoid = void>
-struct RangeThreeImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
+template <PrimitiveType SourceDataPType, typename TimeUnitOrVoid = void>
+struct RangeThreeImpl : public RangeImplUtil<SourceDataPType, TimeUnitOrVoid> {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
-                std::make_shared<typename RangeImplUtil<SourceDataType>::DataType>(),
+        return {std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>(),
+                std::make_shared<typename RangeImplUtil<SourceDataPType>::DataType>(),
                 std::make_shared<DataTypeInt32>()};
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
-        return (RangeImplUtil<SourceDataType, TimeUnitOrVoid>::range_execute)(
+        return (RangeImplUtil<SourceDataPType, TimeUnitOrVoid>::range_execute)(
                 block, arguments, result, input_rows_count);
     }
 };
 
 void register_function_array_range(SimpleFunctionFactory& factory) {
     /// One argument, just for Int32
-    factory.register_function<FunctionArrayRange<RangeOneImpl<Int32>>>();
+    factory.register_function<FunctionArrayRange<RangeOneImpl<TYPE_INT>>>();
 
     /// Two arguments, for Int32 and DateTimeV2 without Interval
-    factory.register_function<FunctionArrayRange<RangeTwoImpl<Int32>>>();
-    factory.register_function<FunctionArrayRange<RangeTwoImpl<DateTimeV2>>>();
+    factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_INT>>>();
+    factory.register_function<FunctionArrayRange<RangeTwoImpl<TYPE_DATETIMEV2>>>();
 
     /// Three arguments, for Int32 and DateTimeV2 with YEAR to SECOND Interval
-    factory.register_function<FunctionArrayRange<RangeThreeImpl<Int32>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<TYPE_INT>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::QUARTER>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::WEEK>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::WEEK>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::DAY>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::DAY>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::HOUR>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::HOUR>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::MINUTE>>>>();
     factory.register_function<FunctionArrayRange<
-            RangeThreeImpl<DateTimeV2, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
+            RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::SECOND>>>>();
 
     // alias
     factory.register_alias("array_range", "sequence");

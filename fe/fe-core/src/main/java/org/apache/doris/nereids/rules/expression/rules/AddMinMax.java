@@ -277,7 +277,7 @@ public class AddMinMax implements ExpressionPatternRuleFactory {
     }
 
     private boolean isExprNeedAddMinMax(Expression expr) {
-        return (expr instanceof SlotReference) && ((SlotReference) expr).getColumn().isPresent();
+        return (expr instanceof SlotReference) && ((SlotReference) expr).getOriginalColumn().isPresent();
     }
 
     private Map<Expression, MinMaxValue> getExprMinMaxValues(ValueDesc value) {

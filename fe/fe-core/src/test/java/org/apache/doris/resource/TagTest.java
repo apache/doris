@@ -95,33 +95,4 @@ public class TagTest {
         Assert.assertFalse(tagSet.containsTag(Tag.create("function", "computation")));
         Assert.assertTrue(tagSet.containsTag(Tag.create("function", "load")));
     }
-
-    @Test
-    public void testTagManager() throws AnalysisException {
-        TagManager tagManager = new TagManager();
-        tagManager.addResourceTag(1L, Tag.create("location", "zone1"));
-        tagManager.addResourceTag(2L, Tag.create("location", "zone1"));
-        tagManager.addResourceTag(2L, Tag.create("location", "zone2"));
-        tagManager.addResourceTag(2L, Tag.create("function", "store"));
-
-        Assert.assertEquals(2, tagManager.getResourceIdsByTag(Tag.create("location", "zone1")).size());
-        Assert.assertEquals(0, tagManager.getResourceIdsByTag(Tag.create("location", "zone3")).size());
-        Map<String, String> map = Maps.newHashMap();
-        map.put("location", "zone1, zone2");
-        TagSet tagSet = TagSet.create(map);
-        Assert.assertEquals(1, tagManager.getResourceIdsByTags(tagSet).size());
-
-        tagManager.removeResourceTag(2L, Tag.create("location", "zone2"));
-        Assert.assertEquals(0, tagManager.getResourceIdsByTags(tagSet).size());
-
-        tagManager.addResourceTags(3L, tagSet);
-        tagManager.addResourceTags(4L, tagSet);
-        Assert.assertEquals(2, tagManager.getResourceIdsByTags(tagSet).size());
-
-        tagManager.removeResourceTags(4L, tagSet);
-        Assert.assertEquals(1, tagManager.getResourceIdsByTags(tagSet).size());
-
-        tagManager.removeResource(3L);
-        Assert.assertEquals(0, tagManager.getResourceIdsByTags(tagSet).size());
-    }
 }

@@ -22,7 +22,9 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowid_conversion.h"
+#include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "runtime/runtime_state.h"
+#include "vec/exprs/score_runtime.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -81,8 +83,16 @@ struct RowsetReaderContext {
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
-    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
+    std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
+
+    std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
+    std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+    CollectionStatisticsPtr collection_statistics;
+    std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 };
 
 } // namespace doris

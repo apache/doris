@@ -28,16 +28,7 @@ import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.util.concurrent.CopyOnWriteArrayList
 
-suite("test_point_query", "nonConcurrent") {
-    def backendId_to_backendIP = [:]
-    def backendId_to_backendHttpPort = [:]
-    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-    def set_be_config = { key, value ->
-        for (String backend_id: backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
+suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
@@ -56,9 +47,8 @@ suite("test_point_query", "nonConcurrent") {
     // set server side prepared statement url
     def prepare_url = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb + "?&useServerPrepStmts=true"
     try {
-        set_be_config.call("disable_storage_row_cache", "false")
-        sql "set global enable_fallback_to_original_planner = false"
-        sql """set global enable_nereids_planner=true"""
+        sql """set enable_fallback_to_original_planner = false"""
+        sql """set enable_nereids_planner=true"""
         def tableName = realDb + ".tbl_point_query"
         sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
 
@@ -204,6 +194,7 @@ suite("test_point_query", "nonConcurrent") {
                 """
                 sleep(1);
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "laooq", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 1, 1.1111299, [119291.19291], ["111", "222", "333"], 1) """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 stmt.setBigDecimal(1, 1235)
                 stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
                 stmt.setString(3, "a    ddd")
@@ -218,11 +209,19 @@ suite("test_point_query", "nonConcurrent") {
                 nprep_sql """
                 ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
                 nprep_sql """
                 ALTER table ${tableName} DROP COLUMN new_column1;
                 """
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
                 qe_point_select stmt
 
@@ -230,6 +229,10 @@ suite("test_point_query", "nonConcurrent") {
                   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
                 sql "select 1"
+                stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
+                stmt.setBigDecimal(1, 1235)
+                stmt.setBigDecimal(2, new BigDecimal("120939.11130"))
+                stmt.setString(3, "a    ddd")
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
@@ -280,8 +283,8 @@ suite("test_point_query", "nonConcurrent") {
             PROPERTIES (
             "replication_allocation" = "tag.location.default: 1",
             "store_row_column" = "true"
-            ); 
-        """                
+            );
+        """
         sql "insert into test_ODS_EBA_LLREPORT(RPTNO) values('567890')"
         sql "select  /*+ SET_VAR(enable_nereids_planner=true) */  substr(RPTNO,2,5) from test_ODS_EBA_LLREPORT where  RPTNO = '567890'"
 
@@ -298,19 +301,17 @@ suite("test_point_query", "nonConcurrent") {
         "enable_unique_key_merge_on_write" = "true",
         "store_row_column" = "true"
         );
-        """                
+        """
         sql """insert into `test_cc_aaaid2` values('1111111')"""
         qt_sql """SELECT
              `__DORIS_DELETE_SIGN__`,
              aaaid
 
             FROM
-             `test_cc_aaaid2` 
+             `test_cc_aaaid2`
             WHERE
              aaaid = '1111111'"""
     } finally {
-        set_be_config.call("disable_storage_row_cache", "true")
-        sql """set global enable_nereids_planner=true"""
     }
 
     // test partial update/delete
@@ -333,7 +334,7 @@ suite("test_point_query", "nonConcurrent") {
     explain {
         sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
         contains "SHORT-CIRCUIT"
-    } 
+    }
     qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     // read delete sign
@@ -341,7 +342,7 @@ suite("test_point_query", "nonConcurrent") {
 
     // skip delete sign
     sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
-    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select col1, col2, loc3, 'value' from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
 
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
@@ -425,4 +426,54 @@ suite("test_point_query", "nonConcurrent") {
             assertNotEquals(result1, result2)
         }
     }
-} 
+    // test shrink char type
+    sql "DROP TABLE IF EXISTS table_with_chars"
+    sql """
+        CREATE TABLE `table_with_chars` (
+            `col1` smallint NOT NULL,
+            `col2` int NOT NULL,
+            `loc3` char(10) NOT NULL,
+            `value` char(10) NOT NULL,
+            INDEX col3 (`loc3`) USING INVERTED,
+            INDEX col2 (`col2`) USING INVERTED )
+        ENGINE=OLAP UNIQUE KEY(`col1`)
+        DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "row_store_columns" = "col1", "enable_mow_light_delete" = "false" );
+    """
+    sql "insert into table_with_chars values (-10, 20, 'aabc', 'value')"
+    sql "insert into table_with_chars values (10, 20, 'aabc', 'value');"
+    sql "insert into table_with_chars values (20, 30, 'aabc', 'value');"
+    sql "set enable_short_circuit_query = true"
+    qt_sql "select length(loc3) from table_with_chars where col1 = 10"
+
+    def ensure_one_fragment = {
+        sql "set enable_nereids_planner=true"
+        explain {
+            sql "select * from table_with_chars where col1 = 10"
+            check { explainStr ->
+                assertEquals(1, explainStr.count("PLAN FRAGMENT"))
+            }
+        }
+    }()
+
+    // test variant type
+    sql "DROP TABLE IF EXISTS test_with_variant"
+    sql """
+    CREATE TABLE `test_with_variant` (
+        `col1` bigint NULL,
+        `col2` variant NULL
+    ) ENGINE=OLAP
+    UNIQUE KEY(`col1`)
+    DISTRIBUTED BY HASH(`col1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "store_row_column" = "true"
+    );
+    """
+    sql """
+        INSERT INTO test_with_variant VALUES(1, '{"k1":"v1", "k2": 200}');
+    """
+    qt_sql "select col2['k1'] from test_with_variant where col1=1"
+
+}

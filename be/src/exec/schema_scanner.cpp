@@ -28,12 +28,14 @@
 
 #include "exec/schema_scanner/schema_active_queries_scanner.h"
 #include "exec/schema_scanner/schema_backend_active_tasks.h"
+#include "exec/schema_scanner/schema_backend_configuration_scanner.h"
 #include "exec/schema_scanner/schema_backend_kerberos_ticket_cache.h"
 #include "exec/schema_scanner/schema_catalog_meta_cache_stats_scanner.h"
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
+#include "exec/schema_scanner/schema_encryption_keys_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_metadata_name_ids_scanner.h"
@@ -45,13 +47,16 @@
 #include "exec/schema_scanner/schema_rowsets_scanner.h"
 #include "exec/schema_scanner/schema_schema_privileges_scanner.h"
 #include "exec/schema_scanner/schema_schemata_scanner.h"
+#include "exec/schema_scanner/schema_sql_block_rule_status_scanner.h"
 #include "exec/schema_scanner/schema_table_options_scanner.h"
 #include "exec/schema_scanner/schema_table_privileges_scanner.h"
 #include "exec/schema_scanner/schema_table_properties_scanner.h"
 #include "exec/schema_scanner/schema_tables_scanner.h"
+#include "exec/schema_scanner/schema_tablets_scanner.h"
 #include "exec/schema_scanner/schema_user_privileges_scanner.h"
 #include "exec/schema_scanner/schema_user_scanner.h"
 #include "exec/schema_scanner/schema_variables_scanner.h"
+#include "exec/schema_scanner/schema_view_dependency_scanner.h"
 #include "exec/schema_scanner/schema_views_scanner.h"
 #include "exec/schema_scanner/schema_workload_group_privileges.h"
 #include "exec/schema_scanner/schema_workload_group_resource_usage_scanner.h"
@@ -69,7 +74,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -195,6 +199,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFilesScanner::create_unique();
     case TSchemaTableType::SCH_PARTITIONS:
         return SchemaPartitionsScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_CONFIGURATION:
+        return SchemaBackendConfigurationScanner::create_unique();
     case TSchemaTableType::SCH_ROWSETS:
         return SchemaRowsetsScanner::create_unique();
     case TSchemaTableType::SCH_METADATA_NAME_IDS:
@@ -231,6 +237,14 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaBackendKerberosTicketCacheScanner::create_unique();
     case TSchemaTableType::SCH_ROUTINE_LOAD_JOBS:
         return SchemaRoutineLoadJobScanner::create_unique();
+    case TSchemaTableType::SCH_BACKEND_TABLETS:
+        return SchemaTabletsScanner::create_unique();
+    case TSchemaTableType::SCH_VIEW_DEPENDENCY:
+        return SchemaViewDependencyScanner::create_unique();
+    case TSchemaTableType::SCH_SQL_BLOCK_RULE_STATUS:
+        return SchemaSqlBlockRuleStatusScanner::create_unique();
+    case TSchemaTableType::SCH_ENCRYPTION_KEYS:
+        return SchemaEncryptionKeysScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -266,7 +280,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
             nullable_column->insert_data(nullptr, 0);
             continue;
         } else {
-            nullable_column->get_null_map_data().emplace_back(0);
+            nullable_column->push_false_to_nullmap(1);
         }
         switch (col_desc.type) {
         case TYPE_HLL: {
@@ -285,55 +299,55 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
 
         case TYPE_BOOLEAN: {
             uint8_t num = *reinterpret_cast<bool*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnBool*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_TINYINT: {
             int8_t num = *reinterpret_cast<int8_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt8*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_SMALLINT: {
             int16_t num = *reinterpret_cast<int16_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt16*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_INT: {
             int32_t num = *reinterpret_cast<int32_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_BIGINT: {
             int64_t num = *reinterpret_cast<int64_t*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_LARGEINT: {
             __int128 num;
             memcpy(&num, data, sizeof(__int128));
-            assert_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnInt128*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_FLOAT: {
             float num = *reinterpret_cast<float*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DOUBLE: {
             double num = *reinterpret_cast<double*>(data);
-            assert_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(num);
+            assert_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DATE: {
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+            assert_cast<vectorized::ColumnDate*>(col_ptr)->insert_data(
                     reinterpret_cast<char*>(data), 0);
             break;
         }
@@ -345,7 +359,7 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         }
 
         case TYPE_DATETIME: {
-            assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+            assert_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
                     reinterpret_cast<char*>(data), 0);
             break;
         }
@@ -412,20 +426,17 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
 
     switch (type) {
     case TYPE_BIGINT: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                cell.longVal);
+        reinterpret_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(cell.longVal);
         break;
     }
 
     case TYPE_INT: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(
-                cell.intVal);
+        reinterpret_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(cell.intVal);
         break;
     }
 
     case TYPE_BOOLEAN: {
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(
-                cell.boolVal);
+        reinterpret_cast<vectorized::ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
         break;
     }
 
@@ -443,7 +454,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
         datas[0] = src;
         auto data = datas[0];
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
+        reinterpret_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(data), 0);
         break;
     }
@@ -453,7 +464,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         return Status::InternalError(ss.str());
     }
     }
-    nullable_column->get_null_map_data().emplace_back(0);
+    nullable_column->push_false_to_nullmap(1);
     return Status::OK();
 }
 

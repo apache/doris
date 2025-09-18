@@ -58,7 +58,6 @@ public class MysqlProto {
             tmpUser = strList[0];
         }
 
-        context.setQualifiedUser(tmpUser);
         return tmpUser;
     }
 
@@ -210,7 +209,7 @@ public class MysqlProto {
         // try to change catalog, if default_init_catalog inside user property is not 'internal'
         try {
             String userInitCatalog = Env.getCurrentEnv().getAuth().getInitCatalog(context.getQualifiedUser());
-            if (userInitCatalog != null && userInitCatalog != InternalCatalog.INTERNAL_CATALOG_NAME) {
+            if (userInitCatalog != null && !userInitCatalog.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
                 CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(userInitCatalog);
                 if (catalogIf != null) {
                     context.getEnv().changeCatalog(context, userInitCatalog);

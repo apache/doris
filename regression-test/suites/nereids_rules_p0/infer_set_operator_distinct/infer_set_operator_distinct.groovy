@@ -126,7 +126,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_union_order_limit """
-        explain shape plan select * from t1 union select * from t2 order by id limit 10;
+        explain shape plan select * from t1 union (select * from t2 order by id limit 10);
     """
 
     qt_union_inner_join_combination """
@@ -218,7 +218,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_with_hint_union_order_limit """
-        explain shape plan select /*+ USE_CBO_RULE(INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 order by id limit 10;
+        explain shape plan select /*+ USE_CBO_RULE(INFER_SET_OPERATOR_DISTINCT) */ * from t1 union (select * from t2 order by id limit 10);
     """
 
     qt_with_hint_union_inner_join_combination """
@@ -310,7 +310,7 @@ suite("infer_set_operator_distinct") {
     """
 
     qt_with_hint_no_union_order_limit """
-        explain shape plan select /*+ USE_CBO_RULE(NO_INFER_SET_OPERATOR_DISTINCT) */ * from t1 union select * from t2 order by id limit 10;
+        explain shape plan select /*+ USE_CBO_RULE(NO_INFER_SET_OPERATOR_DISTINCT) */ * from t1 union (select * from t2 order by id limit 10);
     """
 
     qt_with_hint_no_union_inner_join_combination """

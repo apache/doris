@@ -50,13 +50,18 @@ public class Fmod extends ScalarFunction
         super("fmod", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Fmod(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Fmod withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Fmod(children.get(0), children.get(1));
+        return new Fmod(getFunctionParams(children));
     }
 
     @Override

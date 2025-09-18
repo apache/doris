@@ -24,7 +24,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -131,6 +130,13 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
 
+    // ATTN: This field is only used for compatible with old version
+    // Do not use it except for replaying OP_CREATE_DB
+    // it will be removed in version 4.0
+    @Deprecated
+    @SerializedName(value = "cn")
+    private String ctlName;
+
     public Database() {
         this(0, null);
     }
@@ -153,6 +159,11 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
+    }
+
+    // DO NOT use it except for replaying OP_CREATE_DB
+    public String getCtlName() {
+        return ctlName;
     }
 
     public void markDropped() {
@@ -232,18 +243,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return strs.length == 2 ? strs[1] : strs[0];
     }
 
+    public void setNameWithoutLock(String newName) {
+        // ClusterNamespace.getNameFromFullName should be removed in 3.0
+        this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
+        for (Table table : idToTable.values()) {
+            table.setQualifiedDbName(fullQualifiedName);
+        }
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            // ClusterNamespace.getNameFromFullName should be removed in 3.0
-            this.fullQualifiedName = ClusterNamespace.getNameFromFullName(newName);
-            for (Table table : idToTable.values()) {
-                table.setQualifiedDbName(fullQualifiedName);
-            }
+            setNameWithoutLock(newName);
         } finally {
             writeUnlock();
         }
     }
+
 
     public void setDataQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
@@ -297,20 +313,14 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
-    public long getUsedDataQuotaWithLock() {
+    public long getUsedDataQuota() {
         return getUsedDataSize().first;
     }
 
     public Pair<Long, Long> getUsedDataSize() {
         long usedDataSize = 0;
         long usedRemoteDataSize = 0;
-        List<Table> tables = new ArrayList<>();
-        readLock();
-        try {
-            tables.addAll(this.idToTable.values());
-        } finally {
-            readUnlock();
-        }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
 
         for (Table table : tables) {
             if (!table.isManagedTable()) {
@@ -352,7 +362,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
-        long usedDataQuota = getUsedDataQuotaWithLock();
+        long usedDataQuota = getUsedDataQuota();
         long leftDataQuota = Math.max(dataQuotaBytes - usedDataQuota, 0);
 
         Pair<Double, String> leftQuotaUnitPair = DebugUtil.getByteUint(leftDataQuota);
@@ -394,42 +404,55 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return nameToTable.containsKey(tableName);
     }
 
-    // return pair <success?, table exist?>
     public Pair<Boolean, Boolean> createTableWithLock(
+            Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
+        writeLockOrDdlException();
+        try {
+            return createTableWithoutLock(table, isReplay, setIfNotExist);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    // return pair <success?, table exist?>
+    // caller must hold db lock
+    public Pair<Boolean, Boolean> createTableWithoutLock(
             Table table, boolean isReplay, boolean setIfNotExist) throws DdlException {
         boolean result = true;
         // if a table is already exists, then edit log won't be executed
         // some caller of this method may need to know this message
         boolean isTableExist = false;
         table.setQualifiedDbName(fullQualifiedName);
-        writeLockOrDdlException();
-        try {
-            String tableName = table.getName();
-            if (Env.isStoredTableNamesLowerCase()) {
-                tableName = tableName.toLowerCase();
-            }
-            if (isTableExist(tableName)) {
-                result = setIfNotExist;
-                isTableExist = true;
-            } else {
+        String tableName = table.getName();
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        if (isTableExist(tableName)) {
+            result = setIfNotExist;
+            isTableExist = true;
+        } else {
+            table.writeLock();
+            try {
                 registerTable(table);
                 if (table.isTemporary()) {
                     Env.getCurrentEnv().registerTempTableAndSession(table);
                 }
-
+                if (table instanceof MTMV) {
+                    Env.getCurrentEnv().getMtmvService().createJob((MTMV) table, isReplay);
+                }
                 if (!isReplay) {
                     // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
+                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, id, table);
                     Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 }
-                if (table.getType() == TableType.ELASTICSEARCH) {
-                    Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-                }
+            } finally {
+                table.writeUnlock();
             }
-            return Pair.of(result, isTableExist);
-        } finally {
-            writeUnlock();
+            if (table.getType() == TableType.ELASTICSEARCH) {
+                Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+            }
         }
+        return Pair.of(result, isTableExist);
     }
 
     @Override
@@ -455,22 +478,32 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return result;
     }
 
+    @Override
     public void unregisterTable(String tableName) {
         if (Env.isStoredTableNamesLowerCase()) {
             tableName = tableName.toLowerCase();
         }
         Table table = getTableNullable(tableName);
+        if (table == null) {
+            return;
+        }
+        unregisterTable(table.getId());
+    }
+
+    public void unregisterTable(Long tableId) {
+        Table table = getTableNullable(tableId);
         if (table != null) {
-            if (table instanceof MTMV) {
-                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
-            }
-            this.nameToTable.remove(tableName);
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            this.nameToTable.remove(table.getName());
+            this.lowerCaseToTableName.remove(table.getName().toLowerCase());
             this.idToTable.remove(table.getId());
             if (table.isTemporary()) {
                 Env.getCurrentEnv().unregisterTempTable(table);
             }
             table.markDropped();
+            // will check mtmv if exist by markDrop, so unregisterMTMV() need after markDropped()
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().unregisterMTMV((MTMV) table);
+            }
         }
     }
 
@@ -647,17 +680,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public static Database read(DataInput in) throws IOException {
         LOG.info("read db from journal {}", in);
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
-            Database db = new Database();
-            db.readFields(in);
-            return db;
-        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_138) {
-            return GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-        } else {
-            Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
-            db.readTables(in);
-            return db;
-        }
+        Database db = GsonUtils.GSON.fromJson(Text.readString(in), Database.class);
+        db.readTables(in);
+        return db;
     }
 
     private void writeTables(DataOutput out) throws IOException {
@@ -684,16 +709,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             registerTable(tb);
         });
 
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
-        }
+        String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
+                String.valueOf(Config.max_running_txn_num_per_db));
+        transactionQuotaSize = Long.parseLong(txnQuotaStr);
+        binlogConfig = dbProperties.getBinlogConfig();
 
         for (ImmutableList<Function> functions : name2Function.values()) {
             for (Function function : functions) {
@@ -740,50 +759,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     public void analyze() {
         for (Table table : nameToTable.values()) {
             table.analyze(getFullName());
-        }
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        id = in.readLong();
-        fullQualifiedName = Text.readString(in);
-        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
-        // read groups
-        int numTables = in.readInt();
-        for (int i = 0; i < numTables; ++i) {
-            Table table = Table.read(in);
-            registerTable(table);
-        }
-
-        // read quota
-        dataQuotaBytes = in.readLong();
-        // cluster
-        Text.readString(in);
-        dbState = DbState.valueOf(Text.readString(in));
-        attachDbName = Text.readString(in);
-
-        FunctionUtil.readFields(in, this.getFullName(), name2Function);
-
-        // read encryptKeys
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_102) {
-            dbEncryptKey = DatabaseEncryptKey.read(in);
-        }
-
-        replicaQuotaSize = in.readLong();
-
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
-            dbProperties = DatabaseProperty.read(in);
-            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
-                    String.valueOf(Config.max_running_txn_num_per_db));
-            transactionQuotaSize = Long.parseLong(txnQuotaStr);
-            binlogConfig = dbProperties.getBinlogConfig();
-        } else {
-            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
-                    ? Config.max_running_txn_num_per_db
-                    : Config.default_db_max_running_txn_num;
         }
     }
 

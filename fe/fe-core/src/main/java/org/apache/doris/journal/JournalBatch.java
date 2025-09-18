@@ -17,6 +17,7 @@
 
 package org.apache.doris.journal;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.OperationType;
@@ -68,6 +69,10 @@ public class JournalBatch {
 
     public ArrayList<Entity> getJournalEntities() {
         return entities;
+    }
+
+    public boolean shouldFlush() {
+        return size >= Config.batch_edit_log_max_byte_size || entities.size() >= Config.batch_edit_log_max_item_num;
     }
 
     public static class Entity {

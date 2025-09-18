@@ -30,7 +30,7 @@ TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     ColumnWithTypeAndName column_with_type_and_name;
     auto null_column = ColumnNullable::create(ColumnHelper::create_column<DataTypeInt32>({1}),
                                               ColumnHelper::create_column<DataTypeUInt8>({true}));
-    column_with_type_and_name.column = ColumnConst::create(null_column, 3);
+    column_with_type_and_name.column = ColumnConst::create(std::move(null_column), 3);
     column_with_type_and_name.type =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     column_with_type_and_name.name = "column_with_type_and_name";

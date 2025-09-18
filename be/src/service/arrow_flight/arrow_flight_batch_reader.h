@@ -77,6 +77,8 @@ private:
     ArrowFlightBatchLocalReader(const std::shared_ptr<QueryStatement>& statement,
                                 const std::shared_ptr<arrow::Schema>& schema,
                                 const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
+
+    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out);
 };
 
 class ArrowFlightBatchRemoteReader : public ArrowFlightBatchReaderBase {
@@ -94,6 +96,7 @@ private:
     ArrowFlightBatchRemoteReader(const std::shared_ptr<QueryStatement>& statement,
                                  const std::shared_ptr<PBackendService_Stub>& stub);
 
+    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out);
     arrow::Status _fetch_schema();
     arrow::Status _fetch_data();
 

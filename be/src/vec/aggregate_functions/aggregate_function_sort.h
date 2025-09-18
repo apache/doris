@@ -23,9 +23,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <memory>
-#include <new>
-#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,7 +35,6 @@
 #include "vec/core/sort_block.h"
 #include "vec/core/sort_description.h"
 #include "vec/core/types.h"
-#include "vec/io/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -76,16 +72,18 @@ struct AggregateFunctionSortData {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
-        static_cast<void>(block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
-                                          &compressed_bytes,
-                                          segment_v2::CompressionTypePB::NO_COMPRESSION));
+        auto st = block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
+                                  &compressed_bytes, segment_v2::CompressionTypePB::NO_COMPRESSION);
+        if (!st.ok()) {
+            throw doris::Exception(st);
+        }
 
-        write_string_binary(pblock.SerializeAsString(), buf);
+        buf.write_binary(pblock.SerializeAsString());
     }
 
     void deserialize(BufferReadable& buf) {
         std::string data;
-        read_binary(data, buf);
+        buf.read_binary(data);
 
         PBlock pblock;
         pblock.ParseFromString(data);
@@ -147,12 +145,12 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).add(columns, _arguments.size(), row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -161,7 +159,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).deserialize(buf);
     }
 
@@ -179,7 +177,7 @@ public:
 
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),
                                                  get_nested_place(place), arguments_nested.data(),
-                                                 &arena);
+                                                 arena);
         }
 
         _nested_func->insert_result_into(get_nested_place(place), to);

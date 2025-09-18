@@ -201,11 +201,7 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs")
-
-if (USE_DWARF)
-    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
-endif()
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -ggdb -Wno-unused-local-typedefs -gdwarf-5")
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
@@ -266,26 +262,25 @@ include_directories(
     ${GPERFTOOLS_HOME}/include
 )
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
+option(ENABLE_HDFS_STORAGE_VAULT "Enable HDFS storage support" ON)
+if (ENABLE_HDFS_STORAGE_VAULT)
+    add_compile_definitions(ENABLE_HDFS_STORAGE_VAULT)
+    if ("${DORIS_JAVA_HOME}" STREQUAL "")
+        set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
+    endif()
 
-include_directories(${DORIS_JAVA_HOME}/include)
-if (NOT OS_MACOSX)
-    include_directories(${DORIS_JAVA_HOME}/include/linux)
-else()
-    include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    include_directories(${DORIS_JAVA_HOME}/include)
+    if (NOT OS_MACOSX)
+        include_directories(${DORIS_JAVA_HOME}/include/linux)
+    else()
+        include_directories(${DORIS_JAVA_HOME}/include/darwin)
+    endif()
 endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
 # Set Doris libraries
-set(DORIS_LINK_LIBS
-    ${WL_START_GROUP}
-    ${WL_END_GROUP}
-)
-
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
     set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs/native/libhdfs.a)
@@ -316,29 +311,22 @@ set(DORIS_DEPENDENCIES
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
-if ("${DORIS_JAVA_HOME}" STREQUAL "")
-    set(DORIS_JAVA_HOME "$ENV{JAVA_HOME}")
-endif()
-
 # Add all external dependencies. They should come after the project's libs.
 # static link gcc's lib
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${WL_START_GROUP}
-    CloudGen
-    Common
-    MetaService
-    ResourceManager
-    Recycler
-    RateLimiter
-    ${WL_END_GROUP}
+set(DORIS_LINK_LIBS
     CommonCPP
     ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
     -lresolv
-    -L${DORIS_JAVA_HOME}/lib/server
-    -ljvm
 )
+
+if (ENABLE_HDFS_STORAGE_VAULT)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -L${DORIS_JAVA_HOME}/lib/server
+        -ljvm)
+endif()
+
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()
@@ -387,15 +375,6 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 if(BUILD_CHECK_META STREQUAL "ON")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lmysqlclient)
 endif ()
-
-# Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
-    ${WL_START_GROUP}
-    gmock
-    gtest
-    gtest_main
-    ${WL_END_GROUP}
-)
 
 # Only build static libs
 set(BUILD_SHARED_LIBS OFF)
@@ -478,12 +457,48 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
 
+set(DORIS_CLOUD_LIBS
+    CloudGen
+    Common
+    MetaService
+    MetaStore
+    ResourceManager
+    Recycler
+    RateLimiter
+    Snapshot
+)
+
+if (EXISTS ${SRC_DIR}/enterprise/CMakeLists.txt)
+    add_subdirectory(${SRC_DIR}/enterprise)
+    if (DORIS_ADDITIONAL_DEFINITIONS)
+        add_definitions(${DORIS_ADDITIONAL_DEFINITIONS})
+    endif()
+endif()
+
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/gen-cpp)
 add_subdirectory(${SRC_DIR}/meta-service)
+add_subdirectory(${SRC_DIR}/meta-store)
 add_subdirectory(${SRC_DIR}/recycler)
 add_subdirectory(${SRC_DIR}/rate-limiter)
 add_subdirectory(${SRC_DIR}/resource-manager)
+add_subdirectory(${SRC_DIR}/snapshot)
+
+# Set libraries for doris_cloud
+set(DORIS_LINK_LIBS
+    ${WL_START_GROUP}
+    ${DORIS_CLOUD_LIBS}
+    ${WL_END_GROUP}
+    ${DORIS_LINK_LIBS})
+
+# Set libraries for test
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
+    ${WL_START_GROUP}
+    gmock
+    gtest
+    gtest_main
+    ${WL_END_GROUP}
+)
 
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR})
@@ -530,6 +545,9 @@ install(FILES
 
 install(FILES
     ${BASE_DIR}/conf/doris_cloud.conf
+    ${BASE_DIR}/conf/asan_suppr.conf
+    ${BASE_DIR}/conf/lsan_suppr.conf
+    ${BASE_DIR}/conf/ubsan_suppr.conf
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES

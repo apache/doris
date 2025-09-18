@@ -63,6 +63,7 @@ public:
     [[nodiscard]] size_t get_cache_instance_size() const { return _caches.size(); }
 
     std::vector<std::string> get_cache_file_by_path(const UInt128Wrapper& hash);
+    int64_t get_cache_file_size_by_path(const UInt128Wrapper& hash);
 
     BlockFileCache* get_by_path(const UInt128Wrapper& hash);
     BlockFileCache* get_by_path(const std::string& cache_base_path);
@@ -76,6 +77,11 @@ public:
      * @return summary message
      */
     std::string clear_file_caches(bool sync);
+
+    /**
+     * dump lru queue info for all file cache instances
+     */
+    void dump_all_caches();
 
     std::vector<std::string> get_base_paths();
 

@@ -328,7 +328,12 @@ public class GroupExpression {
 
     @Override
     public int hashCode() {
-        return Objects.hash(children, plan);
+        long hashCode = 1;
+        for (int i = 0; i < children.size(); i++) {
+            hashCode = 31 * hashCode + children.get(i).hashCode();
+        }
+        hashCode = hashCode * 31 + plan.hashCode();
+        return (int) hashCode;
     }
 
     public Statistics childStatistics(int idx) {

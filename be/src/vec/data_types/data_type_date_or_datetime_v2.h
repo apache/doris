@@ -42,7 +42,6 @@ class PColumnMeta;
 
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris
@@ -53,18 +52,19 @@ namespace doris::vectorized {
  * Use UInt32 as underlying type to represent DateV2 type.
  * Specifically, a dateV2 type is represented as (YYYY (23 bits), MM (4 bits), dd (5 bits)).
  */
-class DataTypeDateV2 final : public DataTypeNumberBase<UInt32> {
+class DataTypeDateV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATEV2> {
 public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATEV2; }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATEV2;
     }
-    const char* get_family_name() const override { return "DateV2"; }
+    const std::string get_family_name() const override { return "DateV2"; }
     std::string do_get_name() const override { return "DateV2"; }
 
+    using SerDeType = DataTypeDateV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateV2SerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -79,8 +79,8 @@ public:
     }
     bool equals(const IDataType& rhs) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<UInt32>::template to_string_batch_impl<DataTypeDateV2>(column,
-                                                                                  column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
+                DataTypeDateV2>(column, column_to);
     }
 
     size_t number_length() const;
@@ -88,7 +88,6 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt32 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -105,7 +104,7 @@ public:
  *                                                    |                  27 bits              |                         37 bits                        |
  * Specifically, a dateTimeV2 type is represented as (YYYY (18 bits), MM (4 bits), dd (5 bits), HH (5 bits), mm (6 bits), SS (6 bits), ssssss (20 bits)).
  */
-class DataTypeDateTimeV2 final : public DataTypeNumberBase<UInt64> {
+class DataTypeDateTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     static constexpr bool is_parametric = true;
 
@@ -124,23 +123,23 @@ public:
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
-    const char* get_family_name() const override { return "DateTimeV2"; }
+    const std::string get_family_name() const override { return "DateTimeV2"; }
     std::string do_get_name() const override { return "DateTimeV2"; }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<UInt64>::template to_string_batch_impl<DataTypeDateTimeV2>(column,
-                                                                                      column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<
+                DataTypeDateTimeV2>(column, column_to);
     }
 
     size_t number_length() const;
     void push_number(ColumnString::Chars& chars, const UInt64& num) const;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt64 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);
+        return std::make_shared<SerDeType>(_scale, nesting_level);
     };
 
     Field get_field(const TExprNode& node) const override {
@@ -161,6 +160,9 @@ public:
     UInt32 get_scale() const override { return _scale; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

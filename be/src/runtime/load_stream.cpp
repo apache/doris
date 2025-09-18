@@ -57,7 +57,7 @@ bvar::Adder<int64_t> g_load_stream_cnt("load_stream_count");
 bvar::LatencyRecorder g_load_stream_flush_wait_ms("load_stream_flush_wait_ms");
 bvar::Adder<int> g_load_stream_flush_running_threads("load_stream_flush_wait_threads");
 
-TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
+TabletStream::TabletStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                            LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
         : _id(id),
           _next_segid(0),
@@ -72,7 +72,7 @@ TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream) {
-    ostr << "load_id=" << tablet_stream._load_id << ", txn_id=" << tablet_stream._txn_id
+    ostr << "load_id=" << print_id(tablet_stream._load_id) << ", txn_id=" << tablet_stream._txn_id
          << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status.status();
     return ostr;
 }
@@ -221,11 +221,6 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
-    TabletSchemaSPtr flush_schema;
-    if (header.has_flush_schema()) {
-        flush_schema = std::make_shared<TabletSchema>();
-        flush_schema->init_from_pb(header.flush_schema());
-    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -252,9 +247,9 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+    auto add_segment_func = [this, new_segid, stat]() {
         signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
@@ -296,6 +291,8 @@ Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
 
 void TabletStream::pre_close() {
     if (!_status.ok()) {
+        // cancel all pending tasks, wait all running tasks to finish
+        _flush_token->shutdown();
         return;
     }
 
@@ -332,7 +329,7 @@ Status TabletStream::close() {
     return _status.status();
 }
 
-IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
+IndexStream::IndexStream(const PUniqueId& load_id, int64_t id, int64_t txn_id,
                          std::shared_ptr<OlapTableSchemaParam> schema,
                          LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
         : _id(id),
@@ -415,7 +412,8 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
 // TODO: Profile is temporary disabled, because:
 // 1. It's not being processed by the upstream for now
 // 2. There are some problems in _profile->to_thrift()
-LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
+LoadStream::LoadStream(const PUniqueId& load_id, LoadStreamMgr* load_stream_mgr,
+                       bool enable_profile)
         : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     g_load_stream_cnt << 1;
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
@@ -643,9 +641,10 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     // otherwise the message will be ignored and causing close wait timeout
     if (hdr.opcode() != PStreamHeader::CLOSE_LOAD) {
         DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
-            PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
-            load_id.set_hi(UNKNOWN_ID_FOR_TEST);
-            load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+            PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+            PUniqueId* load_id = t_hdr.mutable_load_id();
+            load_id->set_hi(UNKNOWN_ID_FOR_TEST);
+            load_id->set_lo(UNKNOWN_ID_FOR_TEST);
         });
         DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
             PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);

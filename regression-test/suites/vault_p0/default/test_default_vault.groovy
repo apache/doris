@@ -185,6 +185,16 @@ suite("test_default_vault", "nonConcurrent") {
     }
     assertTrue(found)
 
+    expectExceptionLike({
+        sql """
+            ALTER STORAGE VAULT ${s3VaultName}
+            PROPERTIES (
+                "type"="s3",
+                "VAULT_NAME" = "${s3VaultName}_rename"
+            );
+        """
+    }, "Cannot rename default storage vault")
+
     sql """
         CREATE TABLE ${s3TableName}_2 (
             C_CUSTKEY     INTEGER NOT NULL,

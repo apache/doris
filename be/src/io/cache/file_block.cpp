@@ -172,8 +172,8 @@ Status FileBlock::change_cache_type_between_ttl_and_others(FileCacheType new_typ
     if (!expr) {
         LOG(WARNING) << "none of the cache type is TTL"
                      << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
-                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
-                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
+                     << ", new type: " << cache_type_to_string(new_type)
+                     << ", old type: " << cache_type_to_string(_key.meta.type);
     }
     DCHECK(expr);
 
@@ -189,8 +189,8 @@ Status FileBlock::change_cache_type_between_normal_and_index(FileCacheType new_t
     if (!expr) {
         LOG(WARNING) << "one of the cache type is TTL"
                      << ", hash: " << _key.hash.to_string() << ", offset: " << _key.offset
-                     << ", new type: " << BlockFileCache::cache_type_to_string(new_type)
-                     << ", old type: " << BlockFileCache::cache_type_to_string(_key.meta.type);
+                     << ", new type: " << cache_type_to_string(new_type)
+                     << ", old type: " << cache_type_to_string(_key.meta.type);
     }
     DCHECK(expr);
     if (_key.meta.type == FileCacheType::TTL || new_type == _key.meta.type) {

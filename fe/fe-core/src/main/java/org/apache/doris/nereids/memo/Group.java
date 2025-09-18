@@ -44,7 +44,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -160,6 +159,12 @@ public class Group {
     public GroupExpression getLogicalExpression() {
         Preconditions.checkArgument(logicalExpressions.size() == 1,
                 "There should be only one Logical Expression in Group");
+        return logicalExpressions.get(0);
+    }
+
+    public GroupExpression getFirstLogicalExpression() {
+        Preconditions.checkArgument(!logicalExpressions.isEmpty(),
+                "There should be more than one Logical Expression in Group");
         return logicalExpressions.get(0);
     }
 
@@ -421,12 +426,12 @@ public class Group {
         return false;
     }
 
-    public StructInfoMap getstructInfoMap() {
+    public StructInfoMap getStructInfoMap() {
         return structInfoMap;
     }
 
     public boolean isProjectGroup() {
-        return getLogicalExpression().getPlan() instanceof LogicalProject;
+        return getFirstLogicalExpression().getPlan() instanceof LogicalProject;
     }
 
     @Override
@@ -443,7 +448,7 @@ public class Group {
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupId);
+        return 31 * groupId.asInt();
     }
 
     @Override

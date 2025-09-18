@@ -48,17 +48,24 @@ struct TTabletSchema {
     // col unique id for row store column
     20: optional list<i32> row_store_col_cids
     21: optional i64 row_store_page_size = 16384
-    22: optional bool variant_enable_flatten_nested = false 
+    22: optional bool variant_enable_flatten_nested = false
     23: optional i64 storage_page_size = 65536
+    24: optional i64 storage_dict_page_size = 262144
 }
 
 // this enum stands for different storage format in src_backends
 // V1 for Segment-V1
 // V2 for Segment-V2
 enum TStorageFormat {
-    DEFAULT,
-    V1,
-    V2
+    DEFAULT = 0,
+    V1 = 1,
+    V2 = 2
+}
+
+enum TEncryptionAlgorithm {
+    PLAINTEXT = 0,
+    AES256 = 1,
+    SM4 = 2
 }
 
 enum TTabletType {
@@ -74,7 +81,8 @@ enum TObjStorageType {
     COS = 4,
     OBS = 5,
     OSS = 6,
-    GCP = 7
+    GCP = 7,
+    TOS = 8
 }
 
 enum TCredProviderType {
@@ -127,6 +135,24 @@ struct TPushStoragePolicyReq {
     3: optional list<i64> dropped_storage_policy
 }
 
+enum TIndexPolicyType {
+    ANALYZER,
+    TOKENIZER,
+    TOKEN_FILTER
+}
+
+struct TIndexPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional TIndexPolicyType type
+    4: optional map<string, string> properties
+}
+
+struct TPushIndexPolicyReq {
+    1: optional list<TIndexPolicy> index_policys
+    2: optional list<i64> dropped_index_policys
+}
+
 struct TCleanTrashReq {}
 
 struct TCleanUDFCacheReq {
@@ -149,9 +175,9 @@ enum TCompressionType {
 // This enum is used to distinguish between different organizational methods
 // of inverted index data, affecting how the index is stored and accessed.
 enum TInvertedIndexStorageFormat {
-    DEFAULT, // Default format, unspecified storage method.
-    V1,      // Index per idx: Each index is stored separately based on its identifier.
-    V2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
+    DEFAULT = 0, // Default format, unspecified storage method.
+    V1 = 1,      // Index per idx: Each index is stored separately based on its identifier.
+    V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
 struct TBinlogConfig {
@@ -196,6 +222,7 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
+    30: optional TEncryptionAlgorithm tde_algorithm
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -260,6 +287,7 @@ struct TAlterInvertedIndexReq {
     8: optional list<Descriptors.TColumn> columns
     9: optional i64 job_id
     10: optional i64 expiration
+    11: optional i32 schema_version
 }
 
 struct TTabletGcBinlogInfo {
@@ -307,6 +335,7 @@ struct TPushReq {
     16: optional list<Descriptors.TColumn> columns_desc
     17: optional string storage_vault_id
     18: optional i32 schema_version
+    19: optional list<Descriptors.TOlapTableIndex> index_list;
 }
 
 struct TCloneReq {
@@ -383,6 +412,7 @@ struct TDownloadReq {
     5: optional Types.TStorageBackendType storage_backend = Types.TStorageBackendType.BROKER
     6: optional string location // root path
     7: optional list<TRemoteTabletSnapshot> remote_tablet_snapshots
+    8: optional string vault_id // for cloud restore
 }
 
 struct TSnapshotRequest {
@@ -406,6 +436,9 @@ struct TSnapshotRequest {
 
 struct TReleaseSnapshotRequest {
     1: required string snapshot_path
+    2: optional Types.TTabletId tablet_id
+    // indicates the job is completed or cancelled
+    3: optional bool is_job_completed
 }
 
 struct TClearRemoteFileReq {
@@ -428,7 +461,7 @@ struct TMoveDirReq {
 }
 
 enum TAgentServiceVersion {
-    V1
+    V1 = 0
 }
 
 struct TPublishVersionRequest {
@@ -478,9 +511,9 @@ struct TRecoverTabletReq {
 }
 
 enum TTabletMetaType {
-    PARTITIONID,
-    INMEMORY,
-    BINLOG_CONFIG
+    PARTITIONID = 0,
+    INMEMORY = 1,
+    BINLOG_CONFIG = 2
 }
 
 struct TTabletMetaInfo {
@@ -563,6 +596,7 @@ struct TAgentTaskRequest {
     34: optional TCleanTrashReq clean_trash_req
     35: optional TVisibleVersionReq visible_version_req
     36: optional TCleanUDFCacheReq clean_udf_cache_req
+    37: optional TPushIndexPolicyReq push_index_policy_req
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req

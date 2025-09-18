@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 
 public class DeleteBitmapUpdateLockContext {
+    private long lockId;
     private Map<Long, Long> baseCompactionCnts;
     private Map<Long, Long> cumulativeCompactionCnts;
     private Map<Long, Long> cumulativePoints;
@@ -37,7 +38,8 @@ public class DeleteBitmapUpdateLockContext {
     private Map<Long, List<Long>> tableToTabletList;
     private Map<Long, TabletMeta> tabletToTabletMeta;
 
-    public DeleteBitmapUpdateLockContext() {
+    public DeleteBitmapUpdateLockContext(long lockId) {
+        this.lockId = lockId;
         baseCompactionCnts = Maps.newHashMap();
         cumulativeCompactionCnts = Maps.newHashMap();
         cumulativePoints = Maps.newHashMap();
@@ -47,6 +49,10 @@ public class DeleteBitmapUpdateLockContext {
         backendToPartitionTablets = Maps.newHashMap();
         tableToTabletList = Maps.newHashMap();
         tabletToTabletMeta = Maps.newHashMap();
+    }
+
+    public long getLockId() {
+        return lockId;
     }
 
     public Map<Long, List<Long>> getTableToTabletList() {

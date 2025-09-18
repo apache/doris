@@ -37,7 +37,6 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
@@ -67,7 +66,7 @@ class FunctionConvertTZ : public IFunction {
     using ColumnType = date_cast::TypeToColumnV<ArgDateType>;
     using NativeType = date_cast::ValueTypeOfColumnV<ColumnType>;
     constexpr static bool is_v1 = date_cast::IsV1<ArgDateType>();
-    using ReturnDateType = std::conditional_t<is_v1, DataTypeDateTime, ArgDateType>;
+    using ReturnDateType = ArgDateType;
     using ReturnDateValueType = date_cast::TypeToValueTypeV<ReturnDateType>;
     using ReturnColumnType = date_cast::TypeToColumnV<ReturnDateType>;
     using ReturnNativeType = date_cast::ValueTypeOfColumnV<ReturnColumnType>;

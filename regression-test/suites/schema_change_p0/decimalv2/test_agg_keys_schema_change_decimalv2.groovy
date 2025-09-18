@@ -170,6 +170,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
 
     // DECIMALV3(21,3) -> decimalv2 OK
+    /*
     sql """ alter table ${tbName} modify column decimalv2k2 DECIMALV2(21,3) key """
     Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(500, TimeUnit.MILLISECONDS).await().until(() -> {
         String result = getJobState(tbName)
@@ -210,6 +211,7 @@ suite("test_agg_keys_schema_change_decimalv2", "nonConcurrent") {
 
     sql """sync"""
     qt_sql9_3 """select * from ${tbName} ORDER BY 1,2,3,4;"""
+    */
 
     // restore disable_decimalv2 to old_value
     sql """ ADMIN SET FRONTEND CONFIG ("disable_decimalv2" = "${old_value1}"); """

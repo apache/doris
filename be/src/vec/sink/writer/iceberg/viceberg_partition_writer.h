@@ -50,6 +50,7 @@ public:
         std::string original_write_path;
         std::string target_path;
         TFileType::type file_type;
+        std::vector<TNetworkAddress> broker_addresses;
     };
 
     VIcebergPartitionWriter(const TDataSink& t_sink, std::vector<std::string> partition_values,

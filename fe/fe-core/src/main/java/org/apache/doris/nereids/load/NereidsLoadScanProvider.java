@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -35,11 +36,13 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -59,6 +62,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -161,11 +165,20 @@ public class NereidsLoadScanProvider {
         //          (k1, k2, tmpk3 = k1 + k2, k3 = k1 + k2)
         //     so "tmpk3 = k1 + k2" is not needed anymore, we can skip it.
         List<NereidsImportColumnDesc> copiedColumnExprs = new ArrayList<>(columnDescs.size());
+        Set<String> constantMappingColumns = new HashSet<>();
         for (NereidsImportColumnDesc importColumnDesc : columnDescs) {
             String mappingColumnName = importColumnDesc.getColumnName();
-            if (importColumnDesc.isColumn() || tbl.getColumn(mappingColumnName) != null) {
+            if (importColumnDesc.isColumn()) {
                 copiedColumnExprs.add(importColumnDesc);
+            } else if (tbl.getColumn(mappingColumnName) != null) {
+                copiedColumnExprs.add(importColumnDesc);
+                // Only track columns with constant expressions (e.g., "k1 = 'constant'")
+                // Non-constant expressions (e.g., "k1 = k1 + 1") still need to read from file
+                if (importColumnDesc.getExpr().isConstant()) {
+                    constantMappingColumns.add(mappingColumnName);
+                }
             }
+            // Skip mapping columns that don't exist in table schema
         }
 
         // check whether the OlapTable has sequenceCol and skipBitmapCol
@@ -185,8 +198,13 @@ public class NereidsLoadScanProvider {
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema(false);
             for (Column column : columns) {
+                if (constantMappingColumns.contains(column.getName())) {
+                    // Skip this column because user has already specified a constant mapping expression for it
+                    // in the COLUMNS parameter (e.g., "column_name = 'constant_value'")
+                    continue;
+                }
                 NereidsImportColumnDesc columnDesc;
-                if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_JSON) {
+                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
                 } else {
                     columnDesc = new NereidsImportColumnDesc(column.getName().toLowerCase());
@@ -238,58 +256,6 @@ public class NereidsLoadScanProvider {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
-        HashMap<String, Type> colToType = new HashMap<>();
-        // check default value and auto-increment column
-        for (Column column : tbl.getBaseSchema()) {
-            if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    && !partialUpdateInputColumns.contains(column.getName())) {
-                continue;
-            }
-            String columnName = column.getName();
-            colToType.put(columnName, column.getType());
-            Expression expression = null;
-            if (column.getGeneratedColumnInfo() != null) {
-                // the generated column will be handled by bindSink
-            } else {
-                if (columnExprMap.get(columnName) != null) {
-                    expression = columnExprMap.get(columnName);
-                } else {
-                    // other column with default value will be handled by bindSink
-                }
-            }
-            if (expression != null) {
-                // check hll_hash
-                if (column.getDataType() == PrimitiveType.HLL) {
-                    if (!(expression instanceof UnboundFunction)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
-                    }
-                    UnboundFunction function = (UnboundFunction) expression;
-                    String functionName = function.getName();
-                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
-                            && !functionName.equalsIgnoreCase("hll_empty")
-                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
-                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
-                                + columnName + "=hll_empty()");
-                    }
-                }
-
-                if (fileGroup.isNegative() && column.getAggregationType() != null
-                        && column.getAggregationType() == AggregateType.SUM) {
-                    expression = new Multiply(expression, new IntegerLiteral(-1));
-                }
-
-                // check Bitmap Compatibility and check QuantileState Compatibility need be checked after binding
-                // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
-                // and if input string is not a valid json string, return null. this need be handled after binding
-                expression = ExpressionUtils.replace(expression, replaceMap);
-                replaceMap.put(new UnboundSlot(columnName), expression);
-                context.exprMap.put(column.getName(), expression);
-            }
-        }
-
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = fileGroup.getColumnToHadoopFunction();
         // validate hadoop functions
         if (columnToHadoopFunction != null) {
@@ -315,8 +281,74 @@ public class NereidsLoadScanProvider {
             }
         }
 
-        // create scan SlotReferences and transform hadoop functions
+        HashMap<String, Type> colToType = new HashMap<>();
+        // check default value and auto-increment column
+        for (Column column : tbl.getBaseSchema()) {
+            if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                    && !partialUpdateInputColumns.contains(column.getName())) {
+                continue;
+            }
+            String columnName = column.getName();
+            colToType.put(columnName, column.getType());
+            Expression expression = null;
+            if (column.getGeneratedColumnInfo() != null) {
+                // the generated column will be handled by bindSink
+                continue;
+            }
+
+            if (columnExprMap.get(columnName) != null) {
+                expression = columnExprMap.get(columnName);
+                expression = transformHadoopFunctionExpr(tbl, columnName, expression);
+            } else {
+                // If NEGATIVE keyword is specified and column aggregate type is SUM, create an
+                // unbound slot
+                // This allows subsequent negative value processing (multiply by -1) for SUM
+                // type columns
+                if (fileGroup.isNegative() && column.getAggregationType() != null
+                        && column.getAggregationType() == AggregateType.SUM) {
+                    expression = new UnboundSlot(columnName);
+                }
+                // other column with default value will be handled by bindSink
+            }
+
+            if (expression != null) {
+                // check hll_hash
+                if (column.getDataType() == PrimitiveType.HLL) {
+                    if (!(expression instanceof UnboundFunction)) {
+                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                    }
+                    UnboundFunction function = (UnboundFunction) expression;
+                    String functionName = function.getName();
+                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
+                            && !functionName.equalsIgnoreCase("hll_empty")
+                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
+                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
+                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
+                                + columnName + "=hll_empty()");
+                    }
+                }
+
+                // If NEGATIVE keyword is specified and column aggregate type is SUM, multiply expression by -1
+                // This implements negative value import functionality, converting additive values to subtractive values
+                if (fileGroup.isNegative() && column.getAggregationType() != null
+                        && column.getAggregationType() == AggregateType.SUM) {
+                    expression = new Multiply(expression, new IntegerLiteral(-1));
+                }
+
+                // check Bitmap Compatibility and check QuantileState Compatibility need be checked after binding
+                // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
+                // and if input string is not a valid json string, return null. this need be handled after binding
+                // expression = ExpressionUtils.replace(expression, replaceMap);
+                // replaceMap.put(new UnboundSlot(columnName), expression);
+                context.exprMap.put(column.getName(), expression);
+            }
+        }
+
+        // create scan SlotReferences
         boolean hasColumnFromTable = false;
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (NereidsImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
@@ -331,13 +363,12 @@ public class NereidsLoadScanProvider {
                 realColName = tblColumn.getName();
             }
             if (importColumnDesc.getExpr() != null) {
-                if (tblColumn.getGeneratedColumnInfo() == null) {
-                    Expression expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
-                    context.exprMap.put(realColName, expr);
+                if (tblColumn.getGeneratedColumnInfo() == null && !context.exprMap.containsKey(realColName)) {
+                    context.exprMap.put(realColName, importColumnDesc.getExpr());
                 }
             } else {
                 Column slotColumn;
-                if (formatType(fileGroup.getFileFormat()) == TFileFormatType.FORMAT_ARROW) {
+                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_ARROW) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
@@ -364,7 +395,9 @@ public class NereidsLoadScanProvider {
                         slotColumn = new Column(realColName, PrimitiveType.VARCHAR, true);
                     }
                 }
-                context.scanSlots.add(SlotReference.fromColumn(tbl, slotColumn, tbl.getFullQualifiers()));
+                context.scanSlots.add(
+                        SlotReference.fromColumn(exprIdGenerator.getNextId(), tbl, slotColumn, tbl.getFullQualifiers())
+                );
             }
         }
         if (!hasColumnFromTable) {

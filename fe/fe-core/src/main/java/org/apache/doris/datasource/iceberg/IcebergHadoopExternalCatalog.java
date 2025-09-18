@@ -18,16 +18,11 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.property.PropertyConverter;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.hadoop.HadoopCatalog;
 
 import java.util.Map;
 
@@ -36,7 +31,6 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
     public IcebergHadoopExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                         String comment) {
         super(catalogId, name, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
         String warehouse = props.get(CatalogProperties.WAREHOUSE_LOCATION);
         Preconditions.checkArgument(StringUtils.isNotEmpty(warehouse),
                 "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
@@ -51,33 +45,4 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         }
     }
 
-    @Override
-    protected void initCatalog() {
-        icebergCatalogType = ICEBERG_HADOOP;
-
-        Configuration conf = getConfiguration();
-        initS3Param(conf);
-
-        //create the authenticator first
-        if (preExecutionAuthenticator.getHadoopAuthenticator() == null) {
-            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(conf);
-            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
-            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
-        }
-
-        // initialize hadoop catalog
-        try {
-            this.catalog = preExecutionAuthenticator.execute(() -> {
-                Map<String, String> catalogProperties = catalogProperty.getProperties();
-                String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
-                HadoopCatalog hadoopCatalog = new HadoopCatalog();
-                hadoopCatalog.setConf(conf);
-                catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-                hadoopCatalog.initialize(getName(), catalogProperties);
-                return hadoopCatalog;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Hadoop catalog init error!", e);
-        }
-    }
 }

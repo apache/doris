@@ -143,6 +143,17 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         cycleTimerJobScheduler(job, System.currentTimeMillis());
     }
 
+    public void cycleTimerJobScheduler(T job) {
+        if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
+            return;
+        }
+        if (!JobExecuteType.RECURRING.equals(job.getJobConfig().getExecuteType())) {
+            return;
+        }
+        //if it's timer job and trigger last window already start, we will scheduler it immediately
+        cycleTimerJobScheduler(job, System.currentTimeMillis());
+    }
+
     @Override
     public void close() throws IOException {
         //todo implement this later

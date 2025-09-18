@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -73,6 +74,26 @@ public class UnboundAlias extends NamedExpression implements UnaryExpression, Un
         alias.ifPresent(name -> stringBuilder.append(" AS " + name));
         return stringBuilder.toString();
 
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        UnboundAlias other = (UnboundAlias) o;
+        return alias.equals(other.alias) && nameFromChild == other.nameFromChild;
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(alias, nameFromChild, children());
     }
 
     @Override

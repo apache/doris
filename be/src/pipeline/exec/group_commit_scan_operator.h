@@ -39,7 +39,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     std::shared_ptr<LoadBlockQueue> load_block_queue = nullptr;
     std::vector<Dependency*> dependencies() const override {
-        return {_scan_dependency.get(), _get_block_dependency.get(), _timer_dependency.get()};
+        return {_scan_dependency.get(), _get_block_dependency.get()};
     }
 
 private:
@@ -47,7 +47,6 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
 
     std::shared_ptr<Dependency> _get_block_dependency = nullptr;
-    std::shared_ptr<Dependency> _timer_dependency = nullptr;
     std::shared_ptr<pipeline::RuntimeFilterTimer> _runtime_filter_timer = nullptr;
 };
 

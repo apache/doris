@@ -44,12 +44,6 @@ static DataTypePtr typeFromString(const std::string& str) {
         return std::make_shared<DataTypeNothing>();
     } else if (str == "UInt8") {
         return std::make_shared<DataTypeUInt8>();
-    } else if (str == "UInt16") {
-        return std::make_shared<DataTypeUInt32>();
-    } else if (str == "UInt32") {
-        return std::make_shared<DataTypeUInt32>();
-    } else if (str == "UInt64") {
-        return std::make_shared<DataTypeUInt64>();
     } else if (str == "Int8") {
         return std::make_shared<DataTypeInt8>();
     } else if (str == "Int16") {

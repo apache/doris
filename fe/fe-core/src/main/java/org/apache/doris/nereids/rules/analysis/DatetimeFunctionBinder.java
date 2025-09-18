@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeDay
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeHourUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMinuteUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeMonthUnit;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeQuarterUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeSecondUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeWeekUnit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYearUnit;
@@ -50,7 +51,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterCeil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuarterFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
@@ -71,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -119,15 +124,25 @@ public class DatetimeFunctionBinder {
     private static final ImmutableSet<String> ARRAY_RANGE_FUNCTION_NAMES
             = ImmutableSet.of("ARRAY_RANGE", "SEQUENCE");
 
-    private static final ImmutableSet<String> SUPPORT_FUNCTION_NAMES
+    static final ImmutableSet<String> SUPPORT_DATETIME_ARITHMETIC_FUNCTION_NAMES
             = ImmutableSet.<String>builder()
             .addAll(TIMESTAMP_SERIES_FUNCTION_NAMES)
             .addAll(DATE_SERIES_FUNCTION_NAMES)
+            .build();
+
+    @VisibleForTesting
+    static final ImmutableSet<String> SUPPORT_FUNCTION_NAMES
+            = ImmutableSet.<String>builder()
+            .addAll(SUPPORT_DATETIME_ARITHMETIC_FUNCTION_NAMES)
             .addAll(ARRAY_RANGE_FUNCTION_NAMES)
             .build();
 
-    public boolean isDatetimeFunction(String functionName) {
+    public static boolean isDatetimeFunction(String functionName) {
         return SUPPORT_FUNCTION_NAMES.contains(functionName.toUpperCase());
+    }
+
+    public static boolean isDatetimeArithmeticFunction(String functionName) {
+        return SUPPORT_DATETIME_ARITHMETIC_FUNCTION_NAMES.contains(functionName.toUpperCase());
     }
 
     /**
@@ -153,43 +168,72 @@ public class DatetimeFunctionBinder {
                 unit = TimeUnit.valueOf(unitName);
             } catch (IllegalArgumentException e) {
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unitName
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
             }
             if (TIMESTAMP_DIFF_FUNCTION_NAMES.contains(functionName)) {
                 // timestampdiff(unit, start, end)
                 return processTimestampDiff(unit, unboundFunction.child(1), unboundFunction.child(2));
-            } else {
-                // timestampadd(unit, amount, basetime)
+            } else if (TIMESTAMP_ADD_FUNCTION_NAMES.contains(functionName)) {
+                // timestampadd(unit, amount, base_time)
                 return processDateAdd(unit, unboundFunction.child(2), unboundFunction.child(1));
-            }
-        } else if (DATE_SERIES_FUNCTION_NAMES.contains(functionName)) {
-            if (unboundFunction.arity() != 2) {
+            } else {
                 throw new AnalysisException("Can not found function '" + functionName
                         + "' with " + unboundFunction.arity() + " arguments");
             }
-            // date_add and date_sub's default unit is DAY, date_ceil and date_floor's default unit is SECOND
+        } else if (DATE_SERIES_FUNCTION_NAMES.contains(functionName)) {
             TimeUnit unit = TimeUnit.DAY;
+            // date_add and date_sub's default unit is DAY, date_ceil and date_floor's default unit is SECOND
             if (DATE_FLOOR_CEIL_SERIES_FUNCTION_NAMES.contains(functionName)) {
                 unit = TimeUnit.SECOND;
             }
-            Expression amount = unboundFunction.child(1);
-            if (unboundFunction.child(1) instanceof Interval) {
-                Interval interval = (Interval) unboundFunction.child(1);
-                unit = interval.timeUnit();
-                amount = interval.value();
+            Expression base;
+            Expression amount;
+            switch (unboundFunction.arity()) {
+                case 2:
+                    // function_name(base_time, amount / interval)
+                    amount = unboundFunction.child(1);
+                    if (unboundFunction.child(1) instanceof Interval) {
+                        Interval interval = (Interval) unboundFunction.child(1);
+                        unit = interval.timeUnit();
+                        amount = interval.value();
+                    }
+                    base = unboundFunction.child(0);
+                    break;
+                case 3:
+                    // function_name(unit, amount, base_time)
+                    if (!(unboundFunction.child(0) instanceof SlotReference)) {
+                        throw new AnalysisException("Can not found function '" + functionName
+                                + "' with " + unboundFunction.arity() + " arguments");
+                    }
+                    amount = unboundFunction.child(1);
+                    base = unboundFunction.child(2);
+                    String unitName = ((SlotReference) unboundFunction.child(0)).getName().toUpperCase();
+                    try {
+                        unit = TimeUnit.valueOf(unitName);
+                    } catch (IllegalArgumentException e) {
+                        throw new AnalysisException("Unsupported time stamp diff time unit: " + unitName
+                                + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                    }
+                    break;
+                default:
+                    throw new AnalysisException("Can not found function '" + functionName
+                            + "' with " + unboundFunction.arity() + " arguments");
             }
             if (ADD_DATE_FUNCTION_NAMES.contains(functionName)) {
                 // date_add(date, interval amount unit | amount)
-                return processDateAdd(unit, unboundFunction.child(0), amount);
+                return processDateAdd(unit, base, amount);
             } else if (SUB_DATE_FUNCTION_NAMES.contains(functionName)) {
                 // date_add(date, interval amount unit | amount)
-                return processDateSub(unit, unboundFunction.child(0), amount);
+                return processDateSub(unit, base, amount);
             } else if (DATE_FLOOR_FUNCTION_NAMES.contains(functionName)) {
                 // date_floor(date, interval amount unit | amount)
-                return processDateFloor(unit, unboundFunction.child(0), amount);
-            } else {
+                return processDateFloor(unit, base, amount);
+            } else if (DATE_CEIL_FUNCTION_NAMES.contains(functionName)) {
                 // date_ceil(date, interval amount unit | amount)
-                return processDateCeil(unit, unboundFunction.child(0), amount);
+                return processDateCeil(unit, base, amount);
+            } else {
+                throw new AnalysisException("Can not found function '" + functionName
+                        + "' with " + unboundFunction.arity() + " arguments");
             }
         } else if (ARRAY_RANGE_FUNCTION_NAMES.contains(functionName)) {
             switch (unboundFunction.arity()) {
@@ -217,6 +261,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearsDiff(end, start);
+            case QUARTER:
+                return new QuartersDiff(end, start);
             case MONTH:
                 return new MonthsDiff(end, start);
             case WEEK:
@@ -231,7 +277,7 @@ public class DatetimeFunctionBinder {
                 return new SecondsDiff(end, start);
             default:
                 throw new AnalysisException("Unsupported time stamp diff time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -288,6 +334,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearFloor(timeStamp, amount, e);
+            case QUARTER:
+                return new QuarterFloor(timeStamp, amount, e);
             case MONTH:
                 return new MonthFloor(timeStamp, amount, e);
             case WEEK:
@@ -302,7 +350,7 @@ public class DatetimeFunctionBinder {
                 return new SecondFloor(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp floor time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -311,6 +359,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new YearCeil(timeStamp, amount, e);
+            case QUARTER:
+                return new QuarterCeil(timeStamp, amount, e);
             case MONTH:
                 return new MonthCeil(timeStamp, amount, e);
             case WEEK:
@@ -325,7 +375,7 @@ public class DatetimeFunctionBinder {
                 return new SecondCeil(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp ceil time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 
@@ -333,6 +383,8 @@ public class DatetimeFunctionBinder {
         switch (unit) {
             case YEAR:
                 return new ArrayRangeYearUnit(start, end, step);
+            case QUARTER:
+                return new ArrayRangeQuarterUnit(start, end, step);
             case MONTH:
                 return new ArrayRangeMonthUnit(start, end, step);
             case WEEK:
@@ -347,7 +399,7 @@ public class DatetimeFunctionBinder {
                 return new ArrayRangeSecondUnit(start, end, step);
             default:
                 throw new AnalysisException("Unsupported array range time unit: " + unit
-                        + ", supported time unit: YEAR/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
+                        + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
         }
     }
 

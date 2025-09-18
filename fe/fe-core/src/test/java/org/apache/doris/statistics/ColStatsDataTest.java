@@ -22,10 +22,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
@@ -47,6 +48,7 @@ public class ColStatsDataTest {
         values.add("max");
         values.add("400");
         values.add("500");
+        values.add(null);
         ResultRow row = new ResultRow(values);
         ColStatsData data = new ColStatsData(row);
         Assertions.assertEquals("id", data.statsId.id);
@@ -55,7 +57,7 @@ public class ColStatsDataTest {
         Assertions.assertEquals(30000, data.statsId.tblId);
         Assertions.assertEquals(0, data.statsId.idxId);
         Assertions.assertEquals("col", data.statsId.colId);
-        Assertions.assertEquals(null, data.statsId.partId);
+        Assertions.assertNull(data.statsId.partId);
         Assertions.assertEquals(100, data.count);
         Assertions.assertEquals(200, data.ndv);
         Assertions.assertEquals(300, data.nullCount);
@@ -63,6 +65,7 @@ public class ColStatsDataTest {
         Assertions.assertEquals("max", data.maxLit);
         Assertions.assertEquals(400, data.dataSizeInBytes);
         Assertions.assertEquals("500", data.updateTime);
+        Assertions.assertNull(data.hotValues);
     }
 
     @Test
@@ -82,6 +85,7 @@ public class ColStatsDataTest {
         values.add(null);
         values.add(null);
         values.add(null);
+        values.add(null);
         ResultRow row = new ResultRow(values);
         ColStatsData data = new ColStatsData(row);
         Assertions.assertEquals("id", data.statsId.id);
@@ -90,79 +94,83 @@ public class ColStatsDataTest {
         Assertions.assertEquals(30000, data.statsId.tblId);
         Assertions.assertEquals(0, data.statsId.idxId);
         Assertions.assertEquals("col", data.statsId.colId);
-        Assertions.assertEquals(null, data.statsId.partId);
+        Assertions.assertNull(data.statsId.partId);
         Assertions.assertEquals(0, data.count);
         Assertions.assertEquals(0, data.ndv);
         Assertions.assertEquals(0, data.nullCount);
-        Assertions.assertEquals(null, data.minLit);
-        Assertions.assertEquals(null, data.maxLit);
+        Assertions.assertNull(data.minLit);
+        Assertions.assertNull(data.maxLit);
         Assertions.assertEquals(0, data.dataSizeInBytes);
-        Assertions.assertEquals(null, data.updateTime);
+        Assertions.assertNull(data.updateTime);
+        Assertions.assertNull(data.hotValues);
     }
 
     @Test
-    public void testToColumnStatisticUnknown(@Mocked StatisticsUtil mockedClass) {
+    public void testToColumnStatisticUnknown() {
         // Test column is null
-        new Expectations() {
-            {
-                mockedClass.findColumn(anyLong, anyLong, anyLong, anyLong, anyString);
-                result = null;
-            }
-        };
-        List<String> values = Lists.newArrayList();
-        values.add("id");
-        values.add("10000");
-        values.add("20000");
-        values.add("30000");
-        values.add("0");
-        values.add("col");
-        values.add(null);
-        values.add("100");
-        values.add("200");
-        values.add("300");
-        values.add("min");
-        values.add("max");
-        values.add("400");
-        values.add("500");
-        ResultRow row = new ResultRow(values);
-        ColStatsData data = new ColStatsData(row);
-        ColumnStatistic columnStatistic = data.toColumnStatistic();
-        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+        try (MockedStatic<StatisticsUtil> mocked = Mockito.mockStatic(StatisticsUtil.class)) {
+            // 设置静态方法的行为
+            mocked.when(() -> StatisticsUtil.findColumn(ArgumentMatchers.anyLong(), ArgumentMatchers.anyLong(),
+                    ArgumentMatchers.anyLong(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyString()))
+                    .thenReturn(null);
+
+            List<String> values = Lists.newArrayList();
+            values.add("id");
+            values.add("10000");
+            values.add("20000");
+            values.add("30000");
+            values.add("0");
+            values.add("col");
+            values.add(null);
+            values.add("100");
+            values.add("200");
+            values.add("300");
+            values.add("min");
+            values.add("max");
+            values.add("400");
+            values.add("500");
+            values.add(null);
+            ResultRow row = new ResultRow(values);
+            ColStatsData data = new ColStatsData(row);
+            ColumnStatistic columnStatistic = data.toColumnStatistic();
+            Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatistic);
+        }
     }
 
     @Test
-    public void testToColumnStatisticNormal(@Mocked StatisticsUtil mockedClass) {
-        new Expectations() {
-            {
-                mockedClass.findColumn(anyLong, anyLong, anyLong, anyLong, anyString);
-                result = new Column("colName", PrimitiveType.STRING);
-            }
-        };
-        List<String> values = Lists.newArrayList();
-        values.add("id");
-        values.add("10000");
-        values.add("20000");
-        values.add("30000");
-        values.add("0");
-        values.add("col");
-        values.add(null);
-        values.add("100");
-        values.add("200");
-        values.add("300");
-        values.add("null");
-        values.add("null");
-        values.add("400");
-        values.add("500");
-        ResultRow row = new ResultRow(values);
-        ColStatsData data = new ColStatsData(row);
-        ColumnStatistic columnStatistic = data.toColumnStatistic();
-        Assertions.assertEquals(100, columnStatistic.count);
-        Assertions.assertEquals(200, columnStatistic.ndv);
-        Assertions.assertEquals(300, columnStatistic.numNulls);
-        Assertions.assertEquals(Double.NEGATIVE_INFINITY, columnStatistic.minValue);
-        Assertions.assertEquals(Double.POSITIVE_INFINITY, columnStatistic.maxValue);
-        Assertions.assertEquals(400, columnStatistic.dataSize);
-        Assertions.assertEquals("500", columnStatistic.updatedTime);
+    public void testToColumnStatisticNormal() {
+        try (MockedStatic<StatisticsUtil> mocked = Mockito.mockStatic(StatisticsUtil.class)) {
+            // 设置静态方法的行为
+            mocked.when(() -> StatisticsUtil.findColumn(ArgumentMatchers.anyLong(), ArgumentMatchers.anyLong(),
+                            ArgumentMatchers.anyLong(), ArgumentMatchers.anyLong(), ArgumentMatchers.anyString()))
+                    .thenReturn(new Column("colName", PrimitiveType.STRING));
+            List<String> values = Lists.newArrayList();
+            values.add("id");
+            values.add("10000");
+            values.add("20000");
+            values.add("30000");
+            values.add("0");
+            values.add("col");
+            values.add(null);
+            values.add("100");
+            values.add("200");
+            values.add("300");
+            values.add("null");
+            values.add("null");
+            values.add("400");
+            values.add("500");
+            values.add(null);
+            ResultRow row = new ResultRow(values);
+            ColStatsData data = new ColStatsData(row);
+            ColumnStatistic columnStatistic = data.toColumnStatistic();
+            Assertions.assertEquals(100, columnStatistic.count);
+            Assertions.assertEquals(200, columnStatistic.ndv);
+            Assertions.assertEquals(300, columnStatistic.numNulls);
+            Assertions.assertEquals(Double.NEGATIVE_INFINITY, columnStatistic.minValue);
+            Assertions.assertEquals(Double.POSITIVE_INFINITY, columnStatistic.maxValue);
+            Assertions.assertEquals(400, columnStatistic.dataSize);
+            Assertions.assertEquals("500", columnStatistic.updatedTime);
+        }
     }
 
     @Test
@@ -193,6 +201,7 @@ public class ColStatsDataTest {
         values.add("max");
         values.add("400");
         values.add("500");
+        values.add(null);
         ResultRow row = new ResultRow(values);
         ColStatsData data = new ColStatsData(row);
         Assertions.assertFalse(data.isValid());
@@ -215,7 +224,7 @@ public class ColStatsDataTest {
         data = new ColStatsData(row);
         Assertions.assertFalse(data.isValid());
 
-        // Set max to null, min/max is not null
+        // Set max to null, min/max are all null
         values.set(11, null);
         row = new ResultRow(values);
         data = new ColStatsData(row);

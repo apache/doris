@@ -49,7 +49,7 @@ public class AliasInfo {
     @Override
     public String toString() {
         return alias == null || alias.isEmpty()
-                ? String.format("`%s`", name)
-                : String.format("`%s` AS `%s`", name, alias);
+                ? String.format("%s", name)
+                : String.format("%s AS `%s`", name, alias);
     }
 }

@@ -1,3 +1,4 @@
+create database if not exists multi_catalog;
 use multi_catalog;
 
 CREATE TABLE text_table_normal_skip_header (
@@ -20,9 +21,42 @@ STORED AS TEXTFILE
 LOCATION '/user/doris/preinstalled_data/text/text_table_compressed_skip_header'
 TBLPROPERTIES ("skip.header.line.count"="5");
 
+CREATE TABLE csv_json_table_simple (
+  id STRING,
+  status_json STRING
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/csv_json_table_simple';
+
+CREATE TABLE open_csv_table_null_format (
+  id INT,
+  name STRING
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_table_null_format';
+
+CREATE TABLE open_csv_complex_type (
+  id INT,
+  arr_col ARRAY<INT>,
+  map_col MAP<STRING, INT>,
+  struct_col STRUCT<name:STRING, age:INT>
+)
+ROW FORMAT SERDE 
+  'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+  "separatorChar" = ",",
+  "quoteChar"     = "\"",
+  "escapeChar"    = "\\"
+)
+STORED AS TEXTFILE
+LOCATION '/user/doris/preinstalled_data/csv/open_csv_complex_type';
+
 create database if not exists openx_json;
 use openx_json;
-
 
 CREATE TABLE IF NOT EXISTS json_table (
     id INT,

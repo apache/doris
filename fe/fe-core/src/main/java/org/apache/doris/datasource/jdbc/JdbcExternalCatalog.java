@@ -28,6 +28,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -50,7 +51,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
-import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,7 +63,6 @@ import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-@Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(JdbcExternalCatalog.class);
 
@@ -77,6 +76,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
     private IdentifierMapping identifierMapping;
+    private ExternalFunctionRules functionRules;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment)
@@ -87,6 +87,10 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
                 Boolean.parseBoolean(getLowerCaseMetaNames()),
                 getMetaNamesMapping());
+    }
+
+    public JdbcClient getJdbcClient() {
+        return jdbcClient;
     }
 
     @Override
@@ -107,6 +111,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 getExcludeDatabaseMap());
         JdbcResource.checkConnectionPoolProperties(getConnectionPoolMinSize(), getConnectionPoolMaxSize(),
                 getConnectionPoolMaxWaitTime(), getConnectionPoolMaxLifeTime());
+
+        // check function rules
+        ExternalFunctionRules.check(catalogProperty.getProperties().getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
     @Override
@@ -125,7 +132,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void resetToUninitialized(boolean invalidCache) {
+    public synchronized void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
@@ -157,6 +164,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getDatabaseTypeName() {
+        makeSureInitialized();
         return jdbcClient.getDbType();
     }
 
@@ -222,6 +230,8 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         jdbcClient = createJdbcClient();
+        this.functionRules = ExternalFunctionRules.create(jdbcClient.getDbType(),
+                catalogProperty.getOrDefault(JdbcResource.FUNCTION_RULES, ""));
     }
 
     private JdbcClient createJdbcClient() {
@@ -355,7 +365,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         jdbcTable.setDriverClass(this.getDriverClass());
         jdbcTable.setDriverUrl(this.getDriverUrl());
         jdbcTable.setCheckSum(this.getCheckSum());
-        jdbcTable.setResourceName(this.getResource());
+        jdbcTable.setResourceName("");
         jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
         jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
         jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
@@ -435,5 +445,13 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         testTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
 
         return testTable;
+    }
+
+    public ExternalFunctionRules getFunctionRules() {
+        return functionRules;
+    }
+
+    public IdentifierMapping getIdentifierMapping() {
+        return identifierMapping;
     }
 }

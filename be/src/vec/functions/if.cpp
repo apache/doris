@@ -36,7 +36,6 @@
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
@@ -67,7 +66,7 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
         return 0;
     }
 
-    if (const auto* const_col = check_and_get_column_const<ColumnVector<UInt8>>(col.get())) {
+    if (const auto* const_col = check_and_get_column_const<ColumnUInt8>(col.get())) {
         bool is_true = const_col->get_bool(0);
         return is_true ? col->size() : 0;
     }
@@ -77,7 +76,7 @@ size_t count_true_with_notnull(const ColumnPtr& col) {
         const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
-                ((const ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+                ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
 
         size_t null_count = count - simd::count_zero_num((const int8_t*)null_data, count);
 
@@ -206,9 +205,8 @@ public:
                                          DataTypeInt128, DataTypeFloat32, DataTypeFloat64>(
                 then_col.type.get(), [&](const auto& type) -> bool {
                     using DataType = std::decay_t<decltype(type)>;
-                    using Type = typename DataType::FieldType;
-                    auto res_column = NumIfImpl<Type>::execute_if(cond_col->get_data(),
-                                                                  then_col.column, else_col.column);
+                    auto res_column = NumIfImpl<DataType::PType>::execute_if(
+                            cond_col->get_data(), then_col.column, else_col.column);
                     if (!res_column) {
                         return false;
                     }
@@ -245,7 +243,7 @@ public:
 
         const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
-                check_and_get_column_const<ColumnVector<UInt8>>(arg_cond.column.get());
+                check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
         /// If then is NULL, we create Nullable column with null mask OR-ed with condition.
         if (then_is_null) {
@@ -433,7 +431,7 @@ public:
             // update nested column by null map
             const auto* __restrict null_map = nullable->get_null_map_data().data();
             auto* __restrict nested_bool_data =
-                    ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
+                    ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
             auto rows = nullable->size();
             for (size_t i = 0; i < rows; i++) {
                 nested_bool_data[i] &= !null_map[i];
@@ -519,7 +517,7 @@ public:
 
         const auto* cond_col = assert_cast<const ColumnUInt8*>(arg_cond.column.get());
         const ColumnConst* cond_const_col =
-                check_and_get_column_const<ColumnVector<UInt8>>(arg_cond.column.get());
+                check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
         if (cond_const_col) {
             block.get_by_position(result).column =

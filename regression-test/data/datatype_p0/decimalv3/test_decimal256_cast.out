@@ -33,6 +33,9 @@
 -- !decimal256_cast10 --
 10	0
 
+-- !decimal256_cast_to_float_1 --
+1.2345678E7
+
 -- !decimal256_cast_to_double_1 --
 1.2345678E7
 

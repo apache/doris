@@ -62,7 +62,7 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
     }
     
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=45000"]
-    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
     // test unified load
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
@@ -85,10 +85,11 @@ suite("test_parquet_large_metadata_load_p2", "p2") {
                 def max_try_milli_secs = 600000
                 while (max_try_milli_secs > 0) {
                     String[][] result = sql """ show load where label="$label" order by createtime desc limit 1; """
+                    logger.info("Load result: " + result)
                     if (result[0][2].equals("FINISHED")) {
                         logger.info("Load FINISHED " + label)
                         assertTrue(result[0][6].contains(task_info[i]))
-                        load_counters = etl_info[i].split('; ');
+                        def load_counters = etl_info[i].split('; ');
                         for (String counter : load_counters) {
                             assertTrue(result[0][5].contains(counter), "expected: " + counter + ", actual: " + result[0][5] + ", label: $label")
                         }

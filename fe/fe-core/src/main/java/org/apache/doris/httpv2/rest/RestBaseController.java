@@ -77,7 +77,6 @@ public class RestBaseController extends BaseController {
         UserIdentity currentUser = checkPassword(authInfo);
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);
         ctx.setCurrentUserIdentity(currentUser);
         ctx.setThreadLocalInfo();

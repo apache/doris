@@ -21,6 +21,7 @@ import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.BuildIndexClause;
 import org.apache.doris.analysis.IndexDef;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -28,10 +29,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -40,8 +43,6 @@ import java.util.Map;
  * BuildIndexOp
  */
 public class BuildIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private final TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -50,7 +51,7 @@ public class BuildIndexOp extends AlterTableOp {
     // index internal class
     private Index index;
     // index name
-    private final String indexName;
+    private String indexName;
     // partition names info
     private final PartitionNamesInfo partitionNamesInfo;
 
@@ -97,6 +98,26 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException("Only olap table support build index");
         }
 
+        if (Config.isCloudMode()) {
+            if (!StringUtils.isEmpty(indexName)) {
+                throw new AnalysisException("Not support specify index name in cloud mode");
+            }
+
+            for (Index index : table.getTableIndexes().getIndexes()) {
+                if (!index.isLightIndexChangeSupported()) {
+                    throw new AnalysisException("BUILD INDEX operation failed, " + index.getIndexName()
+                            + " of type " + index.getIndexType()
+                            + " does not support lightweight index changes. ");
+                }
+                indexName = index.getIndexName();
+            }
+
+        } else {
+            if (StringUtils.isEmpty(indexName)) {
+                throw new AnalysisException(" index name should be specified.");
+            }
+        }
+
         Index existedIdx = null;
         for (Index index : table.getTableIndexes().getIndexes()) {
             if (index.getIndexName().equalsIgnoreCase(indexName)) {
@@ -114,8 +135,11 @@ public class BuildIndexOp extends AlterTableOp {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (!existedIdx.isLightIndexChangeSupported()) {
-            throw new AnalysisException(indexType.toString() + " index is not needed to build.");
+        if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
+                || indexType == IndexDef.IndexType.BLOOMFILTER
+                || (Config.isCloudMode()
+                && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())) {
+            throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
         indexDef = new IndexDefinition(indexName, partitionNamesInfo, indexType);
@@ -125,6 +149,10 @@ public class BuildIndexOp extends AlterTableOp {
                 throw new AnalysisException("table " + table.getName()
                     + " is not partitioned, cannot build index with partitions.");
             }
+        }
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
+            throw new AnalysisException(
+                "ANN index can only be created during table creation, not through BUILD INDEX.");
         }
         indexDef.validate();
         this.index = existedIdx.clone();

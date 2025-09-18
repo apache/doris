@@ -144,7 +144,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 minTimes = 0;
                 result = true;
 
-                slot.getTable();
+                slot.getOriginalTable();
                 minTimes = 0;
                 result = Optional.empty();
 
@@ -171,7 +171,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         // test managed table
         new Expectations() {
             {
-                slot.getTable();
+                slot.getOriginalTable();
                 minTimes = 0;
                 result = Optional.of(slotTable);
 

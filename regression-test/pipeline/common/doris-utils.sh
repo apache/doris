@@ -68,6 +68,7 @@ function start_doris_ms() {
     if [[ ${i} -ge 5 ]]; then
         echo -e "INFO: doris meta-service started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
     fi
+    cd - || return 1
 }
 
 function start_doris_recycler() {
@@ -87,6 +88,7 @@ function start_doris_recycler() {
     if [[ ${i} -ge 5 ]]; then
         echo -e "INFO: doris recycler started,\n$("${DORIS_HOME}"/ms/lib/doris_cloud --version)"
     fi
+    cd - || return 1
 }
 
 function install_java() {
@@ -125,7 +127,13 @@ function start_doris_fe() {
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
-    # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
+    if [[ ! -f /usr/local/jacoco/lib/jacocoagent.jar ]]; then
+        rm -rf /usr/local/jacoco/ && mkdir -p /usr/local/jacoco/
+        wget -c -t3 -q "${JACOCO_DOWNLOAD_URL:-https://qa-build-hk.oss-cn-hongkong.aliyuncs.com/tools/jacoco-0.8.13.zip}"
+        if ! command -v unzip >/dev/null; then sudo apt update && sudo apt install -y unzip; fi
+        unzip -o jacoco-0.8.13.zip -d /usr/local/jacoco/
+    fi
+    export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
@@ -137,10 +145,10 @@ function start_doris_fe() {
         if [[ -n "${fe_version}" ]] && [[ "${fe_version}" != "NULL" ]]; then
             echo "INFO: doris fe started, fe version: ${fe_version}" && return 0
         else
-            echo "${i}/60, Wait for Frontend ready, sleep 2 seconds ..." && sleep 2
+            echo "${i}/60, Wait for Frontend ready, sleep 5 seconds ..." && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 5 mins wait..." && return 1; fi
 }
 
 function start_doris_be() {
@@ -150,6 +158,7 @@ function start_doris_be() {
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
+    cd "${DORIS_HOME}"/be || return 1
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
     if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
@@ -159,7 +168,7 @@ function start_doris_be() {
         ulimit -n 200000 &&
         ulimit -c unlimited &&
         swapoff -a &&
-        "${DORIS_HOME}"/be/bin/start_be.sh --daemon
+        ./bin/start_be.sh --daemon
 
     sleep 2
     local i=1
@@ -171,8 +180,9 @@ function start_doris_be() {
         fi
     done
     if [[ ${i} -ge 5 ]]; then
-        echo "INFO: doris be started, be version: $("${DORIS_HOME}"/be/lib/doris_be --version)"
+        echo "INFO: doris be started, be version: $("${DORIS_HOME}"/be/bin/start_be.sh --version)"
     fi
+    cd - || return 1
 }
 
 function add_doris_be_to_fe() {
@@ -194,10 +204,10 @@ function check_doris_ready() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: Doris cluster ready, be version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Doris cluster not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
@@ -206,7 +216,7 @@ function check_doris_ready() {
 
 function stop_doris() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if "${DORIS_HOME}"/fe/bin/stop_fe.sh && "${DORIS_HOME}"/be/bin/stop_be.sh; then
+    if "${DORIS_HOME}"/be/bin/stop_be.sh && "${DORIS_HOME}"/fe/bin/stop_fe.sh; then
         echo "INFO: normally stoped doris"
     else
         pgrep -fi doris | xargs kill -9 &>/dev/null
@@ -218,14 +228,87 @@ function stop_doris() {
 
 function stop_doris_grace() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace && "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
-        echo "INFO: normally stoped doris"
+    local ret=0
+    local keywords="detected memory leak|undefined-behavior|AddressSanitizer: CHECK failed"
+    sudo mkdir -p /tmp/be/bin && cp -rf "${DORIS_HOME}"/be/bin/be.pid /tmp/be/bin/be.pid
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/be/bin/stop_be.sh --grace; then
+        echo "INFO: doris be stopped gracefully."
+        if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+            echo "INFO: try to find keywords ${keywords} in be.out"
+            if [[ -f "${DORIS_HOME}"/be/log/be.out ]]; then
+                if grep -E "${keywords}" "${DORIS_HOME}"/be/log/be.out; then
+                    echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+                    echo "====================================head -n 200 be/log/be.out===================================="
+                    head -n 200 "${DORIS_HOME}"/be/log/be.out
+                    echo "================================================================================================="
+                    echo "ERROR: found memory leaks or undefined behavior in be.out" && ret=1
+                else
+                    echo "INFO: no memory leaks or undefined behavior found in be.out"
+                fi
+            else
+                echo "##teamcity[buildProblem description='Stop BE grace fail']"
+                echo "ERROR: be.out not find, which is not expected" && ret=1
+            fi
+        fi
     else
-        pgrep -fi doris | xargs kill -9 &>/dev/null
-        echo "WARNING: force stoped doris"
+        echo "ERROR: doris be stop grace failed." && ret=1
     fi
-    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; fi
-    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; fi
+    if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/fe/bin/stop_fe.sh --grace; then
+        echo "INFO: doris fe stopped gracefully."
+    else
+        echo "ERROR: doris fe stop grace failed." && ret=1
+    fi
+    if [[ -f "${DORIS_HOME}"/ms/bin/stop.sh ]]; then
+        sudo mkdir -p /tmp/ms/bin && cp -rf "${DORIS_HOME}"/ms/bin/doris_cloud.pid /tmp/ms/bin/doris_cloud.pid
+        if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/ms/bin/stop.sh --grace; then
+            echo "INFO: doris ms stopped gracefully."
+            if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+                echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
+                if [[ -f "${DORIS_HOME}"/ms/log/doris_cloud.out ]]; then
+                    if grep -E "${keywords}" "${DORIS_HOME}"/ms/log/doris_cloud.out; then
+                        echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+                        echo "====================================head -n 200 ms/log/doris_cloud.out===================================="
+                        head -n 200 "${DORIS_HOME}"/ms/log/doris_cloud.out
+                        echo "=========================================================================================================="
+                        echo "ERROR: found memory leaks or undefined behavior in ms/log/doris_cloud.out" && ret=1
+                    else
+                        echo "INFO: no memory leaks or undefined behavior found in ms/log/doris_cloud.out"
+                    fi
+                else
+                    echo "ERROR: ms/log/doris_cloud.out not find, which is not expected" && ret=1
+                fi
+            fi
+        else
+            echo "##teamcity[buildProblem description='Stop MS grace fail']"
+            echo "ERROR: doris ms stop grace failed." && ret=1
+        fi
+    fi
+    if [[ -f "${DORIS_HOME}"/recycler/bin/stop.sh ]]; then
+        sudo mkdir -p /tmp/recycler/bin && cp -rf "${DORIS_HOME}"/recycler/bin/doris_cloud.pid /tmp/recycler/bin/doris_cloud.pid
+        if timeout -v "${DORIS_STOP_GRACE_TIMEOUT:-"10m"}" bash "${DORIS_HOME}"/recycler/bin/stop.sh --grace; then
+            echo "INFO: doris recycler stopped gracefully."
+            # if [[ -n "${DORIS_STOP_GRACE_CHECK_KEYWORD:=''}" && "${DORIS_STOP_GRACE_CHECK_KEYWORD,,}" == "true" ]]; then
+            #     echo "INFO: try to find keywords ${keywords} in doris_cloud.out"
+            #     if [[ -f "${DORIS_HOME}"/recycler/log/doris_cloud.out ]]; then
+            #         if grep -E "${keywords}" "${DORIS_HOME}"/recycler/log/doris_cloud.out; then
+            #             echo "##teamcity[buildProblem description='Ubsan or Lsan fail']"
+            #             echo "=================================head -n 200 recycler/log/doris_cloud.out================================="
+            #             head -n 200 "${DORIS_HOME}"/recycler/log/doris_cloud.out
+            #             echo "=========================================================================================================="
+            #             echo "ERROR: found memory leaks or undefined behavior in recycler/log/doris_cloud.out" && ret=1
+            #         else
+            #             echo "INFO: no memory leaks or undefined behavior found in recycler/log/doris_cloud.out"
+            #         fi
+            #     else
+            #         echo "ERROR: recycler/log/doris_cloud.out not find, which is not expected" && ret=1
+            #     fi
+            # fi
+        else
+            echo "##teamcity[buildProblem description='Stop RECYCLER grace fail']"
+            echo "ERROR: doris recycler stop grace failed." && ret=1
+        fi
+    fi
+    return "${ret}"
 }
 
 function clean_fdb() {
@@ -253,7 +336,7 @@ function install_fdb() {
     wget -c -t3 -q https://github.com/apple/foundationdb/releases/download/7.1.23/foundationdb-server_7.1.23-1_amd64.deb
     sudo dpkg -i foundationdb-clients_7.1.23-1_amd64.deb foundationdb-server_7.1.23-1_amd64.deb
     # /usr/lib/foundationdb/fdbmonitor --daemonize
-    # fdbcli --exec 'configure new single ssd'
+    fdbcli --exec 'configure storage_migration_type=aggressive; configure ssd'
     if fdbcli --exec 'status'; then
         echo "INFO: foundationdb installed."
     else
@@ -295,7 +378,7 @@ deploy_doris_sql_converter() {
     fi
 }
 
-function restart_doris() {
+function _restart_doris() {
     if stop_doris; then echo; fi
     if ! start_doris_fe; then return 1; fi
     if ! start_doris_be; then return 1; fi
@@ -305,14 +388,19 @@ function restart_doris() {
             [[ ${be_ready_count} -eq 1 ]]; then
             echo -e "INFO: ${be_ready_count} Backends ready, version: \n$(${cl} -e 'show backends\G' | grep 'Version')" && break
         else
-            echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
+            echo 'Wait for Backends ready, sleep 5 seconds ...' && sleep 5
         fi
     done
-    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Backend not ready after 5 mins wait..." && return 1; fi
 
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
+}
+
+function restart_doris() {
+    # restart BE may block on JVM_MonitorWait() for a long time, here try twice
+    _restart_doris || _restart_doris
 }
 
 function check_tpch_table_rows() {
@@ -659,9 +747,9 @@ archive_doris_coredump() {
     rm -rf "${DORIS_HOME:?}/${archive_dir}"
     mkdir -p "${DORIS_HOME}/${archive_dir}"
     declare -A pids
-    pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
-    pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
-    pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    pids['be']="$(cat /tmp/be/bin/be.pid)"
+    pids['ms']="$(cat /tmp/ms/bin/doris_cloud.pid)"
+    pids['recycler']="$(cat /tmp/recycler/bin/doris_cloud.pid)"
     local has_core=false
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
@@ -873,7 +961,7 @@ function check_if_need_gcore() {
             sleep 10
         fi
     else
-        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+        echo "ERROR: exit_flag ${exit_flag} is not 124(timeout), no need to gcore" && return 1
     fi
 }
 

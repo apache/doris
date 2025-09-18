@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
@@ -43,6 +45,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -50,6 +53,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -57,24 +61,33 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
 
+    private static ArrayList<ExecutorService> dbExecutors = new ArrayList(Config.publish_thread_pool_num);
+
+    private Set<Long> publishingTxnIds = Sets.newConcurrentHashSet();
+
+    private final MonitoredReentrantReadWriteLock visibleVersionsLock = new MonitoredReentrantReadWriteLock(true);
+    private Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
+    private Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+
     public PublishVersionDaemon() {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
+        for (int i = 0; i < Config.publish_thread_pool_num; i++) {
+            dbExecutors.add(ThreadPoolManager.newDaemonFixedThreadPool(1, Config.publish_queue_size,
+                    "PUBLISH_VERSION_EXEC-" + i, true));
+        }
     }
 
     @Override
     protected void runAfterCatalogReady() {
-        Map<Long, Long> partitionVisibleVersions = Maps.newHashMap();
-        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
-
         try {
-            publishVersion(partitionVisibleVersions, backendPartitions);
-            sendBackendVisibleVersion(partitionVisibleVersions, backendPartitions);
+            publishVersion();
+            sendBackendVisibleVersion();
         } catch (Throwable t) {
             LOG.error("errors while publish version to all backends", t);
         }
     }
 
-    private void publishVersion(Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+    private void publishVersion() {
         if (DebugPointUtil.isEnable("PublishVersionDaemon.stop_publish")) {
             return;
         }
@@ -93,8 +106,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             return;
         }
         traverseReadyTxnAndDispatchPublishVersionTask(readyTransactionStates, allBackends);
-        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr,
-                partitionVisibleVersions, backendPartitions);
+        tryFinishTxn(readyTransactionStates, infoService, globalTransactionMgr);
     }
 
     private void traverseReadyTxnAndDispatchPublishVersionTask(List<TransactionState> readyTransactionStates,
@@ -159,13 +171,11 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void tryFinishTxn(List<TransactionState> readyTransactionStates,
-                                     SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr,
-                                     Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+            SystemInfoService infoService, GlobalTransactionMgrIface globalTransactionMgr) {
         for (TransactionState transactionState : readyTransactionStates) {
             try {
                 // try to finish the transaction, if failed just retry in next loop
-                tryFinishOneTxn(transactionState, infoService, globalTransactionMgr, partitionVisibleVersions,
-                        backendPartitions);
+                tryFinishOneTxn(transactionState, infoService, globalTransactionMgr);
             } catch (Throwable t) {
                 LOG.error("errors while finish transaction: {}, publish tasks: {}", transactionState,
                         transactionState.getPublishVersionTasks(), t);
@@ -174,8 +184,7 @@ public class PublishVersionDaemon extends MasterDaemon {
     }
 
     private void tryFinishOneTxn(TransactionState transactionState, SystemInfoService infoService,
-            GlobalTransactionMgrIface globalTransactionMgr,
-            Map<Long, Long> partitionVisibleVersions, Map<Long, Set<Long>> backendPartitions) {
+            GlobalTransactionMgrIface globalTransactionMgr) {
         Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
         AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
         Set<Long> notFinishTaskBe = Sets.newHashSet();
@@ -219,34 +228,97 @@ public class PublishVersionDaemon extends MasterDaemon {
                 || isPublishSlow
                 || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
         if (shouldFinishTxn) {
-            try {
-                // one transaction exception should not affect other transaction
-                globalTransactionMgr.finishTransaction(transactionState.getDbId(),
-                        transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
-            } catch (Exception e) {
-                LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
+            if (Config.enable_parallel_publish_version) {
+                tryFinishTxnAsync(transactionState, globalTransactionMgr);
+            } else {
+                tryFinishTxnSync(transactionState, globalTransactionMgr);
             }
-            if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
-                // if finish transaction state failed, then update publish version time, should check
-                // to finish after some interval
-                transactionState.updateSendTaskTime();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("publish version for transaction {} failed", transactionState);
+        }
+    }
+
+    private void tryFinishTxnAsync(TransactionState transactionState, GlobalTransactionMgrIface globalTransactionMgr) {
+        if (publishingTxnIds.contains(transactionState.getTransactionId())) {
+            return;
+        }
+
+        publishingTxnIds.add(transactionState.getTransactionId());
+        LOG.info("try to finish transaction {}, dbId: {}, txnId: {}",
+                transactionState.getTransactionId(), transactionState.getDbId(), transactionState.getTransactionId());
+        try {
+            dbExecutors.get((int) (transactionState.getDbId() % Config.publish_thread_pool_num)).execute(() -> {
+                try {
+                    tryFinishTxnSync(transactionState, globalTransactionMgr);
+                } catch (Throwable e) {
+                    LOG.warn("failed to finish dbId: {}, txnId: {}", transactionState.getDbId(),
+                            transactionState.getTransactionId(), e);
+                } finally {
+                    publishingTxnIds.remove(transactionState.getTransactionId());
                 }
+            });
+        } catch (Throwable e) {
+            LOG.warn("failed to finish transaction {}, dbId: {}, txnId: {}, exception: {}",
+                    transactionState.getTransactionId(), transactionState.getDbId(),
+                    transactionState.getTransactionId(), e);
+            publishingTxnIds.remove(transactionState.getTransactionId());
+        }
+    }
+
+    private void tryFinishTxnSync(TransactionState transactionState, GlobalTransactionMgrIface globalTransactionMgr) {
+        if (DebugPointUtil.isEnable("PublishVersionDaemon.tryFinishTxnSync.fail")) {
+            throw new RuntimeException("finishTransaction failed for txnId: " + transactionState.getTransactionId());
+        }
+
+        try {
+            partitionVisibleVersions = Maps.newHashMap();
+            backendPartitions = Maps.newHashMap();
+            // one transaction exception should not affect other transaction
+            globalTransactionMgr.finishTransaction(transactionState.getDbId(),
+                    transactionState.getTransactionId(), partitionVisibleVersions, backendPartitions);
+            addBackendVisibleVersions(partitionVisibleVersions, backendPartitions);
+        } catch (Exception e) {
+            LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
+        }
+        if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
+            // if finish transaction state failed, then update publish version time, should check
+            // to finish after some interval
+            transactionState.updateSendTaskTime();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("publish version for transaction {} failed", transactionState);
             }
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
             transactionState.getPublishVersionTasks().values().forEach(tasks -> {
                 for (PublishVersionTask task : tasks) {
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
+                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION,
+                            task.getSignature());
                 }
             });
             transactionState.pruneAfterVisible();
             if (MetricRepo.isInit) {
-                long publishTime = transactionState.getLastPublishVersionTime() - transactionState.getCommitTime();
+                long publishTime = transactionState.getLastPublishVersionTime()
+                        - transactionState.getCommitTime();
                 MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishTime);
             }
+        }
+    }
+
+    private void addBackendVisibleVersions(Map<Long, Long> partitionVisibleVersions,
+            Map<Long, Set<Long>> backendPartitions) {
+        visibleVersionsLock.writeLock().lock();
+        try {
+            this.partitionVisibleVersions.putAll(partitionVisibleVersions);
+            // merge backend partitions if exists merge value as set else add a new set
+            for (Entry<Long, Set<Long>> entry : backendPartitions.entrySet()) {
+                this.backendPartitions.computeIfPresent(entry.getKey(),
+                        (backendId, existingPartitions) -> {
+                            existingPartitions.addAll(entry.getValue());
+                            return existingPartitions;
+                        });
+                this.backendPartitions.putIfAbsent(entry.getKey(), entry.getValue());
+            }
+        } finally {
+            visibleVersionsLock.writeLock().unlock();
         }
     }
 
@@ -296,23 +368,30 @@ public class PublishVersionDaemon extends MasterDaemon {
                         Collectors.mapping(p -> p.second, Collectors.toSet())));
     }
 
-    private void sendBackendVisibleVersion(Map<Long, Long> partitionVisibleVersions,
-            Map<Long, Set<Long>> backendPartitions) {
-        if (partitionVisibleVersions.isEmpty() || backendPartitions.isEmpty()) {
-            return;
-        }
+    private void sendBackendVisibleVersion() {
+        visibleVersionsLock.writeLock().lock();
+        try {
+            if (partitionVisibleVersions.isEmpty() || backendPartitions.isEmpty()) {
+                return;
+            }
 
-        long createTime = System.currentTimeMillis();
-        AgentBatchTask batchTask = new AgentBatchTask();
-        backendPartitions.forEach((backendId, partitionIds) -> {
-            Map<Long, Long> backendPartitionVersions = partitionVisibleVersions.entrySet().stream()
-                    .filter(entry -> partitionIds.contains(entry.getKey()))
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-            UpdateVisibleVersionTask task = new UpdateVisibleVersionTask(backendId, backendPartitionVersions,
-                    createTime);
-            batchTask.addTask(task);
-        });
-        AgentTaskExecutor.submit(batchTask);
+            long createTime = System.currentTimeMillis();
+            AgentBatchTask batchTask = new AgentBatchTask();
+            backendPartitions.forEach((backendId, partitionIds) -> {
+                Map<Long, Long> backendPartitionVersions = partitionVisibleVersions.entrySet().stream()
+                        .filter(entry -> partitionIds.contains(entry.getKey()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                UpdateVisibleVersionTask task = new UpdateVisibleVersionTask(backendId, backendPartitionVersions,
+                        createTime);
+                batchTask.addTask(task);
+            });
+            AgentTaskExecutor.submit(batchTask);
+
+            this.partitionVisibleVersions.clear();
+            this.backendPartitions.clear();
+        } finally {
+            visibleVersionsLock.writeLock().unlock();
+        }
     }
 
     private List<TPartitionVersionInfo> generatePartitionVersionInfos(Collection<TableCommitInfo> tableCommitInfos,

@@ -18,30 +18,40 @@
 package org.apache.doris.datasource.property.fileformat;
 
 import org.apache.doris.analysis.Separator;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
 import org.apache.doris.thrift.TResultFileSinkOptions;
-import org.apache.doris.thrift.TTextSerdeType;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class CsvFileFormatProperties extends FileFormatProperties {
     public static final Logger LOG = LogManager.getLogger(
             org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties.class);
 
+    // supported compression types for csv writer
+    public static final Set<TFileCompressType> SUPPORTED_CSV_WRITE_COMPRESSION_TYPES = Sets.newHashSet();
+
+    static {
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.PLAIN);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.GZ);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.BZ2);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.SNAPPYBLOCK);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.LZ4BLOCK);
+        SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.add(TFileCompressType.ZSTD);
+    }
+
     public static final String DEFAULT_COLUMN_SEPARATOR = "\t";
-    public static final String DEFAULT_HIVE_TEXT_COLUMN_SEPARATOR = "\001";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
 
     public static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -55,30 +65,22 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public static final String PROP_ENCLOSE = "enclose";
     public static final String PROP_ESCAPE = "escape";
 
+    public static final String PROP_ENABLE_TEXT_VALIDATE_UTF8 = "enable_text_validate_utf8";
+
+    public static final String PROP_EMPTY_FIELD_AS_NULL = "empty_field_as_null";
+
     private String headerType = "";
-    private TTextSerdeType textSerdeType = TTextSerdeType.JSON_TEXT_SERDE;
     private String columnSeparator = DEFAULT_COLUMN_SEPARATOR;
     private String lineDelimiter = DEFAULT_LINE_DELIMITER;
     private boolean trimDoubleQuotes;
     private int skipLines;
     private byte enclose;
-
     private byte escape;
-
-    // used by tvf
-    // User specified csv columns, it will override columns got from file
-    private final List<Column> csvSchema = Lists.newArrayList();
-
-    String defaultColumnSeparator = DEFAULT_COLUMN_SEPARATOR;
+    private boolean enableTextValidateUTF8 = true;
+    private boolean emptyFieldAsNull;
 
     public CsvFileFormatProperties(String formatName) {
         super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-    }
-
-    public CsvFileFormatProperties(String defaultColumnSeparator, TTextSerdeType textSerdeType, String formatName) {
-        super(TFileFormatType.FORMAT_CSV_PLAIN, formatName);
-        this.defaultColumnSeparator = defaultColumnSeparator;
-        this.textSerdeType = textSerdeType;
     }
 
     public CsvFileFormatProperties(String headerType, String formatName) {
@@ -86,14 +88,13 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         this.headerType = headerType;
     }
 
-
     @Override
     public void analyzeFileFormatProperties(Map<String, String> formatProperties, boolean isRemoveOriginProperty)
             throws AnalysisException {
         try {
             // analyze properties specified by user
             columnSeparator = getOrDefault(formatProperties, PROP_COLUMN_SEPARATOR,
-                    defaultColumnSeparator, isRemoveOriginProperty);
+                    DEFAULT_COLUMN_SEPARATOR, isRemoveOriginProperty);
             if (Strings.isNullOrEmpty(columnSeparator)) {
                 throw new AnalysisException("column_separator can not be empty.");
             }
@@ -113,9 +114,6 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                     throw new AnalysisException("enclose should not be longer than one byte.");
                 }
                 enclose = (byte) enclosedString.charAt(0);
-                if (enclose == 0) {
-                    throw new AnalysisException("enclose should not be byte [0].");
-                }
             }
 
             String escapeStr = getOrDefault(formatProperties, PROP_ESCAPE,
@@ -137,12 +135,43 @@ public class CsvFileFormatProperties extends FileFormatProperties {
                 throw new AnalysisException("skipLines should not be less than 0.");
             }
 
+            // This default value is "UNKNOWN", so that the caller may infer the compression type by suffix of file.
             String compressTypeStr = getOrDefault(formatProperties,
                     PROP_COMPRESS_TYPE, "UNKNOWN", isRemoveOriginProperty);
             compressionType = Util.getFileCompressType(compressTypeStr);
 
+            // get ENABLE_TEXT_VALIDATE_UTF8 from properties map first,
+            // if not exist, try getting from session variable,
+            // if connection context is null, use "true" as default value.
+            String validateUtf8 = getOrDefault(formatProperties, PROP_ENABLE_TEXT_VALIDATE_UTF8, "",
+                    isRemoveOriginProperty);
+            if (Strings.isNullOrEmpty(validateUtf8)) {
+                enableTextValidateUTF8 = ConnectContext.get() == null ? true
+                        : ConnectContext.get().getSessionVariable().enableTextValidateUtf8;
+            } else {
+                enableTextValidateUTF8 = Boolean.parseBoolean(validateUtf8);
+            }
+
+            emptyFieldAsNull = Boolean.valueOf(getOrDefault(formatProperties,
+                    PROP_EMPTY_FIELD_AS_NULL, "false", isRemoveOriginProperty))
+                    .booleanValue();
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkSupportedCompressionType(boolean isWrite) {
+        // Currently, only check for write operation.
+        // Because we only support a subset of compression type for writing.
+        if (isWrite) {
+            // "UNKNOWN" means user does not specify the compression type
+            if (this.compressionType == TFileCompressType.UNKNOWN) {
+                this.compressionType = TFileCompressType.PLAIN;
+            }
+            if (!SUPPORTED_CSV_WRITE_COMPRESSION_TYPES.contains(this.compressionType)) {
+                throw new AnalysisException(
+                        "csv compression type [" + this.compressionType.name() + "] is invalid for writing");
+            }
         }
     }
 
@@ -150,6 +179,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
     public void fullTResultFileSinkOptions(TResultFileSinkOptions sinkOptions) {
         sinkOptions.setColumnSeparator(columnSeparator);
         sinkOptions.setLineDelimiter(lineDelimiter);
+        sinkOptions.setCompressionType(compressionType);
     }
 
     // The method `analyzeFileFormatProperties` must have been called once before this method
@@ -159,24 +189,19 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         TFileTextScanRangeParams fileTextScanRangeParams = new TFileTextScanRangeParams();
         fileTextScanRangeParams.setColumnSeparator(this.columnSeparator);
         fileTextScanRangeParams.setLineDelimiter(this.lineDelimiter);
-        if (this.enclose != 0) {
-            fileTextScanRangeParams.setEnclose(this.enclose);
-        }
+        fileTextScanRangeParams.setEnclose(this.enclose);
+        fileTextScanRangeParams.setEscape(this.escape);
+        fileTextScanRangeParams.setEmptyFieldAsNull(this.emptyFieldAsNull);
         fileAttributes.setTextParams(fileTextScanRangeParams);
         fileAttributes.setHeaderType(headerType);
         fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
         fileAttributes.setSkipLines(skipLines);
-        fileAttributes.setEnableTextValidateUtf8(
-                ConnectContext.get().getSessionVariable().enableTextValidateUtf8);
+        fileAttributes.setEnableTextValidateUtf8(enableTextValidateUTF8);
         return fileAttributes;
     }
 
     public String getHeaderType() {
         return headerType;
-    }
-
-    public TTextSerdeType getTextSerdeType() {
-        return textSerdeType;
     }
 
     public String getColumnSeparator() {
@@ -203,7 +228,7 @@ public class CsvFileFormatProperties extends FileFormatProperties {
         return escape;
     }
 
-    public List<Column> getCsvSchema() {
-        return csvSchema;
+    public boolean getEmptyFieldAsNull() {
+        return emptyFieldAsNull;
     }
 }

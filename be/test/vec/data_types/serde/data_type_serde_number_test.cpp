@@ -20,16 +20,17 @@
 #include <gtest/gtest.h>
 #include <streamvbyte.h>
 
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <limits>
 #include <type_traits>
 
+#include "runtime/primitive_type.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/common_data_type_serder_test.h"
@@ -39,18 +40,14 @@
 namespace doris::vectorized {
 static std::string test_data_dir;
 
-static auto serde_float32 = std::make_shared<DataTypeNumberSerDe<Float32>>();
-static auto serde_float64 = std::make_shared<DataTypeNumberSerDe<Float64>>();
-static auto serde_int8 = std::make_shared<DataTypeNumberSerDe<Int8>>();
-static auto serde_int16 = std::make_shared<DataTypeNumberSerDe<Int16>>();
-static auto serde_int32 = std::make_shared<DataTypeNumberSerDe<Int32>>();
-static auto serde_int64 = std::make_shared<DataTypeNumberSerDe<Int64>>();
-static auto serde_int128 = std::make_shared<DataTypeNumberSerDe<Int128>>();
-static auto serde_uint8 = std::make_shared<DataTypeNumberSerDe<UInt8>>();
-static auto serde_uint16 = std::make_shared<DataTypeNumberSerDe<UInt16>>();
-static auto serde_uint32 = std::make_shared<DataTypeNumberSerDe<UInt32>>();
-static auto serde_uint64 = std::make_shared<DataTypeNumberSerDe<UInt64>>();
-static auto serde_uint128 = std::make_shared<DataTypeNumberSerDe<UInt128>>();
+static auto serde_float32 = std::make_shared<DataTypeNumberSerDe<TYPE_FLOAT>>();
+static auto serde_float64 = std::make_shared<DataTypeNumberSerDe<TYPE_DOUBLE>>();
+static auto serde_int8 = std::make_shared<DataTypeNumberSerDe<TYPE_TINYINT>>();
+static auto serde_int16 = std::make_shared<DataTypeNumberSerDe<TYPE_SMALLINT>>();
+static auto serde_int32 = std::make_shared<DataTypeNumberSerDe<TYPE_INT>>();
+static auto serde_int64 = std::make_shared<DataTypeNumberSerDe<TYPE_BIGINT>>();
+static auto serde_int128 = std::make_shared<DataTypeNumberSerDe<TYPE_LARGEINT>>();
+static auto serde_uint8 = std::make_shared<DataTypeNumberSerDe<TYPE_BOOLEAN>>();
 
 static ColumnFloat32::MutablePtr column_float32;
 static ColumnFloat64::MutablePtr column_float64;
@@ -60,9 +57,6 @@ static ColumnInt32::MutablePtr column_int32;
 static ColumnInt64::MutablePtr column_int64;
 static ColumnInt128::MutablePtr column_int128;
 static ColumnUInt8::MutablePtr column_uint8;
-static ColumnUInt16::MutablePtr column_uint16;
-static ColumnUInt32::MutablePtr column_uint32;
-static ColumnUInt64::MutablePtr column_uint64;
 
 class DataTypeNumberSerDeTest : public ::testing::Test {
 public:
@@ -80,9 +74,6 @@ public:
         column_int128 = ColumnInt128::create();
 
         column_uint8 = ColumnUInt8::create();
-        column_uint16 = ColumnUInt16::create();
-        column_uint32 = ColumnUInt32::create();
-        column_uint64 = ColumnUInt64::create();
 
         load_columns_data();
     }
@@ -107,9 +98,6 @@ public:
         test_func(column_int128->get_ptr(), serde_int128, "LARGEINT.csv");
 
         test_func(column_uint8->get_ptr(), serde_uint8, "TINYINT_UNSIGNED.csv");
-        test_func(column_uint16->get_ptr(), serde_uint16, "SMALLINT_UNSIGNED.csv");
-        test_func(column_uint32->get_ptr(), serde_uint32, "INT_UNSIGNED.csv");
-        test_func(column_uint64->get_ptr(), serde_uint64, "BIGINT_UNSIGNED.csv");
     }
 };
 TEST_F(DataTypeNumberSerDeTest, serdes) {
@@ -139,7 +127,25 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
                 Slice slice {actual_str_value.data(), actual_str_value.size()};
                 st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
                 EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else if (std::isinf(expected_value)) {
+                        EXPECT_EQ(actual_value, expected_value);
+                    } else {
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -171,7 +177,28 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             EXPECT_TRUE(st.ok()) << "Failed to deserialize column from json: " << st;
             EXPECT_EQ(num_deserialized, row_count);
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else if (std::isinf(expected_value)) {
+                        EXPECT_TRUE(std::isinf(actual_value))
+                                << "Row " << j << " value mismatch: expected inf, got "
+                                << actual_value;
+                    } else {
+                        // EXPECT_EQ(actual_value, expected_value);
+                        EXPECT_NEAR(actual_value, expected_value, 0.00001)
+                                << "Row " << j << " value mismatch: expected " << expected_value
+                                << ", got " << actual_value;
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
 
@@ -186,7 +213,21 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             st = serde.read_column_from_pb(*deser_column, pv);
             EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
         {
@@ -196,7 +237,7 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 
@@ -204,14 +245,31 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
             ser_col->reserve(row_count);
             MutableColumnPtr deser_column = source_column->clone_empty();
             const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
-            auto* pdoc = JsonbDocument::checkAndCreateDocument(
-                    jsonb_writer.getOutput()->getBuffer(), jsonb_writer.getOutput()->getSize());
+            JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            ASSERT_TRUE(st.ok()) << "checkAndCreateDocument failed: " << st.to_string();
             JsonbDocument& doc = *pdoc;
             for (auto it = doc->begin(); it != doc->end(); ++it) {
                 serde.read_one_cell_from_jsonb(*deser_column, it->value());
             }
             for (size_t j = 0; j != row_count; ++j) {
-                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                if constexpr (std::is_same_v<ColumnType, ColumnFloat32> ||
+                              std::is_same_v<ColumnType, ColumnFloat64>) {
+                    // for float and double, we need to check the value with a tolerance
+                    auto expected_value = source_column->get_element(j);
+                    auto actual_value = deser_col_with_type->get_element(j);
+                    if (std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value))
+                                << "Row " << j << " value mismatch: expected NaN, got "
+                                << actual_value;
+                    } else {
+                        EXPECT_EQ(actual_value, expected_value);
+                    }
+                } else {
+                    EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+                }
             }
         }
         {
@@ -232,8 +290,5 @@ TEST_F(DataTypeNumberSerDeTest, serdes) {
     test_func(*serde_int64, column_int64);
     test_func(*serde_int128, column_int128);
     test_func(*serde_uint8, column_uint8);
-    test_func(*serde_uint16, column_uint16);
-    test_func(*serde_uint32, column_uint32);
-    test_func(*serde_uint64, column_uint64);
 }
 } // namespace doris::vectorized

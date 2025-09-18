@@ -62,21 +62,13 @@ public:
     }
 
     Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    InvertedIndexIterator* iterator, uint32_t num_rows,
+                    IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         std::shared_lock<std::shared_mutex> lock(_mtx);
         if (!_nested) {
             return Status::OK();
         }
         return _nested->evaluate(name_with_type, iterator, num_rows, bitmap);
-    }
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        std::shared_lock<std::shared_mutex> lock(_mtx);
-        if (!_nested) {
-            return true;
-        }
-        return _nested->can_do_apply_safely(input_type, is_null);
     }
 
     void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,

@@ -114,9 +114,7 @@ void LoadStreamReplyHandler::on_closed(brpc::StreamId id) {
         LOG(WARNING) << "stub is not exist when on_closed, " << *this;
         return;
     }
-    std::lock_guard<bthread::Mutex> lock(stub->_close_mutex);
     stub->_is_closed.store(true);
-    stub->_close_cv.notify_all();
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStreamReplyHandler& handler) {
@@ -236,8 +234,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int32_t segment_id, const SegmentStatistics& segment_stat,
-                                   TabletSchemaSPtr flush_schema) {
+                                   int32_t segment_id, const SegmentStatistics& segment_stat) {
     if (!_is_open.load()) {
         add_failed_tablet(tablet_id, _status);
         return _status;
@@ -252,9 +249,6 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_segment_id(segment_id);
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
-    if (flush_schema != nullptr) {
-        flush_schema->to_schema_pb(header.mutable_flush_schema());
-    }
     return _encode_and_send(header);
 }
 
@@ -320,7 +314,7 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     watch.start();
     while (!_tablet_schema_for_index->contains(index_id) &&
            watch.elapsed_time() / 1000 / 1000 < timeout_ms) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         static_cast<void>(wait_for_new_schema(100));
     }
 
@@ -330,37 +324,30 @@ Status LoadStreamStub::wait_for_schema(int64_t partition_id, int64_t index_id, i
     return Status::OK();
 }
 
-Status LoadStreamStub::close_wait(RuntimeState* state, int64_t timeout_ms) {
+Status LoadStreamStub::close_finish_check(RuntimeState* state, bool* is_closed) {
     DBUG_EXECUTE_IF("LoadStreamStub::close_wait.long_wait", DBUG_BLOCK);
+    DBUG_EXECUTE_IF("LoadStreamStub::close_finish_check.close_failed",
+                    { return Status::InternalError("close failed"); });
+    *is_closed = true;
     if (!_is_open.load()) {
         // we don't need to close wait on non-open streams
         return Status::OK();
     }
+    if (state->get_query_ctx()->is_cancelled()) {
+        return state->get_query_ctx()->exec_status();
+    }
     if (!_is_closing.load()) {
+        *is_closed = false;
         return _status;
     }
     if (_is_closed.load()) {
-        return _check_cancel();
-    }
-    DCHECK(timeout_ms > 0) << "timeout_ms should be greator than 0";
-    std::unique_lock<bthread::Mutex> lock(_close_mutex);
-    auto timeout_sec = timeout_ms / 1000;
-    while (!_is_closed.load() && !state->get_query_ctx()->is_cancelled()) {
-        //the query maybe cancel, so need check after wait 1s
-        timeout_sec = timeout_sec - 1;
-        LOG(INFO) << "close waiting, " << *this << ", timeout_sec=" << timeout_sec
-                  << ", is_closed=" << _is_closed.load()
-                  << ", is_cancelled=" << state->get_query_ctx()->is_cancelled();
-        int ret = _close_cv.wait_for(lock, 1000000);
-        if (ret != 0 && timeout_sec <= 0) {
-            return Status::InternalError("stream close_wait timeout, error={}, timeout_ms={}, {}",
-                                         ret, timeout_ms, to_string());
+        RETURN_IF_ERROR(check_cancel());
+        if (!_is_eos.load()) {
+            return Status::InternalError("Stream closed without EOS, {}", to_string());
         }
+        return Status::OK();
     }
-    RETURN_IF_ERROR(_check_cancel());
-    if (!_is_eos.load()) {
-        return Status::InternalError("stream closed without eos, {}", to_string());
-    }
+    *is_closed = false;
     return Status::OK();
 }
 
@@ -374,11 +361,7 @@ void LoadStreamStub::cancel(Status reason) {
         _cancel_st = reason;
         _is_cancelled.store(true);
     }
-    {
-        std::lock_guard<bthread::Mutex> lock(_close_mutex);
-        _is_closed.store(true);
-        _close_cv.notify_all();
-    }
+    _is_closed.store(true);
 }
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
@@ -394,6 +377,7 @@ Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const S
     }
     bool eos = header.opcode() == doris::PStreamHeader::CLOSE_LOAD;
     bool get_schema = header.opcode() == doris::PStreamHeader::GET_SCHEMA;
+    add_bytes_written(buf.size());
     return _send_with_buffer(buf, eos || get_schema);
 }
 
@@ -437,12 +421,34 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
         switch (hdr.opcode()) {
         case PStreamHeader::ADD_SEGMENT:
         case PStreamHeader::APPEND_DATA: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.append_data_failed", {
+                add_failed_tablet(hdr.tablet_id(), st);
+                return;
+            });
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.add_segment_failed", {
+                add_failed_tablet(hdr.tablet_id(), st);
+                return;
+            });
             add_failed_tablet(hdr.tablet_id(), st);
         } break;
         case PStreamHeader::CLOSE_LOAD: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.close_load_failed", {
+                brpc::StreamClose(_stream_id);
+                return;
+            });
             brpc::StreamClose(_stream_id);
         } break;
         case PStreamHeader::GET_SCHEMA: {
+            DBUG_EXECUTE_IF("LoadStreamStub._handle_failure.get_schema_failed", {
+                // Just log and let wait_for_schema timeout
+                std::ostringstream oss;
+                for (const auto& tablet : hdr.tablets()) {
+                    oss << " " << tablet.tablet_id();
+                }
+                LOG(WARNING) << "failed to send GET_SCHEMA request, tablet_id:" << oss.str() << ", "
+                             << *this;
+                return;
+            });
             // Just log and let wait_for_schema timeout
             std::ostringstream oss;
             for (const auto& tablet : hdr.tablets()) {
@@ -460,11 +466,11 @@ void LoadStreamStub::_handle_failure(butil::IOBuf& buf, Status st) {
 
 Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
     for (;;) {
-        RETURN_IF_ERROR(_check_cancel());
+        RETURN_IF_ERROR(check_cancel());
         int ret;
         {
             DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.delay_before_send", {
-                int64_t delay_ms = dp->param<int64>("delay_ms", 1000);
+                int64_t delay_ms = dp->param<int64_t>("delay_ms", 1000);
                 bthread_usleep(delay_ms * 1000);
             });
             brpc::StreamWriteOptions options;
@@ -554,15 +560,6 @@ Status LoadStreamStubs::close_load(const std::vector<PTabletID>& tablets_to_comm
         }
     }
     return status;
-}
-
-Status LoadStreamStubs::close_wait(RuntimeState* state, int64_t timeout_ms) {
-    MonotonicStopWatch watch;
-    watch.start();
-    for (auto& stream : _streams) {
-        RETURN_IF_ERROR(stream->close_wait(state, timeout_ms - watch.elapsed_time() / 1000 / 1000));
-    }
-    return Status::OK();
 }
 
 } // namespace doris

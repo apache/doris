@@ -48,6 +48,10 @@ public abstract class NamedExpression extends Expression {
         throw new UnboundException("qualifier");
     }
 
+    public String getJoinQualifier() {
+        return String.join(".", getQualifier());
+    }
+
     /**
      * Get qualified name of NamedExpression.
      *

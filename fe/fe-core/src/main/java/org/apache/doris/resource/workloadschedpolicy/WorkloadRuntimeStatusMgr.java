@@ -35,7 +35,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 // NOTE: not using a lock for beToQueryStatsMap's update because it should void global lock for all be
 // this may cause in some corner case missing statistics update,for example:
@@ -48,8 +48,9 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(WorkloadRuntimeStatusMgr.class);
     private Map<Long, BeReportInfo> beToQueryStatsMap = Maps.newConcurrentMap();
-    private final ReentrantReadWriteLock queryAuditEventLock = new ReentrantReadWriteLock();
+    private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
+    private volatile long lastWarnTime;
 
     private class BeReportInfo {
         volatile long beLastReportTime;
@@ -112,12 +113,18 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         queryAuditEventLogWriteLock();
         try {
             if (queryAuditEventList.size() > Config.audit_event_log_queue_size) {
-                // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
-                // so that the statistic info of this audit event will be ignored, and event will be logged directly.
-                LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
-                                + "you can check whether qps is too high or "
-                                + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
-                        queryAuditEventList.size(), event.queryId);
+                long now = System.currentTimeMillis();
+
+                if (now - lastWarnTime >= 1000) {
+                    lastWarnTime = now;
+                    // if queryAuditEventList is full, we don't put the event to queryAuditEventList.
+                    // so that the statistic info of this audit event will be ignored,
+                    // and event will be logged directly.
+                    LOG.warn("audit log event queue size {} is full, this may cause audit log missing statistics."
+                                    + "you can check whether qps is too high or "
+                                    + "set audit_event_log_queue_size to a larger value in fe.conf. query id: {}",
+                            queryAuditEventList.size(), event.queryId);
+                }
                 Env.getCurrentAuditEventProcessor().handleAuditEvent(event);
             } else {
                 // put the event to queryAuditEventList and let the worker thread to handle it.
@@ -239,10 +246,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     }
 
     private void queryAuditEventLogWriteLock() {
-        queryAuditEventLock.writeLock().lock();
+        queryAuditEventLock.lock();
     }
 
     private void queryAuditEventLogWriteUnlock() {
-        queryAuditEventLock.writeLock().unlock();
+        queryAuditEventLock.unlock();
     }
 }

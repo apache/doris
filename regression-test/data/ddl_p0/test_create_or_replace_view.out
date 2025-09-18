@@ -17,6 +17,11 @@ v	int	Yes	false	\N
 -- !sql_1 --
 1	1	1
 
+-- !desc_view_upper_after_replace --
+k1	int	Yes	false	\N	
+k2	int	Yes	false	\N	
+v	int	Yes	false	\N	
+
 -- !sql_2 --
 2	2	2
 

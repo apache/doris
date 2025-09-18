@@ -55,6 +55,12 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 return true;
             }
         };
+        new MockUp<MTMV>() {
+            @Mock
+            public boolean canBeCandidate() {
+                return true;
+            }
+        };
         connectContext.getSessionVariable().enableMaterializedViewRewrite = true;
         connectContext.getSessionVariable().enableMaterializedViewNestRewrite = true;
         createMvByNereids("create materialized view mv1 BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL\n"
@@ -69,8 +75,10 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Assertions.assertTrue(c1.getMemo().toString().contains("mv1"));

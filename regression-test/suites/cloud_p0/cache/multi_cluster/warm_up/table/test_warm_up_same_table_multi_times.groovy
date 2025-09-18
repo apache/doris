@@ -18,10 +18,21 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_warm_up_same_table_multi_times") {
+    def custoBeConfig = [
+        enable_evict_file_cache_in_advance : false,
+        file_cache_enter_disk_resource_limit_mode_percent : 99
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def clusters = sql " SHOW CLUSTERS; "
+    assertTrue(!clusters.isEmpty())
+    def validCluster = clusters[0][0]
+    sql """use @${validCluster};""";
+
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
-         return jobStateResult[0][2]
+         return jobStateResult[0]
     }
 
     String[][] backends = sql """ show backends """
@@ -30,7 +41,7 @@ suite("test_warm_up_same_table_multi_times") {
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name0")) {
+        if (backend[9].equals("true") && backend[19].contains("${validCluster}")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -73,8 +84,7 @@ suite("test_warm_up_same_table_multi_times") {
 
 
 
-    sql "use @regression_cluster_name0"
-    // sql "use @compute_cluster"
+    sql "use @${validCluster}"
 
     def table = "customer"
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
@@ -113,23 +123,22 @@ suite("test_warm_up_same_table_multi_times") {
     load_customer_once()
     load_customer_once()
 
-    def jobId = sql "warm up cluster regression_cluster_name0 with table customer;"
+    def jobId = sql "warm up cluster ${validCluster} with table customer;"
     try {
-        sql "warm up cluster regression_cluster_name0 with table customer;"
-        assertTrue(false)
+        sql "warm up cluster ${validCluster} with table customer;"
+        assertTrue(true) // dup warm up command can be send to fe queue now
     } catch (Exception e) {
-        assertTrue(true)
+        assertTrue(false)
     }
     int retryTime = 120
     int j = 0
     for (; j < retryTime; j++) {
         sleep(1000)
-        def status = getJobState(jobId[0][0])
-        logger.info(status)
-        if (status.equals("CANCELLED")) {
+        def statuses = getJobState(jobId[0][0])
+        if (statuses.any { it != null && it.equals("CANCELLED") }) {
             assertTrue(false);
         }
-        if (status.equals("FINISHED")) {
+        if (statuses.any { it != null && it.equals("FINISHED") }) {
             break;
         }
     }
@@ -180,19 +189,18 @@ suite("test_warm_up_same_table_multi_times") {
             assertTrue(flag)
     }
 
-    // AGAIN! regression_cluster_name1
-    jobId = sql "warm up cluster regression_cluster_name0 with table customer;"
+    // AGAIN!
+    jobId = sql "warm up cluster ${validCluster} with table customer;"
 
     retryTime = 120
     j = 0
     for (; j < retryTime; j++) {
         sleep(1000)
-        def status = getJobState(jobId[0][0])
-        logger.info(status)
-        if (status.equals("CANCELLED")) {
+        def statuses = getJobState(jobId[0][0])
+        if (statuses.any { it != null && it.equals("CANCELLED") }) {
             assertTrue(false);
         }
-        if (status.equals("FINISHED")) {
+        if (statuses.any { it != null && it.equals("FINISHED") }) {
             break;
         }
     }
@@ -265,4 +273,5 @@ suite("test_warm_up_same_table_multi_times") {
     long diff = skip_io_bytes_end - skip_io_bytes_start;
     println("skip_io_bytes diff: " + diff);
     assertTrue(diff > 1000);
+    }
 }

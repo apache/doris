@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForArrayItemAgg;
@@ -26,15 +27,12 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -49,15 +47,11 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(DoubleType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(BooleanType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(TinyIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(SmallIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(LargeIntType.INSTANCE)),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(ArrayType.of(IntegerType.INSTANCE)),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(ArrayType.of(BigIntType.INSTANCE)),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(ArrayType.of(LargeIntType.INSTANCE)),
             FunctionSignature.ret(DecimalV3Type.WILDCARD).args(ArrayType.of(DecimalV3Type.WILDCARD)),
-            FunctionSignature.ret(DecimalV2Type.SYSTEM_DEFAULT).args(ArrayType.of(DecimalV2Type.SYSTEM_DEFAULT)),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(ArrayType.of(FloatType.INSTANCE))
+            FunctionSignature.ret(FloatType.INSTANCE).args(ArrayType.of(FloatType.INSTANCE))
     );
 
     /**
@@ -67,13 +61,27 @@ public class ArrayProduct extends ScalarFunction implements ExplicitlyCastableSi
         super("array_product", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayProduct(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType argType = child().getDataType();
+        if (argType instanceof ArrayType && ((ArrayType) argType).getItemType().isComplexType()) {
+            throw new AnalysisException(toSql() + " does not support type: "
+                                                    + ((ArrayType) argType).getItemType().toString());
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayProduct withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayProduct(children.get(0));
+        return new ArrayProduct(getFunctionParams(children));
     }
 
     @Override

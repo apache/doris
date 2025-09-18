@@ -28,4 +28,9 @@ public class PlanProcess {
         this.beforeShape = beforeShape;
         this.afterShape = afterShape;
     }
+
+    @Override
+    public String toString() {
+        return "PlanProcess{ruleName='" + ruleName + '\'' + '}';
+    }
 }

@@ -30,8 +30,8 @@ Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateIn
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _get_data_timer = ADD_TIMER(_runtime_profile, "GetDataTime");
-    _filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    _get_data_timer = ADD_TIMER(custom_profile(), "GetDataTime");
+    _filter_timer = ADD_TIMER(custom_profile(), "FilterTime");
     _shared_state->probe_finished_children_dependency.resize(
             _parent->cast<SetSourceOperatorX<is_intersect>>()._child_quantity, nullptr);
     return Status::OK();
@@ -51,7 +51,7 @@ Status SetSourceLocalState<is_intersect>::open(RuntimeState* state) {
             << output_data_types.size() << " " << column_nums;
     // the nullable is not depend on child, it's should use _row_descriptor from FE plan
     // some case all not nullable column from children, but maybe need output nullable.
-    vector<bool> nullable_flags(column_nums, false);
+    std::vector<bool> nullable_flags(column_nums, false);
     for (int i = 0; i < column_nums; ++i) {
         nullable_flags[i] = output_data_types[i]->is_nullable();
         if (nullable_flags[i] != _shared_state->build_not_ignore_null[i]) {
@@ -143,23 +143,13 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         }
     };
 
-    auto& iter = hash_table_ctx.iterator;
-    while (iter != hash_table_ctx.hash_table->end() &&
-           local_state._result_indexs.size() < batch_size) {
-        add_result(iter->get_second());
+    auto& iter = hash_table_ctx.begin;
+    while (iter != hash_table_ctx.end && local_state._result_indexs.size() < batch_size) {
+        add_result(iter.get_second());
         ++iter;
     }
 
-    *eos = iter == hash_table_ctx.hash_table->end();
-    if (*eos && hash_table_ctx.hash_table->has_null_key_data()) {
-        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
-        // If the hashmap can store nulldata, the return value is RowRefWithFlag, otherwise it is char*
-        static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
-                      std::is_same_v<char*, std::decay_t<decltype(value)>>);
-        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
-            add_result(value);
-        }
-    }
+    *eos = iter == hash_table_ctx.end;
 
     local_state._add_result_columns();
 

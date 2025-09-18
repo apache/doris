@@ -122,7 +122,7 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         const auto* type_arr = assert_cast<const vectorized::DataTypeArray*>(
                 vectorized::remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        static_cast<void>(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -131,8 +131,8 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
                 vectorized::remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        static_cast<void>(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
-        static_cast<void>(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -142,7 +142,7 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            static_cast<void>(
+            RETURN_IF_ERROR(
                     convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
@@ -156,7 +156,7 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         break;
     }
     case TYPE_QUANTILE_STATE:
-    case TYPE_OBJECT:
+    case TYPE_BITMAP:
     case TYPE_HLL: {
         *result = arrow::binary();
         break;

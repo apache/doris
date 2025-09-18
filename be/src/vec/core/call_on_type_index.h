@@ -33,22 +33,22 @@ struct TypePair {
     using RightType = U;
 };
 
-template <typename T, bool _int, bool _float, bool _decimal, bool _datetime, typename F>
+template <PrimitiveType T, bool _int, bool _float, bool _decimal, bool _datetime, typename F>
 bool call_on_basic_type(PrimitiveType number, F&& f) {
     if constexpr (_int) {
         switch (number) {
         case PrimitiveType::TYPE_BOOLEAN:
-            return f(TypePair<T, UInt8>());
+            return f(TypePair<DataTypeBool, DataTypeBool>());
         case PrimitiveType::TYPE_TINYINT:
-            return f(TypePair<T, Int8>());
+            return f(TypePair<DataTypeInt8, DataTypeInt8>());
         case PrimitiveType::TYPE_SMALLINT:
-            return f(TypePair<T, Int16>());
+            return f(TypePair<DataTypeInt16, DataTypeInt16>());
         case PrimitiveType::TYPE_INT:
-            return f(TypePair<T, Int32>());
+            return f(TypePair<DataTypeInt32, DataTypeInt32>());
         case PrimitiveType::TYPE_BIGINT:
-            return f(TypePair<T, Int64>());
+            return f(TypePair<DataTypeInt64, DataTypeInt64>());
         case PrimitiveType::TYPE_LARGEINT:
-            return f(TypePair<T, Int128>());
+            return f(TypePair<DataTypeInt128, DataTypeInt128>());
 
         default:
             break;
@@ -58,15 +58,15 @@ bool call_on_basic_type(PrimitiveType number, F&& f) {
     if constexpr (_decimal) {
         switch (number) {
         case PrimitiveType::TYPE_DECIMAL32:
-            return f(TypePair<T, Decimal32>());
+            return f(TypePair<DataTypeDecimal32, DataTypeDecimal32>());
         case PrimitiveType::TYPE_DECIMAL64:
-            return f(TypePair<T, Decimal64>());
+            return f(TypePair<DataTypeDecimal64, DataTypeDecimal64>());
         case PrimitiveType::TYPE_DECIMALV2:
-            return f(TypePair<T, Decimal128V2>());
+            return f(TypePair<DataTypeDecimalV2, DataTypeDecimalV2>());
         case PrimitiveType::TYPE_DECIMAL128I:
-            return f(TypePair<T, Decimal128V3>());
+            return f(TypePair<DataTypeDecimal128, DataTypeDecimal128>());
         case PrimitiveType::TYPE_DECIMAL256:
-            return f(TypePair<T, Decimal256>());
+            return f(TypePair<DataTypeDecimal256, DataTypeDecimal256>());
         default:
             break;
         }
@@ -75,9 +75,9 @@ bool call_on_basic_type(PrimitiveType number, F&& f) {
     if constexpr (_float) {
         switch (number) {
         case PrimitiveType::TYPE_FLOAT:
-            return f(TypePair<T, Float32>());
+            return f(TypePair<DataTypeFloat32, DataTypeFloat32>());
         case PrimitiveType::TYPE_DOUBLE:
-            return f(TypePair<T, Float64>());
+            return f(TypePair<DataTypeFloat64, DataTypeFloat64>());
         default:
             break;
         }
@@ -92,22 +92,22 @@ bool call_on_basic_types(PrimitiveType type_num1, PrimitiveType type_num2, F&& f
     if constexpr (_int) {
         switch (type_num1) {
         case PrimitiveType::TYPE_BOOLEAN:
-            return call_on_basic_type<UInt8, _int, _float, _decimal, _datetime>(type_num2,
-                                                                                std::forward<F>(f));
+            return call_on_basic_type<TYPE_BOOLEAN, _int, _float, _decimal, _datetime>(
+                    type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_TINYINT:
-            return call_on_basic_type<Int8, _int, _float, _decimal, _datetime>(type_num2,
-                                                                               std::forward<F>(f));
+            return call_on_basic_type<TYPE_TINYINT, _int, _float, _decimal, _datetime>(
+                    type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_SMALLINT:
-            return call_on_basic_type<Int16, _int, _float, _decimal, _datetime>(type_num2,
-                                                                                std::forward<F>(f));
+            return call_on_basic_type<TYPE_SMALLINT, _int, _float, _decimal, _datetime>(
+                    type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_INT:
-            return call_on_basic_type<Int32, _int, _float, _decimal, _datetime>(type_num2,
-                                                                                std::forward<F>(f));
+            return call_on_basic_type<TYPE_INT, _int, _float, _decimal, _datetime>(
+                    type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_BIGINT:
-            return call_on_basic_type<Int64, _int, _float, _decimal, _datetime>(type_num2,
-                                                                                std::forward<F>(f));
+            return call_on_basic_type<TYPE_BIGINT, _int, _float, _decimal, _datetime>(
+                    type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_LARGEINT:
-            return call_on_basic_type<Int128, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_LARGEINT, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         default:
             break;
@@ -117,19 +117,19 @@ bool call_on_basic_types(PrimitiveType type_num1, PrimitiveType type_num2, F&& f
     if constexpr (_decimal) {
         switch (type_num1) {
         case PrimitiveType::TYPE_DECIMAL32:
-            return call_on_basic_type<Decimal32, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DECIMAL32, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_DECIMAL64:
-            return call_on_basic_type<Decimal64, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DECIMAL64, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_DECIMALV2:
-            return call_on_basic_type<Decimal128V2, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DECIMALV2, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_DECIMAL128I:
-            return call_on_basic_type<Decimal128V3, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DECIMAL128I, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_DECIMAL256:
-            return call_on_basic_type<Decimal256, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DECIMAL256, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         default:
             break;
@@ -139,10 +139,10 @@ bool call_on_basic_types(PrimitiveType type_num1, PrimitiveType type_num2, F&& f
     if constexpr (_float) {
         switch (type_num1) {
         case PrimitiveType::TYPE_FLOAT:
-            return call_on_basic_type<Float32, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_FLOAT, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         case PrimitiveType::TYPE_DOUBLE:
-            return call_on_basic_type<Float64, _int, _float, _decimal, _datetime>(
+            return call_on_basic_type<TYPE_DOUBLE, _int, _float, _decimal, _datetime>(
                     type_num2, std::forward<F>(f));
         default:
             break;
@@ -161,45 +161,41 @@ class DataTypeIPv6;
 class DataTypeString;
 template <typename T>
 class DataTypeEnum;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeNumber;
-template <typename T>
+template <PrimitiveType T>
 class DataTypeDecimal;
 
 template <typename T, typename F>
 bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
     switch (number) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return f(TypePair<DataTypeNumber<UInt8>, T>());
+        return f(TypePair<DataTypeBool, T>());
     case PrimitiveType::TYPE_TINYINT:
-        return f(TypePair<DataTypeNumber<Int8>, T>());
+        return f(TypePair<DataTypeInt8, T>());
     case PrimitiveType::TYPE_SMALLINT:
-        return f(TypePair<DataTypeNumber<Int16>, T>());
+        return f(TypePair<DataTypeInt16, T>());
     case PrimitiveType::TYPE_INT:
-        return f(TypePair<DataTypeNumber<Int32>, T>());
+        return f(TypePair<DataTypeInt32, T>());
     case PrimitiveType::TYPE_BIGINT:
-        return f(TypePair<DataTypeNumber<Int64>, T>());
+        return f(TypePair<DataTypeInt64, T>());
     case PrimitiveType::TYPE_LARGEINT:
-        return f(TypePair<DataTypeNumber<Int128>, T>());
+        return f(TypePair<DataTypeInt128, T>());
 
     case PrimitiveType::TYPE_FLOAT:
-        return f(TypePair<DataTypeNumber<Float32>, T>());
+        return f(TypePair<DataTypeFloat32, T>());
     case PrimitiveType::TYPE_DOUBLE:
-        return f(TypePair<DataTypeNumber<Float64>, T>());
-    case PrimitiveType::TYPE_TIME:
-        return f(TypePair<DataTypeTimeV2, T>());
-    case PrimitiveType::TYPE_TIMEV2:
-        return f(TypePair<DataTypeTimeV2, T>());
+        return f(TypePair<DataTypeFloat64, T>());
     case PrimitiveType::TYPE_DECIMAL32:
-        return f(TypePair<DataTypeDecimal<Decimal32>, T>());
+        return f(TypePair<DataTypeDecimal32, T>());
     case PrimitiveType::TYPE_DECIMAL64:
-        return f(TypePair<DataTypeDecimal<Decimal64>, T>());
+        return f(TypePair<DataTypeDecimal64, T>());
     case PrimitiveType::TYPE_DECIMALV2:
-        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+        return f(TypePair<DataTypeDecimalV2, T>());
     case PrimitiveType::TYPE_DECIMAL128I:
-        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
+        return f(TypePair<DataTypeDecimal128, T>());
     case PrimitiveType::TYPE_DECIMAL256:
-        return f(TypePair<DataTypeDecimal<Decimal256>, T>());
+        return f(TypePair<DataTypeDecimal256, T>());
 
     case PrimitiveType::TYPE_DATE:
         return f(TypePair<DataTypeDate, T>());
@@ -209,6 +205,8 @@ bool call_on_index_and_data_type(PrimitiveType number, F&& f) {
         return f(TypePair<DataTypeDateTimeV2, T>());
     case PrimitiveType::TYPE_DATETIME:
         return f(TypePair<DataTypeDateTime, T>());
+    case PrimitiveType::TYPE_TIMEV2:
+        return f(TypePair<DataTypeTimeV2, T>());
 
     case PrimitiveType::TYPE_IPV4:
         return f(TypePair<DataTypeIPv4, T>());
@@ -230,33 +228,33 @@ template <typename T, typename F>
 bool call_on_index_and_number_data_type(PrimitiveType number, F&& f) {
     switch (number) {
     case PrimitiveType::TYPE_BOOLEAN:
-        return f(TypePair<DataTypeNumber<UInt8>, T>());
+        return f(TypePair<DataTypeBool, T>());
     case PrimitiveType::TYPE_TINYINT:
-        return f(TypePair<DataTypeNumber<Int8>, T>());
+        return f(TypePair<DataTypeInt8, T>());
     case PrimitiveType::TYPE_SMALLINT:
-        return f(TypePair<DataTypeNumber<Int16>, T>());
+        return f(TypePair<DataTypeInt16, T>());
     case PrimitiveType::TYPE_INT:
-        return f(TypePair<DataTypeNumber<Int32>, T>());
+        return f(TypePair<DataTypeInt32, T>());
     case PrimitiveType::TYPE_BIGINT:
-        return f(TypePair<DataTypeNumber<Int64>, T>());
+        return f(TypePair<DataTypeInt64, T>());
     case PrimitiveType::TYPE_LARGEINT:
-        return f(TypePair<DataTypeNumber<Int128>, T>());
+        return f(TypePair<DataTypeInt128, T>());
     case PrimitiveType::TYPE_FLOAT:
-        return f(TypePair<DataTypeNumber<Float32>, T>());
+        return f(TypePair<DataTypeFloat32, T>());
     case PrimitiveType::TYPE_DOUBLE:
-        return f(TypePair<DataTypeNumber<Float64>, T>());
+        return f(TypePair<DataTypeFloat64, T>());
     case PrimitiveType::TYPE_TIMEV2:
         return f(TypePair<DataTypeTimeV2, T>());
     case PrimitiveType::TYPE_DECIMAL32:
-        return f(TypePair<DataTypeDecimal<Decimal32>, T>());
+        return f(TypePair<DataTypeDecimal32, T>());
     case PrimitiveType::TYPE_DECIMAL64:
-        return f(TypePair<DataTypeDecimal<Decimal64>, T>());
+        return f(TypePair<DataTypeDecimal64, T>());
     case PrimitiveType::TYPE_DECIMALV2:
-        return f(TypePair<DataTypeDecimal<Decimal128V2>, T>());
+        return f(TypePair<DataTypeDecimalV2, T>());
     case PrimitiveType::TYPE_DECIMAL128I:
-        return f(TypePair<DataTypeDecimal<Decimal128V3>, T>());
+        return f(TypePair<DataTypeDecimal128, T>());
     case PrimitiveType::TYPE_DECIMAL256:
-        return f(TypePair<DataTypeDecimal<Decimal256>, T>());
+        return f(TypePair<DataTypeDecimal256, T>());
     default:
         break;
     }

@@ -48,9 +48,10 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "common/string_util.h"
-#include "meta-service/keys.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-service/meta_service_helper.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 #include "meta_service.h"
 #include "rate-limiter/rate_limiter.h"
 
@@ -63,7 +64,7 @@ namespace doris::cloud {
         auto st = parse_json_message(unresolved_path, body, &req);                              \
         if (!st.ok()) {                                                                         \
             std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", body);                                                 \
+            LOG_WARNING(msg).tag("body", encryt_sk(body));                                      \
             return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
         }                                                                                       \
     } while (0)
@@ -75,6 +76,9 @@ extern int decrypt_instance_info(InstanceInfoPB& instance, const std::string& in
                                  MetaServiceCode& code, std::string& msg,
                                  std::shared_ptr<Transaction>& txn);
 
+extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
+                                          std::unordered_map<std::string, size_t>& partition_count);
+
 template <typename Message>
 static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
                                                          const std::string& body, Message* req) {
@@ -83,7 +87,7 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     if (!st.ok()) {
         std::string msg = "failed to strictly parse http request for '" + unresolved_path +
                           "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", body);
+        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -198,6 +202,7 @@ static HttpResponse process_alter_cluster(MetaServiceImpl* service, brpc::Contro
             {"decommission_node", AlterClusterRequest::DECOMMISSION_NODE},
             {"set_cluster_status", AlterClusterRequest::SET_CLUSTER_STATUS},
             {"notify_decommissioned", AlterClusterRequest::NOTIFY_DECOMMISSIONED},
+            {"alter_vcluster_info", AlterClusterRequest::ALTER_VCLUSTER_INFO},
     };
 
     auto& path = ctrl->http_request().unresolved_path();
@@ -229,7 +234,8 @@ static HttpResponse process_get_obj_store_info(MetaServiceImpl* service, brpc::C
 static HttpResponse process_alter_obj_store_info(MetaServiceImpl* service, brpc::Controller* ctrl) {
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"add_obj_info", AlterObjStoreInfoRequest::ADD_OBJ_INFO},
-            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK}};
+            {"legacy_update_ak_sk", AlterObjStoreInfoRequest::LEGACY_UPDATE_AK_SK},
+            {"alter_obj_info", AlterObjStoreInfoRequest::ALTER_OBJ_INFO}};
 
     auto& path = ctrl->http_request().unresolved_path();
     auto it = operations.find(remove_version_prefix(path));
@@ -251,6 +257,7 @@ static HttpResponse process_alter_storage_vault(MetaServiceImpl* service, brpc::
     static std::unordered_map<std::string_view, AlterObjStoreInfoRequest::Operation> operations {
             {"drop_s3_vault", AlterObjStoreInfoRequest::DROP_S3_VAULT},
             {"add_s3_vault", AlterObjStoreInfoRequest::ADD_S3_VAULT},
+            {"alter_s3_vault", AlterObjStoreInfoRequest::ALTER_S3_VAULT},
             {"drop_hdfs_vault", AlterObjStoreInfoRequest::DROP_HDFS_INFO},
             {"add_hdfs_vault", AlterObjStoreInfoRequest::ADD_HDFS_INFO}};
 
@@ -530,38 +537,8 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
         auto msg = fmt::format("failed to get boundaries, code={}", code);
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, msg);
     }
-
     std::unordered_map<std::string, size_t> partition_count;
-    size_t prefix_size = FdbTxnKv::fdb_partition_key_prefix().size();
-    for (auto&& boundary : partition_boundaries) {
-        if (boundary.size() < prefix_size + 1 || boundary[prefix_size] != CLOUD_USER_KEY_SPACE01) {
-            continue;
-        }
-
-        std::string_view user_key(boundary);
-        user_key.remove_prefix(prefix_size + 1); // Skip the KEY_SPACE prefix.
-        std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
-        decode_key(&user_key, &out); // ignore any error, since the boundary key might be truncated.
-
-        auto visitor = [](auto&& arg) -> std::string {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, std::string>) {
-                return arg;
-            } else {
-                return std::to_string(arg);
-            }
-        };
-
-        if (!out.empty()) {
-            std::string key;
-            for (size_t i = 0; i < 3 && i < out.size(); ++i) {
-                key += std::visit(visitor, std::get<0>(out[i]));
-                key += '|';
-            }
-            key.pop_back(); // omit the last '|'
-            partition_count[key]++;
-        }
-    }
+    get_kv_range_boundaries_count(partition_boundaries, partition_count);
 
     // sort ranges by count
     std::vector<std::pair<std::string, size_t>> meta_ranges;
@@ -573,7 +550,7 @@ static HttpResponse process_show_meta_ranges(MetaServiceImpl* service, brpc::Con
     std::sort(meta_ranges.begin(), meta_ranges.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.second > rhs.second; });
 
-    std::string body = fmt::format("total partitions: {}\n", partition_boundaries.size());
+    std::string body = fmt::format("total meta ranges: {}\n", partition_boundaries.size());
     for (auto&& [key, count] : meta_ranges) {
         body += fmt::format("{}: {}\n", key, count);
     }
@@ -705,6 +682,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"decommission_node", process_alter_cluster},
             {"set_cluster_status", process_alter_cluster},
             {"notify_decommissioned", process_alter_cluster},
+            {"alter_vcluster_info", process_alter_cluster},
             {"v1/add_cluster", process_alter_cluster},
             {"v1/drop_cluster", process_alter_cluster},
             {"v1/rename_cluster", process_alter_cluster},
@@ -714,6 +692,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/drop_node", process_alter_cluster},
             {"v1/decommission_node", process_alter_cluster},
             {"v1/set_cluster_status", process_alter_cluster},
+            {"v1/alter_vcluster_info", process_alter_cluster},
             // for alter instance
             {"create_instance", process_create_instance},
             {"drop_instance", process_alter_instance},
@@ -740,6 +719,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"alter_s3_vault", process_alter_storage_vault},
             {"drop_s3_vault", process_alter_storage_vault},
             {"drop_hdfs_vault", process_alter_storage_vault},
+            {"alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_obj_info", process_alter_obj_store_info},
+            {"v1/alter_s3_vault", process_alter_storage_vault},
+
             // for tools
             {"decode_key", process_decode_key},
             {"encode_key", process_encode_key},
@@ -794,6 +777,8 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     LOG(INFO) << "rpc from " << cntl->remote_side()
               << " request: " << cntl->http_request().uri().path();
     std::string http_request = format_http_request(cntl);
+    std::string http_request_for_log = encryt_sk(http_request);
+    http_request_for_log = hide_ak(http_request_for_log);
 
     // Auth
     auto token = http_query(cntl->http_request().uri(), "token");
@@ -804,7 +789,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
         LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << http_request << " msg: " << body;
+                     << " request: " << http_request_for_log << " msg: " << body;
         return;
     }
 
@@ -824,7 +809,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     int ret = cntl->http_response().status_code();
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
               << cntl->remote_side() << " request=\n"
-              << http_request << "\n ret=" << ret << " msg=" << msg;
+              << http_request_for_log << "\n ret=" << ret << " msg=" << msg;
 }
 
 } // namespace doris::cloud

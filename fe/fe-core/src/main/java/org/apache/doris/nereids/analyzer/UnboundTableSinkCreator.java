@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,12 +68,13 @@ public class UnboundTableSinkCreator {
      */
     public static LogicalSink<? extends Plan> createUnboundTableSink(List<String> nameParts,
                 List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
-                boolean isPartialUpdate, DMLCommandType dmlCommandType, LogicalPlan plan) {
+                boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+                DMLCommandType dmlCommandType, LogicalPlan plan) {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
-                    isPartialUpdate, dmlCommandType, Optional.empty(),
+                    isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
@@ -92,7 +94,8 @@ public class UnboundTableSinkCreator {
      */
     public static LogicalSink<? extends Plan> createUnboundTableSinkMaybeOverwrite(List<String> nameParts,
             List<String> colNames, List<String> hints, boolean temporaryPartition, List<String> partitions,
-            boolean isAutoDetectPartition, boolean isOverwrite, boolean isPartialUpdate, DMLCommandType dmlCommandType,
+            boolean isAutoDetectPartition, boolean isOverwrite, boolean isPartialUpdate,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, DMLCommandType dmlCommandType,
             LogicalPlan plan) {
         if (isAutoDetectPartition) { // partitions is null
             if (!isOverwrite) {
@@ -107,7 +110,7 @@ public class UnboundTableSinkCreator {
         if (curCatalog instanceof InternalCatalog) {
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isAutoDetectPartition,
-                    isPartialUpdate, dmlCommandType, Optional.empty(),
+                    isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,

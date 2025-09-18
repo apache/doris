@@ -57,7 +57,7 @@ using StubMap = phmap::parallel_flat_hash_map<
         std::allocator<std::pair<const std::string, std::shared_ptr<T>>>, 8, std::mutex>;
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 class FailureDetectClosure : public ::google::protobuf::Closure {
 public:
     FailureDetectClosure(std::shared_ptr<AtomicStatus>& channel_st,
@@ -195,7 +195,7 @@ public:
     }
 
     std::shared_ptr<T> get_client(const std::string& host_port) {
-        int pos = host_port.rfind(':');
+        const auto pos = host_port.rfind(':');
         std::string host = host_port.substr(0, pos);
         int port = 0;
         try {
@@ -227,6 +227,8 @@ public:
         } else if (_connection_group != "") {
             options.connection_group = _connection_group;
         }
+        // Add random connection id to connection_group to make sure use new socket
+        options.connection_group += std::to_string(_connection_id.fetch_add(1));
         options.connect_timeout_ms = 2000;
         options.timeout_ms = 2000;
         options.max_retry = 10;
@@ -310,8 +312,12 @@ private:
     const std::string _protocol;
     const std::string _connection_type;
     const std::string _connection_group;
+    // use to generate unique connection id for each connection
+    // to prevent the connection problem of brpc: https://github.com/apache/brpc/issues/2146
+    std::atomic<int64_t> _connection_id {0};
 };
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;
 using FunctionServiceClientCache = BrpcClientCache<PFunctionService_Stub>;
+#include "common/compile_check_end.h"
 } // namespace doris

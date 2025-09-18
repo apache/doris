@@ -25,7 +25,6 @@
 #include "runtime/query_context.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
-#include "util/brpc_closure.h"
 
 namespace doris {
 
@@ -82,7 +81,7 @@ class AutoReleaseClosure : public google::protobuf::Closure {
 
 public:
     AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback,
-                       std::weak_ptr<QueryContext> context = {})
+                       std::weak_ptr<QueryContext> context = {}, std::string_view error_msg = {})
             : request_(req), callback_(callback), context_(std::move(context)) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
@@ -113,10 +112,12 @@ public:
     // at any stage.
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
+    std::string error_msg_;
 
 protected:
     virtual void _process_if_rpc_failed() {
-        std::string error_msg = "RPC meet failed: " + cntl_->ErrorText();
+        std::string error_msg =
+                fmt::format("RPC meet failed: {} {}", cntl_->ErrorText(), error_msg_);
         if (auto ctx = context_.lock(); ctx) {
             ctx->cancel(Status::NetworkError(error_msg));
         } else {

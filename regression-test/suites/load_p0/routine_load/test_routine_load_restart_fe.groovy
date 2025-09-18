@@ -38,8 +38,33 @@ suite("test_routine_load_restart_fe", "docker") {
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        // add timeout config
+        props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
+        props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+        // check conenction
+        def verifyKafkaConnection = { prod ->
+            try {
+                logger.info("=====try to connect Kafka========")
+                def partitions = prod.partitionsFor("__connection_verification_topic")
+                return partitions != null
+            } catch (Exception e) {
+                throw new Exception("Kafka connect fail: ${e.message}".toString())
+            }
+        }
         // Create kafka producer
         def producer = new KafkaProducer<>(props)
+        try {
+            logger.info("Kafka connecting: ${kafka_broker}")
+            if (!verifyKafkaConnection(producer)) {
+                throw new Exception("can't get any kafka info")
+            }
+        } catch (Exception e) {
+            logger.error("FATAL: " + e.getMessage())
+            producer.close()
+            throw e  
+        }
+        logger.info("Kafka connect success")
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
@@ -50,15 +75,14 @@ suite("test_routine_load_restart_fe", "docker") {
                 producer.send(record)
             }
         }
-    }
 
-    def options = new ClusterOptions()
-    options.setFeNum(1)
-    docker(options) {
-        def load_with_injection = { injection ->
-            def jobName = "test_routine_load_restart"
-            def tableName = "dup_tbl_basic_multi_table"
-            if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        def options = new ClusterOptions()
+        options.setFeNum(1)
+        options.enableDebugPoints()
+        def jobName = "test_routine_load_restart"
+        def tableName = "dup_tbl_basic_multi_table"
+        docker(options) {
+            def load_with_injection = { injection ->
                 try {
                     GetDebugPoint().enableDebugPointForAllBEs(injection)
                     sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
@@ -104,32 +128,32 @@ suite("test_routine_load_restart_fe", "docker") {
                         } else {
                             continue;
                         }
-                    }
-                    sql "stop routine load for ${jobName}"
+                    }                    
                 } catch (Exception e) {
                     log.info("exception: {}", e)
+                    sql "stop routine load for ${jobName}"
                     sql "DROP TABLE IF EXISTS ${tableName}"
                 }
             }
-        }
-        load_with_injection("KafkaDataConsumer.group_consume.out_of_range")
+            load_with_injection("KafkaDataConsumer.group_consume.out_of_range")
 
-        cluster.restartFrontends()
-        sleep(30000)
-        context.reconnectFe()
+            cluster.restartFrontends()
+            sleep(30000)
+            context.reconnectFe()
 
-        def res = sql "show routine load for ${jobName}"
-        def state = res[0][8].toString()
-        if (state == "PAUSED") {
-            log.info("reason of state changed: ${res[0][17].toString()}".toString())
-            assertTrue(res[0][17].toString().contains("Offset out of range"))
-            assertTrue(res[0][17].toString().contains("consume partition"))
-            assertTrue(res[0][17].toString().contains("consume offset"))
-        } else {
-            assertEquals(1, 2)
+            def res = sql "show routine load for ${jobName}"
+            def state = res[0][8].toString()
+            if (state == "PAUSED") {
+                log.info("reason of state changed: ${res[0][17].toString()}".toString())
+                assertTrue(res[0][17].toString().contains("Offset out of range"))
+                assertTrue(res[0][17].toString().contains("consume partition"))
+                assertTrue(res[0][17].toString().contains("consume offset"))
+            } else {
+                assertEquals(1, 2)
+            }
+            sql "stop routine load for ${jobName}"
+            sql "DROP TABLE IF EXISTS ${tableName}"
         }
-        sql "stop routine load for ${jobName}"
-        sql "DROP TABLE IF EXISTS ${tableName}"
     }
 }
 

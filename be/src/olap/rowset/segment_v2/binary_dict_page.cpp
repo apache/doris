@@ -32,6 +32,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct StringRef;
 
 namespace segment_v2 {
@@ -51,8 +52,10 @@ Status BinaryDictPageBuilder::init() {
             &data_page_builder_ptr, _options));
     _data_page_builder.reset(data_page_builder_ptr);
     PageBuilderOptions dict_builder_options;
-    dict_builder_options.data_page_size =
-            std::min(_options.data_page_size, _options.dict_page_size);
+    // here the binary plain page is used to store the dictionary items so
+    // the data page size is set to the same as the dict page size
+    dict_builder_options.data_page_size = _options.dict_page_size;
+    dict_builder_options.dict_page_size = _options.dict_page_size;
     dict_builder_options.is_dict_page = true;
 
     PageBuilder* dict_builder_ptr = nullptr;
@@ -107,7 +110,7 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                     }
                     dict_item.relocate(item_mem);
                 }
-                value_code = _dictionary.size();
+                value_code = cast_set<uint32_t>(_dictionary.size());
                 size_t add_count = 1;
                 RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
                                                    &add_count));
@@ -271,7 +274,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
-    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+    if (*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -300,7 +303,7 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
 
-    if (PREDICT_FALSE(*n == 0)) {
+    if (*n == 0) [[unlikely]] {
         *n = 0;
         return Status::OK();
     }
@@ -311,7 +314,7 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     _buffer.resize(total);
     for (size_t i = 0; i < total; ++i) {
         ordinal_t ord = rowids[i] - page_first_ordinal;
-        if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {
+        if (ord >= _bit_shuffle_ptr->_num_elements) [[unlikely]] {
             break;
         }
 
@@ -326,5 +329,6 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

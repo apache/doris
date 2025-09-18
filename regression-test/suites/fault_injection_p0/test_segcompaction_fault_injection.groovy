@@ -19,6 +19,11 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.util.Http
 
 suite("test_segcompaction_correctness", "nonConcurrent,p2") {
+    if (isCloudMode()) {
+        logger.info("skip test in cloud mode")
+        return
+    }
+
     def tableName = "segcompaction_correctness_test"
     def create_table_sql = """
                 CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -89,7 +94,7 @@ suite("test_segcompaction_correctness", "nonConcurrent,p2") {
 
             result = sql """ show load where label="$uuid" order by createtime desc limit 1; """
             qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47 order by col_1, col_2; """
-            tablets = sql """ show tablets from ${tableName}; """
+            def tablets = sql """ show tablets from ${tableName}; """
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")
         }

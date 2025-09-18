@@ -181,7 +181,7 @@ void QueryContext::_init_resource_context() {
 }
 
 void QueryContext::init_query_task_controller() {
-    _resource_ctx->set_task_controller(QueryTaskController::create(this));
+    _resource_ctx->set_task_controller(QueryTaskController::create(shared_from_this()));
     _resource_ctx->task_controller()->set_task_id(_query_id);
     _resource_ctx->task_controller()->set_fe_addr(current_connect_fe);
     _resource_ctx->task_controller()->set_query_type(_query_options.query_type);
@@ -217,18 +217,6 @@ QueryContext::~QueryContext() {
         _report_query_profile();
     }
 
-    // Not release the the thread token in query context's dector method, because the query
-    // conext may be dectored in the thread token it self. It is very dangerous and may core.
-    // And also thread token need shutdown, it may take some time, may cause the thread that
-    // release the token hang, the thread maybe a pipeline task scheduler thread.
-    if (_thread_token) {
-        Status submit_st = ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-                DelayReleaseToken::create_shared(std::move(_thread_token)));
-        if (!submit_st.ok()) {
-            LOG(WARNING) << "Failed to release query context thread token, query_id "
-                         << print_id(_query_id) << ", error status " << submit_st;
-        }
-    }
 #ifndef BE_TEST
     if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
         try {
@@ -245,9 +233,6 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
     _merge_controller_handler.reset();
 
-#ifndef BE_TEST
-    _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-#endif
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
@@ -329,6 +314,16 @@ std::string QueryContext::get_load_error_url() {
     return _load_error_url;
 }
 
+void QueryContext::set_first_error_msg(std::string error_msg) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _first_error_msg = error_msg;
+}
+
+std::string QueryContext::get_first_error_msg() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _first_error_msg;
+}
+
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {
@@ -381,20 +376,22 @@ void QueryContext::set_pipeline_context(
 }
 
 doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
-    if (workload_group()) {
-        if (_task_scheduler) {
-            return _task_scheduler;
-        }
+    if (!_task_scheduler) {
+        throw Exception(Status::InternalError("task_scheduler is null"));
     }
-    return _exec_env->pipeline_task_scheduler();
+    return _task_scheduler;
 }
 
-void QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
+Status QueryContext::set_workload_group(WorkloadGroupPtr& wg) {
     _resource_ctx->set_workload_group(wg);
-    // Should add query first, then the workload group will not be deleted.
+    // Should add query first, the workload group will not be deleted,
+    // then visit workload group's resource
     // see task_group_manager::delete_workload_group_by_ids
+    RETURN_IF_ERROR(workload_group()->add_resource_ctx(_query_id, _resource_ctx));
+
     workload_group()->get_query_scheduler(&_task_scheduler, &_scan_task_scheduler,
                                           &_remote_scan_task_scheduler);
+    return Status::OK();
 }
 
 void QueryContext::add_fragment_profile(
@@ -441,7 +438,7 @@ void QueryContext::_report_query_profile() {
                 _query_id, this->coord_addr, fragment_id, fragment_profile, load_channel_profile);
     }
 
-    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_report_profile();
+    ExecEnv::GetInstance()->runtime_query_statistics_mgr()->trigger_profile_reporting();
 }
 
 std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>

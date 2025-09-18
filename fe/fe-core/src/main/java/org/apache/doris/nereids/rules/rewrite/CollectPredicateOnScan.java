@@ -44,7 +44,7 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
         return ImmutableList.of(
                 RuleType.COLLECT_SCAN_FILTER.build(
                 logicalFilter(logicalOlapScan()).then(filter -> {
-                    if (StatisticsUtil.isEnableHboInfoCollection()) {
+                    if (!StatisticsUtil.isEnableHboInfoCollection()) {
                         return filter;
                     }
                     LogicalOlapScan scan = filter.child();
@@ -61,7 +61,7 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
 
                 RuleType.COLLECT_SCAN_PROJECT_FILTER.build(
                 logicalFilter(logicalProject(logicalOlapScan())).then(filter -> {
-                    if (StatisticsUtil.isEnableHboInfoCollection()) {
+                    if (!StatisticsUtil.isEnableHboInfoCollection()) {
                         return filter;
                     }
                     LogicalOlapScan scan = filter.child().child();

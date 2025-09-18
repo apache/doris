@@ -65,7 +65,8 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalFilter().then(filter -> {
-                    List<Expression> dependentPredicates = extractDependentConjuncts(filter.getConjuncts());
+                    List<Expression> dependentPredicates = extractDependentConjuncts(filter.getConjuncts(),
+                            Lists.newArrayList());
                     if (dependentPredicates.isEmpty()) {
                         return null;
                     }
@@ -78,8 +79,14 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
                     return new LogicalFilter<>(newPredicates, filter.child());
                 }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION),
                 logicalJoin().when(join -> ALLOW_JOIN_TYPE.contains(join.getJoinType())).then(join -> {
+                    List<Set<String>> qualifierBatches = Lists.newArrayList();
+                    // for join, also extract multiple tables: left tables and right tables
+                    qualifierBatches.add(join.left().getOutputSet().stream().map(Slot::getJoinQualifier)
+                            .collect(Collectors.toSet()));
+                    qualifierBatches.add(join.right().getOutputSet().stream().map(Slot::getJoinQualifier)
+                            .collect(Collectors.toSet()));
                     List<Expression> dependentOtherPredicates = extractDependentConjuncts(
-                            ImmutableSet.copyOf(join.getOtherJoinConjuncts()));
+                            ImmutableSet.copyOf(join.getOtherJoinConjuncts()), qualifierBatches);
                     if (dependentOtherPredicates.isEmpty()) {
                         return null;
                     }
@@ -95,7 +102,7 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
                 }).toRule(RuleType.EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION));
     }
 
-    private List<Expression> extractDependentConjuncts(Set<Expression> conjuncts) {
+    private List<Expression> extractDependentConjuncts(Set<Expression> conjuncts, List<Set<String>> qualifierBatches) {
         List<Expression> dependentPredicates = Lists.newArrayList();
         for (Expression conjunct : conjuncts) {
             // conjunct=(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY')
@@ -112,11 +119,25 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
             Set<String> qualifiers = disjuncts.get(0).getInputSlots().stream()
                     .map(slot -> String.join(".", slot.getQualifier()))
                     .collect(Collectors.toCollection(Sets::newLinkedHashSet));
+            List<Set<String>> includeSingleQualifierBatches = Lists.newArrayListWithExpectedSize(
+                    qualifiers.size() + qualifierBatches.size());
+            // extract single table's expression
             for (String qualifier : qualifiers) {
+                includeSingleQualifierBatches.add(ImmutableSet.of(qualifier));
+            }
+            // for join, extract left tables and right tables
+            for (Set<String> batch : qualifierBatches) {
+                Set<String> newBatch = batch.stream().filter(qualifiers::contains).collect(Collectors.toSet());
+                // if newBatch.size == 1, then it had put into includeSingleQualifierBatches
+                if (newBatch.size() > 1) {
+                    includeSingleQualifierBatches.add(newBatch);
+                }
+            }
+            for (Set<String> batch : includeSingleQualifierBatches) {
                 List<Expression> extractForAll = Lists.newArrayList();
                 boolean success = true;
                 for (Expression expr : disjuncts) {
-                    Optional<Expression> extracted = extractSingleTableExpression(expr, qualifier);
+                    Optional<Expression> extracted = extractMultipleTableExpression(expr, batch);
                     if (!extracted.isPresent()) {
                         // extract failed
                         success = false;
@@ -136,7 +157,7 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
     // extract some conjucts from expr, all slots of the extracted conjunct comes from the table referred by qualifier.
     // example: expr=(n1.n_name = 'FRANCE' and n2.n_name = 'GERMANY'), qualifier="n1."
     // output: n1.n_name = 'FRANCE'
-    private Optional<Expression> extractSingleTableExpression(Expression expr, String qualifier) {
+    private Optional<Expression> extractMultipleTableExpression(Expression expr, Set<String> qualifiers) {
         // suppose the qualifier is table T, then the process steps are as follow:
         // 1. split the expression into conjunctions: c1 and c2 and c3 and ...
         // 2. for each conjunction ci, suppose its extract is Ei:
@@ -158,14 +179,14 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
         List<Expression> output = Lists.newArrayList();
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(expr);
         for (Expression conjunct : conjuncts) {
-            if (isSingleTableExpression(conjunct, qualifier)) {
+            if (isTableExpression(conjunct, qualifiers)) {
                 output.add(conjunct);
             } else if (conjunct instanceof Or) {
                 List<Expression> disjuncts = ExpressionUtils.extractDisjunction(conjunct);
                 List<Expression> extracted = Lists.newArrayListWithExpectedSize(disjuncts.size());
                 boolean success = true;
                 for (Expression disjunct : disjuncts) {
-                    Optional<Expression> extractedDisjunct = extractSingleTableExpression(disjunct, qualifier);
+                    Optional<Expression> extractedDisjunct = extractMultipleTableExpression(disjunct, qualifiers);
                     if (extractedDisjunct.isPresent()) {
                         extracted.addAll(ExpressionUtils.extractDisjunction(extractedDisjunct.get()));
                     } else {
@@ -186,14 +207,8 @@ public class ExtractSingleTableExpressionFromDisjunction implements RewriteRuleF
         }
     }
 
-    private boolean isSingleTableExpression(Expression expr, String qualifier) {
+    private boolean isTableExpression(Expression expr, Set<String> qualifiers) {
         //TODO: cache getSlotQualifierAsString() result.
-        for (Slot slot : expr.getInputSlots()) {
-            String slotQualifier = String.join(".", slot.getQualifier());
-            if (!slotQualifier.equals(qualifier)) {
-                return false;
-            }
-        }
-        return true;
+        return expr.getInputSlots().stream().allMatch(slot -> qualifiers.contains(slot.getJoinQualifier()));
     }
 }

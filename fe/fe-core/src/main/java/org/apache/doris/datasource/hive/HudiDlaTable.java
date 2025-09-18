@@ -102,11 +102,6 @@ public class HudiDlaTable extends HMSDlaTable {
         return true;
     }
 
-    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
-        TablePartitionValues snapshotCacheValue = getOrFetchHudiSnapshotCacheValue(snapshot);
-        return getHudiSchemaCacheValue(snapshotCacheValue.getLastUpdateTimestamp());
-    }
-
     private TablePartitionValues getOrFetchHudiSnapshotCacheValue(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
             return ((HudiMvccSnapshot) snapshot.get()).getTablePartitionValues();
@@ -115,10 +110,20 @@ public class HudiDlaTable extends HMSDlaTable {
         }
     }
 
+    public HMSSchemaCacheValue getHudiSchemaCacheValue(Optional<MvccSnapshot> snapshot) {
+        long timestamp = 0L;
+        if (snapshot.isPresent()) {
+            timestamp = ((HudiMvccSnapshot) snapshot.get()).getTimestamp();
+        } else {
+            timestamp = HudiUtils.getLastTimeStamp(hmsTable);
+        }
+        return getHudiSchemaCacheValue(timestamp);
+    }
+
     private HMSSchemaCacheValue getHudiSchemaCacheValue(long timestamp) {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
         Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(
-                new HudiSchemaCacheKey(hmsTable.getDbName(), hmsTable.getName(), timestamp));
+                new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), timestamp));
         if (!schemaCacheValue.isPresent()) {
             throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
                     null, hmsTable.getCatalog().getName(), hmsTable.getDbName(), hmsTable.getName(), timestamp);

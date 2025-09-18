@@ -103,7 +103,7 @@ public class BackendsTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.BACKENDS);
         TBackendsMetadataParams backendsMetadataParams = new TBackendsMetadataParams();

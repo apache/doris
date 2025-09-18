@@ -24,9 +24,6 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
-
 public class GlobalPrivEntry extends PrivEntry {
     private static final Logger LOG = LogManager.getLogger(GlobalPrivEntry.class);
 
@@ -66,13 +63,6 @@ public class GlobalPrivEntry extends PrivEntry {
     @Override
     public String toString() {
         return privSet.toString();
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        int passwordLen = in.readInt();
-        password = new byte[passwordLen];
-        in.readFully(password);
     }
 
     @Override

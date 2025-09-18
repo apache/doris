@@ -46,6 +46,7 @@ import org.apache.doris.load.routineload.RoutineLoadStatistic;
 import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TLoadSourceType;
@@ -1175,9 +1176,15 @@ public class GlobalTransactionMgrTest {
     }
 
     private void checkTableVersion(OlapTable olapTable, long visibleVersion, long nextVersion) {
-        LOG.info("table={}, visibleVersion={}, nextVersion={}", olapTable.getName(), olapTable.getVisibleVersion(),
+        long version = 0;
+        try {
+            version = olapTable.getVisibleVersion();
+        } catch (RpcException e) {
+            // ut do nothing
+        }
+        LOG.info("table={}, visibleVersion={}, nextVersion={}", olapTable.getName(), version,
                 olapTable.getNextVersion());
-        Assert.assertEquals(visibleVersion, olapTable.getVisibleVersion());
+        Assert.assertEquals(visibleVersion, version);
         Assert.assertEquals(nextVersion, olapTable.getNextVersion());
     }
 

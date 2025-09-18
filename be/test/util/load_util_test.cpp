@@ -183,7 +183,7 @@ TEST_F(LoadUtilTest, ParseTest) {
         TFileFormatType::type format_type;
         TFileCompressType::type compress_type;
         LoadUtil::parse_format("JSON", "UNKNOWN", &format_type, &compress_type);
-        EXPECT_EQ(TFileFormatType::FORMAT_UNKNOWN, format_type);
+        EXPECT_EQ(TFileFormatType::FORMAT_JSON, format_type);
         EXPECT_EQ(TFileCompressType::PLAIN, compress_type);
     }
     {

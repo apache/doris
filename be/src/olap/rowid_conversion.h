@@ -20,11 +20,13 @@
 #include <map>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "olap/olap_common.h"
 #include "olap/utils.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // For unique key merge on write table, we should update delete bitmap
 // of destination rowset when compaction finished.
@@ -58,7 +60,7 @@ public:
                                 ->consumption()));
             }
 
-            uint32_t id = _segments_rowid_map.size();
+            uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
             _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
             _id_to_segment_map.emplace_back(src_rowset_id, i);
             std::vector<std::pair<uint32_t, uint32_t>> vec(
@@ -172,4 +174,5 @@ private:
     std::uint32_t _cur_dst_segment_rowid = 0;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

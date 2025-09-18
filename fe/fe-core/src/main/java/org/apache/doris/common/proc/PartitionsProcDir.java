@@ -51,6 +51,25 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
@@ -162,6 +181,77 @@ public class PartitionsProcDir implements ProcDirInterface {
         return true;
     }
 
+    private static boolean filterSubExpression(Expression expr, Comparable element) throws AnalysisException {
+        // show partitions only provide very limited filtering capacity in FE. so restrict here.
+        if (!(expr.child(1) instanceof Literal)) {
+            throw new AnalysisException("Not Supported. Use `select * from partitions(...)` instead");
+        }
+
+        if (expr instanceof EqualTo && expr.child(1) instanceof StringLikeLiteral) {
+            return ((StringLikeLiteral) expr.child(1)).getValue().equals(element.toString());
+        }
+        long leftVal;
+        long rightVal;
+        if (expr.child(1) instanceof org.apache.doris.nereids.trees.expressions.literal.DateLiteral) {
+            DateLikeType dateLikeType;
+            if (expr.child(1) instanceof DateV2Literal) {
+                dateLikeType = DateV2Type.INSTANCE;
+            } else if (expr.child(1) instanceof DateTimeLiteral) {
+                dateLikeType = DateTimeType.INSTANCE;
+            } else if (expr.child(1) instanceof DateTimeV2Literal) {
+                dateLikeType = DateTimeV2Type.MAX;
+            } else {
+                throw new AnalysisException("Invalid date type: " + expr.child(1).getDataType());
+            }
+            leftVal = (new org.apache.doris.nereids.trees.expressions.literal.DateLiteral(
+                    dateLikeType, (String) element)).getValue();
+            rightVal = ((org.apache.doris.nereids.trees.expressions.literal.DateLiteral) expr.child(1)).getValue();
+        } else {
+            leftVal = Long.parseLong(element.toString());
+            rightVal = ((IntegerLikeLiteral) expr.child(1)).getLongValue();
+        }
+
+        if (expr instanceof EqualTo) {
+            return leftVal == rightVal;
+        } else if (expr instanceof NullSafeEqual) {
+            return leftVal == rightVal;
+        } else if (expr instanceof GreaterThan) {
+            return leftVal > rightVal;
+        } else if (expr instanceof GreaterThanEqual) {
+            return leftVal >= rightVal;
+        } else if (expr instanceof LessThan) {
+            return leftVal < rightVal;
+        } else if (expr instanceof LessThanEqual) {
+            return leftVal <= rightVal;
+        } else {
+            Preconditions.checkState(false, "No defined binary operator.");
+        }
+        return true;
+    }
+
+    public static boolean filterExpression(String columnName, Comparable element, Map<String, Expression> filterMap)
+            throws AnalysisException {
+        if (filterMap == null) {
+            return true;
+        }
+        Expression subExpr = filterMap.get(columnName.toLowerCase()); // predicate on this column.
+        if (subExpr == null) {
+            return true;
+        }
+
+        if (subExpr instanceof ComparisonPredicate) {
+            return filterSubExpression(subExpr, element);
+        } else if (subExpr instanceof Not) {
+            subExpr = subExpr.child(0);
+            if (subExpr instanceof EqualTo) {
+                return !filterSubExpression(subExpr, element);
+            }
+        } else {
+            return like(element.toString(), ((StringLikeLiteral) subExpr.child(1)).getStringValue());
+        }
+        return false;
+    }
+
     public static boolean like(String str, String expr) {
         expr = expr.toLowerCase();
         expr = expr.replace(".", "\\.");
@@ -169,6 +259,61 @@ public class PartitionsProcDir implements ProcDirInterface {
         expr = expr.replace("%", ".*");
         str = str.toLowerCase();
         return str.matches(expr);
+    }
+
+    public ProcResult fetchResultByExpressionFilter(Map<String, Expression> filterMap, List<OrderByPair> orderByPairs,
+                                                        LimitElement limitElement) throws AnalysisException {
+        List<List<Comparable>> partitionInfos = getPartitionInfos();
+        List<List<Comparable>> filterPartitionInfos;
+        //where
+        if (filterMap == null || filterMap.isEmpty()) {
+            filterPartitionInfos = partitionInfos;
+        } else {
+            filterPartitionInfos = Lists.newArrayList();
+            // TODO: we should change the order of loops to speed up. use filters to filter column value.
+            for (List<Comparable> partitionInfo : partitionInfos) {
+                if (partitionInfo.size() != TITLE_NAMES.size()) {
+                    throw new AnalysisException("PartitionInfos.size() " + partitionInfos.size()
+                        + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                }
+                boolean isNeed = true;
+                for (int i = 0; i < partitionInfo.size(); i++) {
+                    isNeed = filterExpression(TITLE_NAMES.get(i), partitionInfo.get(i), filterMap);
+                    if (!isNeed) {
+                        break;
+                    }
+                }
+
+                if (isNeed) {
+                    filterPartitionInfos.add(partitionInfo);
+                }
+            }
+        }
+
+        // order by
+        if (orderByPairs != null) {
+            ListComparator<List<Comparable>> comparator;
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+            filterPartitionInfos.sort(comparator);
+        }
+
+        //limit
+        if (limitElement != null && limitElement.hasLimit()) {
+            int beginIndex = (int) limitElement.getOffset();
+            int endIndex = (int) (beginIndex + limitElement.getLimit());
+            if (endIndex > filterPartitionInfos.size()) {
+                endIndex = filterPartitionInfos.size();
+            }
+
+            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
+            if (beginIndex > endIndex) {
+                beginIndex = endIndex;
+            }
+            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
+        }
+
+        return getBasicProcResult(filterPartitionInfos);
     }
 
     public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs,
@@ -214,6 +359,11 @@ public class PartitionsProcDir implements ProcDirInterface {
             int endIndex = (int) (beginIndex + limitElement.getLimit());
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
+            }
+
+            // means that beginIndex is bigger than filterPartitionInfos.size(), just return empty
+            if (beginIndex > endIndex) {
+                beginIndex = endIndex;
             }
             filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }

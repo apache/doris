@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "testutil/column_helper.h"
-#include "vec/columns/columns_number.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -48,8 +47,6 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->insert(Field());
     EXPECT_TRUE(dst_col->has_null());
     dst_col->clear();
-    EXPECT_FALSE(dst_col->has_null());
-    dst_col->insert_range_from_not_nullable(*source_col, 5, 5);
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from(
             *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(10)), 5, 5);

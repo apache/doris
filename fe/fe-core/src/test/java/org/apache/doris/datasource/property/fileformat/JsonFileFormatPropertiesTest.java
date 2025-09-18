@@ -46,6 +46,8 @@ public class JsonFileFormatPropertiesTest {
         Assert.assertEquals(false, jsonFileFormatProperties.isReadJsonByLine());
         Assert.assertEquals(false, jsonFileFormatProperties.isNumAsString());
         Assert.assertEquals(false, jsonFileFormatProperties.isFuzzyParse());
+        Assert.assertEquals(CsvFileFormatProperties.DEFAULT_LINE_DELIMITER,
+                jsonFileFormatProperties.getLineDelimiter());
     }
 
     @Test

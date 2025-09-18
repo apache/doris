@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
@@ -72,7 +73,7 @@ public class ConnectSchedulerTest {
             } else {
                 context.setEnv(AccessTestUtil.fetchAdminCatalog());
             }
-            context.setQualifiedUser("root");
+            context.setCurrentUserIdentity(UserIdentity.ROOT);
             Assert.assertTrue(scheduler.submit(context));
             Assert.assertEquals(i, context.getConnectionId());
         }
@@ -84,7 +85,7 @@ public class ConnectSchedulerTest {
 
         ConnectContext context = new ConnectContext();
         context.setEnv(AccessTestUtil.fetchAdminCatalog());
-        context.setQualifiedUser("root");
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
         Assert.assertTrue(scheduler.submit(context));
         Assert.assertEquals(0, context.getConnectionId());
 

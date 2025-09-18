@@ -41,8 +41,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -54,7 +52,6 @@ import java.util.stream.Collectors;
  * Base class for External File Scan, including external query and load.
  */
 public abstract class FileScanNode extends ExternalScanNode {
-    private static final Logger LOG = LogManager.getLogger(FileScanNode.class);
 
     public static final long DEFAULT_SPLIT_SIZE = 64 * 1024 * 1024; // 64MB
 
@@ -95,17 +92,23 @@ public abstract class FileScanNode extends ExternalScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix).append("table: ").append(desc.getTable().getName()).append("\n");
+        output.append(prefix).append("table: ").append(desc.getTable().getNameWithFullQualifiers()).append("\n");
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");
-            output.append(getRuntimeFilterExplainString(false));
+            output.append(getRuntimeFilterExplainString());
         }
 
         output.append(prefix);
-        if (isBatchMode()) {
+        boolean isBatch;
+        try {
+            isBatch = isBatchMode();
+        } catch (UserException e) {
+            throw new RuntimeException(e);
+        }
+        if (isBatch) {
             output.append("(approximate)");
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
@@ -113,7 +116,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
                 .append("\n");
 
-        if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
+        if (detailLevel == TExplainLevel.VERBOSE && !isBatch) {
             output.append(prefix).append("backends:").append("\n");
             Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
             // 1. group by backend id
@@ -198,7 +201,6 @@ public abstract class FileScanNode extends ExternalScanNode {
             if (column.getDefaultValue() != null) {
                 if (column.getDefaultValueExprDef() != null) {
                     expr = column.getDefaultValueExpr();
-                    expr.analyze(analyzer);
                 } else {
                     expr = new StringLiteral(column.getDefaultValue());
                 }

@@ -1,0 +1,19 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ID",
+    "type" : "INT"
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : { },
+  "comment" : "",
+  "timeMillis" : 1750851313662
+}

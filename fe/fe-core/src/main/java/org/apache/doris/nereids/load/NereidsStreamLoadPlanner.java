@@ -41,6 +41,7 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -237,10 +238,13 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
                 partialUpdateInputColumns);
         NereidsParamCreateContext context = loadScanProvider.createLoadContext();
+        TPartialUpdateNewRowPolicy partialUpdateNewRowPolicy = taskInfo.getPartialUpdateNewRowPolicy();
         LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, dataDescription.getPartitionNames(),
-                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
+                context, uniquekeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS,
+                partialUpdateNewRowPolicy);
         NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(destTable, taskInfo, loadId,
-                db.getId(), uniquekeyUpdateMode, partialUpdateInputColumns, context.exprMap);
+                db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
+                context.exprMap);
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),

@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.gson.annotations.SerializedName;
@@ -50,17 +50,16 @@ public class StorageDesc extends ResourceDesc {
     public StorageDesc(String name, StorageBackend.StorageType storageType, Map<String, String> properties) {
         this.name = name;
         this.storageType = storageType;
-        if (!storageType.equals(StorageBackend.StorageType.BROKER)) {
-            this.storageProperties = StorageProperties.createPrimary(properties);
-        }
         this.properties = properties;
+        initStorageProperties();
     }
 
-    public StorageDesc(String name, Map<String, String> properties) throws UserException {
-        this.name = name;
-        this.properties = properties;
-        this.storageProperties = StorageProperties.createPrimary(properties);
-        this.storageType = StorageBackend.StorageType.convertToStorageType(storageProperties.getStorageName());
+    private void initStorageProperties() {
+        if (null != storageType && storageType.equals(StorageBackend.StorageType.BROKER)) {
+            this.storageProperties = BrokerProperties.of(name, properties);
+        } else {
+            this.storageProperties = StorageProperties.createPrimary(properties);
+        }
     }
 
     public void setName(String name) {
@@ -92,5 +91,9 @@ public class StorageDesc extends ResourceDesc {
             return properties;
         }
         return storageProperties.getBackendConfigProperties();
+    }
+
+    public StorageProperties getStorageProperties() {
+        return storageProperties;
     }
 }

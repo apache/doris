@@ -28,6 +28,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -60,6 +61,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -85,6 +88,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -103,6 +107,15 @@ import java.util.stream.Collectors;
  * bind an unbound logicalTableSink represent the target table of an insert command
  */
 public class BindSink implements AnalysisRuleFactory {
+    public boolean needTruncateStringWhenInsert;
+
+    public BindSink() {
+        this(true);
+    }
+
+    public BindSink(boolean needTruncateStringWhenInsert) {
+        this.needTruncateStringWhenInsert = needTruncateStringWhenInsert;
+    }
 
     @Override
     public List<Rule> buildRules() {
@@ -138,6 +151,7 @@ public class BindSink implements AnalysisRuleFactory {
         Database database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
+        TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = sink.getPartialUpdateNewRowPolicy();
 
         LogicalPlan child = ((LogicalPlan) sink.child());
         boolean childHasSeqCol = child.getOutput().stream()
@@ -161,6 +175,7 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 isPartialUpdate,
+                partialUpdateNewKeyPolicy,
                 sink.getDMLCommandType(),
                 child);
 
@@ -249,9 +264,11 @@ public class BindSink implements AnalysisRuleFactory {
 
         int size = columns.size();
         List<Slot> targetTableSlots = new ArrayList<>(size);
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (int i = 0; i < size; ++i) {
-            targetTableSlots.add(SlotReference.fromColumn(table, columns.get(i),
-                    table.getFullQualifiers()));
+            targetTableSlots.add(SlotReference.fromColumn(
+                    exprIdGenerator.getNextId(), table, columns.get(i), table.getFullQualifiers())
+            );
         }
         LegacyExprTranslator exprTranslator = new LegacyExprTranslator(table, targetTableSlots);
         return boundSink.withChildAndUpdateOutput(fullOutputProject, exprTranslator.createPartitionExprList(),
@@ -272,6 +289,9 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
+        ConnectContext connCtx = ConnectContext.get();
+        final boolean truncateString = needTruncateStringWhenInsert
+                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast);
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -291,6 +311,8 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                } else if (truncateString && sourceLength > targetLength && targetLength >= 0) {
+                    castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
                 }
@@ -417,7 +439,7 @@ public class BindSink implements AnalysisRuleFactory {
                         if (column.getDefaultValueExpr() == null) {
                             columnToOutput.put(column.getName(),
                                     new Alias(Literal.of(column.getDefaultValue())
-                                            .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                                            .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
                                             column.getName()));
                         } else {
                             Expression unboundDefaultValue = new NereidsParser().parseExpression(
@@ -706,7 +728,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (!(pair.second instanceof OlapTable)) {
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
@@ -718,7 +740,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof HMSExternalTable) {
             HMSExternalTable table = (HMSExternalTable) pair.second;
             if (table.getDlaType() == HMSExternalTable.DLAType.HIVE) {
@@ -733,7 +755,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof IcebergExternalTable) {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
@@ -745,7 +767,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
-                cascadesContext.getConnectContext().getEnv());
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
         if (pair.second instanceof JdbcExternalTable) {
             return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
         }
@@ -866,7 +888,7 @@ public class BindSink implements AnalysisRuleFactory {
             long baseIndexId = olapTable.getBaseIndexId();
             for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getVisibleIndexIdToMeta().entrySet()) {
                 if (entry.getKey() != baseIndexId && entry.getValue().getWhereClause() != null) {
-                    mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSql()));
+                    mvWhereClauses.put(entry.getKey(), analyze(entry.getValue().getWhereClause().toSqlWithoutTbl()));
                 }
             }
             return mvWhereClauses;

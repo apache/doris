@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -45,21 +47,20 @@ import java.util.Map;
 public class EliminateFilter implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(logicalFilter().when(
-                filter -> ExpressionUtils.containsType(filter.getConjuncts(), BooleanLiteral.class)
-                || ExpressionUtils.containsType(filter.getConjuncts(), NullLiteral.class))
+        return ImmutableList.of(logicalFilter()
+                .when(filter -> filter.getConjuncts().isEmpty()
+                    || ExpressionUtils.containsTypes(filter.getConjuncts(), BooleanLiteral.class, NullLiteral.class))
                 .thenApply(ctx -> {
                     LogicalFilter<Plan> filter = ctx.root;
                     ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-                    ExpressionRewriteContext context =
-                            new ExpressionRewriteContext(ctx.cascadesContext);
+                    ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                     for (Expression expression : filter.getConjuncts()) {
                         expression = FoldConstantRule.evaluate(eliminateNullLiteral(expression), context);
                         if (expression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
                             return new LogicalEmptyRelation(ctx.statementContext.getNextRelationId(),
                                     filter.getOutput());
                         } else if (expression != BooleanLiteral.TRUE) {
-                            newConjuncts.add(expression);
+                            newConjuncts.addAll(ExpressionUtils.extractConjunction(expression));
                         }
                     }
 
@@ -71,37 +72,41 @@ public class EliminateFilter implements RewriteRuleFactory {
                     }
                 })
                 .toRule(RuleType.ELIMINATE_FILTER),
-                logicalFilter(logicalOneRowRelation()).thenApply(ctx -> {
-                    LogicalFilter<LogicalOneRowRelation> filter = ctx.root;
-                    Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(filter.child().getOutputs());
-
-                    ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
-                    ExpressionRewriteContext context =
-                            new ExpressionRewriteContext(ctx.cascadesContext);
-                    for (Expression expression : filter.getConjuncts()) {
-                        Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
-                        Expression foldExpression = FoldConstantRule.evaluate(eliminateNullLiteral(newExpr), context);
-
-                        if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
-                            return new LogicalEmptyRelation(
-                                    ctx.statementContext.getNextRelationId(), filter.getOutput());
-                        } else if (foldExpression != BooleanLiteral.TRUE) {
-                            newConjuncts.add(expression);
-                        }
-                    }
-
-                    ImmutableSet<Expression> conjuncts = newConjuncts.build();
-                    if (conjuncts.isEmpty()) {
-                        return filter.child();
-                    } else {
-                        return new LogicalFilter<>(conjuncts, filter.child());
-                    }
-                })
+                logicalFilter(logicalOneRowRelation()).thenApply(ctx ->
+                        eliminateFilterOnOneRowRelation(ctx.root, ctx.cascadesContext)
+                )
                 .toRule(RuleType.ELIMINATE_FILTER_ON_ONE_RELATION));
     }
 
+    /** eliminateFilterOnOneRowRelation */
+    public static LogicalPlan eliminateFilterOnOneRowRelation(
+            LogicalFilter<LogicalOneRowRelation> filter, CascadesContext cascadesContext) {
+        Map<Slot, Expression> replaceMap = ExpressionUtils.generateReplaceMap(filter.child().getOutputs());
+
+        ImmutableSet.Builder<Expression> newConjuncts = ImmutableSet.builder();
+        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        for (Expression expression : filter.getConjuncts()) {
+            Expression newExpr = ExpressionUtils.replace(expression, replaceMap);
+            Expression foldExpression = FoldConstantRule.evaluate(eliminateNullLiteral(newExpr), context);
+
+            if (foldExpression == BooleanLiteral.FALSE || expression.isNullLiteral()) {
+                return new LogicalEmptyRelation(
+                        cascadesContext.getStatementContext().getNextRelationId(), filter.getOutput());
+            } else if (foldExpression != BooleanLiteral.TRUE) {
+                newConjuncts.add(expression);
+            }
+        }
+
+        ImmutableSet<Expression> conjuncts = newConjuncts.build();
+        if (conjuncts.isEmpty()) {
+            return filter.child();
+        } else {
+            return new LogicalFilter<>(conjuncts, filter.child());
+        }
+    }
+
     @VisibleForTesting
-    public Expression eliminateNullLiteral(Expression expression) {
+    public static Expression eliminateNullLiteral(Expression expression) {
         if (!expression.anyMatch(e -> ((Expression) e).isNullLiteral())) {
             return expression;
         }
@@ -112,7 +117,7 @@ public class EliminateFilter implements RewriteRuleFactory {
     // only replace null which its ancestors are all and/or
     // NOTICE: NOT's type is boolean too, if replace null to false in NOT, will got NOT(NULL) = NOT(FALSE) = TRUE,
     // but it is wrong,  NOT(NULL) = NULL. For a filter, only the AND / OR, can keep NULL as FALSE.
-    private Expression replaceNullToFalse(Expression expression) {
+    private static Expression replaceNullToFalse(Expression expression) {
         if (expression.isNullLiteral()) {
             return BooleanLiteral.FALSE;
         }

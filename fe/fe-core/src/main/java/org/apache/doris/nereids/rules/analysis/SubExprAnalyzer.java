@@ -81,6 +81,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitExistsSubquery(Exists exists, T context) {
+        if (!exists.getCorrelateSlots().isEmpty()) {
+            return exists;
+        }
         LogicalPlan queryPlan = exists.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -94,12 +97,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause with offset > 0 "
                     + analyzedResult.getLogicalPlan());
         }
-        return new Exists(analyzedResult.getLogicalPlan(),
-                analyzedResult.getCorrelatedSlots(), exists.isNot());
+        return new Exists(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots(), exists.isNot());
     }
 
     @Override
     public Expression visitInSubquery(InSubquery expr, T context) {
+        if (!expr.getCorrelateSlots().isEmpty()) {
+            return expr;
+        }
         LogicalPlan queryPlan = expr.getQueryPlan();
         // distinct is useless, remove it
         if (queryPlan instanceof LogicalProject && ((LogicalProject) queryPlan).isDistinct()) {
@@ -119,6 +124,9 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
     @Override
     public Expression visitScalarSubquery(ScalarSubquery scalar, T context) {
+        if (!scalar.getCorrelateSlots().isEmpty()) {
+            return scalar;
+        }
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
         boolean isCorrelated = analyzedResult.isCorrelated();
         LogicalPlan analyzedSubqueryPlan = analyzedResult.logicalPlan;
@@ -153,7 +161,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             validateSubquery(analyzedResult.logicalPlan, validator, nodeInfoList, topAgg);
         }
 
-        if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
+        if (analyzedResult.getLogicalPlan() instanceof LogicalOneRowRelation) {
+            LogicalOneRowRelation oneRowRelation = (LogicalOneRowRelation) analyzedResult.getLogicalPlan();
+            if (oneRowRelation.getProjects().size() == 1 && oneRowRelation.getProjects().get(0) instanceof Alias) {
+                // if scalar subquery is like select '2024-02-02 00:00:00'
+                // we can just return the constant expr '2024-02-02 00:00:00'
+                Alias alias = (Alias) oneRowRelation.getProjects().get(0);
+                if (alias.isConstant()) {
+                    return alias.child();
+                }
+            }
+        } else if (analyzedResult.getLogicalPlan() instanceof LogicalProject) {
             LogicalProject project = (LogicalProject) analyzedResult.getLogicalPlan();
             if (project.child() instanceof LogicalOneRowRelation
                     && project.getProjects().size() == 1

@@ -19,6 +19,8 @@ package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.HttpHeaders;
@@ -92,12 +94,13 @@ public class AzureObjStorageTest {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ACCESS_KEY, "${account_name}");
         props.put(S3Properties.SECRET_KEY, "${key}");
-        props.put(S3Properties.ENDPOINT, "https://blob.azure.windows.net");
+        props.put(S3Properties.ENDPOINT, "https://bucket.blob.core.windows.net");
         props.put(S3Properties.BUCKET, "${container}");
 
         List<I> inputs = genInputs();
         inputs.stream().forEach(i -> {
-            AzureObjStorage azs = new AzureObjStorage(props);
+            AzureProperties azureProps = (AzureProperties) StorageProperties.createPrimary(props);
+            AzureObjStorage azs = new AzureObjStorage(azureProps);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
@@ -112,13 +115,13 @@ public class AzureObjStorageTest {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ACCESS_KEY, "gavintestmocked");
         props.put(S3Properties.SECRET_KEY, "sksks");
-        props.put(S3Properties.ENDPOINT, "https://blob.azure.windows.net");
+        props.put(S3Properties.ENDPOINT, "https://bucket.blob.core.windows.net");
         props.put(S3Properties.BUCKET, "gavin-test-mocked");
 
         List<I> inputs = genInputs();
         inputs.stream().forEach(i -> {
             AzureObjStorage azs = genMockedAzureObjStorage(4/*numBatches, numContinuations*/);
-            List<RemoteFile> result = new ArrayList<RemoteFile>();
+            List<RemoteFile> result = new ArrayList<>();
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
             Status st = azs.globList(i.pattern, result, fileNameOnly);
@@ -197,9 +200,10 @@ public class AzureObjStorageTest {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ACCESS_KEY, "gavintestus");
         props.put(S3Properties.SECRET_KEY, "sksksksksksksk");
-        props.put(S3Properties.ENDPOINT, "https://blob.azure.windows.net");
+        props.put(S3Properties.ENDPOINT, "https://blobz.blob.core.windows.net");
         props.put(S3Properties.BUCKET, "gavin-test-us");
-        AzureObjStorage azs = new AzureObjStorage(props);
+        AzureProperties azureProps = (AzureProperties) StorageProperties.createPrimary(props);
+        AzureObjStorage azs = new AzureObjStorage(azureProps);
         List<String> allBlobKeys = genObjectKeys();
         final Integer[] batchIndex = {0}; // from 0 to numBatch
         new MockUp<AzureObjStorage>(AzureObjStorage.class) {

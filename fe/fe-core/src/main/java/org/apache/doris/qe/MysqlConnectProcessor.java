@@ -168,7 +168,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             }
             StatementBase stmt = new LogicalPlanAdapter(executeStmt, statementContext);
             stmt.setOrigStmt(prepareCommand.getOriginalStmt());
-            executor = new StmtExecutor(ctx, stmt);
+            executor = new StmtExecutor(ctx, stmt, true);
             ctx.setExecutor(executor);
             if (null != queryId) {
                 executor.execute(queryId);
@@ -350,7 +350,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
-        ctx.setQualifiedUser(userName);
 
         // Change default db if set.
         if (Strings.isNullOrEmpty(db)) {

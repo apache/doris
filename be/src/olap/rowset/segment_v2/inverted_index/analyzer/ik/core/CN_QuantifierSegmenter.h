@@ -29,7 +29,6 @@ class CN_QuantifierSegmenter : public ISegmenter {
 public:
     static constexpr AnalyzeContext::SegmenterType SEGMENTER_TYPE =
             AnalyzeContext::SegmenterType::CN_QUANTIFIER;
-    static const std::string SEGMENTER_NAME;
     static const std::u32string CHINESE_NUMBERS;
     static const std::unordered_set<char32_t> CHINESE_NUMBER_CHARS;
 

@@ -49,7 +49,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-#include "vec/columns/columns_number.h"
+#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -69,6 +69,7 @@ class Dependency;
 class DescriptorTbl;
 class ObjectPool;
 class ExecEnv;
+class IdFileMap;
 class RuntimeFilterMgr;
 class MemTrackerLimiter;
 class QueryContext;
@@ -86,13 +87,19 @@ public:
                  ExecEnv* exec_env, QueryContext* ctx,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker = nullptr);
 
-    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
+    RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32_t fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env, QueryContext* ctx);
 
     // Used by pipeline. This runtime state is only used for setup.
-    RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
                  const TQueryGlobals& query_globals, ExecEnv* exec_env, QueryContext* ctx);
+
+    // Only used in the materialization phase of delayed materialization,
+    // when there may be no corresponding QueryContext.
+    RuntimeState(const TUniqueId& query_id, int32_t fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env,
+                 const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
@@ -176,6 +183,10 @@ public:
     bool check_overflow_for_decimal() const {
         return _query_options.__isset.check_overflow_for_decimal &&
                _query_options.check_overflow_for_decimal;
+    }
+
+    bool enable_strict_mode() const {
+        return _query_options.__isset.enable_strict_cast && _query_options.enable_strict_cast;
     }
 
     bool enable_decimal256() const {
@@ -268,6 +279,8 @@ public:
     int64_t load_job_id() const { return _load_job_id; }
 
     std::string get_error_log_file_path();
+
+    std::string get_first_error_msg() const { return _first_error_msg; }
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -657,6 +670,15 @@ public:
 
     int profile_level() const { return _profile_level; }
 
+    std::shared_ptr<IdFileMap>& get_id_file_map() { return _id_file_map; }
+
+    void set_id_file_map();
+    VectorSearchUserParams get_vector_search_params() const {
+        return VectorSearchUserParams(_query_options.hnsw_ef_search,
+                                      _query_options.hnsw_check_relative_distance,
+                                      _query_options.hnsw_bounded_queue);
+    }
+
 private:
     Status create_error_log_file();
 
@@ -748,6 +770,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    std::string _first_error_msg = "";
     mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
@@ -783,6 +806,9 @@ private:
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
     std::mutex _s3_error_log_file_lock;
+
+    // used for encoding the global lazy materialize
+    std::shared_ptr<IdFileMap> _id_file_map = nullptr;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

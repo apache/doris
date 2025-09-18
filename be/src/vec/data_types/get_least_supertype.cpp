@@ -28,7 +28,7 @@
 
 #include "common/status.h"
 #include "vec/aggregate_functions/helpers.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -41,8 +41,8 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_variant.h"
 
 namespace doris::vectorized {
 
@@ -147,14 +147,12 @@ void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
             if (min_bit_width_of_integer <= 8) {
                 *type = std::make_shared<DataTypeUInt8>();
                 return;
-            } else if (min_bit_width_of_integer <= 16) {
-                *type = std::make_shared<DataTypeUInt16>();
-                return;
-            } else if (min_bit_width_of_integer <= 32) {
-                *type = std::make_shared<DataTypeUInt32>();
-                return;
             } else if (min_bit_width_of_integer <= 64) {
-                *type = std::make_shared<DataTypeUInt64>();
+                throw Exception(Status::InternalError(
+                        "min_bit_width_of_integer={}, max_bits_of_signed_integer={}, "
+                        "max_bits_of_unsigned_integer={}",
+                        min_bit_width_of_integer, max_bits_of_signed_integer,
+                        max_bits_of_unsigned_integer));
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "
@@ -244,6 +242,10 @@ void get_least_supertype_jsonb(const DataTypes& types, DataTypePtr* type) {
     phmap::flat_hash_set<PrimitiveType> type_ids;
     for (const auto& type : types) {
         type_ids.insert(type->get_primitive_type());
+    }
+    if (type_ids.size() == 1) {
+        *type = types[0];
+        return;
     }
     get_least_supertype_jsonb(type_ids, type);
 }

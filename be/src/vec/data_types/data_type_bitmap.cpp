@@ -77,10 +77,10 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
 
         const auto& data_column = assert_cast<const ColumnBitmap&>(*bitmap_column);
         // serialize the bitmap size array
-        size_t* meta_ptr = (size_t*)buf;
+        auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-            meta_ptr[i] = bitmap.getSizeInBytes();
+            unaligned_store<size_t>(&meta_ptr[i], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
@@ -88,7 +88,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < real_need_copy_num; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -96,11 +96,11 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         const auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
         // serialize the bitmap size array, row num saves at index 0
-        size_t* meta_ptr = (size_t*)buf;
+        auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         meta_ptr[0] = column.size();
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
-            meta_ptr[i + 1] = bitmap.getSizeInBytes();
+            unaligned_store<size_t>(&meta_ptr[i + 1], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
@@ -108,7 +108,7 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
             bitmap.write_to(data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
         return data_ptr;
     }
@@ -130,7 +130,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         const char* data_ptr = buf + sizeof(size_t) * real_have_saved_num;
         for (size_t i = 0; i < real_have_saved_num; ++i) {
             data[i].deserialize(data_ptr);
-            data_ptr += meta_ptr[i];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
         return data_ptr;
     } else {
@@ -145,7 +145,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, MutableColumnPtr* colum
         const char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
             data[i].deserialize(data_ptr);
-            data_ptr += meta_ptr[i + 1];
+            data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
 
         return data_ptr;
@@ -156,18 +156,22 @@ MutableColumnPtr DataTypeBitMap::create_column() const {
     return ColumnBitmap::create();
 }
 
+Status DataTypeBitMap::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnBitmap>(column);
+}
+
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     auto& value = const_cast<BitmapValue&>(cvalue);
     std::string memory_buffer;
     size_t bytesize = value.getSizeInBytes();
     memory_buffer.resize(bytesize);
     value.write_to(const_cast<char*>(memory_buffer.data()));
-    write_string_binary(memory_buffer, buf);
+    buf.write_binary(memory_buffer);
 }
 
 void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& buf) {
     StringRef ref;
-    read_string_binary(ref, buf);
+    buf.read_binary(ref);
     value.deserialize(ref.data);
 }
 
@@ -181,17 +185,5 @@ void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWrit
     std::string buffer(data.getSizeInBytes(), '0');
     data.write_to(const_cast<char*>(buffer.data()));
     ostr.write(buffer.c_str(), buffer.size());
-}
-
-Status DataTypeBitMap::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& data_column = assert_cast<ColumnBitmap&>(*column);
-    auto& data = data_column.get_data();
-
-    BitmapValue value;
-    if (!value.deserialize(rb.to_string().c_str())) {
-        return Status::InternalError("deserialize BITMAP from string fail!");
-    }
-    data.push_back(std::move(value));
-    return Status::OK();
 }
 } // namespace doris::vectorized

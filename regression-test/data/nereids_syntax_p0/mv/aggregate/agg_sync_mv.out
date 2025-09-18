@@ -1500,7 +1500,7 @@
 11	0
 
 -- !select_map_agg --
-\N	{1:"string1"}
+\N	{null:"null", 1:"string1"}
 0	{1:"string1"}
 1	{2:"string2"}
 2	{3:"string3"}
@@ -1515,7 +1515,7 @@
 11	{12:"string3"}
 
 -- !select_map_agg_mv --
-\N	{1:"string1"}
+\N	{null:"null", 1:"string1"}
 0	{1:"string1"}
 1	{2:"string2"}
 2	{3:"string3"}
@@ -1590,8 +1590,8 @@
 11	[0, 0]
 
 -- !test --
-\N	{}
-1	{0:"string1"}
+\N	{null:"null"}
+1	{null:"string1", 0:"string1"}
 2	{1:"string2"}
 3	{2:"string3"}
 4	{3:"string1"}

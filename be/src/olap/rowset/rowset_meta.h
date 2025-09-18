@@ -19,11 +19,18 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H
 
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
+#include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/cast_set.h"
+#include "common/config.h"
+#include "common/status.h"
+#include "io/fs/encrypted_fs_factory.h"
 #include "io/fs/file_system.h"
 #include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
@@ -31,8 +38,11 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet_fwd.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "util/once.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
@@ -54,13 +64,19 @@ public:
     // If the rowset is a local rowset, return the global local file system.
     // Otherwise, return the remote file system corresponding to rowset's resource id.
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
-    io::FileSystemSPtr fs();
+    MOCK_FUNCTION io::FileSystemSPtr fs();
+
+    io::FileSystemSPtr physical_fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
     void set_remote_storage_resource(StorageResource resource);
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
+
+    void set_resource_id(const std::string& resource_id) {
+        _rowset_meta_pb.set_resource_id(resource_id);
+    }
 
     bool is_local() const { return !_rowset_meta_pb.has_resource_id(); }
 
@@ -95,7 +111,7 @@ public:
 
     int32_t tablet_schema_hash() const { return _rowset_meta_pb.tablet_schema_hash(); }
 
-    void set_tablet_schema_hash(int64_t tablet_schema_hash) {
+    void set_tablet_schema_hash(int32_t tablet_schema_hash) {
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
@@ -199,6 +215,15 @@ public:
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
+    int64_t stale_at() const {
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
+    }
+
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
+
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
+
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
     void set_partition_id(int64_t partition_id) {
@@ -270,7 +295,9 @@ public:
         if (!is_segments_overlapping()) {
             score = 1;
         } else {
-            score = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+            score = cast_set<uint32_t>(num_seg);
             CHECK(score > 0);
         }
         return score;
@@ -285,7 +312,10 @@ public:
                 way_num = 1;
             }
         } else {
-            way_num = num_segments();
+            auto num_seg = num_segments();
+            DCHECK_GT(num_seg, 0);
+
+            way_num = cast_set<uint32_t>(num_seg);
             CHECK(way_num > 0);
         }
         return way_num;
@@ -298,6 +328,15 @@ public:
     }
 
     auto& get_segments_key_bounds() const { return _rowset_meta_pb.segments_key_bounds(); }
+
+    bool is_segments_key_bounds_truncated() const {
+        return _rowset_meta_pb.has_segments_key_bounds_truncated() &&
+               _rowset_meta_pb.segments_key_bounds_truncated();
+    }
+
+    void set_segments_key_bounds_truncated(bool truncated) {
+        _rowset_meta_pb.set_segments_key_bounds_truncated(truncated);
+    }
 
     bool get_first_segment_key_bound(KeyBoundsPB* key_bounds) {
         // for compatibility, old version has not segment key bounds
@@ -316,12 +355,7 @@ public:
         return true;
     }
 
-    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds) {
-        for (const KeyBoundsPB& key_bounds : segments_key_bounds) {
-            KeyBoundsPB* new_key_bounds = _rowset_meta_pb.add_segments_key_bounds();
-            *new_key_bounds = key_bounds;
-        }
-    }
+    void set_segments_key_bounds(const std::vector<KeyBoundsPB>& segments_key_bounds);
 
     void add_segment_key_bounds(KeyBoundsPB segments_key_bounds) {
         *_rowset_meta_pb.add_segments_key_bounds() = std::move(segments_key_bounds);
@@ -351,7 +385,7 @@ public:
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id);
+    int64_t segment_file_size(int seg_id) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 
@@ -391,7 +425,11 @@ private:
     RowsetId _rowset_id;
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
+    DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+    std::atomic<int64_t> _stale_at_s {0};
 };
+
+#include "common/compile_check_end.h"
 
 } // namespace doris
 

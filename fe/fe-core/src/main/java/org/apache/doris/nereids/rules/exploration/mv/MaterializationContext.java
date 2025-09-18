@@ -24,6 +24,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -34,8 +36,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -60,7 +65,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * Abstract context for query rewrite by materialized view
+ * Abstract context for query rewrite by materialized view, this context is different by statement context
+ * which means should be instanced by new query
  */
 public abstract class MaterializationContext {
     private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
@@ -172,6 +178,7 @@ public abstract class MaterializationContext {
         this.scanPlan = doGenerateScanPlan(cascadesContext);
         // Materialization output expression shuttle, this will be used to expression rewrite
         List<Slot> scanPlanOutput = this.scanPlan.getOutput();
+        // generate expression depend on the order of output
         this.shuttledExprToScanExprMapping = ExpressionMapping.generate(this.planOutputShuttledExpressions,
                 scanPlanOutput);
         // This is used by normalize statistics column expression
@@ -215,10 +222,10 @@ public abstract class MaterializationContext {
     /**
      * Get materialization unique identifier which identify it
      */
-    abstract List<String> generateMaterializationIdentifier();
+    public abstract List<String> generateMaterializationIdentifier();
 
     /**
-     * Common method for generating materialization identifier
+     * Common method for generating materialization identifier by index name
      */
     public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
         return indexName == null
@@ -228,6 +235,19 @@ public abstract class MaterializationContext {
                 : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
                         ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
                         olapTable.getName(), indexName);
+    }
+
+    /**
+     * Common method for generating materialization identifier by index id
+     */
+    public static List<String> generateMaterializationIdentifierByIndexId(OlapTable olapTable, Long indexId) {
+        return indexId == null
+                ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                olapTable.getName())
+                : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
+                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getName(), olapTable.getIndexNameById(indexId));
     }
 
     /**
@@ -255,7 +275,7 @@ public abstract class MaterializationContext {
             Expression sourceExpression = this.getExprToScanExprMapping().get(targetExpression);
             if (sourceExpression != null && targetExpression instanceof NamedExpression
                     && sourceExpression instanceof NamedExpression) {
-                normalizedExpressionMap.put(AbstractMaterializedViewRule.normalizeExpression(
+                normalizedExpressionMap.put(MaterializedViewUtils.normalizeExpression(
                                 (NamedExpression) sourceExpression, (NamedExpression) targetExpression).toSlot(),
                         entry.getValue());
             }
@@ -361,19 +381,33 @@ public abstract class MaterializationContext {
                 Pair.of(summary, this.isEnableRecordFailureDetail() ? failureReasonSupplier.get() : ""));
     }
 
+    /**
+     * get materialization context common table id by current statementContext
+     */
+    public BitSet getCommonTableIdSet(StatementContext statementContext) {
+        BitSet commonTableId = new BitSet();
+        for (StructInfoNode node : structInfo.getRelationIdStructInfoNodeMap().values()) {
+            for (CatalogRelation catalogRelation : node.getCatalogRelation()) {
+                commonTableId.set(statementContext.getTableId(catalogRelation.getTable()).asInt());
+            }
+        }
+        return commonTableId;
+    }
+
     @Override
     public String toString() {
         return getStringInfo();
     }
 
     /**
-     * ToSummaryString, this contains only summary info.
+     * get qualifiers for all mvs rewrite success and chosen by current query.
+     *
+     * @param materializationContexts all mv candidates context for current query
+     * @param physicalPlan the chosen plan for current query
+     * @return chosen mvs' qualifier set
      */
-    public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            Plan physicalPlan) {
-        if (materializationContexts.isEmpty()) {
-            return "";
-        }
+    public static Set<List<String>> getChosenMvsQualifiers(
+            List<MaterializationContext> materializationContexts, Plan physicalPlan) {
         Set<MaterializationContext> rewrittenSuccessMaterializationSet = materializationContexts.stream()
                 .filter(MaterializationContext::isSuccess)
                 .collect(Collectors.toSet());
@@ -388,7 +422,33 @@ public abstract class MaterializationContext {
                 }
                 return null;
             }
+
+            @Override
+            public Void visitPhysicalLazyMaterializeOlapScan(PhysicalLazyMaterializeOlapScan lazyScan, Void context) {
+                PhysicalOlapScan physicalRelation = lazyScan.getScan();
+                for (MaterializationContext rewrittenContext : rewrittenSuccessMaterializationSet) {
+                    if (rewrittenContext.isFinalChosen(physicalRelation)) {
+                        chosenMaterializationQualifiers.add(rewrittenContext.generateMaterializationIdentifier());
+                    }
+                }
+                return null;
+            }
         }, null);
+        return chosenMaterializationQualifiers;
+    }
+
+    /**
+     * ToSummaryString, this contains only summary info.
+     */
+    public static String toSummaryString(CascadesContext cascadesContext,
+            Plan physicalPlan) {
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
+        if (materializationContexts.isEmpty()) {
+            return "";
+        }
+        Set<List<String>> chosenMaterializationQualifiers = getChosenMvsQualifiers(
+                materializationContexts, physicalPlan);
 
         StringBuilder builder = new StringBuilder();
         builder.append("\nMaterializedView");
@@ -396,23 +456,20 @@ public abstract class MaterializationContext {
         builder.append("\nMaterializedViewRewriteSuccessAndChose:\n");
         if (!chosenMaterializationQualifiers.isEmpty()) {
             chosenMaterializationQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
-                            .append(generateIdentifierName(materializationQualifier)).append(" chose, \n"));
-        } else {
-            builder.append("  chose: none, \n");
+                    builder.append(statementContext.isPreMvRewritten() ? " RBO." : " CBO.")
+                            .append(generateIdentifierName(materializationQualifier)).append(" chose\n"));
         }
         // rewrite success but not chosen
         builder.append("\nMaterializedViewRewriteSuccessButNotChose:\n");
-        Set<List<String>> rewriteSuccessButNotChoseQualifiers = rewrittenSuccessMaterializationSet.stream()
+        Set<List<String>> rewriteSuccessButNotChoseQualifiers = materializationContexts.stream()
+                .filter(MaterializationContext::isSuccess)
                 .map(MaterializationContext::generateMaterializationIdentifier)
                 .filter(materializationQualifier -> !chosenMaterializationQualifiers.contains(materializationQualifier))
                 .collect(Collectors.toSet());
         if (!rewriteSuccessButNotChoseQualifiers.isEmpty()) {
             rewriteSuccessButNotChoseQualifiers.forEach(materializationQualifier ->
-                    builder.append("  ")
-                            .append(generateIdentifierName(materializationQualifier)).append(" not chose, \n"));
-        } else {
-            builder.append("  not chose: none, \n");
+                    builder.append(statementContext.isPreMvRewritten() ? " RBO." : " CBO.")
+                            .append(generateIdentifierName(materializationQualifier)).append(" not chose\n"));
         }
         // rewrite fail
         builder.append("\nMaterializedViewRewriteFail:");
@@ -420,10 +477,15 @@ public abstract class MaterializationContext {
             if (!ctx.isSuccess()) {
                 Set<String> failReasonSet =
                         ctx.getFailReason().values().stream().map(Pair::key).collect(ImmutableSet.toImmutableSet());
+                if (ctx.isEnableRecordFailureDetail()) {
+                    failReasonSet = ctx.getFailReason().values().stream()
+                            .map(Pair::toString)
+                            .collect(ImmutableSet.toImmutableSet());
+                }
                 builder.append("\n")
-                        .append("  ")
-                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail, \n")
-                        .append("  FailSummary: ").append(String.join(", ", failReasonSet));
+                        .append(statementContext.isPreMvRewritten() ? " RBO." : " CBO.")
+                        .append(generateIdentifierName(ctx.generateMaterializationIdentifier())).append(" fail\n")
+                        .append("  FailInfo: ").append(String.join(", ", failReasonSet));
             }
         }
         return builder.toString();

@@ -16,6 +16,10 @@
 // under the License.
 
 suite ("testAggQueryOnAggMV2") {
+
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
@@ -31,7 +35,10 @@ suite ("testAggQueryOnAggMV2") {
 
     
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
+    sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
 
     explain {
@@ -40,10 +47,10 @@ suite ("testAggQueryOnAggMV2") {
     }
     qt_select_emps_mv "select deptno, sum(salary) from emps group by deptno order by deptno;"
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary) from emps group by deptno ;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary) from emps group by deptno ;")
 
     sql "analyze table emps with sync;"
-    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+    sql """alter table emps modify column time_col set stats ('row_count'='6');"""
     sql """set enable_stats=false;"""
 
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")

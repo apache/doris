@@ -28,14 +28,14 @@
 
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number_base.h"
-#include "vec/data_types/serde/data_type_date64_serde.h"
+#include "vec/data_types/serde/data_type_date_or_datetime_serde.h"
 
 namespace doris::vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 class DataTypeDate;
 class DataTypeDateV2;
@@ -62,11 +62,11 @@ class DataTypeDateV2;
 	* Server time zone is the time zone specified in 'timezone' parameter in configuration file,
 	*  or system time zone at the moment of server startup.
 	*/
-class DataTypeDateTime final : public DataTypeNumberBase<Int64> {
+class DataTypeDateTime final : public DataTypeNumberBase<PrimitiveType::TYPE_DATETIME> {
 public:
     DataTypeDateTime() = default;
 
-    const char* get_family_name() const override { return "DateTime"; }
+    const std::string get_family_name() const override { return "DateTime"; }
     std::string do_get_name() const override { return "DateTime"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIME; }
 
@@ -79,8 +79,9 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     std::string to_string(Int64 value) const;
 
+    using SerDeType = DataTypeDateTimeSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeDateTimeSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     }
 
     Field get_field(const TExprNode& node) const override {
@@ -96,14 +97,12 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<Int64>::template to_string_batch_impl<DataTypeDateTime>(column,
-                                                                                   column_to);
+        DataTypeNumberBase<PrimitiveType::TYPE_DATETIME>::template to_string_batch_impl<
+                DataTypeDateTime>(column, column_to);
     }
 
     size_t number_length() const;
     void push_number(ColumnString::Chars& chars, const Int64& num) const;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     static void cast_to_date_time(Int64& x);
 
@@ -131,10 +130,17 @@ template <>
 inline constexpr bool IsDateTimeV2Type<DataTypeDateTimeV2> = true;
 
 template <typename DataType>
-constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+constexpr bool IsTimeV2Type = false;
+template <>
+inline constexpr bool IsTimeV2Type<DataTypeTimeV2> = true;
 
 template <typename DataType>
+constexpr bool IsDatelikeV1Types = IsDateTimeType<DataType> || IsDateType<DataType>;
+template <typename DataType>
 constexpr bool IsDatelikeV2Types = IsDateTimeV2Type<DataType> || IsDateV2Type<DataType>;
+template <typename DataType>
+constexpr bool IsDatelikeTypes =
+        IsDatelikeV1Types<DataType> || IsDatelikeV2Types<DataType> || IsTimeV2Type<DataType>;
 
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

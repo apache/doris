@@ -94,7 +94,7 @@ TEST_F(OrderedSloppyPhraseMatcherTest, ThreeTermsWithSlopAccumulation) {
     postings.emplace_back(mockIter2, 1);
     postings.emplace_back(mockIter3, 1);
 
-    OrderedSloppyPhraseMatcher matcher(postings, 2);
+    OrderedSloppyPhraseMatcher matcher(postings, 3);
     matcher.reset(1);
 
     EXPECT_TRUE(matcher.next_match());

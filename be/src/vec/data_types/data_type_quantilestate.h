@@ -45,9 +45,10 @@ public:
     ~DataTypeQuantileState() override = default;
     using ColumnType = ColumnQuantileState;
     using FieldType = QuantileState;
+    static constexpr PrimitiveType PType = TYPE_QUANTILE_STATE;
 
     std::string do_get_name() const override { return get_family_name(); }
-    const char* get_family_name() const override { return "QuantileState"; }
+    const std::string get_family_name() const override { return "QuantileState"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_QUANTILE_STATE; }
 
     doris::FieldType get_storage_field_type() const override {
@@ -59,19 +60,9 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
-
-    bool have_subtypes() const override { return false; }
-    bool should_align_right_in_pretty_formats() const override { return false; }
-    bool text_can_contain_only_valid_utf8() const override { return true; }
-    bool is_comparable() const override { return false; }
-    // TODO:
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
+    Status check_column(const IColumn& column) const override;
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    bool can_be_inside_low_cardinality() const override { return false; }
 
     std::string to_string(const IColumn& column, size_t row_num) const override {
         return "QuantileState()";
@@ -90,8 +81,9 @@ public:
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);
 
     static void deserialize_as_stream(QuantileState& value, BufferReadable& buf);
+    using SerDeType = DataTypeQuantileStateSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeQuantileStateSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
 };
 } // namespace doris::vectorized

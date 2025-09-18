@@ -42,6 +42,7 @@ public class And extends CompoundPredicate {
 
     public And(List<Expression> children) {
         super(children, "AND");
+        Preconditions.checkArgument(children.size() >= 2);
     }
 
     @Override

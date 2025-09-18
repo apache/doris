@@ -34,6 +34,7 @@ import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
+import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -46,6 +47,8 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.indexpolicy.DropIndexPolicyLog;
+import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -53,7 +56,6 @@ import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
@@ -97,6 +99,7 @@ import org.apache.doris.persist.DropWorkloadGroupOperationLog;
 import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.persist.KeyOperationInfo;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
@@ -119,6 +122,7 @@ import org.apache.doris.persist.SetReplicaVersionOperationLog;
 import org.apache.doris.persist.SetTableStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
+import org.apache.doris.persist.TableBranchOrTagInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -330,17 +334,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_LOAD_START:
-            case OperationType.OP_LOAD_ETL:
-            case OperationType.OP_LOAD_LOADING:
-            case OperationType.OP_LOAD_QUORUM:
-            case OperationType.OP_LOAD_DONE:
-            case OperationType.OP_LOAD_CANCEL: {
-                data = new LoadJob();
-                ((LoadJob) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_EXPORT_CREATE:
                 data = ExportJob.read(in);
                 isRead = true;
@@ -356,8 +349,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_REPLICA:
             case OperationType.OP_UPDATE_REPLICA:
-            case OperationType.OP_DELETE_REPLICA:
-            case OperationType.OP_CLEAR_ROLLUP_INFO: {
+            case OperationType.OP_DELETE_REPLICA: {
                 data = ReplicaPersistInfo.read(in);
                 isRead = true;
                 break;
@@ -801,16 +793,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_MTMV_JOB:
-            case OperationType.OP_CHANGE_MTMV_JOB:
-            case OperationType.OP_DROP_MTMV_JOB:
-            case OperationType.OP_CREATE_MTMV_TASK:
-            case OperationType.OP_CHANGE_MTMV_TASK:
-            case OperationType.OP_DROP_MTMV_TASK:
-            case OperationType.OP_ALTER_MTMV_STMT: {
-                isRead = true;
-                break;
-            }
             case OperationType.OP_DROP_CONSTRAINT:
             case OperationType.OP_ADD_CONSTRAINT: {
                 data = AlterConstraintLog.read(in);
@@ -982,6 +964,31 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DICTIONARY_DEC_VERSION: {
                 data = DictionaryDecreaseVersionInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_INDEX_POLICY: {
+                data = IndexPolicy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_INDEX_POLICY: {
+                data = DropIndexPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BRANCH_OR_TAG: {
+                data = TableBranchOrTagInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_OPERATE_KEY: {
+                data = KeyOperationInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BEGIN_SNAPSHOT: {
+                data = SnapshotState.read(in);
                 isRead = true;
                 break;
             }

@@ -27,7 +27,11 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "olap/rowset/segment_v2/ann_index/ann_range_search_runtime.h"
+#include "olap/rowset/segment_v2/ann_index/ann_search_params.h"
+#include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/runtime_state.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
 #include "vec/core/block.h"
@@ -38,35 +42,42 @@ class RowDescriptor;
 class RuntimeState;
 } // namespace doris
 
+namespace doris::segment_v2 {
+class ColumnIterator;
+} // namespace doris::segment_v2
+
 namespace doris::vectorized {
+
+class ScoreRuntime;
+using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class InvertedIndexContext {
 public:
     InvertedIndexContext(
             const std::vector<ColumnId>& col_ids,
-            const std::vector<std::unique_ptr<segment_v2::InvertedIndexIterator>>&
-                    inverted_index_iterators,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
-                    common_expr_inverted_index_status)
+                    common_expr_inverted_index_status,
+            ScoreRuntimeSPtr score_runtime)
             : _col_ids(col_ids),
-              _inverted_index_iterators(inverted_index_iterators),
+              _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
-              _expr_inverted_index_status(common_expr_inverted_index_status) {}
+              _expr_inverted_index_status(common_expr_inverted_index_status),
+              _score_runtime(std::move(score_runtime)) {}
 
-    segment_v2::InvertedIndexIterator* get_inverted_index_iterator_by_column_id(
-            int column_index) const {
+    segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
             return nullptr;
         }
         const auto& column_id = _col_ids[column_index];
-        if (column_id >= _inverted_index_iterators.size()) {
+        if (column_id >= _index_iterators.size()) {
             return nullptr;
         }
-        if (!_inverted_index_iterators[column_id]) {
+        if (!_index_iterators[column_id]) {
             return nullptr;
         }
-        return _inverted_index_iterators[column_id].get();
+        return _index_iterators[column_id].get();
     }
 
     const vectorized::IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
@@ -125,13 +136,14 @@ public:
         }
     }
 
+    ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
+
 private:
     // A reference to a vector of column IDs for the current expression's output columns.
     const std::vector<ColumnId>& _col_ids;
 
-    // A reference to a vector of unique pointers to inverted index iterators.
-    const std::vector<std::unique_ptr<segment_v2::InvertedIndexIterator>>&
-            _inverted_index_iterators;
+    // A reference to a vector of unique pointers to index iterators.
+    const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& _index_iterators;
 
     // A reference to a vector of storage name and type pairs related to schema.
     const std::vector<vectorized::IndexFieldNameAndTypePair>& _storage_name_and_type;
@@ -146,6 +158,8 @@ private:
     // A reference to a map of common expressions to their inverted index evaluation status.
     std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
             _expr_inverted_index_status;
+
+    ScoreRuntimeSPtr _score_runtime;
 };
 
 class VExprContext {
@@ -158,6 +172,7 @@ public:
     [[nodiscard]] Status open(RuntimeState* state);
     [[nodiscard]] Status clone(RuntimeState* state, VExprContextSPtr& new_ctx);
     [[nodiscard]] Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] bool is_blockable() const;
 
     VExprSPtr root() { return _root; }
     void set_root(const VExprSPtr& expr) { _root = expr; }
@@ -190,7 +205,6 @@ public:
     // execute expr with inverted index which column a, b has inverted indexes
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
-
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
     bool all_expr_inverted_index_evaluated();
@@ -282,6 +296,14 @@ public:
 
     [[nodiscard]] size_t get_memory_usage() const { return _memory_usage; }
 
+    void prepare_ann_range_search(const doris::VectorSearchUserParams& params);
+
+    Status evaluate_ann_range_search(
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
+            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
+            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
@@ -315,5 +337,8 @@ private:
 
     std::shared_ptr<InvertedIndexContext> _inverted_index_context;
     size_t _memory_usage = 0;
+
+    segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
+    bool _suitable_for_ann_index = true;
 };
 } // namespace doris::vectorized

@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -48,15 +49,16 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -321,7 +323,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     objectPool,
                                     tbl.rowStorePageSize(),
                                     tbl.variantEnableFlattenNested(),
-                                    tbl.storagePageSize());
+                                    tbl.storagePageSize(), tbl.getTDEAlgorithm(),
+                                    tbl.storageDictPageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -377,6 +380,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
+        while (DebugPointUtil.isEnable("FE.SchemaChangeJobV2.createShadowIndexReplica.addShadowIndexToCatalog.block")) {
+            try {
+                Thread.sleep(1000);
+                LOG.info("block addShadowIndexToCatalog for job: {}", jobId);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
+        }
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -429,12 +440,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
+            MaterializedIndexMeta originalIndexMeta = tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId));
             tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash,
                     indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN,
-                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)),
-                    indexChange ? indexes : tbl.getIndexMetaByIndexId(indexIdMap.get(shadowIdxId)).getIndexes());
+                    tbl.getKeysTypeByIndexId(indexIdMap.get(shadowIdxId)), originalIndexMeta.getDefineStmt(),
+                    indexChange ? indexes : originalIndexMeta.getIndexes());
+            MaterializedIndexMeta shadowIndexMeta = tbl.getIndexMetaByIndexId(shadowIdxId);
+            shadowIndexMeta.setWhereClause(originalIndexMeta.getWhereClause());
         }
 
         tbl.rebuildFullSchema();
@@ -578,19 +592,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
             ensureCloudClusterExist(tasks);
             for (AgentTask task : tasks) {
-                int maxFailedTimes = 0;
-                if (Config.isCloudMode() && Config.enable_schema_change_retry_in_cloud_mode) {
-                    if (task.getErrorCode() != null && task.getErrorCode()
-                            .equals(TStatusCode.DELETE_BITMAP_LOCK_ERROR)) {
-                        maxFailedTimes = Config.schema_change_max_retry_time;
-                    }
-                }
+                int maxFailedTimes = getRetryTimes(task);
                 if (task.getFailedTimes() > maxFailedTimes) {
                     task.setFinished(true);
                     if (!FeConstants.runningUnitTest) {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                        LOG.warn("schema change task failed, failedTimes: {}, maxFailedTimes: {}, err: {}",
-                                task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
+                        LOG.warn("schema change task failed, job: {}, failedTimes: {}, maxFailedTimes: {}, err: {}",
+                                 jobId, task.getFailedTimes(), maxFailedTimes, task.getErrorMsg());
                         List<Long> failedBackends = failedTabletBackends.get(task.getTabletId());
                         if (failedBackends == null) {
                             failedBackends = Lists.newArrayList();
@@ -608,6 +616,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
             return;
+        }
+        while (DebugPointUtil.isEnable("FE.SchemaChangeJobV2.runRunning.block")) {
+            try {
+                Thread.sleep(1000);
+                LOG.info("block schema change for job: {}", jobId);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+            }
         }
         Env.getCurrentEnv().getGroupCommitManager().blockTable(tableId);
         Env.getCurrentEnv().getGroupCommitManager().waitWalFinished(tableId);
@@ -664,7 +680,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             commitShadowIndex();
             // all partitions are good
             onFinished(tbl);
-            pruneMeta();
 
             LOG.info("schema change job finished: {}", jobId);
 
@@ -676,12 +691,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // Write edit log with table's write lock held, to avoid adding partitions before writing edit log,
             // else it will try to transform index in newly added partition while replaying and result in failure.
             Env.getCurrentEnv().getEditLog().logAlterJob(this);
+            pruneMeta();
         } finally {
             tbl.writeUnlock();
         }
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
-        Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
+        if (!FeConstants.runningUnitTest) {
+            AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+            manager.removeTableStats(tbl.getId());
+            manager.dropStats(tbl, null);
+        }
     }
 
     private void onFinished(OlapTable tbl) {
@@ -790,7 +810,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
-        pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
@@ -799,6 +818,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         onCancel();
+        pruneMeta();
 
         return true;
     }
@@ -936,6 +956,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay finished, table id: {}, job id: {}", tableId, jobId);
+        pruneMeta();
     }
 
     /**
@@ -951,6 +972,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay cancelled schema change job: {}", jobId);
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when replay cancelled, table id: {}, job id: {}", tableId, jobId);
+        pruneMeta();
     }
 
     @Override

@@ -258,9 +258,10 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+        LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
                 brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize);
@@ -486,6 +487,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
+        }
+        if (attachment.getFirstErrorMsg() != null) {
+            loadingStatus.setFirstErrorMsg(attachment.getFirstErrorMsg());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
         errorTabletInfos.addAll(attachment.getErrorTabletInfos().stream().limit(Config.max_error_tablet_of_broker_load)

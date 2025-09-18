@@ -20,6 +20,7 @@ suite("test_array_map") {
         drop table if exists mock_table;
     """
 
+    sql """ DROP FUNCTION IF EXISTS clean_html_entity_test(string) """
     sql """
         CREATE ALIAS FUNCTION clean_html_entity_test(string) WITH PARAMETER(html) AS
         REPLACE(
@@ -132,8 +133,8 @@ suite("test_array_map") {
                  TRIM(`clean_html_entity_test`(`clean_html_tag_test`(`ah`))) as `br`,
                  TRIM(`clean_html_entity_test`(`clean_html_tag_test`(`ad`))) as `bs`,
                  ARRAY_MAP(x-> if(least((left(x, 5) = '6841-'), (length(x) = 10)), concat_ws('-', substring(x, 1, 7), substring(x, 8)), if(least((left(x, 5) = '6841-'), (length(x) = 9)), concat_ws('-', substring(x, 1, 6), substring(x, 7)), x)), `bk`) as `bt`,
-                 ARRAY_JOIN(TOKENIZE(TRIM(`clean_html_entity_test`(`clean_html_tag_test`(`ad`))),'"parser"="unicode", "lower_case"="false", "stopwords"="none"'), " ") as `bu`,
-                 ARRAY_JOIN(TOKENIZE(TRIM(`clean_html_entity_test`(`clean_html_tag_test`(`ah`))),'"parser"="unicode", "lower_case"="false", "stopwords"="none"'), " ") as `bv`
+                 ARRAY_JOIN(`bg`, " ") as `bu`,
+                 ARRAY_JOIN(`bk`, " ") as `bv`
              FROM mock_table),
              bw AS (SELECT
                  `aa`, `ab`, `ac`, `ad`, `ae`, `af`, `ag`, `ah`, `ai`, `aj`, `ak`, `al`, `am`, `an`, `ao`, `ap`, `aq`, `ar`, `as`, `at`, `au`, `av`, `aw`, `ax`, `ay`, `az`, `ba`, `bb`, `bc`, `bd`, `be`, `bf`, `bg`, `bh`, `bi`, `bj`, `bk`, `bl`, `bn`, `bo`, `bp`, `bq`, `br`, `bs`, `bt`, `bu`, `bv`,

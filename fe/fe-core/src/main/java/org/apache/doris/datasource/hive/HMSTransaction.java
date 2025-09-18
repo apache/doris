@@ -24,8 +24,9 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.PathUtils;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
@@ -93,10 +94,10 @@ public class HMSTransaction implements Transaction {
     private boolean isOverwrite = false;
     TFileType fileType;
 
-    private final Map<SimpleTableInfo, Action<TableAndMore>> tableActions = new HashMap<>();
-    private final Map<SimpleTableInfo, Map<List<String>, Action<PartitionAndMore>>>
+    private final Map<NameMapping, Action<TableAndMore>> tableActions = new HashMap<>();
+    private final Map<NameMapping, Map<List<String>, Action<PartitionAndMore>>>
             partitionActions = new HashMap<>();
-    private final Map<SimpleTableInfo, List<FieldSchema>> tableColumns = new HashMap<>();
+    private final Map<NameMapping, List<FieldSchema>> tableColumns = new HashMap<>();
 
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
@@ -194,8 +195,8 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    public void finishInsertTable(SimpleTableInfo tableInfo) {
-        Table table = getTable(tableInfo);
+    public void finishInsertTable(NameMapping nameMapping) {
+        Table table = getTable(nameMapping);
         if (hivePartitionUpdates.isEmpty() && isOverwrite && table.getPartitionKeysSize() == 0) {
             // use an empty hivePartitionUpdate to clean source table
             isMockedPartitionUpdate = true;
@@ -248,15 +249,15 @@ public class HMSTransaction implements Transaction {
                     case APPEND:
                         finishChangingExistingTable(
                                 ActionType.INSERT_EXISTING,
-                                tableInfo,
+                                nameMapping,
                                 writePath,
                                 pu.getFileNames(),
                                 hivePartitionStatistics,
                                 pu);
                         break;
                     case OVERWRITE:
-                        dropTable(tableInfo);
-                        createTable(tableInfo, table, writePath, pu.getFileNames(), hivePartitionStatistics, pu);
+                        dropTable(nameMapping);
+                        createTable(nameMapping, table, writePath, pu.getFileNames(), hivePartitionStatistics, pu);
                         break;
                     default:
                         throw new RuntimeException("Not support mode:[" + updateMode + "] in unPartitioned table");
@@ -271,7 +272,7 @@ public class HMSTransaction implements Transaction {
                     case OVERWRITE:
                         StorageDescriptor sd = table.getSd();
                         HivePartition hivePartition = new HivePartition(
-                                tableInfo,
+                                nameMapping,
                                 false,
                                 sd.getInputFormat(),
                                 pu.getLocation().getTargetPath(),
@@ -282,10 +283,10 @@ public class HMSTransaction implements Transaction {
                                 sd.getCols()
                         );
                         if (updateMode == TUpdateMode.OVERWRITE) {
-                            dropPartition(tableInfo, hivePartition.getPartitionValues(), true);
+                            dropPartition(nameMapping, hivePartition.getPartitionValues(), true);
                         }
                         addPartition(
-                                tableInfo, hivePartition, writePath,
+                                nameMapping, hivePartition, writePath,
                                 pu.getName(), pu.getFileNames(), hivePartitionStatistics, pu);
                         break;
                     default:
@@ -295,7 +296,7 @@ public class HMSTransaction implements Transaction {
         }
 
         if (!insertExistsPartitions.isEmpty()) {
-            convertToInsertExistingPartitionAction(tableInfo, insertExistsPartitions);
+            convertToInsertExistingPartitionAction(nameMapping, insertExistsPartitions);
         }
     }
 
@@ -303,36 +304,36 @@ public class HMSTransaction implements Transaction {
         hmsCommitter = new HmsCommitter();
 
         try {
-            for (Map.Entry<SimpleTableInfo, Action<TableAndMore>> entry : tableActions.entrySet()) {
-                SimpleTableInfo tableInfo = entry.getKey();
+            for (Map.Entry<NameMapping, Action<TableAndMore>> entry : tableActions.entrySet()) {
+                NameMapping nameMapping = entry.getKey();
                 Action<TableAndMore> action = entry.getValue();
                 switch (action.getType()) {
                     case INSERT_EXISTING:
-                        hmsCommitter.prepareInsertExistingTable(tableInfo, action.getData());
+                        hmsCommitter.prepareInsertExistingTable(nameMapping, action.getData());
                         break;
                     case ALTER:
-                        hmsCommitter.prepareAlterTable(tableInfo, action.getData());
+                        hmsCommitter.prepareAlterTable(nameMapping, action.getData());
                         break;
                     default:
                         throw new UnsupportedOperationException("Unsupported table action type: " + action.getType());
                 }
             }
 
-            for (Map.Entry<SimpleTableInfo, Map<List<String>, Action<PartitionAndMore>>> tableEntry
+            for (Map.Entry<NameMapping, Map<List<String>, Action<PartitionAndMore>>> tableEntry
                     : partitionActions.entrySet()) {
-                SimpleTableInfo tableInfo = tableEntry.getKey();
+                NameMapping nameMapping = tableEntry.getKey();
                 for (Map.Entry<List<String>, Action<PartitionAndMore>> partitionEntry :
                         tableEntry.getValue().entrySet()) {
                     Action<PartitionAndMore> action = partitionEntry.getValue();
                     switch (action.getType()) {
                         case INSERT_EXISTING:
-                            hmsCommitter.prepareInsertExistPartition(tableInfo, action.getData());
+                            hmsCommitter.prepareInsertExistPartition(nameMapping, action.getData());
                             break;
                         case ADD:
-                            hmsCommitter.prepareAddPartition(tableInfo, action.getData());
+                            hmsCommitter.prepareAddPartition(nameMapping, action.getData());
                             break;
                         case ALTER:
-                            hmsCommitter.prepareAlterPartition(tableInfo, action.getData());
+                            hmsCommitter.prepareAlterPartition(nameMapping, action.getData());
                             break;
                         default:
                             throw new UnsupportedOperationException(
@@ -373,10 +374,10 @@ public class HMSTransaction implements Transaction {
     }
 
     private void convertToInsertExistingPartitionAction(
-            SimpleTableInfo tableInfo,
+            NameMapping nameMapping,
             List<Pair<THivePartitionUpdate, HivePartitionStatistics>> partitions) {
         Map<List<String>, Action<PartitionAndMore>> partitionActionsForTable =
-                partitionActions.computeIfAbsent(tableInfo, k -> new HashMap<>());
+                partitionActions.computeIfAbsent(nameMapping, k -> new HashMap<>());
 
         for (List<Pair<THivePartitionUpdate, HivePartitionStatistics>> partitionBatch :
                 Iterables.partition(partitions, 100)) {
@@ -394,7 +395,7 @@ public class HMSTransaction implements Transaction {
                     case DROP_PRESERVE_DATA:
                         throw new RuntimeException(
                                 "Not found partition from partition actions"
-                                        + "for " + tableInfo + ", partitions: " + partitionNames);
+                                        + "for " + nameMapping.getFullLocalName() + ", partitions: " + partitionNames);
                     case ADD:
                     case ALTER:
                     case INSERT_EXISTING:
@@ -409,7 +410,8 @@ public class HMSTransaction implements Transaction {
 
             Map<String, Partition> partitionsByNamesMap = HiveUtil.convertToNamePartitionMap(
                     partitionNames,
-                    hiveOps.getClient().getPartitions(tableInfo.getDbName(), tableInfo.getTbName(), partitionNames));
+                    hiveOps.getClient().getPartitions(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                            partitionNames));
 
             for (int i = 0; i < partitionsByNamesMap.size(); i++) {
                 String partitionName = partitionNames.get(i);
@@ -418,7 +420,7 @@ public class HMSTransaction implements Transaction {
                 if (partition == null) {
                     // Prevent this partition from being deleted by other engines
                     throw new RuntimeException(
-                            "Not found partition from hms for " + tableInfo
+                            "Not found partition from hms for " + nameMapping.getFullLocalName()
                                     + ", partitions: " + partitionNames);
                 }
                 THivePartitionUpdate pu = partitionBatch.get(i).first;
@@ -428,7 +430,7 @@ public class HMSTransaction implements Transaction {
                 List<String> partitionValues = HiveUtil.toPartitionValues(pu.getName());
 
                 HivePartition hivePartition = new HivePartition(
-                        tableInfo,
+                        nameMapping,
                         false,
                         sd.getInputFormat(),
                         partition.getSd().getLocation(),
@@ -469,16 +471,16 @@ public class HMSTransaction implements Transaction {
     }
 
     public static class UpdateStatisticsTask {
-        private final SimpleTableInfo tableInfo;
+        private final NameMapping nameMapping;
         private final Optional<String> partitionName;
         private final HivePartitionStatistics updatePartitionStat;
         private final boolean merge;
 
         private boolean done;
 
-        public UpdateStatisticsTask(SimpleTableInfo tableInfo, Optional<String> partitionName,
+        public UpdateStatisticsTask(NameMapping nameMapping, Optional<String> partitionName,
                 HivePartitionStatistics statistics, boolean merge) {
-            this.tableInfo = Objects.requireNonNull(tableInfo, "tableInfo is null");
+            this.nameMapping = Objects.requireNonNull(nameMapping, "nameMapping is null");
             this.partitionName = Objects.requireNonNull(partitionName, "partitionName is null");
             this.updatePartitionStat = Objects.requireNonNull(statistics, "statistics is null");
             this.merge = merge;
@@ -486,9 +488,9 @@ public class HMSTransaction implements Transaction {
 
         public void run(HiveMetadataOps hiveOps) {
             if (partitionName.isPresent()) {
-                hiveOps.updatePartitionStatistics(tableInfo, partitionName.get(), this::updateStatistics);
+                hiveOps.updatePartitionStatistics(nameMapping, partitionName.get(), this::updateStatistics);
             } else {
-                hiveOps.updateTableStatistics(tableInfo, this::updateStatistics);
+                hiveOps.updateTableStatistics(nameMapping, this::updateStatistics);
             }
             done = true;
         }
@@ -498,17 +500,17 @@ public class HMSTransaction implements Transaction {
                 return;
             }
             if (partitionName.isPresent()) {
-                hmsOps.updatePartitionStatistics(tableInfo, partitionName.get(), this::resetStatistics);
+                hmsOps.updatePartitionStatistics(nameMapping, partitionName.get(), this::resetStatistics);
             } else {
-                hmsOps.updateTableStatistics(tableInfo, this::resetStatistics);
+                hmsOps.updateTableStatistics(nameMapping, this::resetStatistics);
             }
         }
 
         public String getDescription() {
             if (partitionName.isPresent()) {
-                return "alter partition parameters " + tableInfo + " " + partitionName.get();
+                return "alter partition parameters " + nameMapping.getFullLocalName() + " " + partitionName.get();
             } else {
-                return "alter table parameters " + tableInfo;
+                return "alter table parameters " + nameMapping.getFullRemoteName();
             }
         }
 
@@ -545,11 +547,11 @@ public class HMSTransaction implements Transaction {
 
         public void run(HiveMetadataOps hiveOps) {
             HivePartition firstPartition = partitions.get(0).getPartition();
-            SimpleTableInfo tableInfo = firstPartition.getTableInfo();
+            NameMapping nameMapping = firstPartition.getNameMapping();
             List<List<HivePartitionWithStatistics>> batchedPartitions = Lists.partition(partitions, 20);
             for (List<HivePartitionWithStatistics> batch : batchedPartitions) {
                 try {
-                    hiveOps.addPartitions(tableInfo, batch);
+                    hiveOps.addPartitions(nameMapping, batch);
                     for (HivePartitionWithStatistics partition : batch) {
                         createdPartitionValues.add(partition.getPartition().getPartitionValues());
                     }
@@ -562,14 +564,14 @@ public class HMSTransaction implements Transaction {
 
         public List<List<String>> rollback(HiveMetadataOps hiveOps) {
             HivePartition firstPartition = partitions.get(0).getPartition();
-            SimpleTableInfo tableInfo = firstPartition.getTableInfo();
+            NameMapping nameMapping = firstPartition.getNameMapping();
             List<List<String>> rollbackFailedPartitions = new ArrayList<>();
             for (List<String> createdPartitionValue : createdPartitionValues) {
                 try {
-                    hiveOps.dropPartition(tableInfo, createdPartitionValue, false);
+                    hiveOps.dropPartition(nameMapping, createdPartitionValue, false);
                 } catch (Throwable t) {
                     LOG.warn("Failed to drop partition on {}.{} when rollback",
-                            tableInfo, rollbackFailedPartitions);
+                            nameMapping.getFullLocalName(), rollbackFailedPartitions);
                     rollbackFailedPartitions.add(createdPartitionValue);
                 }
             }
@@ -899,10 +901,10 @@ public class HMSTransaction implements Transaction {
         }
     }
 
-    public synchronized Table getTable(SimpleTableInfo tableInfo) {
-        Action<TableAndMore> tableAction = tableActions.get(tableInfo);
+    private synchronized Table getTable(NameMapping nameMapping) {
+        Action<TableAndMore> tableAction = tableActions.get(nameMapping);
         if (tableAction == null) {
-            return hiveOps.getClient().getTable(tableInfo.getDbName(), tableInfo.getTbName());
+            return hiveOps.getClient().getTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
         }
         switch (tableAction.getType()) {
             case ADD:
@@ -916,21 +918,21 @@ public class HMSTransaction implements Transaction {
             default:
                 throw new IllegalStateException("Unknown action type: " + tableAction.getType());
         }
-        throw new RuntimeException("Not Found table: " + tableInfo);
+        throw new RuntimeException("Not Found table: " + nameMapping);
     }
 
     public synchronized void finishChangingExistingTable(
             ActionType actionType,
-            SimpleTableInfo tableInfo,
+            NameMapping nameMapping,
             String location,
             List<String> fileNames,
             HivePartitionStatistics statisticsUpdate,
             THivePartitionUpdate hivePartitionUpdate) {
-        Action<TableAndMore> oldTableAction = tableActions.get(tableInfo);
+        Action<TableAndMore> oldTableAction = tableActions.get(nameMapping);
         if (oldTableAction == null) {
-            Table table = hiveOps.getClient().getTable(tableInfo.getDbName(), tableInfo.getTbName());
+            Table table = hiveOps.getClient().getTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
             tableActions.put(
-                    tableInfo,
+                    nameMapping,
                     new Action<>(
                             actionType,
                             new TableAndMore(
@@ -944,7 +946,7 @@ public class HMSTransaction implements Transaction {
 
         switch (oldTableAction.getType()) {
             case DROP:
-                throw new RuntimeException("Not found table: " + tableInfo);
+                throw new RuntimeException("Not found table: " + nameMapping.getFullLocalName());
             case ADD:
             case ALTER:
             case INSERT_EXISTING:
@@ -960,28 +962,28 @@ public class HMSTransaction implements Transaction {
     }
 
     public synchronized void createTable(
-            SimpleTableInfo tableInfo,
+            NameMapping nameMapping,
             Table table, String location, List<String> fileNames,
             HivePartitionStatistics statistics,
             THivePartitionUpdate hivePartitionUpdate) {
         // When creating a table, it should never have partition actions. This is just a sanity check.
-        checkNoPartitionAction(tableInfo);
-        Action<TableAndMore> oldTableAction = tableActions.get(tableInfo);
+        checkNoPartitionAction(nameMapping);
+        Action<TableAndMore> oldTableAction = tableActions.get(nameMapping);
         TableAndMore tableAndMore = new TableAndMore(table, location, fileNames, statistics, hivePartitionUpdate);
         if (oldTableAction == null) {
-            tableActions.put(tableInfo, new Action<>(ActionType.ADD, tableAndMore));
+            tableActions.put(nameMapping, new Action<>(ActionType.ADD, tableAndMore));
             return;
         }
         switch (oldTableAction.getType()) {
             case DROP:
-                tableActions.put(tableInfo, new Action<>(ActionType.ALTER, tableAndMore));
+                tableActions.put(nameMapping, new Action<>(ActionType.ALTER, tableAndMore));
                 return;
 
             case ADD:
             case ALTER:
             case INSERT_EXISTING:
             case MERGE:
-                throw new RuntimeException("Table already exists: " + tableInfo);
+                throw new RuntimeException("Table already exists: " + nameMapping.getFullLocalName());
             case DROP_PRESERVE_DATA:
                 break;
             default:
@@ -990,17 +992,17 @@ public class HMSTransaction implements Transaction {
     }
 
 
-    public synchronized void dropTable(SimpleTableInfo tableInfo) {
+    public synchronized void dropTable(NameMapping nameMapping) {
         // Dropping table with partition actions requires cleaning up staging data, which is not implemented yet.
-        checkNoPartitionAction(tableInfo);
-        Action<TableAndMore> oldTableAction = tableActions.get(tableInfo);
+        checkNoPartitionAction(nameMapping);
+        Action<TableAndMore> oldTableAction = tableActions.get(nameMapping);
         if (oldTableAction == null || oldTableAction.getType() == ActionType.ALTER) {
-            tableActions.put(tableInfo, new Action<>(ActionType.DROP, null));
+            tableActions.put(nameMapping, new Action<>(ActionType.DROP, null));
             return;
         }
         switch (oldTableAction.getType()) {
             case DROP:
-                throw new RuntimeException("Not found table: " + tableInfo);
+                throw new RuntimeException("Not found table: " + nameMapping.getFullLocalName());
             case ADD:
             case ALTER:
             case INSERT_EXISTING:
@@ -1014,9 +1016,9 @@ public class HMSTransaction implements Transaction {
     }
 
 
-    private void checkNoPartitionAction(SimpleTableInfo tableInfo) {
+    private void checkNoPartitionAction(NameMapping nameMapping) {
         Map<List<String>, Action<PartitionAndMore>> partitionActionsForTable =
-                partitionActions.get(tableInfo);
+                partitionActions.get(nameMapping);
         if (partitionActionsForTable != null && !partitionActionsForTable.isEmpty()) {
             throw new RuntimeException(
                     "Cannot make schema changes to a table with modified partitions in the same transaction");
@@ -1024,7 +1026,7 @@ public class HMSTransaction implements Transaction {
     }
 
     public synchronized void addPartition(
-            SimpleTableInfo tableInfo,
+            NameMapping nameMapping,
             HivePartition partition,
             String currentLocation,
             String partitionName,
@@ -1032,7 +1034,7 @@ public class HMSTransaction implements Transaction {
             HivePartitionStatistics statistics,
             THivePartitionUpdate hivePartitionUpdate) {
         Map<List<String>, Action<PartitionAndMore>> partitionActionsForTable =
-                partitionActions.computeIfAbsent(tableInfo, k -> new HashMap<>());
+                partitionActions.computeIfAbsent(nameMapping, k -> new HashMap<>());
         Action<PartitionAndMore> oldPartitionAction = partitionActionsForTable.get(partition.getPartitionValues());
         if (oldPartitionAction == null) {
             partitionActionsForTable.put(
@@ -1061,19 +1063,19 @@ public class HMSTransaction implements Transaction {
             case MERGE:
                 throw new RuntimeException(
                         "Partition already exists for table: "
-                                + tableInfo + ", partition values: " + partition
+                                + nameMapping.getFullLocalName() + ", partition values: " + partition
                                 .getPartitionValues());
             default:
                 throw new IllegalStateException("Unknown action type: " + oldPartitionAction.getType());
         }
     }
 
-    public synchronized void dropPartition(
-            SimpleTableInfo tableInfo,
+    private synchronized void dropPartition(
+            NameMapping nameMapping,
             List<String> partitionValues,
             boolean deleteData) {
         Map<List<String>, Action<PartitionAndMore>> partitionActionsForTable =
-                partitionActions.computeIfAbsent(tableInfo, k -> new HashMap<>());
+                partitionActions.computeIfAbsent(nameMapping, k -> new HashMap<>());
         Action<PartitionAndMore> oldPartitionAction = partitionActionsForTable.get(partitionValues);
         if (oldPartitionAction == null) {
             if (deleteData) {
@@ -1087,7 +1089,7 @@ public class HMSTransaction implements Transaction {
             case DROP:
             case DROP_PRESERVE_DATA:
                 throw new RuntimeException(
-                        "Not found partition from partition actions for " + tableInfo
+                        "Not found partition from partition actions for " + nameMapping.getFullLocalName()
                                 + ", partitions: " + partitionValues);
             case ADD:
             case ALTER:
@@ -1095,7 +1097,7 @@ public class HMSTransaction implements Transaction {
             case MERGE:
                 throw new RuntimeException(
                         "Dropping a partition added in the same transaction is not supported: "
-                                + tableInfo + ", partition values: " + partitionValues);
+                                + nameMapping.getFullLocalName() + ", partition values: " + partitionValues);
             default:
                 throw new IllegalStateException("Unknown action type: " + oldPartitionAction.getType());
         }
@@ -1152,11 +1154,11 @@ public class HMSTransaction implements Transaction {
             }
 
             HivePartition firstPartition = addPartitionsTask.getPartitions().get(0).getPartition();
-            SimpleTableInfo tableInfo = firstPartition.getTableInfo();
+            NameMapping nameMapping = firstPartition.getNameMapping();
             List<List<String>> rollbackFailedPartitions = addPartitionsTask.rollback(hiveOps);
             if (!rollbackFailedPartitions.isEmpty()) {
                 LOG.warn("Failed to rollback: add_partition for partition values {}.{}",
-                        tableInfo, rollbackFailedPartitions);
+                        nameMapping.getFullLocalName(), rollbackFailedPartitions);
             }
             addPartitionsTask.clear();
         }
@@ -1174,11 +1176,20 @@ public class HMSTransaction implements Transaction {
             asyncFileSystemTaskFutures.clear();
         }
 
-        public void prepareInsertExistingTable(SimpleTableInfo tableInfo, TableAndMore tableAndMore) {
+        public void prepareInsertExistingTable(NameMapping nameMapping, TableAndMore tableAndMore) {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
-            if (!targetPath.equals(writePath)) {
+            // Determine if a rename operation is required for the output file.
+            // In the BE (Backend) implementation, all object storage systems (e.g., AWS S3, MinIO, OSS, COS)
+            // are unified under the "s3" URI scheme, even if the actual underlying storage uses a different protocol.
+            // The method PathUtils.equalsIgnoreSchemeIfOneIsS3(...) compares two paths by ignoring the scheme
+            // if one of them uses the "s3" scheme, and only checks whether the bucket name and object key match.
+            // This prevents unnecessary rename operations when the scheme differs (e.g., "s3://" vs. "oss://")
+            // but the actual storage location is identical. If the paths differ after ignoring the scheme,
+            // a rename operation will be performed.
+            boolean needRename = !PathUtils.equalsIgnoreSchemeIfOneIsS3(targetPath, writePath);
+            if (needRename) {
                 wrapperAsyncRenameWithProfileSummary(
                         fileSystemExecutor,
                         asyncFileSystemTaskFutures,
@@ -1195,14 +1206,14 @@ public class HMSTransaction implements Transaction {
             directoryCleanUpTasksForAbort.add(new DirectoryCleanUpTask(targetPath, false));
             updateStatisticsTasks.add(
                     new UpdateStatisticsTask(
-                            tableInfo,
+                            nameMapping,
                             Optional.empty(),
                             tableAndMore.getStatisticsUpdate(),
                             true
                     ));
         }
 
-        public void prepareAlterTable(SimpleTableInfo tableInfo, TableAndMore tableAndMore) {
+        public void prepareAlterTable(NameMapping nameMapping, TableAndMore tableAndMore) {
             Table table = tableAndMore.getTable();
             String targetPath = table.getSd().getLocation();
             String writePath = tableAndMore.getCurrentLocation();
@@ -1238,14 +1249,14 @@ public class HMSTransaction implements Transaction {
             }
             updateStatisticsTasks.add(
                     new UpdateStatisticsTask(
-                            tableInfo,
+                            nameMapping,
                             Optional.empty(),
                             tableAndMore.getStatisticsUpdate(),
                             false
                     ));
         }
 
-        public void prepareAddPartition(SimpleTableInfo tableInfo, PartitionAndMore partitionAndMore) {
+        public void prepareAddPartition(NameMapping nameMapping, PartitionAndMore partitionAndMore) {
 
             HivePartition partition = partitionAndMore.getPartition();
             String targetPath = partition.getPath();
@@ -1266,10 +1277,10 @@ public class HMSTransaction implements Transaction {
                 }
             }
 
-            StorageDescriptor sd = getTable(tableInfo).getSd();
+            StorageDescriptor sd = getTable(nameMapping).getSd();
 
             HivePartition hivePartition = new HivePartition(
-                    tableInfo,
+                    nameMapping,
                     false,
                     sd.getInputFormat(),
                     targetPath,
@@ -1288,7 +1299,7 @@ public class HMSTransaction implements Transaction {
             addPartitionsTask.addPartition(partitionWithStats);
         }
 
-        public void prepareInsertExistPartition(SimpleTableInfo tableInfo, PartitionAndMore partitionAndMore) {
+        public void prepareInsertExistPartition(NameMapping nameMapping, PartitionAndMore partitionAndMore) {
 
             HivePartition partition = partitionAndMore.getPartition();
             String targetPath = partition.getPath();
@@ -1312,7 +1323,7 @@ public class HMSTransaction implements Transaction {
 
             updateStatisticsTasks.add(
                     new UpdateStatisticsTask(
-                            tableInfo,
+                            nameMapping,
                             Optional.of(partitionAndMore.getPartitionName()),
                             partitionAndMore.getStatisticsUpdate(),
                             true));
@@ -1357,7 +1368,7 @@ public class HMSTransaction implements Transaction {
             }
         }
 
-        public void prepareAlterPartition(SimpleTableInfo tableInfo, PartitionAndMore partitionAndMore) {
+        public void prepareAlterPartition(NameMapping nameMapping, PartitionAndMore partitionAndMore) {
             HivePartition partition = partitionAndMore.getPartition();
             String targetPath = partition.getPath();
             String writePath = partitionAndMore.getCurrentLocation();
@@ -1396,7 +1407,7 @@ public class HMSTransaction implements Transaction {
 
             updateStatisticsTasks.add(
                     new UpdateStatisticsTask(
-                            tableInfo,
+                            nameMapping,
                             Optional.of(partitionAndMore.getPartitionName()),
                             partitionAndMore.getStatisticsUpdate(),
                             false
@@ -1613,7 +1624,6 @@ public class HMSTransaction implements Transaction {
 
     private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
-
         List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
         if (isMockedPartitionUpdate) {
             return;

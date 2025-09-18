@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_spark_load", "p0") {
+suite("test_spark_load", "p0,external") {
     // Need spark cluster, upload data file to hdfs
     def testTable = "tbl_test_spark_load"
     def testTable2 = "tbl_test_spark_load2"
@@ -23,9 +23,9 @@ suite("test_spark_load", "p0") {
     def yarnAddress = "master:8032"
     def hdfsAddress = "hdfs://master:9000"
     def hdfsWorkingDir = "hdfs://master:9000/doris"
-    brokerName =getBrokerName()
-    hdfsUser = getHdfsUser()
-    hdfsPasswd = getHdfsPasswd()
+    def brokerName =getBrokerName()
+    def hdfsUser = getHdfsUser()
+    def hdfsPasswd = getHdfsPasswd()
     
     def create_test_table = {testTablex ->
         def result1 = sql """

@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.rpc.RpcException;
@@ -47,6 +48,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -113,24 +115,26 @@ public class MTMVPartitionUtil {
      * @throws DdlException
      * @throws AnalysisException
      */
-    public static void alignMvPartition(MTMV mtmv)
-            throws DdlException, AnalysisException {
+    public static Pair<List<String>, List<PartitionKeyDesc>> alignMvPartition(MTMV mtmv) throws AnalysisException {
         Map<String, PartitionKeyDesc> mtmvPartitionDescs = mtmv.generateMvPartitionDescs();
         Set<PartitionKeyDesc> relatedPartitionDescs = generateRelatedPartitionDescs(mtmv.getMvPartitionInfo(),
                 mtmv.getMvProperties()).keySet();
+        List<String> partitionsToDrop = new ArrayList<>();
+        List<PartitionKeyDesc> partitionsToAdd = new ArrayList<>();
         // drop partition of mtmv
         for (Entry<String, PartitionKeyDesc> entry : mtmvPartitionDescs.entrySet()) {
             if (!relatedPartitionDescs.contains(entry.getValue())) {
-                dropPartition(mtmv, entry.getKey());
+                partitionsToDrop.add(entry.getKey());
             }
         }
         // add partition for mtmv
         HashSet<PartitionKeyDesc> mtmvPartitionDescsSet = Sets.newHashSet(mtmvPartitionDescs.values());
         for (PartitionKeyDesc desc : relatedPartitionDescs) {
             if (!mtmvPartitionDescsSet.contains(desc)) {
-                addPartition(mtmv, desc);
+                partitionsToAdd.add(desc);
             }
         }
+        return Pair.of(partitionsToDrop, partitionsToAdd);
     }
 
     /**
@@ -365,7 +369,7 @@ public class MTMVPartitionUtil {
      * @param mtmv
      * @param partitionName
      */
-    private static void dropPartition(MTMV mtmv, String partitionName) throws DdlException {
+    public static void dropPartition(MTMV mtmv, String partitionName) throws DdlException {
         if (!mtmv.writeLockIfExist()) {
             return;
         }
@@ -386,7 +390,7 @@ public class MTMVPartitionUtil {
      * @param oldPartitionKeyDesc
      * @throws DdlException
      */
-    private static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
+    public static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
             throws DdlException {
         Map<String, String> partitionProperties = Maps.newHashMap();
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,

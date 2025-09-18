@@ -21,6 +21,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -87,7 +88,8 @@ public class BrokerStorageTest {
         properties.put("bos_accesskey",  System.getenv().getOrDefault("AWS_AK", ""));
         properties.put("bos_secret_accesskey",  System.getenv().getOrDefault("AWS_SK", ""));
         properties.put("bos_endpoint", "http://bj.bcebos.com");
-        fileSystem = new BrokerFileSystem("bos_broker", properties);
+        BrokerProperties brokerProperties = BrokerProperties.of("bos_broker", properties);
+        fileSystem = new BrokerFileSystem(brokerProperties);
         testFile = bucket + basePath + "/Ode_to_the_West_Wind";
         content =
                 "O wild West Wind, thou breath of Autumn's being\n"

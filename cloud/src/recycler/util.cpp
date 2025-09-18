@@ -22,10 +22,10 @@
 #include <cstdint>
 
 #include "common/util.h"
-#include "meta-service/keys.h"
 #include "meta-service/meta_service_schema.h"
-#include "meta-service/txn_kv.h"
-#include "meta-service/txn_kv_error.h"
+#include "meta-store/keys.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
 namespace config {

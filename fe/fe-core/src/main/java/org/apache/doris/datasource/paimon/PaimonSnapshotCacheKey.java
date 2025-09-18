@@ -17,32 +17,19 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.NameMapping;
 
-import java.util.Objects;
 import java.util.StringJoiner;
 
 public class PaimonSnapshotCacheKey {
-    private final CatalogIf catalog;
-    private final String dbName;
-    private final String tableName;
+    private final NameMapping nameMapping;
 
-    public PaimonSnapshotCacheKey(CatalogIf catalog, String dbName, String tableName) {
-        this.catalog = catalog;
-        this.dbName = dbName;
-        this.tableName = tableName;
+    public PaimonSnapshotCacheKey(NameMapping nameMapping) {
+        this.nameMapping = nameMapping;
     }
 
-    public CatalogIf getCatalog() {
-        return catalog;
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
-    public String getTableName() {
-        return tableName;
+    public NameMapping getNameMapping() {
+        return nameMapping;
     }
 
     @Override
@@ -54,22 +41,20 @@ public class PaimonSnapshotCacheKey {
             return false;
         }
         PaimonSnapshotCacheKey that = (PaimonSnapshotCacheKey) o;
-        return catalog.getId() == that.catalog.getId()
-                && Objects.equals(dbName, that.dbName)
-                && Objects.equals(tableName, that.tableName);
+        return nameMapping.equals(that.nameMapping);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(catalog.getId(), dbName, tableName);
+        return nameMapping.hashCode();
     }
 
     @Override
     public String toString() {
         return new StringJoiner(", ", PaimonSnapshotCacheKey.class.getSimpleName() + "[", "]")
-                .add("catalog=" + catalog)
-                .add("dbName='" + dbName + "'")
-                .add("tableName='" + tableName + "'")
+                .add("catalog=" + nameMapping.getCtlId())
+                .add("dbName='" + nameMapping.getLocalDbName() + "'")
+                .add("tableName='" + nameMapping.getLocalTblName() + "'")
                 .toString();
     }
 }

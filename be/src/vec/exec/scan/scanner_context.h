@@ -37,11 +37,11 @@
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exec/executor/split_runner.h"
 #include "vec/exec/scan/scanner.h"
 
 namespace doris {
 
-class ThreadPoolToken;
 class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
@@ -57,6 +57,8 @@ class Scanner;
 class ScannerDelegate;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
+class TaskExecutor;
+class TaskHandle;
 
 class ScanTask {
 public:
@@ -64,6 +66,10 @@ public:
         _resource_ctx = thread_context()->resource_ctx();
         DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
+
+    ScanTask(std::shared_ptr<ResourceContext> resource_ctx,
+             std::weak_ptr<ScannerDelegate> delegate_scanner)
+            : _resource_ctx(std::move(resource_ctx)), scanner(delegate_scanner) {}
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
@@ -80,6 +86,11 @@ private:
 public:
     std::weak_ptr<ScannerDelegate> scanner;
     std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
+    bool is_first_schedule = true;
+    // Use weak_ptr to avoid circular references and potential memory leaks with SplitRunner.
+    // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
+    // When SplitRunner is destroyed, split_runner.lock() will return nullptr, ensuring safe access.
+    std::weak_ptr<SplitRunner> split_runner;
 
     void set_status(Status _status) {
         if (_status.is<ErrorCode::END_OF_FILE>()) {
@@ -115,16 +126,7 @@ public:
                    int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency,
                    int num_parallel_instances);
 
-    ~ScannerContext() override {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
-        _tasks_queue.clear();
-        vectorized::BlockUPtr block;
-        while (_free_blocks.try_dequeue(block)) {
-            // do nothing
-        }
-        block.reset();
-        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
-    }
+    ~ScannerContext() override;
     Status init();
 
     vectorized::BlockUPtr get_free_block(bool force);
@@ -157,6 +159,10 @@ public:
 
     std::string debug_string();
 
+    std::shared_ptr<TaskHandle> task_handle() const { return _task_handle; }
+
+    std::shared_ptr<ResourceContext> resource_ctx() const { return _resource_ctx; }
+
     RuntimeState* state() { return _state; }
 
     SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
@@ -181,7 +187,6 @@ public:
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
-    ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
 
@@ -189,6 +194,10 @@ public:
         std::lock_guard<std::mutex> l(_transfer_lock);
         return _num_scheduled_scanners;
     }
+
+    Status schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
+                              std::unique_lock<std::mutex>& transfer_lock,
+                              std::unique_lock<std::shared_mutex>& scheduler_lock);
 
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners
@@ -239,6 +248,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
     const int _parallism_of_scan_operator;
+    std::shared_ptr<doris::vectorized::TaskHandle> _task_handle;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 
@@ -247,10 +257,6 @@ protected:
     int32_t _min_scan_concurrency_of_scan_scheduler = 0;
     int32_t _min_scan_concurrency = 1;
     int32_t _max_scan_concurrency = 0;
-
-    Status _schedule_scan_task(std::shared_ptr<ScanTask> current_scan_task,
-                               std::unique_lock<std::mutex>& transfer_lock,
-                               std::unique_lock<std::shared_mutex>& scheduler_lock);
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);

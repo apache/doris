@@ -30,7 +30,6 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
@@ -84,7 +83,7 @@ public:
                       : num;
         auto value = block.get_by_position(arguments[FunctionType::param_val_idx])
                              .column->convert_to_full_column_if_const();
-        auto offsets_col = ColumnVector<ColumnArray::Offset64>::create();
+        auto offsets_col = ColumnOffset64::create();
         ColumnArray::Offsets64& offsets = offsets_col->get_data();
         offsets.reserve(input_rows_count);
         ColumnArray::Offset64 offset = 0;

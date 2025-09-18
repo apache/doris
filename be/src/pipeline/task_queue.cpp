@@ -52,6 +52,7 @@ void PriorityTaskQueue::close() {
     std::unique_lock<std::mutex> lock(_work_size_mutex);
     _closed = true;
     _wait_task.notify_all();
+    DorisMetrics::instance()->pipeline_task_queue_size->increment(-_total_task_size);
 }
 
 PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
@@ -77,6 +78,7 @@ PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
     if (task) {
         task->update_queue_level(level);
         _total_task_size--;
+        DorisMetrics::instance()->pipeline_task_queue_size->increment(-1);
     }
     return task;
 }
@@ -126,6 +128,7 @@ Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
 
     _sub_queues[level].push_back(task);
     _total_task_size++;
+    DorisMetrics::instance()->pipeline_task_queue_size->increment(1);
     _wait_task.notify_one();
     return Status::OK();
 }
@@ -188,11 +191,11 @@ PipelineTaskSPtr MultiCoreTaskQueue::_steal_take(int core_id) {
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task) {
-    int core_id = task->get_core_id();
-    if (core_id < 0) {
-        core_id = _next_core.fetch_add(1) % _core_size;
+    int thread_id = task->get_thread_id(_core_size);
+    if (thread_id < 0) {
+        thread_id = _next_core.fetch_add(1) % _core_size;
     }
-    return push_back(task, core_id);
+    return push_back(task, thread_id);
 }
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
@@ -204,7 +207,7 @@ Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
 void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spent) {
     // if the task not execute but exception early close, core_id == -1
     // should not do update_statistics
-    if (auto core_id = task->get_core_id(); core_id >= 0) {
+    if (auto core_id = task->get_thread_id(_core_size); core_id >= 0) {
         task->inc_runtime_ns(time_spent);
         _prio_task_queues[core_id].inc_sub_queue_runtime(task->get_queue_level(), time_spent);
     }

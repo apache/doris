@@ -23,13 +23,16 @@
 
 #include <string>
 
+#include "common/defer.h"
+
 namespace doris::cloud {
 
 // The time unit is the same with BE: us
-#define SCOPED_BVAR_LATENCY(bvar_item)                     \
-    StopWatch sw;                                          \
-    std::unique_ptr<int, std::function<void(int*)>> defer( \
-            (int*)0x01, [&](int*) { bvar_item << sw.elapsed_us(); });
+#define SCOPED_BVAR_LATENCY(bvar_item) \
+    StopWatch sw;                      \
+    DORIS_CLOUD_DEFER {                \
+        bvar_item << sw.elapsed_us();  \
+    };
 
 class TxnKv;
 
@@ -61,6 +64,10 @@ int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::s
 inline std::string segment_path(int64_t tablet_id, const std::string& rowset_id,
                                 int64_t segment_id) {
     return fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
+}
+
+inline std::string delete_bitmap_path(int64_t tablet_id, const std::string& rowset_id) {
+    return fmt::format("data/{}/{}_delete_bitmap.db", tablet_id, rowset_id);
 }
 
 inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& rowset_id,

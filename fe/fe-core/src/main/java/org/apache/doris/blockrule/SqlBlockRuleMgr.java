@@ -17,10 +17,6 @@
 
 package org.apache.doris.blockrule;
 
-import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
-import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
-import org.apache.doris.analysis.DropSqlBlockRuleStmt;
-import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -31,6 +27,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlBlockUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.trees.plans.commands.AlterSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -47,6 +45,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -76,17 +75,9 @@ public class SqlBlockRuleMgr implements Writable {
     }
 
     /**
-     * Get SqlBlockRule by show stmt.
-     **/
-    public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
-        String ruleName = stmt.getRuleName();
-        return getSqlBlockRule(ruleName);
-    }
-
-    /**
      * Get SqlBlockRule by rulename.
      **/
-    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
@@ -110,13 +101,6 @@ public class SqlBlockRuleMgr implements Writable {
         if (sqlBlockRule.getCardinality() < 0) {
             throw new DdlException("the value of cardinality can't be a negative");
         }
-    }
-
-    /**
-     * Create SqlBlockRule for create stmt.
-     **/
-    public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
-        createSqlBlockRule(SqlBlockRule.fromCreateStmt(stmt), stmt.isIfNotExists());
     }
 
     public void createSqlBlockRule(SqlBlockRule sqlBlockRule, boolean isIfNotExists) throws UserException {
@@ -145,13 +129,6 @@ public class SqlBlockRuleMgr implements Writable {
         LOG.info("replay create sql block rule: {}", sqlBlockRule);
     }
 
-    /**
-     * Alter SqlBlockRule for alter stmt.
-     **/
-    public void alterSqlBlockRule(AlterSqlBlockRuleStmt stmt) throws AnalysisException, DdlException {
-        alterSqlBlockRule(SqlBlockRule.fromAlterStmt(stmt));
-    }
-
     public void alterSqlBlockRule(SqlBlockRule sqlBlockRule) throws AnalysisException, DdlException {
         writeLock();
         try {
@@ -161,19 +138,19 @@ public class SqlBlockRuleMgr implements Writable {
             }
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
 
-            if (sqlBlockRule.getSql().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
+            if (sqlBlockRule.getSql().equals(CreateSqlBlockRuleCommand.STRING_NOT_SET)) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
-            if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
+            if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleCommand.STRING_NOT_SET)) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
             }
-            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setPartitionNum(originRule.getPartitionNum());
             }
-            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setTabletNum(originRule.getTabletNum());
             }
-            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
+            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleCommand.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
             if (sqlBlockRule.getGlobal() == null) {
@@ -182,6 +159,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
             }
+            sqlBlockRule.setSqlPattern(Pattern.compile(sqlBlockRule.getSql()));
             verifyLimitations(sqlBlockRule);
             SqlBlockUtil.checkAlterValidate(sqlBlockRule);
 
@@ -203,13 +181,6 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void unprotectedAdd(SqlBlockRule sqlBlockRule) {
         nameToSqlBlockRuleMap.put(sqlBlockRule.getName(), sqlBlockRule);
-    }
-
-    /**
-     * Drop SqlBlockRule for drop stmt.
-     **/
-    public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
-        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
     }
 
     public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {
@@ -247,7 +218,7 @@ public class SqlBlockRuleMgr implements Writable {
             return;
         }
         if (ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().internalSession) {
+                && ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule
@@ -269,14 +240,21 @@ public class SqlBlockRuleMgr implements Writable {
 
     private void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
-                    && rule.getSqlHash().equals(sqlHash)) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
-                    && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
-                MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+            long startAt = System.currentTimeMillis();
+            try {
+                if (StringUtils.isNotEmpty(rule.getSqlHash()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSqlHash())
+                        && rule.getSqlHash().equals(sqlHash)) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
+                    throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
+                } else if (StringUtils.isNotEmpty(rule.getSql()) && !SqlBlockUtil.STRING_DEFAULT.equals(rule.getSql())
+                        && rule.getSqlPattern() != null && rule.getSqlPattern().matcher(originSql).find()) {
+                    MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
+                    rule.getBlockCount().increase(1L);
+                    throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
+                }
+            } finally {
+                rule.getTryBlockHistogram().update(System.currentTimeMillis() - startAt);
             }
         }
     }
@@ -286,7 +264,7 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public void checkLimitations(Long partitionNum, Long tabletNum, Long cardinality, String user)
             throws AnalysisException {
-        if (ConnectContext.get().getSessionVariable().internalSession) {
+        if (ConnectContext.get().getState().isInternal()) {
             return;
         }
         // match global rule

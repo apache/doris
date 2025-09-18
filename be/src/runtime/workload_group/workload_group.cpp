@@ -47,42 +47,43 @@
 
 namespace doris {
 
-const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
-const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
-const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
+#include "common/compile_check_begin.h"
+
+const static int MAX_MEMORY_PERCENT_DEFAULT_VALUE = 100;
+const static int MAX_CPU_PERCENT_DEFAULT_VALUE = 100;
 
 const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 80;
 const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 95;
 // This is a invalid value, and should ignore this value during usage
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
-const static int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
 
-WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info) : WorkloadGroup(wg_info, true) {}
-
-WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool)
-        : _id(tg_info.id),
-          _name(tg_info.name),
-          _version(tg_info.version),
-          _memory_limit(tg_info.memory_limit),
-          _load_buffer_ratio(tg_info.write_buffer_ratio),
-          _enable_memory_overcommit(tg_info.enable_memory_overcommit),
-          _cpu_share(tg_info.cpu_share),
-          _cpu_hard_limit(tg_info.cpu_hard_limit),
-          _scan_thread_num(tg_info.scan_thread_num),
-          _max_remote_scan_thread_num(tg_info.max_remote_scan_thread_num),
-          _min_remote_scan_thread_num(tg_info.min_remote_scan_thread_num),
-          _memory_low_watermark(tg_info.memory_low_watermark),
-          _memory_high_watermark(tg_info.memory_high_watermark),
-          _scan_bytes_per_second(tg_info.read_bytes_per_second),
-          _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second),
-          _total_query_slot_count(tg_info.total_query_slot_count),
-          _slot_mem_policy(tg_info.slot_mem_policy),
-          _need_create_query_thread_pool(need_create_query_thread_pool) {
+WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info)
+        : _id(wg_info.id),
+          _name(wg_info.name),
+          _version(wg_info.version),
+          _min_cpu_percent(wg_info.min_cpu_percent),
+          _max_cpu_percent(wg_info.max_cpu_percent),
+          _memory_limit(wg_info.memory_limit),
+          _min_memory_percent(wg_info.min_memory_percent),
+          _max_memory_percent(wg_info.max_memory_percent),
+          _memory_low_watermark(wg_info.memory_low_watermark),
+          _memory_high_watermark(wg_info.memory_high_watermark),
+          _scan_thread_num(wg_info.scan_thread_num),
+          _max_remote_scan_thread_num(wg_info.max_remote_scan_thread_num),
+          _min_remote_scan_thread_num(wg_info.min_remote_scan_thread_num),
+          _scan_bytes_per_second(wg_info.read_bytes_per_second),
+          _remote_scan_bytes_per_second(wg_info.remote_read_bytes_per_second),
+          _total_query_slot_count(wg_info.total_query_slot_count),
+          _slot_mem_policy(wg_info.slot_mem_policy) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
         _scan_io_throttle_map[data_dir.path] = std::make_shared<IOThrottle>(data_dir.metric_name);
     }
     _remote_scan_io_throttle = std::make_shared<IOThrottle>();
+    if (_max_memory_percent > 0) {
+        _min_memory_limit = static_cast<int64_t>(
+                static_cast<double>(_memory_limit * _min_memory_percent) / _max_memory_percent);
+    }
 
     _wg_metrics = std::make_shared<WorkloadGroupMetrics>(this);
 }
@@ -92,13 +93,14 @@ WorkloadGroup::~WorkloadGroup() = default;
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
-            "WorkloadGroup[id = {}, name = {}, version = {}, {}, "
-            "cpu_share = {}, cpu_hard_limit = {}, "
-            "scan_thread_num = {}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = "
-            "{}, "
+            "WorkloadGroup[id = {}, name = {}, version = {}, "
+            "min_cpu_percent = {}, max_cpu_percent = {}, "
+            "{}"
+            "scan_thread_num = {}, max_remote_scan_thread_num = {}, "
+            "min_remote_scan_thread_num = {}, "
             "is_shutdown={}, query_num={}, "
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
-            _id, _name, _version, _memory_debug_string(), cpu_share(), cpu_hard_limit(),
+            _id, _name, _version, _min_cpu_percent, _max_cpu_percent, _memory_debug_string(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
             _is_shutdown, _resource_ctxs.size(), _scan_bytes_per_second,
             _remote_scan_bytes_per_second);
@@ -107,17 +109,12 @@ std::string WorkloadGroup::debug_string() const {
 bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
     auto realtime_total_mem_used =
             _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
-    if ((realtime_total_mem_used >
+    if (((double)realtime_total_mem_used >
          ((double)_memory_limit * _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
         // If a group is enable memory overcommit, then not need check the limit
         // It is always true, and it will only fail when process memory is not
         // enough.
-        if (_enable_memory_overcommit) {
-            _wg_refresh_interval_memory_growth.fetch_add(size);
-            return true;
-        } else {
-            return false;
-        }
+        return false;
     } else {
         _wg_refresh_interval_memory_growth.fetch_add(size);
         return true;
@@ -126,63 +123,63 @@ bool WorkloadGroup::try_add_wg_refresh_interval_memory_growth(int64_t size) {
 
 std::string WorkloadGroup::_memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
+    auto mem_used_ratio = (double)realtime_total_mem_used / ((double)_memory_limit + 1);
     auto mem_used_ratio_int = (int64_t)(mem_used_ratio * 100 + 0.5);
     mem_used_ratio = (double)mem_used_ratio_int / 100;
     return fmt::format(
-            "memory_limit = {}, enable_memory_overcommit = {}, slot_memory_policy = {}, "
-            "total_query_slot_count = {}, "
+            "min_memory_percent = {}% , max_memory_percent = {}% , memory_limit = {}B, " // add a blackspace after % to avoid log4j format bugs
+            "slot_memory_policy = {}, total_query_slot_count = {}, "
             "memory_low_watermark = {}, memory_high_watermark = {}, "
-            "enable_write_buffer_limit = {}, write_buffer_ratio = {}%, " // add a blackspace after % to avoid log4j format bugs
-            "write_buffer_limit = {}, "
-            "mem_used_ratio = {}, total_mem_used = {}(write_buffer_size = {}), "
+            "mem_used_ratio = {}, total_mem_used = {}, "
             "wg_refresh_interval_memory_growth = {}",
-            PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", to_string(_slot_mem_policy),
-            _total_query_slot_count, _memory_low_watermark, _memory_high_watermark,
-            _enable_write_buffer_limit, _load_buffer_ratio,
-            PrettyPrinter::print(write_buffer_limit(), TUnit::BYTES), mem_used_ratio,
+            _min_memory_percent, _max_memory_percent,
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
+            _total_query_slot_count, _memory_low_watermark, _memory_high_watermark, mem_used_ratio,
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
-            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES));
 }
 
 std::string WorkloadGroup::memory_debug_string() const {
     return fmt::format(
-            "WorkloadGroup[id = {}, name = {}, version = {}, "
-            "{}, is_shutdown={}, query_num={}]",
+            "WorkloadGroup[id = {}, name = {}, version = {}, {}, "
+            "is_shutdown={}, query_num={}]",
             _id, _name, _version, _memory_debug_string(), _is_shutdown, _resource_ctxs.size());
 }
 
-void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
-    if (UNLIKELY(tg_info.id != _id)) {
+void WorkloadGroup::check_and_update(const WorkloadGroupInfo& wg_info) {
+    if (UNLIKELY(wg_info.id != _id)) {
         return;
     }
     {
         std::shared_lock<std::shared_mutex> rl {_mutex};
-        if (LIKELY(tg_info.version <= _version)) {
+        if (LIKELY(wg_info.version <= _version)) {
             return;
         }
     }
     {
         std::lock_guard<std::shared_mutex> wl {_mutex};
-        if (tg_info.version > _version) {
-            _name = tg_info.name;
-            _version = tg_info.version;
-            _memory_limit = tg_info.memory_limit;
-            _enable_memory_overcommit = tg_info.enable_memory_overcommit;
-            _cpu_share = tg_info.cpu_share;
-            _cpu_hard_limit = tg_info.cpu_hard_limit;
-            _scan_thread_num = tg_info.scan_thread_num;
-            _max_remote_scan_thread_num = tg_info.max_remote_scan_thread_num;
-            _min_remote_scan_thread_num = tg_info.min_remote_scan_thread_num;
-            _memory_low_watermark = tg_info.memory_low_watermark;
-            _memory_high_watermark = tg_info.memory_high_watermark;
-            _scan_bytes_per_second = tg_info.read_bytes_per_second;
-            _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
-            _total_query_slot_count = tg_info.total_query_slot_count;
-            _load_buffer_ratio = tg_info.write_buffer_ratio;
-            _slot_mem_policy = tg_info.slot_mem_policy;
+        if (wg_info.version > _version) {
+            _name = wg_info.name;
+            _version = wg_info.version;
+            _min_cpu_percent = wg_info.min_cpu_percent;
+            _max_cpu_percent = wg_info.max_cpu_percent;
+            _memory_limit = wg_info.memory_limit;
+            _min_memory_percent = wg_info.min_memory_percent;
+            _max_memory_percent = wg_info.max_memory_percent;
+            _scan_thread_num = wg_info.scan_thread_num;
+            _max_remote_scan_thread_num = wg_info.max_remote_scan_thread_num;
+            _min_remote_scan_thread_num = wg_info.min_remote_scan_thread_num;
+            _memory_low_watermark = wg_info.memory_low_watermark;
+            _memory_high_watermark = wg_info.memory_high_watermark;
+            _scan_bytes_per_second = wg_info.read_bytes_per_second;
+            _remote_scan_bytes_per_second = wg_info.remote_read_bytes_per_second;
+            _total_query_slot_count = wg_info.total_query_slot_count;
+            _slot_mem_policy = wg_info.slot_mem_policy;
+            if (_max_memory_percent > 0) {
+                _min_memory_limit = static_cast<int64_t>(
+                        static_cast<double>(_memory_limit * _min_memory_percent) /
+                        _max_memory_percent);
+            }
         } else {
             return;
         }
@@ -192,7 +189,6 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
     int64_t fragment_used_memory = 0;
-    int64_t write_buffer_size = 0;
     {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         for (const auto& pair : _resource_ctxs) {
@@ -202,13 +198,11 @@ int64_t WorkloadGroup::refresh_memory_usage() {
             }
             DCHECK(resource_ctx->memory_context()->mem_tracker() != nullptr);
             fragment_used_memory += resource_ctx->memory_context()->current_memory_bytes();
-            write_buffer_size += resource_ctx->memory_context()->mem_tracker()->write_buffer_size();
         }
     }
 
-    _total_mem_used = fragment_used_memory + write_buffer_size;
+    _total_mem_used = fragment_used_memory;
     _wg_metrics->update_memory_used_bytes(_total_mem_used);
-    _write_buffer_size = write_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
@@ -231,6 +225,21 @@ void WorkloadGroup::do_sweep() {
         }
     }
 }
+
+#ifdef BE_TEST
+void WorkloadGroup::clear_cancelled_resource_ctx() {
+    // Clear resource context that is registered during add_resource_ctx
+    std::unique_lock<std::shared_mutex> wlock(_mutex);
+    for (auto iter = _resource_ctxs.begin(); iter != _resource_ctxs.end();) {
+        auto ctx = iter->second.lock();
+        if (ctx != nullptr && ctx->task_controller()->is_cancelled()) {
+            iter = _resource_ctxs.erase(iter);
+        } else {
+            iter++;
+        }
+    }
+}
+#endif
 
 int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                                      RuntimeProfile* profile) {
@@ -327,9 +336,9 @@ int64_t WorkloadGroup::revoke_memory(int64_t need_free_mem, const std::string& r
 WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         const TWorkloadGroupInfo& tworkload_group_info) {
     // 1 id
-    uint64_t tg_id = 0;
+    uint64_t wg_id = 0;
     if (tworkload_group_info.__isset.id) {
-        tg_id = tworkload_group_info.id;
+        wg_id = tworkload_group_info.id;
     } else {
         return {.name = "", .valid = false};
     }
@@ -341,44 +350,42 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 3 version
-    int version = 0;
+    int64_t version = 0;
     if (tworkload_group_info.__isset.version) {
         version = tworkload_group_info.version;
     } else {
         return {.name {}, .valid = false};
     }
 
-    // 4 cpu_share
-    uint64_t cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value();
-    if (tworkload_group_info.__isset.cpu_share && tworkload_group_info.cpu_share > 0) {
-        cpu_share = tworkload_group_info.cpu_share;
+    // 4 min cpu percent
+    int min_cpu_percent = 0;
+    if (tworkload_group_info.__isset.min_cpu_percent && tworkload_group_info.min_cpu_percent >= 0) {
+        min_cpu_percent = tworkload_group_info.min_cpu_percent;
     }
 
-    // 5 cpu hard limit
-    int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.cpu_hard_limit && tworkload_group_info.cpu_hard_limit > 0) {
-        cpu_hard_limit = tworkload_group_info.cpu_hard_limit;
+    // 5 max cpu percent
+    int max_cpu_percent = MAX_CPU_PERCENT_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.max_cpu_percent && tworkload_group_info.max_cpu_percent >= 0) {
+        max_cpu_percent = tworkload_group_info.max_cpu_percent;
     }
 
-    // 6 mem_limit
-    std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.mem_limit && tworkload_group_info.mem_limit != "-1") {
-        mem_limit_str = tworkload_group_info.mem_limit;
+    // 6 max memory percent is the mem_limit of the workload group
+    int max_memory_percent = MAX_MEMORY_PERCENT_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.max_memory_percent &&
+        tworkload_group_info.max_memory_percent >= 0) {
+        max_memory_percent = tworkload_group_info.max_memory_percent;
     }
+    std::string mem_limit_str = fmt::format("{}%", max_memory_percent);
     bool is_percent = true;
-    int64_t mem_limit =
+    int64_t memory_limit =
             ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
+    DCHECK(is_percent) << "mem_limit_str: " << mem_limit_str;
 
-    // 7 mem overcommit
-    bool enable_memory_overcommit = ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.enable_memory_overcommit) {
-        enable_memory_overcommit = tworkload_group_info.enable_memory_overcommit;
-    }
-
-    // 8 cpu soft limit or hard limit
-    bool enable_cpu_hard_limit = false;
-    if (tworkload_group_info.__isset.enable_cpu_hard_limit) {
-        enable_cpu_hard_limit = tworkload_group_info.enable_cpu_hard_limit;
+    // 7. min memory percent
+    int min_memory_percent = 0;
+    if (tworkload_group_info.__isset.min_memory_percent &&
+        tworkload_group_info.min_memory_percent >= 0) {
+        min_memory_percent = tworkload_group_info.min_memory_percent;
     }
 
     // 9 scan thread num
@@ -401,6 +408,26 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         min_remote_scan_thread_num = tworkload_group_info.min_remote_scan_thread_num;
     }
 
+    // NOTE: currently not support set exec thread num in FE.
+    // Hard code here for unified code style
+    int exec_thread_num = config::pipeline_executor_size;
+    if (exec_thread_num <= 0) {
+        exec_thread_num = CpuInfo::num_cores();
+    }
+
+    int num_disk = 1;
+    int num_cpus = 1;
+#ifndef BE_TEST
+    num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
+    num_cpus = std::thread::hardware_concurrency();
+#endif
+    num_disk = std::max(1, num_disk);
+    int min_flush_thread_num = std::max(1, config::flush_thread_num_per_store);
+    int max_flush_thread_num = num_cpus == 0
+                                       ? num_disk * min_flush_thread_num
+                                       : std::min(num_disk * min_flush_thread_num,
+                                                  num_cpus * config::max_flush_thread_num_per_cpu);
+
     // 12 memory low watermark
     int memory_low_watermark = MEMORY_LOW_WATERMARK_DEFAULT_VALUE;
     if (tworkload_group_info.__isset.memory_low_watermark) {
@@ -414,14 +441,14 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 14 scan io
-    int read_bytes_per_second = -1;
+    int64_t read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.read_bytes_per_second &&
         tworkload_group_info.read_bytes_per_second > 0) {
         read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
     }
 
     // 15 remote scan io
-    int remote_read_bytes_per_second = -1;
+    int64_t remote_read_bytes_per_second = -1;
     if (tworkload_group_info.__isset.remote_read_bytes_per_second &&
         tworkload_group_info.remote_read_bytes_per_second > 0) {
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
@@ -433,36 +460,32 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         total_query_slot_count = tworkload_group_info.total_query_slot_count;
     }
 
-    // 17 load buffer memory limit
-    int write_buffer_ratio = LOAD_BUFFER_RATIO_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.write_buffer_ratio) {
-        write_buffer_ratio = tworkload_group_info.write_buffer_ratio;
-    }
-
     // 18 slot memory policy
     TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
     if (tworkload_group_info.__isset.slot_memory_policy) {
         slot_mem_policy = tworkload_group_info.slot_memory_policy;
     }
 
-    return {.id = tg_id,
+    return {.id = wg_id,
             .name = name,
-            .cpu_share = cpu_share,
-            .memory_limit = mem_limit,
-            .enable_memory_overcommit = enable_memory_overcommit,
             .version = version,
-            .cpu_hard_limit = cpu_hard_limit,
-            .enable_cpu_hard_limit = enable_cpu_hard_limit,
+            .min_cpu_percent = min_cpu_percent,
+            .max_cpu_percent = max_cpu_percent,
+            .memory_limit = memory_limit,
+            .min_memory_percent = min_memory_percent,
+            .max_memory_percent = max_memory_percent,
+            .memory_low_watermark = memory_low_watermark,
+            .memory_high_watermark = memory_high_watermark,
             .scan_thread_num = scan_thread_num,
             .max_remote_scan_thread_num = max_remote_scan_thread_num,
             .min_remote_scan_thread_num = min_remote_scan_thread_num,
-            .memory_low_watermark = memory_low_watermark,
-            .memory_high_watermark = memory_high_watermark,
             .read_bytes_per_second = read_bytes_per_second,
             .remote_read_bytes_per_second = remote_read_bytes_per_second,
             .total_query_slot_count = total_query_slot_count,
             .slot_mem_policy = slot_mem_policy,
-            .write_buffer_ratio = write_buffer_ratio};
+            .pipeline_exec_thread_num = exec_thread_num,
+            .max_flush_thread_num = max_flush_thread_num,
+            .min_flush_thread_num = min_flush_thread_num};
 }
 
 std::weak_ptr<CgroupCpuCtl> WorkloadGroup::get_cgroup_cpu_ctl_wptr() {
@@ -493,136 +516,126 @@ void WorkloadGroup::create_cgroup_cpu_ctl_no_lock() {
     }
 }
 
-void WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
-                                               std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr) {
+Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                                 std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr) {
+    Status upsert_ret = Status::OK();
     uint64_t wg_id = wg_info->id;
     std::string wg_name = wg_info->name;
+    int pipeline_exec_thread_num = wg_info->pipeline_exec_thread_num;
     int scan_thread_num = wg_info->scan_thread_num;
     int max_remote_scan_thread_num = wg_info->max_remote_scan_thread_num;
     int min_remote_scan_thread_num = wg_info->min_remote_scan_thread_num;
+    int max_flush_thread_num = wg_info->max_flush_thread_num;
+    int min_flush_thread_num = wg_info->min_flush_thread_num;
+
+    // 1 create thread pool
     if (_task_sched == nullptr) {
-        int32_t executors_size = config::pipeline_executor_size;
-        if (executors_size <= 0) {
-            executors_size = CpuInfo::num_cores();
-        }
         std::unique_ptr<pipeline::TaskScheduler> pipeline_task_scheduler =
-                std::make_unique<pipeline::TaskScheduler>(executors_size, "Pipe_" + wg_name,
-                                                          cg_cpu_ctl_ptr);
+                std::make_unique<pipeline::HybridTaskScheduler>(pipeline_exec_thread_num,
+                                                                "p_" + wg_name, cg_cpu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] task scheduler start failed, gid= " << wg_id;
         }
     }
 
     if (_scan_task_sched == nullptr) {
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("Scan_" + wg_name,
-                                                                      cg_cpu_ctl_ptr, wg_name);
-        Status ret = scan_scheduler->start(config::doris_scanner_thread_pool_thread_num,
-                                           config::doris_scanner_thread_pool_thread_num,
+        std::unique_ptr<vectorized::SimplifiedScanScheduler> scan_scheduler;
+        if (config::enable_task_executor_in_internal_table) {
+            scan_scheduler = std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
+                    "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        } else {
+            scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+                    "ls_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        }
+
+        Status ret = scan_scheduler->start(scan_thread_num, scan_thread_num,
                                            config::doris_scanner_thread_pool_queue_size);
         if (ret.ok()) {
             _scan_task_sched = std::move(scan_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] scan scheduler start failed, gid=" << wg_id;
         }
     }
-    if (scan_thread_num > 0 && _scan_task_sched) {
-        _scan_task_sched->reset_thread_num(scan_thread_num, scan_thread_num);
-    }
 
     if (_remote_scan_task_sched == nullptr) {
-        int remote_max_thread_num = vectorized::ScannerScheduler::get_remote_scan_thread_num();
         int remote_scan_thread_queue_size =
                 vectorized::ScannerScheduler::get_remote_scan_thread_queue_size();
-        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>("RScan_" + wg_name,
-                                                                      cg_cpu_ctl_ptr, wg_name);
-        Status ret = remote_scan_scheduler->start(remote_max_thread_num,
-                                                  config::doris_scanner_min_thread_pool_thread_num,
-                                                  remote_scan_thread_queue_size);
+        std::unique_ptr<vectorized::SimplifiedScanScheduler> remote_scan_scheduler;
+        if (config::enable_task_executor_in_external_table) {
+            remote_scan_scheduler =
+                    std::make_unique<vectorized::TaskExecutorSimplifiedScanScheduler>(
+                            "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        } else {
+            remote_scan_scheduler = std::make_unique<vectorized::ThreadPoolSimplifiedScanScheduler>(
+                    "rs_" + wg_name, cg_cpu_ctl_ptr, wg_name);
+        }
+        Status ret =
+                remote_scan_scheduler->start(max_remote_scan_thread_num, min_remote_scan_thread_num,
+                                             remote_scan_thread_queue_size);
         if (ret.ok()) {
             _remote_scan_task_sched = std::move(remote_scan_scheduler);
         } else {
+            upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] remote scan scheduler start failed, gid="
                       << wg_id;
         }
     }
+
+    if (_memtable_flush_pool == nullptr) {
+        std::unique_ptr<ThreadPool> thread_pool = nullptr;
+        std::string pool_name = "mf_" + wg_name;
+        auto ret = ThreadPoolBuilder(pool_name)
+                           .set_min_threads(min_flush_thread_num)
+                           .set_max_threads(max_flush_thread_num)
+                           .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
+                           .build(&thread_pool);
+        if (ret.ok()) {
+            _memtable_flush_pool = std::move(thread_pool);
+            LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
+                      << ", max thread num=" << max_flush_thread_num
+                      << ", min thread num=" << min_flush_thread_num;
+        } else {
+            upsert_ret = ret;
+            LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid=" << wg_id;
+        }
+    }
+
+    // 2 update thread pool
+    if (scan_thread_num > 0 && _scan_task_sched) {
+        _scan_task_sched->reset_thread_num(scan_thread_num, scan_thread_num);
+    }
+
     if (max_remote_scan_thread_num >= min_remote_scan_thread_num && _remote_scan_task_sched) {
         _remote_scan_task_sched->reset_thread_num(max_remote_scan_thread_num,
                                                   min_remote_scan_thread_num);
     }
 
-    if (_memtable_flush_pool == nullptr) {
-        int num_disk = ExecEnv::GetInstance()->storage_engine().get_disk_num();
-        // -1 means disk num may not be inited, so not create flush pool
-        if (num_disk != -1) {
-            std::unique_ptr<ThreadPool> thread_pool = nullptr;
-            num_disk = std::max(1, num_disk);
-            int num_cpus = std::thread::hardware_concurrency();
-
-            int min_threads = std::max(1, config::wg_flush_thread_num_per_store);
-            int max_threads = num_cpus == 0
-                                      ? num_disk * min_threads
-                                      : std::min(num_disk * min_threads,
-                                                 num_cpus * config::wg_flush_thread_num_per_cpu);
-
-            std::string pool_name = "wg_flush_" + wg_name;
-            auto ret = ThreadPoolBuilder(pool_name)
-                               .set_min_threads(min_threads)
-                               .set_max_threads(max_threads)
-                               .set_cgroup_cpu_ctl(cg_cpu_ctl_ptr)
-                               .build(&thread_pool);
-            if (!ret.ok()) {
-                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid="
-                          << wg_id;
-            } else {
-                _memtable_flush_pool = std::move(thread_pool);
-                LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
-                          << ", max thread num=" << max_threads
-                          << ", min thread num=" << min_threads;
-            }
-        }
-    }
+    return upsert_ret;
 }
 
 void WorkloadGroup::upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info) {
-    uint64_t wg_id = wg_info->id;
-    int cpu_hard_limit = wg_info->cpu_hard_limit;
-    uint64_t cpu_shares = wg_info->cpu_share;
-    bool enable_cpu_hard_limit = wg_info->enable_cpu_hard_limit;
+    int max_cpu_percent = wg_info->max_cpu_percent;
+    int min_cpu_percent = wg_info->min_cpu_percent;
     create_cgroup_cpu_ctl_no_lock();
 
     if (_cgroup_cpu_ctl) {
-        if (enable_cpu_hard_limit) {
-            if (cpu_hard_limit > 0) {
-                _cgroup_cpu_ctl->update_cpu_hard_limit(cpu_hard_limit);
-                _cgroup_cpu_ctl->update_cpu_soft_limit(
-                        CgroupCpuCtl::cpu_soft_limit_default_value());
-            } else {
-                LOG(INFO) << "[upsert wg thread pool] enable cpu hard limit but value is "
-                             "illegal: "
-                          << cpu_hard_limit << ", gid=" << wg_id;
-            }
-        } else {
-            _cgroup_cpu_ctl->update_cpu_soft_limit(cpu_shares);
-            _cgroup_cpu_ctl->update_cpu_hard_limit(
-                    CPU_HARD_LIMIT_DEFAULT_VALUE); // disable cpu hard limit
-        }
+        _cgroup_cpu_ctl->update_cpu_hard_limit(max_cpu_percent);
+        _cgroup_cpu_ctl->update_cpu_soft_limit(min_cpu_percent);
         _cgroup_cpu_ctl->get_cgroup_cpu_info(&(wg_info->cgroup_cpu_shares),
                                              &(wg_info->cgroup_cpu_hard_limit));
     }
 }
 
-void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
+Status WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* wg_info) {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
     upsert_cgroup_cpu_ctl_no_lock(wg_info);
 
-    if (_need_create_query_thread_pool) {
-        upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
-    }
+    return upsert_thread_pool_no_lock(wg_info, _cgroup_cpu_ctl);
 }
 
 void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
@@ -637,14 +650,17 @@ void WorkloadGroup::get_query_scheduler(doris::pipeline::TaskScheduler** exec_sc
 std::string WorkloadGroup::thread_debug_info() {
     std::string str = "";
     if (_task_sched != nullptr) {
-        std::vector<int> exec_t_info = _task_sched->thread_debug_info();
-        str = fmt::format("[exec num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
-                          exec_t_info[1], exec_t_info[2], exec_t_info[3]);
+        auto exec_t_info = _task_sched->thread_debug_info();
+        for (const auto& info : exec_t_info) {
+            str = fmt::format(
+                    "scheduler: {}, info: [exec num:{}, real_num:{}, min_num:{}, max_num:{}],",
+                    info.first, info.second[0], info.second[1], info.second[2], info.second[3]);
+        }
     }
 
     if (_scan_task_sched != nullptr) {
         std::vector<int> exec_t_info = _scan_task_sched->thread_debug_info();
-        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num{}],", exec_t_info[0],
+        str += fmt::format("[l_scan num:{}, real_num:{}, min_num:{}, max_num:{}],", exec_t_info[0],
                            exec_t_info[1], exec_t_info[2], exec_t_info[3]);
     }
 
@@ -662,12 +678,12 @@ std::string WorkloadGroup::thread_debug_info() {
     return str;
 }
 
-void WorkloadGroup::upsert_scan_io_throttle(WorkloadGroupInfo* tg_info) {
+void WorkloadGroup::upsert_scan_io_throttle(WorkloadGroupInfo* wg_info) {
     for (const auto& [key, io_throttle] : _scan_io_throttle_map) {
-        io_throttle->set_io_bytes_per_second(tg_info->read_bytes_per_second);
+        io_throttle->set_io_bytes_per_second(wg_info->read_bytes_per_second);
     }
 
-    _remote_scan_io_throttle->set_io_bytes_per_second(tg_info->remote_read_bytes_per_second);
+    _remote_scan_io_throttle->set_io_bytes_per_second(wg_info->remote_read_bytes_per_second);
 }
 
 std::shared_ptr<IOThrottle> WorkloadGroup::get_local_scan_io_throttle(const std::string& disk_dir) {
@@ -714,5 +730,7 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->wait();
     }
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Test;
@@ -99,7 +100,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .limit(1, 1).build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
@@ -113,7 +114,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .build();
         plan = new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
-                Collectors.toList()), false, DMLCommandType.NONE, plan);
+                Collectors.toList()), false, TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .rewrite()
                 .nonMatch(logicalSort());

@@ -17,26 +17,17 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 import java.util.Map;
 
-public class RestoreFileMapping implements Writable {
+public class RestoreFileMapping {
 
     public static class IdChain {
-        // tblId, partId, idxId, tabletId, replicaId
+        // tblId, partId, idxId, tabletId, replicaId, (refTabletId)
         @SerializedName("c")
         private Long[] chain;
 
@@ -115,20 +106,6 @@ public class RestoreFileMapping implements Writable {
             }
             return code;
         }
-
-        public void readFields(DataInput in) throws IOException {
-            int size = in.readInt();
-            chain = new Long[size];
-            for (int i = 0; i < size; i++) {
-                chain[i] = in.readLong();
-            }
-        }
-
-        public static IdChain read(DataInput in) throws IOException {
-            IdChain chain = new IdChain();
-            chain.readFields(in);
-            return chain;
-        }
     }
 
     // catalog ids -> repository ids
@@ -162,40 +139,9 @@ public class RestoreFileMapping implements Writable {
         return false;
     }
 
-    public static RestoreFileMapping read(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_135) {
-            RestoreFileMapping mapping = new RestoreFileMapping();
-            mapping.readFields(in);
-            return mapping;
-        } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), RestoreFileMapping.class);
-        }
-    }
-
     public void clear() {
         mapping.clear();
         overwriteMap.clear();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            IdChain key = IdChain.read(in);
-            IdChain val = IdChain.read(in);
-            mapping.put(key, val);
-        }
-
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long tabletId = in.readLong();
-            boolean overwrite = in.readBoolean();
-            overwriteMap.put(tabletId, overwrite);
-        }
     }
 
     @Override

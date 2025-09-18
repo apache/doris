@@ -36,7 +36,7 @@ class WrapperField {
 public:
     static Result<WrapperField*> create(const TabletColumn& column, uint32_t len = 0);
     static WrapperField* create_by_type(const FieldType& type) { return create_by_type(type, 0); }
-    static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
+    static WrapperField* create_by_type(const FieldType& type, int64_t var_length);
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
 
@@ -81,6 +81,7 @@ public:
     char* nullable_cell_ptr() const { return _field_buf; }
     void set_to_max() { _rep->set_to_max(_field_buf + 1); }
     void set_to_min() { _rep->set_to_min(_field_buf + 1); }
+    void set_raw_value(const void* value, size_t size) { memcpy(_field_buf + 1, value, size); }
     void* cell_ptr() const { return _field_buf + 1; }
     void* mutable_cell_ptr() const { return _field_buf + 1; }
     const Field* field() const { return _rep; }

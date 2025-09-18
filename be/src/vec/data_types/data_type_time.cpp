@@ -28,17 +28,12 @@
 #include "util/date_func.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
-
-namespace doris {
-namespace vectorized {
-class IColumn;
-} // namespace vectorized
-} // namespace doris
+#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris::vectorized {
+class IColumn;
 
 void DataTypeTimeV2::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
@@ -54,7 +49,7 @@ size_t DataTypeTimeV2::number_length() const {
     return 14;
 }
 void DataTypeTimeV2::push_number(ColumnString::Chars& chars, const Float64& num) const {
-    auto timev2_str = timev2_to_buffer_from_double(num, _scale);
+    auto timev2_str = CastToString::from_time(num, _scale);
     chars.insert(timev2_str.begin(), timev2_str.end());
 }
 
@@ -63,19 +58,25 @@ std::string DataTypeTimeV2::to_string(const IColumn& column, size_t row_num) con
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto value = assert_cast<const ColumnFloat64&>(*ptr).get_element(row_num);
+    auto value = assert_cast<const ColumnTimeV2&>(*ptr).get_element(row_num);
     return timev2_to_buffer_from_double(value, _scale);
 }
 
 std::string DataTypeTimeV2::to_string(double value) const {
     return timev2_to_buffer_from_double(value, _scale);
 }
+
 void DataTypeTimeV2::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string value = to_string(column, row_num);
     ostr.write(value.data(), value.size());
 }
 
 MutableColumnPtr DataTypeTimeV2::create_column() const {
-    return DataTypeNumberBase<Float64>::create_column();
+    return DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2>::create_column();
 }
+
+Field DataTypeTimeV2::get_field(const TExprNode& node) const {
+    return Field::create_field<TYPE_TIMEV2>(node.timev2_literal.value);
+}
+
 } // namespace doris::vectorized

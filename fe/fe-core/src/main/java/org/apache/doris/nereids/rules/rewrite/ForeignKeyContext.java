@@ -123,10 +123,10 @@ public class ForeignKeyContext {
     }
 
     void putSlot(SlotReference slot) {
-        if (!slot.getColumn().isPresent()) {
+        if (!slot.getOriginalColumn().isPresent()) {
             return;
         }
-        Column c = slot.getColumn().get();
+        Column c = slot.getOriginalColumn().get();
         slotToColumn.put(slot, c);
     }
 
@@ -139,8 +139,8 @@ public class ForeignKeyContext {
     private boolean isHiddenConjunct(Expression expression) {
         for (Slot slot : expression.getInputSlots()) {
             if (slot instanceof SlotReference
-                    && ((SlotReference) slot).getColumn().isPresent()
-                    && ((SlotReference) slot).getColumn().get().isDeleteSignColumn()) {
+                    && ((SlotReference) slot).getOriginalColumn().isPresent()
+                    && ((SlotReference) slot).getOriginalColumn().get().isDeleteSignColumn()) {
                 return true;
             }
         }

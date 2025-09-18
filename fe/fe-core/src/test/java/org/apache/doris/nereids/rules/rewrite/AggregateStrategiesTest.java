@@ -21,10 +21,13 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
-import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
+import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
+import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -44,6 +47,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -237,9 +241,10 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
                 false, Optional.empty(), rStudent);
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setAggPhase(2);
+        PlanChecker.from(connectContext, root)
                 .applyBottomUp(new NormalizeAggregate())
-                .applyImplementation(twoPhaseAggregateWithDistinct())
                 .matches(
                     physicalHashAggregate(
                         physicalHashAggregate()
@@ -279,8 +284,9 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         // sum
         Sum sumId = new Sum(false, id.toSlot());
 
-        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyImplementation(twoPhaseAggregateWithDistinct())
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setAggPhase(2);
+        PlanChecker.from(connectContext, root)
                 .matches(
                     physicalHashAggregate(
                         physicalHashAggregate()
@@ -395,7 +401,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
 
         // select count(distinct id), sum(id) from t;
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
-                .applyImplementation(fourPhaseAggregateWithDistinct())
+                .applyImplementation(fourPhaseAggregateWithDistinctWithoutGbyKey())
                 .matches(
                         physicalHashAggregate(
                                 physicalHashAggregate(
@@ -418,26 +424,27 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     }
 
     private Rule twoPhaseAggregateWithoutDistinct() {
-        return new AggregateStrategies().buildRules()
+        return SplitAggWithoutDistinct.INSTANCE.buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT)
-                .findFirst()
-                .get();
-    }
-
-    private Rule twoPhaseAggregateWithDistinct() {
-        return new AggregateStrategies().buildRules()
-                .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT)
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_WITHOUT_DISTINCT)
                 .findFirst()
                 .get();
     }
 
     @Developing
     private Rule fourPhaseAggregateWithDistinct() {
-        return new AggregateStrategies().buildRules()
+        return SplitAggMultiPhase.INSTANCE.buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.FOUR_PHASE_AGGREGATE_WITH_DISTINCT)
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE)
+                .findFirst()
+                .get();
+    }
+
+    @Developing
+    private Rule fourPhaseAggregateWithDistinctWithoutGbyKey() {
+        return SplitAggMultiPhaseWithoutGbyKey.INSTANCE.buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE_WITHOUT_GBY_KEY)
                 .findFirst()
                 .get();
     }
@@ -451,4 +458,93 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         }
         return true;
     }
+
+    @Test
+    public void skewCountDistinctRewrite() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        physicalHashAggregate(
+                                physicalHashAggregate(
+                                        physicalHashAggregate(
+                                                physicalProject(
+                                                    physicalHashAggregate()
+                                                        .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
+                                                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age)
+                                                                && agg.getGroupByExpressions().get(1).equals(id))
+                                                )
+                                                .when(proj -> proj.getProjects().get(2).child(0) instanceof Cast)
+                                        )
+                                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
+                                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age) && agg.getGroupByExpressions().size() == 2)
+                                )
+                                .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_LOCAL))
+                                .when(agg -> agg.getGroupByExpressions().get(0).equals(age))
+                        )
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_GLOBAL))
+                        .when(agg -> agg.getGroupByExpressions().get(0).equals(age))
+                );
+    }
+
+    @Test
+    public void skewCountDistinctRewriteVariable() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().setSkewRewriteAggBucketNum(65536);
+        PlanChecker.from(ctx, root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        logicalAggregate()
+                );
+    }
+
+    @Test
+    public void skewCountMultiColumnDistinctNotRewrite() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        Slot gender = rStudent.getOutput().get(1).toSlot();
+        Slot age = rStudent.getOutput().get(3).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        groupExpressionList.add(age);
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                age, new Alias(new Count(true, true, id, gender), "count_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id) group by age;
+        ConnectContext ctx = MemoTestUtils.createConnectContext();
+        ctx.getSessionVariable().setSkewRewriteAggBucketNum(65536);
+        PlanChecker.from(ctx, root)
+                .applyImplementation(skewRewriteRule())
+                .matches(
+                        logicalAggregate()
+                );
+    }
+
+    private Rule skewRewriteRule() {
+        return SplitAggMultiPhase.INSTANCE.buildRules()
+                .stream()
+                .filter(rule -> rule.getRuleType() == RuleType.SPLIT_AGG_MULTI_PHASE)
+                .findFirst()
+                .get();
+    }
+
 }

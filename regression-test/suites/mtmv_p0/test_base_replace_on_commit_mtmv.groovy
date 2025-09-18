@@ -74,58 +74,27 @@ suite("test_base_replace_on_commit_mtmv","mtmv") {
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_select_init "select * from ${mvName}"
-        }
-    })
+    order_qt_select_init "select * from ${mvName}"
 
     // replace
     sql """
         ALTER TABLE ${tableName1} REPLACE WITH TABLE ${tableName2} PROPERTIES('swap' = 'true');
         """
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_replace "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-        }
-    })
+    order_qt_replace "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     sql """
             INSERT INTO ${tableName1} VALUES(2,2);
         """
 
     waitingMTMVTaskFinishedByMvName(mvName)
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_replace_normal "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
-            order_qt_select_replace "select * from ${mvName}"
+    order_qt_replace_normal "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+    order_qt_select_replace "select * from ${mvName}"
 
-
-            // t2 should not trigger refresh
-            order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
-
-        }
-    })
+    // t2 should not trigger refresh
+    order_qt_before_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
     sql """
              INSERT INTO ${tableName2} VALUES(20,20);
          """
     waitingMTMVTaskFinishedByMvName(mvName)
-
-    run_on_follower_and_master({ jdbc_url ->
-        connect(context.config.jdbcUser, context.config.jdbcPassword, jdbc_url) {
-            sql "sync"
-            sql """set enable_materialized_view_nest_rewrite = true;"""
-            sql "use ${dbName}"
-            order_qt_after_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
-        }
-    })
+    order_qt_after_trigger "select count(*)  from tasks('type'='mv') where MvName='${mvName}'"
 }

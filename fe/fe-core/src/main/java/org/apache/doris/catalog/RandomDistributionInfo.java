@@ -20,8 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Objects;
 
 /**
@@ -65,19 +63,6 @@ public class RandomDistributionInfo extends DistributionInfo {
             builder.append("DISTRIBUTED BY RANDOM BUCKETS ").append(bucketNum);
         }
         return builder.toString();
-    }
-
-    @Deprecated
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        bucketNum = in.readInt();
-    }
-
-    public static DistributionInfo read(DataInput in) throws IOException {
-        DistributionInfo distributionInfo = new RandomDistributionInfo();
-        distributionInfo.readFields(in);
-        return distributionInfo;
     }
 
     @Override

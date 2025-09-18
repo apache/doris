@@ -18,8 +18,11 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "olap/inverted_index_parser.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 namespace lucene {
@@ -37,18 +40,15 @@ class InvertedIndexAnalyzer {
 public:
     static std::unique_ptr<lucene::util::Reader> create_reader(CharFilterMap& char_filter_map);
 
-    static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
+    static std::shared_ptr<lucene::analysis::Analyzer> create_analyzer(
             const InvertedIndexCtx* inverted_index_ctx);
 
-    static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,
-                                                       lucene::analysis::Analyzer* analyzer,
-                                                       const std::string& field_name,
-                                                       InvertedIndexQueryType query_type,
-                                                       bool drop_duplicates = true);
+    static std::vector<TermInfo> get_analyse_result(lucene::util::Reader* reader,
+                                                    lucene::analysis::Analyzer* analyzer);
 
-    static std::vector<std::string> get_analyse_result(
-            const std::string& search_str, const std::string& field_name,
-            InvertedIndexQueryType query_type,
-            const std::map<std::string, std::string>& properties);
+    static std::vector<TermInfo> get_analyse_result(
+            const std::string& search_str, const std::map<std::string, std::string>& properties);
+
+    static bool should_analyzer(const std::map<std::string, std::string>& properties);
 };
 } // namespace doris::segment_v2::inverted_index

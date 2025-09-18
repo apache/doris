@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
@@ -24,7 +25,6 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.TableCollectAndHookInitializer;
-import org.apache.doris.nereids.jobs.executor.TablePartitionCollector;
 import org.apache.doris.nereids.jobs.rewrite.RewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob.RootRewriteJobContext;
@@ -37,18 +37,24 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.runtimefilterv2.RuntimeFilterContextV2;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -80,6 +86,9 @@ import javax.annotation.Nullable;
 public class CascadesContext implements ScheduleContext {
     private static final Logger LOG = LogManager.getLogger(CascadesContext.class);
 
+    private static final Plan DUMMY_PLAN = new LogicalOneRowRelation(new RelationId(0),
+            ImmutableList.of(new Alias(new TinyIntLiteral((byte) 0))));
+
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
@@ -95,6 +104,7 @@ public class CascadesContext implements ScheduleContext {
     // subqueryExprIsAnalyzed: whether the subquery has been analyzed.
     private final Map<SubqueryExpr, Boolean> subqueryExprIsAnalyzed;
     private final RuntimeFilterContext runtimeFilterContext;
+    private final RuntimeFilterContextV2 runtimeFilterV2Context;
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
 
@@ -105,8 +115,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
-    private final Set<MaterializationContext> materializationContexts;
-    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
+    private final Map<List<String>, MaterializationContext> materializationContexts;
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -143,8 +152,11 @@ public class CascadesContext implements ScheduleContext {
         this.jobScheduler = new SimpleJobScheduler();
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
-        this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
-        this.materializationContexts = new HashSet<>();
+        IdGenerator<RuntimeFilterId> runtimeFilterIdGen = RuntimeFilterId.createGenerator();
+        this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable(),
+                runtimeFilterIdGen);
+        this.runtimeFilterV2Context = new RuntimeFilterContextV2(runtimeFilterIdGen);
+        this.materializationContexts = new HashMap<>();
         if (statementContext.getConnectContext() != null) {
             ConnectContext connectContext = statementContext.getConnectContext();
             SessionVariable sessionVariable = connectContext.getSessionVariable();
@@ -153,6 +165,21 @@ public class CascadesContext implements ScheduleContext {
             this.isEnableExprTrace = false;
         }
         this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
+    }
+
+    /** init a temporary context to rewrite expression */
+    public static CascadesContext initTempContext() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            connectContext = new ConnectContext();
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        }
+        return newContext(Optional.empty(), Optional.empty(),
+                statementContext, DUMMY_PLAN,
+                new CTEContext(), PhysicalProperties.ANY, false);
     }
 
     /**
@@ -221,16 +248,30 @@ public class CascadesContext implements ScheduleContext {
         return isTimeout;
     }
 
+    /**
+     * Init memo with plan
+     */
     public void toMemo() {
         this.memo = new Memo(getConnectContext(), plan);
+        List<Plan> rewrittenPlansByMv = this.getStatementContext().getRewrittenPlansByMv();
+        if (!statementContext.getRewrittenPlansByMv().isEmpty()) {
+            // copy tmp plan for mv rewrite firstly
+            for (Plan rewrittenPlan : rewrittenPlansByMv) {
+                // aggregate_without_roll_up query_13_0 cause error into targetGroup but differ in logical properties
+                // tmp rewritten plan output is different from final rewritten plan output
+                if (!rewrittenPlan.getLogicalProperties().equals(plan.getLogicalProperties())) {
+                    LOG.error("rewritten plan in rbo logical properties are "
+                                    + "different from original plan, query id is {}",
+                            getConnectContext().getQueryIdentifier());
+                    continue;
+                }
+                this.memo.copyIn(rewrittenPlan, this.memo.getRoot(), false);
+            }
+        }
     }
 
     public TableCollectAndHookInitializer newTableCollector() {
         return new TableCollectAndHookInitializer(this);
-    }
-
-    public TablePartitionCollector newTablePartitionCollector() {
-        return new TablePartitionCollector(this);
     }
 
     public Analyzer newAnalyzer() {
@@ -345,21 +386,18 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts.stream()
+        return materializationContexts.values().stream()
                 .filter(MaterializationContext::isAvailable)
                 .collect(Collectors.toList());
     }
 
+    public Map<List<String>, MaterializationContext> getAllMaterializationContexts() {
+        return materializationContexts;
+    }
+
     public void addMaterializationContext(MaterializationContext materializationContext) {
-        this.materializationContexts.add(materializationContext);
-    }
-
-    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
-        return materializationRewrittenSuccessSet;
-    }
-
-    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
-        this.materializationRewrittenSuccessSet.add(materializationQualifier);
+        this.materializationContexts.put(materializationContext.generateMaterializationIdentifier(),
+                materializationContext);
     }
 
     /**
@@ -538,5 +576,13 @@ public class CascadesContext implements ScheduleContext {
 
     public boolean isEnableExprTrace() {
         return isEnableExprTrace;
+    }
+
+    public boolean rewritePlanContainsTypes(Class<?>... types) {
+        return getRewritePlan().containsType(types);
+    }
+
+    public RuntimeFilterContextV2 getRuntimeFilterV2Context() {
+        return runtimeFilterV2Context;
     }
 }

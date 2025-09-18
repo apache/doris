@@ -64,7 +64,7 @@ public class AlterUserCommandTest extends TestWithFeService {
         };
         // init
         UserIdentity userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
-        connectContext.setQualifiedUser("root");
+        connectContext.setCurrentUserIdentity(userIdentity);
         PassVar passVar = new PassVar("", true);
         userDesc = new UserDesc(userIdentity, passVar);
         PasswordOptions passwordOptions = PasswordOptions.UNSET_OPTION;
@@ -79,7 +79,7 @@ public class AlterUserCommandTest extends TestWithFeService {
                 "Only support doing one type of operation at one time,actual number of type is 2");
 
         //testUser to modify root user
-        connectContext.setQualifiedUser("testUser");
+        connectContext.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
         Assertions.assertThrows(AnalysisException.class, () -> alterUserCommand.validate(), "Only root user can modify root user");
 
         //test PasswordOptions

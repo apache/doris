@@ -19,6 +19,7 @@
 #include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <simdjson.h>
 #include <sys/resource.h>
 
 #include <cerrno> // IWYU pragma: keep
@@ -31,6 +32,7 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
 #include "cloud/cloud_tablet_hotspot.h"
@@ -47,6 +49,7 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
+#include "olap/id_manager.h"
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
@@ -55,7 +58,9 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet_column_object_pool.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -70,6 +75,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/load_channel_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
@@ -125,9 +131,8 @@
 #include "io/fs/hdfs/hdfs_mgr.h"
 // clang-format on
 
-#include "runtime/memory/tcmalloc_hook.h"
-
 namespace doris {
+
 #include "common/compile_check_begin.h"
 class PBackendService_Stub;
 class PFunctionService_Stub;
@@ -180,6 +185,26 @@ Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
     return env->_init(store_paths, spill_store_paths, broken_paths);
+}
+
+// pick simdjson implementation based on CPU capabilities
+inline void init_simdjson_parser() {
+    // haswell: AVX2 (2013 Intel Haswell or later, all AMD Zen processors)
+    const auto* haswell_implementation = simdjson::get_available_implementations()["haswell"];
+    if (!haswell_implementation || !haswell_implementation->supported_by_runtime_system()) {
+        // pick available implementation
+        for (const auto* implementation : simdjson::get_available_implementations()) {
+            if (implementation->supported_by_runtime_system()) {
+                LOG(INFO) << "Using SimdJSON implementation : " << implementation->name() << ": "
+                          << implementation->description();
+                simdjson::get_active_implementation() = implementation;
+                return;
+            }
+        }
+        LOG(WARNING) << "No available SimdJSON implementation found.";
+    } else {
+        LOG(INFO) << "Using SimdJSON Haswell implementation";
+    }
 }
 
 Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
@@ -254,6 +279,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    RETURN_IF_ERROR(_init_mem_env());
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -266,13 +292,20 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
-    RETURN_IF_ERROR(init_pipeline_task_scheduler());
+    _init_runtime_filter_timer_queue();
+
     _workload_group_manager = new WorkloadGroupMgr();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
+
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _cluster_info = new ClusterInfo();
+    if (config::is_cloud_mode()) {
+        _cluster_info = new CloudClusterInfo();
+    } else {
+        _cluster_info = new ClusterInfo();
+    }
+
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
@@ -322,8 +355,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return status;
     }
 
-    RETURN_IF_ERROR(_init_mem_env());
-
     RETURN_IF_ERROR(_memtable_memory_limiter->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_load_channel_mgr->init(MemInfo::mem_limit()));
     RETURN_IF_ERROR(_wal_manager->init());
@@ -345,7 +376,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
                   << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
-        _storage_engine = std::make_unique<CloudStorageEngine>(options.backend_uid);
+        _storage_engine = std::make_unique<CloudStorageEngine>(options);
     } else {
         std::cout << "start BE in local mode" << std::endl;
         _storage_engine = std::make_unique<StorageEngine>(options);
@@ -361,32 +392,37 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
 
+    // create internal workload group should be after storage_engin->open()
+    RETURN_IF_ERROR(_create_internal_workload_group());
     _workload_sched_mgr = new WorkloadSchedPolicyMgr();
     _workload_sched_mgr->start(this);
 
+    _index_policy_mgr = new IndexPolicyMgr();
+
     RETURN_IF_ERROR(_spill_stream_mgr->init());
-    _runtime_query_statistics_mgr->start_report_thread();
+    RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
     _dict_factory = new doris::vectorized::DictionaryFactory();
     _s_ready = true;
 
+    init_simdjson_parser();
+
+    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
+    S3ClientFactory::instance();
     return Status::OK();
 }
 
-Status ExecEnv::init_pipeline_task_scheduler() {
-    auto executors_size = config::pipeline_executor_size;
-    if (executors_size <= 0) {
-        executors_size = CpuInfo::num_cores();
-    }
+// when user not sepcify a workload group in FE, then query could
+// use dummy workload group.
+Status ExecEnv::_create_internal_workload_group() {
+    LOG(INFO) << "begin create internal workload group.";
 
-    LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
-    // TODO pipeline workload group combie two blocked schedulers.
-    _without_group_task_scheduler =
-            new pipeline::TaskScheduler(executors_size, "PipeNoGSchePool", nullptr);
-    RETURN_IF_ERROR(_without_group_task_scheduler->start());
+    RETURN_IF_ERROR(_workload_group_manager->create_internal_wg());
+    return Status::OK();
+}
 
+void ExecEnv::_init_runtime_filter_timer_queue() {
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
-    return Status::OK();
 }
 
 void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths) {
@@ -446,13 +482,12 @@ Status ExecEnv::_init_mem_env() {
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 
-    init_hook();
-
     if (!BitUtil::IsPowerOf2(config::min_buffer_size)) {
         ss << "Config min_buffer_size must be a power-of-two: " << config::min_buffer_size;
         return Status::InternalError(ss.str());
     }
 
+    _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
 
     int64_t storage_cache_limit =
@@ -462,7 +497,7 @@ Status ExecEnv::_init_mem_env() {
         storage_cache_limit = storage_cache_limit / 2;
     }
     int32_t index_percentage = config::index_page_cache_percentage;
-    int32 num_shards = config::storage_page_cache_shard_size;
+    int32_t num_shards = config::storage_page_cache_shard_size;
     if ((num_shards & (num_shards - 1)) != 0) {
         int old_num_shards = num_shards;
         num_shards = cast_set<int>(BitUtil::RoundUpToPowerOfTwo(num_shards));
@@ -511,12 +546,21 @@ Status ExecEnv::_init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
-    // SegmentLoader caches segments in rowset granularity. So the size of
-    // opened files will greater than segment_cache_capacity.
-    int64_t segment_cache_capacity = config::segment_cache_capacity;
-    int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
-    if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
-        segment_cache_capacity = segment_cache_fd_limit;
+
+    int64_t segment_cache_capacity = 0;
+    if (config::is_cloud_mode()) {
+        // when in cloud mode, segment cache hold no system FD
+        // thus the FD num limit makes no sense
+        // cloud mode use FDCache to control FD
+        segment_cache_capacity = UINT32_MAX;
+    } else {
+        // SegmentLoader caches segments in rowset granularity. So the size of
+        // opened files will greater than segment_cache_capacity.
+        segment_cache_capacity = config::segment_cache_capacity;
+        int64_t segment_cache_fd_limit = fd_number / 100 * config::segment_cache_fd_percentage;
+        if (segment_cache_capacity < 0 || segment_cache_capacity > segment_cache_fd_limit) {
+            segment_cache_capacity = segment_cache_fd_limit;
+        }
     }
 
     int64_t segment_cache_mem_limit =
@@ -576,6 +620,16 @@ Status ExecEnv::_init_mem_env() {
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";
+
+    // The default delete bitmap cache is set to 100MB,
+    // which can be insufficient and cause performance issues when the amount of user data is large.
+    // To mitigate the problem of an inadequate cache,
+    // we will take the larger of 0.5% of the total memory and 100MB as the delete bitmap cache size.
+    int64_t delete_bitmap_agg_cache_cache_limit =
+            ParseUtil::parse_mem_spec(config::delete_bitmap_dynamic_agg_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    _delete_bitmap_agg_cache = DeleteBitmapAggCache::create_instance(std::max(
+            delete_bitmap_agg_cache_cache_limit, config::delete_bitmap_agg_cache_capacity));
 
     return Status::OK();
 }
@@ -703,8 +757,6 @@ void ExecEnv::destroy() {
     SAFE_STOP(_routine_load_task_executor);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 1, non-cgroup execution
-    SAFE_STOP(_without_group_task_scheduler);
     // stop pipline step 2, cgroup execution
     SAFE_STOP(_workload_group_manager);
 
@@ -719,6 +771,9 @@ void ExecEnv::destroy() {
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
+
+    // _id_manager must be destoried before tablet schema cache
+    SAFE_DELETE(_id_manager);
 
     // StorageEngine must be destoried before _cache_manager destory
     SAFE_STOP(_storage_engine);
@@ -745,10 +800,12 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
     SAFE_DELETE(_query_cache);
+    SAFE_DELETE(_delete_bitmap_agg_cache);
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
     SAFE_DELETE(_tablet_schema_cache);
+    SAFE_DELETE(_tablet_column_object_pool);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
@@ -815,10 +872,8 @@ void ExecEnv::destroy() {
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
     SAFE_DELETE(_runtime_query_statistics_mgr);
 
-    // We should free task scheduler finally because task queue / scheduler maybe used by pipelineX.
-    SAFE_DELETE(_without_group_task_scheduler);
-
     SAFE_DELETE(_arrow_memory_pool);
+
     SAFE_DELETE(_orc_memory_pool);
 
     // dns cache is a global instance and need to be released at last
@@ -829,8 +884,11 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_process_profile);
     SAFE_DELETE(_heap_profiler);
 
+    SAFE_DELETE(_index_policy_mgr);
+
     _s_tracking_memory = false;
 
+    clear_storage_resource();
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }
 

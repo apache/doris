@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.GaugeMetric;
@@ -26,13 +25,11 @@ import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
-import com.google.common.collect.ImmutableList;
 import lombok.Data;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -56,8 +53,8 @@ public class ExternalSchemaCache {
                 (catalog.getProperties().get(ExternalCatalog.SCHEMA_CACHE_TTL_SECOND)), ExternalCatalog.CACHE_NO_TTL);
         CacheFactory schemaCacheFactory = new CacheFactory(
                 OptionalLong.of(schemaCacheTtlSecond >= ExternalCatalog.CACHE_TTL_DISABLE_CACHE
-                        ? schemaCacheTtlSecond : 86400),
-                OptionalLong.of(Config.external_cache_expire_time_minutes_after_access * 60),
+                        ? schemaCacheTtlSecond : Config.external_cache_expire_time_seconds_after_access),
+                OptionalLong.of(Config.external_cache_refresh_time_minutes * 60),
                 Config.max_external_schema_cache_num,
                 false,
                 null);
@@ -79,37 +76,31 @@ public class ExternalSchemaCache {
 
     private Optional<SchemaCacheValue> loadSchema(SchemaCacheKey key) {
         Optional<SchemaCacheValue> schema = catalog.getSchema(key);
+        if (schema.isPresent()) {
+            schema.get().validateSchema();
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("load schema for {} in catalog {}", key, catalog.getName());
         }
         return schema;
     }
 
-    public Optional<SchemaCacheValue> getSchemaValue(String dbName, String tblName) {
-        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        return getSchemaValue(key);
-    }
-
     public Optional<SchemaCacheValue> getSchemaValue(SchemaCacheKey key) {
         return schemaCache.get(key);
     }
 
-    public void addSchemaForTest(String dbName, String tblName, ImmutableList<Column> schema) {
-        SchemaCacheKey key = new SchemaCacheKey(dbName, tblName);
-        schemaCache.put(key, Optional.of(new SchemaCacheValue(schema)));
-    }
-
-    public void invalidateTableCache(String dbName, String tblName) {
+    public void invalidateTableCache(ExternalTable dorisTable) {
         schemaCache.asMap().keySet().stream()
-            .filter(key -> key.dbName.equals(dbName) && key.tblName.equals(tblName))
-            .forEach(schemaCache::invalidate);
+                .filter(key -> key.getNameMapping().getLocalDbName().equals(dorisTable.getDbName())
+                        && key.getNameMapping().getLocalTblName().equals(dorisTable.getName()))
+                .forEach(schemaCache::invalidate);
     }
 
     public void invalidateDbCache(String dbName) {
         long start = System.currentTimeMillis();
         Set<SchemaCacheKey> keys = schemaCache.asMap().keySet();
         for (SchemaCacheKey key : keys) {
-            if (key.dbName.equals(dbName)) {
+            if (key.getNameMapping().getLocalDbName().equals(dbName)) {
                 schemaCache.invalidate(key);
             }
         }
@@ -128,12 +119,10 @@ public class ExternalSchemaCache {
 
     @Data
     public static class SchemaCacheKey {
-        private String dbName;
-        private String tblName;
+        private NameMapping nameMapping;
 
-        public SchemaCacheKey(String dbName, String tblName) {
-            this.dbName = dbName;
-            this.tblName = tblName;
+        public SchemaCacheKey(NameMapping nameMapping) {
+            this.nameMapping = nameMapping;
         }
 
         @Override
@@ -144,17 +133,18 @@ public class ExternalSchemaCache {
             if (!(obj instanceof SchemaCacheKey)) {
                 return false;
             }
-            return dbName.equals(((SchemaCacheKey) obj).dbName) && tblName.equals(((SchemaCacheKey) obj).tblName);
+            return nameMapping.equals(((SchemaCacheKey) obj).nameMapping);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(dbName, tblName);
+            return nameMapping.hashCode();
         }
 
         @Override
         public String toString() {
-            return "SchemaCacheKey{" + "dbName='" + dbName + '\'' + ", tblName='" + tblName + '\'' + '}';
+            return "SchemaCacheKey{" + "dbName='"
+                    + nameMapping.getLocalDbName() + '\'' + ", tblName='" + nameMapping.getLocalTblName() + '\'' + '}';
         }
     }
 }

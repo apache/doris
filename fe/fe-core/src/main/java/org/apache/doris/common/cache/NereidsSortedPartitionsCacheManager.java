@@ -31,13 +31,17 @@ import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.Par
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges.PartitionItemAndRange;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Range;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.apache.hadoop.util.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
@@ -55,6 +59,7 @@ import java.util.Optional;
  * and the QPS can be improved
  */
 public class NereidsSortedPartitionsCacheManager {
+    private static final Logger LOG = LogManager.getLogger(NereidsSortedPartitionsCacheManager.class);
     private volatile Cache<TableIdentifier, PartitionCacheContext> partitionCaches;
 
     public NereidsSortedPartitionsCacheManager() {
@@ -62,6 +67,10 @@ public class NereidsSortedPartitionsCacheManager {
                 Config.cache_partition_meta_table_manage_num,
                 Config.expire_cache_partition_meta_table_in_fe_second
         );
+    }
+
+    public void invalidateAll() {
+        this.partitionCaches.invalidateAll();
     }
 
     public Optional<SortedPartitionRanges<?>> get(
@@ -82,19 +91,33 @@ public class NereidsSortedPartitionsCacheManager {
         TableIdentifier key = new TableIdentifier(
                 catalog.getName(), database.getFullName(), table.getName());
         PartitionCacheContext partitionCacheContext = partitionCaches.getIfPresent(key);
-        if (partitionCacheContext == null) {
-            return Optional.ofNullable(loadCache(key, table, scan));
-        }
-        if (table.getId() != partitionCacheContext.tableId
-                || !Objects.equals(table.getPartitionMetaVersion(scan), partitionCacheContext.partitionMetaVersion)) {
+
+        try {
+            if (partitionCacheContext == null) {
+                return Optional.ofNullable(loadCache(key, table, scan));
+            }
+            if (table.getId() != partitionCacheContext.tableId
+                    || !Objects.equals(table.getPartitionMetaVersion(scan),
+                    partitionCacheContext.partitionMetaVersion)) {
+                partitionCaches.invalidate(key);
+                return Optional.ofNullable(loadCache(key, table, scan));
+            }
+        } catch (Throwable t) {
+            LOG.warn("Failed to load cache for table {}, key {}.", table.getName(), key, t);
             partitionCaches.invalidate(key);
-            return Optional.ofNullable(loadCache(key, table, scan));
+            return Optional.empty();
         }
         return Optional.of(partitionCacheContext.sortedPartitionRanges);
     }
 
+    @VisibleForTesting
+    public Cache<TableIdentifier, PartitionCacheContext> getPartitionCaches() {
+        return partitionCaches;
+    }
+
     private SortedPartitionRanges<?> loadCache(
-            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
+            TableIdentifier key, SupportBinarySearchFilteringPartitions table, CatalogRelation scan)
+            throws RpcException {
         long now = System.currentTimeMillis();
         long partitionMetaLoadTime = table.getPartitionMetaLoadTimeMillis(scan);
 
@@ -169,6 +192,7 @@ public class NereidsSortedPartitionsCacheManager {
                 Config.expire_cache_partition_meta_table_in_fe_second
         );
         caches.putAll(cacheManager.partitionCaches.asMap());
+        caches.cleanUp();
         cacheManager.partitionCaches = caches;
     }
 

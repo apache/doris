@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -27,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeResultSink;
@@ -184,11 +186,14 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                             }
                                             return true;
                                         })
-                        ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
+                        ).when(project -> project.canMergeChildProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalOlapScan> bottomProject = r.child().child().child();
-                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
-                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            Optional<List<NamedExpression>> projections = upperProject.mergeProjections(bottomProject);
+                            if (!projections.isPresent()) {
+                                return null;
+                            }
+                            LogicalProject<?> project = upperProject.withProjects(projections.get());
                             return deferMaterialize(r, r.child().child(), Optional.of(project),
                                     Optional.empty(), bottomProject.child());
                         })
@@ -243,11 +248,14 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
                                             }
                                             return true;
                                         })
-                        ).when(project -> project.canMergeProjections(project.child().child()))).then(r -> {
+                        ).when(project -> project.canMergeChildProjections(project.child().child()))).then(r -> {
                             LogicalProject<?> upperProject = r.child();
                             LogicalProject<LogicalFilter<LogicalOlapScan>> bottomProject = r.child().child().child();
-                            List<NamedExpression> projections = upperProject.mergeProjections(bottomProject);
-                            LogicalProject<?> project = upperProject.withProjects(projections);
+                            Optional<List<NamedExpression>> projections = upperProject.mergeProjections(bottomProject);
+                            if (!projections.isPresent()) {
+                                return null;
+                            }
+                            LogicalProject<?> project = upperProject.withProjects(projections.get());
                             LogicalFilter<LogicalOlapScan> filter = bottomProject.child();
                             return deferMaterialize(r, r.child().child(), Optional.of(project),
                                     Optional.of(filter), filter.child());
@@ -259,9 +267,13 @@ public class DeferMaterializeTopNResult implements RewriteRuleFactory {
     private Plan deferMaterialize(LogicalResultSink<? extends Plan> logicalResultSink,
             LogicalTopN<? extends Plan> logicalTopN, Optional<LogicalProject<? extends Plan>> logicalProject,
             Optional<LogicalFilter<? extends Plan>> logicalFilter, LogicalOlapScan logicalOlapScan) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableTopnLazyMaterialization()) {
+            return null;
+        }
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Column rowId = new Column(Column.ROWID_COL, Type.STRING, false, null, false, "", "rowid column");
         SlotReference columnId = SlotReference.fromColumn(
-                logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
+                exprIdGenerator.getNextId(), logicalOlapScan.getTable(), rowId, logicalOlapScan.getQualifier());
         Set<Slot> orderKeys = Sets.newHashSet();
         Set<ExprId> deferredMaterializedExprIds = Sets.newHashSet(logicalOlapScan.getOutputExprIdSet());
         logicalFilter.ifPresent(filter -> filter.getConjuncts()

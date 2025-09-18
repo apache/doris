@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TTabletInfo;
@@ -31,8 +30,6 @@ import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.IOException;
 import java.util.Comparator;
 
 /**
@@ -741,28 +738,6 @@ public class Replica {
         strBuffer.append("]");
 
         return strBuffer.toString();
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        id = in.readLong();
-        backendId = in.readLong();
-        version = in.readLong();
-        versionHash = in.readLong();
-        dataSize = in.readLong();
-        rowCount = in.readLong();
-        state = ReplicaState.valueOf(Text.readString(in));
-        lastFailedVersion = in.readLong();
-        lastFailedVersionHash = in.readLong();
-        lastSuccessVersion = in.readLong();
-        lastSuccessVersionHash = in.readLong();
-    }
-
-    @Deprecated
-    public static Replica read(DataInput in) throws IOException {
-        Replica replica = EnvFactory.getInstance().createReplica();
-        replica.readFields(in);
-        return replica;
     }
 
     @Override

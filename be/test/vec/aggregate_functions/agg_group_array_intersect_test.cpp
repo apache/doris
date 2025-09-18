@@ -61,7 +61,7 @@ void sort_string_array(Array& array) {
 template <PrimitiveType T>
 void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
-    auto nested_column = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>::create();
+    auto nested_column = ColumnVector<T>::create();
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)2);
     nested_column->insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)3);
@@ -100,7 +100,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -131,7 +131,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
 template <PrimitiveType T>
 void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Prepare test data.
-    auto nested_column = ColumnVector<typename PrimitiveTypeTraits<T>::ColumnItemType>::create();
+    auto nested_column = ColumnVector<T>::create();
 
     auto nullable_nested_column =
             ColumnNullable::create(std::move(nested_column), ColumnUInt8::create());
@@ -177,7 +177,7 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
     // Do aggregation.
     const IColumn* column[1] = {test_col_data.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -271,7 +271,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.
@@ -336,7 +336,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     // Do aggregation.
     const IColumn* column[1] = {column_array_string_nullable.get()};
     for (int i = 0; i < agg_test_batch_size; i++) {
-        agg_function->add(place, column, i, &arena);
+        agg_function->add(place, column, i, arena);
     }
 
     // Check result.

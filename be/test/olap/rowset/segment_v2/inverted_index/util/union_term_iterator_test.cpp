@@ -107,10 +107,13 @@ TEST(PositionsQueueTest, MultipleGrowth) {
 }
 
 TEST(UnionTermIteratorTest, HighFrequencySingleDoc) {
-    MockIterator it1, it2, it3;
-    it1.set_postings({{100, {50, 150, 250, 350, 450, 550}}});
-    it2.set_postings({{100, {100, 200, 300, 400, 500, 600, 700}}});
-    it3.set_postings({{100, {75, 175, 275, 375, 475}}});
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    MockIterPtr it3 = std::make_shared<MockIterator>();
+
+    it1->set_postings({{100, {50, 150, 250, 350, 450, 550}}});
+    it2->set_postings({{100, {100, 200, 300, 400, 500, 600, 700}}});
+    it3->set_postings({{100, {75, 175, 275, 375, 475}}});
 
     UnionTermIterator<MockIterator> uti({it1, it2, it3});
     uti.advance(100);
@@ -127,9 +130,10 @@ TEST(UnionTermIteratorTest, HighFrequencySingleDoc) {
 }
 
 TEST(UnionTermIteratorTest, CrossDocumentPositionHandling) {
-    MockIterator it1, it2;
-    it1.set_postings({{10, {5, 15, 25, 35, 45, 55}}, {20, {10, 20, 30, 40, 50, 60, 70}}});
-    it2.set_postings({{10, {2, 12, 22, 32, 42}}, {30, {100, 200, 300, 400, 500, 600}}});
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    it1->set_postings({{10, {5, 15, 25, 35, 45, 55}}, {20, {10, 20, 30, 40, 50, 60, 70}}});
+    it2->set_postings({{10, {2, 12, 22, 32, 42}}, {30, {100, 200, 300, 400, 500, 600}}});
 
     UnionTermIterator<MockIterator> uti({it1, it2});
 
@@ -156,9 +160,10 @@ TEST(UnionTermIteratorTest, CrossDocumentPositionHandling) {
 }
 
 TEST(UnionTermIteratorTest, PositionAfterAdvance) {
-    MockIterator it1, it2;
-    it1.set_postings({{100, {50, 150, 250, 350, 450}}, {200, {10, 20, 30, 40, 50, 60}}});
-    it2.set_postings({{150, {100, 200, 300}}, {200, {15, 25, 35, 45, 55, 65}}});
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    it1->set_postings({{100, {50, 150, 250, 350, 450}}, {200, {10, 20, 30, 40, 50, 60}}});
+    it2->set_postings({{150, {100, 200, 300}}, {200, {15, 25, 35, 45, 55, 65}}});
 
     UnionTermIterator<MockIterator> uti({it1, it2});
 
@@ -181,9 +186,10 @@ TEST(UnionTermIteratorTest, HighVolumeStressTest) {
         data[doc_id] = positions;
     }
 
-    MockIterator it1, it2;
-    it1.set_postings(data);
-    it2.set_postings(data);
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    it1->set_postings(data);
+    it2->set_postings(data);
 
     UnionTermIterator<MockIterator> uti({it1, it2});
 
@@ -199,9 +205,10 @@ TEST(UnionTermIteratorTest, HighVolumeStressTest) {
 }
 
 TEST(UnionTermIteratorTest, PositionExhaustionAndError) {
-    MockIterator it1, it2;
-    it1.set_postings({{100, {10, 20, 30, 40, 50, 60}}});
-    it2.set_postings({{100, {15, 25, 35, 45, 55, 65}}});
+    MockIterPtr it1 = std::make_shared<MockIterator>();
+    MockIterPtr it2 = std::make_shared<MockIterator>();
+    it1->set_postings({{100, {10, 20, 30, 40, 50, 60}}});
+    it2->set_postings({{100, {15, 25, 35, 45, 55, 65}}});
 
     UnionTermIterator<MockIterator> uti({it1, it2});
     uti.advance(100);

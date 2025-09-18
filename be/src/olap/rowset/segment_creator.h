@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/tablet_fwd.h"
 #include "vec/core/block.h"
 
@@ -49,7 +49,7 @@ public:
     virtual Status create(uint32_t segment_id, io::FileWriterPtr& file_writer,
                           FileType file_type = FileType::SEGMENT_FILE) = 0;
 
-    virtual Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) = 0;
+    virtual Status create(uint32_t segment_id, IndexFileWriterPtr* file_writer) = 0;
 };
 
 template <class T>
@@ -63,8 +63,8 @@ public:
         return _t->create_file_writer(segment_id, file_writer, file_type);
     }
 
-    Status create(uint32_t segment_id, InvertedIndexFileWriterPtr* file_writer) override {
-        return _t->create_inverted_index_file_writer(segment_id, file_writer);
+    Status create(uint32_t segment_id, IndexFileWriterPtr* file_writer) override {
+        return _t->create_index_file_writer(segment_id, file_writer);
     }
 
 private:
@@ -75,8 +75,7 @@ class SegmentCollector {
 public:
     virtual ~SegmentCollector() = default;
 
-    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat,
-                       TabletSchemaSPtr flush_chema) = 0;
+    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat) = 0;
 };
 
 template <class T>
@@ -85,9 +84,8 @@ class SegmentCollectorT : public SegmentCollector {
 public:
     explicit SegmentCollectorT(T* t) : _t(t) {}
 
-    Status add(uint32_t segment_id, SegmentStatistics& segstat,
-               TabletSchemaSPtr flush_chema) override {
-        return _t->add_segment(segment_id, segstat, flush_chema);
+    Status add(uint32_t segment_id, SegmentStatistics& segstat) override {
+        return _t->add_segment(segment_id, segstat);
     }
 
 private:
@@ -140,8 +138,6 @@ public:
 
     Status create_writer(std::unique_ptr<SegmentFlusher::Writer>& writer, uint32_t segment_id);
 
-    bool need_buffering();
-
 private:
     // This method will catch exception when allocate memory failed
     Status _parse_variant_columns(vectorized::Block& block) {
@@ -157,10 +153,8 @@ private:
     Status _create_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
                                   int32_t segment_id, bool no_compression = false);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
-                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
 
 private:
@@ -219,8 +213,6 @@ private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
-    // Buffer block to num bytes before flushing
-    vectorized::MutableBlock _buffer_block;
 };
 
 } // namespace doris

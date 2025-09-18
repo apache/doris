@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -96,7 +98,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         // NOTE: update command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),
-                Optional.empty()).run(ctx, executor);
+                Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -120,7 +122,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             throw new AnalysisException("Only value columns of unique table could be updated");
         }
         List<NamedExpression> selectItems = Lists.newArrayList();
-        String tableName = tableAlias != null ? tableAlias : targetTable.getName();
+        String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
         Expression setExpr = null;
         for (Column column : targetTable.getFullSchema()) {
             // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
@@ -193,7 +195,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         // make UnboundTableSink
         return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
                 isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
-                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.UPDATE, logicalQuery);
     }
 
     private void checkAssignmentColumn(ConnectContext ctx, List<String> columnNameParts) {
@@ -228,7 +231,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                     + ctx.getSessionVariable().printDebugModeVariables());
         }
         List<String> tableQualifier = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv());
+        TableIf table = RelationUtil.getTable(tableQualifier, ctx.getEnv(), Optional.empty());
         if (!(table instanceof OlapTable)) {
             throw new AnalysisException("target table in update command should be an olapTable");
         }

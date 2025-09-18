@@ -31,10 +31,10 @@ import java.util.List;
 import java.util.Set;
 
 public class ScanPlanStatistics extends PlanStatistics {
-    private PhysicalOlapScan scan;
-    private ImmutableList<Long> selectedPartitionIds;
-    private Set<Expression> partitionColumnPredicates = new HashSet<>();
-    private Set<Expression> otherPredicate = new HashSet<>();
+    private final PhysicalOlapScan scan;
+    private final ImmutableList<Long> selectedPartitionIds;
+    private final Set<Expression> partitionColumnPredicates = new HashSet<>();
+    private final Set<Expression> otherPredicate = new HashSet<>();
     private final Set<Expression> tableFilterSet;
     private final PartitionInfo partitionInfo;
     private final boolean isPartitionedTable;
@@ -75,8 +75,8 @@ public class ScanPlanStatistics extends PlanStatistics {
             for (Expression expr : tableFilterSet) {
                 Set<Slot> inputSlot = expr.getInputSlots();
                 if (inputSlot.size() == 1 && inputSlot.iterator().next() instanceof SlotReference
-                        && ((SlotReference) inputSlot.iterator().next()).getColumn().isPresent()) {
-                    Column filterColumn = ((SlotReference) inputSlot.iterator().next()).getColumn().get();
+                        && ((SlotReference) inputSlot.iterator().next()).getOriginalColumn().isPresent()) {
+                    Column filterColumn = ((SlotReference) inputSlot.iterator().next()).getOriginalColumn().get();
                     if (partitionInfo.getPartitionColumns().contains(filterColumn)) {
                         partitionColumnPredicates.add(expr);
                     } else {

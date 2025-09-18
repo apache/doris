@@ -138,6 +138,11 @@ public class ConnectScheduler {
         return queryId;
     }
 
+    public void removeOldTraceId(String traceId) {
+        connectPoolMgr.removeTraceId(traceId);
+        flightSqlConnectPoolMgr.removeTraceId(traceId);
+    }
+
     public Map<Integer, ConnectContext> getConnectionMap() {
         Map<Integer, ConnectContext> map = Maps.newConcurrentMap();
         map.putAll(connectPoolMgr.getConnectionMap());

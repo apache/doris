@@ -49,7 +49,38 @@ If build doris use `sh build.sh --fe --be --cloud` **without do any change on th
 docker build -f docker/runtime/doris-compose/Dockerfile -t <image> .
 ```
 
+The Dockerfile default use JDK 17, for doris 2.1, 3.0, master, they all default use JDK 17.
+
+But doris 2.0 still use JDK 8, for build 2.0 image, user need specific use JDK 8 with arg `JDK_IMAGE=openjdk:8u342-jdk`. Here is build 2.0 image command:
+
+
+```shell
+docker build -f docker/runtime/doris-compose/Dockerfile \
+     --build-arg JDK_IMAGE=openjdk:8u342-jdk            \
+    -t <image> .
+```
+
+
 The `<image>` is the name you want the docker image to have.
+
+User can also download a doris release package from [Doris Home](https://doris.apache.org/docs/releasenotes/all-release) or [Doris Github](https://github.com/apache/doris/releases), extract it, then build its image with arg `OUTPUT_PATH`
+
+for example:
+
+ ```shell
+cd ~/tmp
+wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.5-bin-x64.tar.gz
+tar xvf apache-doris-3.0.5-bin-x64.tar.gz  # after extract, there will be a directory ./apache-doris-3.0.5-bin-x64/{fe, be, ms}
+
+# -f: the Dockerfile file
+# -t: the builded image
+# . : current directory, here it's ~/tmp, then output path is ~/tmp/apache-doris-3.0.5-bin-x64
+docker build \
+     --build-arg OUTPUT_PATH=./apache-doris-3.0.5-bin-x64 \
+     -f ~/workspace/doris/docker/runtime/doris-compose/Dockerfile \
+     -t my-doris:v3.0.5 \
+     .
+```
 
 ### 3. Install the dependent python library in 'docker/runtime/doris-compose/requirements.txt'
 
@@ -86,7 +117,7 @@ So if multiple users use different `LOCAL_DORIS_PATH`, their clusters may have d
 ### Create a cluster or recreate its containers
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?> 
+python docker/runtime/doris-compose/doris-compose.py up  <cluster-name>   <image?>
     --add-fe-num  <add-fe-num>  --add-be-num <add-be-num>
     [--fe-id <fd-id> --be-id <be-id>]
     ...
@@ -145,10 +176,22 @@ Otherwise it will just list summary of each clusters.
 There are more options about doris-compose. Just try
 
 ```shell
-python docker/runtime/doris-compose/doris-compose.py <command> -h 
+python docker/runtime/doris-compose/doris-compose.py <command> -h
 ```
 
+### Docker suite in regression test
+
+Regression test support running a suite in a docker doris cluster.
+
+See the example [demo_p0/docker_action.groovy](https://github.com/apache/doris/blob/master/regression-test/suites/demo_p0/docker_action.groovy).
+
+The docker suite can specify fe num and be num,  and add/drop/start/stop/restart the fe and be.
+
+Before run a docker suite, read the annotation in `demo_p0/docker_action.groovy` carefully.
+
 ### Generate regression custom conf file
+
+provide a  command for let the regression test connect to a docker cluster.
 
 ```shell
 python docker/runtime/doris-compose/doris-compose.py config <cluster-name>  <doris-root-path>  [-q]  [--connect-follow-fe]
@@ -169,6 +212,81 @@ steps:
 ### Log
 
 Each cluster has logs in Docker in '/tmp/doris/{cluster-name}/{node-xxx}/log/'. For each node, doris compose will also print log in '/tmp/doris/{cluster-name}/{node-xxx}/log/health.out'
+
+### Core Dump
+
+Doris Compose supports core dump generation for debugging purposes. When a process crashes, it will generate a core dump file that can be analyzed with tools like gdb.
+
+#### Core Dump Location
+
+Core dump files are generated in the following locations:
+
+- **Host System**: `/tmp/doris/{cluster-name}/{node-xxx}/core_dump/`
+- **Container**: `/opt/apache-doris/core_dump/`
+
+The core dump files follow the pattern: `core.{executable}.{pid}.{timestamp}`
+
+For example:
+```
+/tmp/doris/my-cluster/be-1/core_dump/core.doris_be.12345.1755418335
+```
+
+#### Core Pattern Configuration
+
+The system uses the core pattern from `/proc/sys/kernel/core_pattern` on the host system. The default pattern is:
+```
+/opt/apache-doris/core_dump/core.%e.%p.%t
+```
+
+Where:
+- `%e`: executable name
+- `%p`: process ID
+- `%t`: timestamp
+
+#### Core Dump Settings
+
+Doris Compose automatically configures the following settings for core dump generation:
+
+1. **Container Settings**:
+   - `ulimits.core = -1` (unlimited core file size)
+   - `cap_add: ["SYS_ADMIN"]` (required capabilities)
+   - `privileged: true` (privileged mode)
+
+2. **Directory Permissions**:
+   - Core dump directory is created with 777 permissions
+   - Ownership is set to the host user for non-root containers
+
+3. **Non-Root User Support**:
+   - Core dump directory permissions are automatically configured
+   - Works with both root and non-root user containers
+
+#### Troubleshooting
+
+If core dumps are not being generated:
+
+1. **Check ulimit settings**:
+   ```bash
+   ulimit -c
+   # Should return "unlimited" or a positive number
+   ```
+
+2. **Check directory permissions**:
+   ```bash
+   ls -la /tmp/doris/{cluster-name}/{node-xxx}/core_dump/
+   # Should show 777 permissions
+   ```
+
+3. **Check core pattern**:
+   ```bash
+   cat /proc/sys/kernel/core_pattern
+   # Should show the expected pattern
+   ```
+
+4. **Check container logs**:
+   ```bash
+   docker logs {container-name}
+   # Look for core dump related messages
+   ```
 
 ### Up cluster using non-detach mode
 

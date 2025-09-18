@@ -26,6 +26,7 @@ import "descriptors.proto";
 import "types.proto";
 import "olap_common.proto";
 import "olap_file.proto";
+import "runtime_profile.proto";
 
 option cc_generic_services = true;
 
@@ -537,6 +538,7 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL256 = 20;
     COLUMN_TYPE_IPV4 = 21;
     COLUMN_TYPE_IPV6 = 22;
+    COLUMN_TYPE_TIMEV2 = 23;
 }
 
 message PMinMaxFilter {
@@ -765,6 +767,43 @@ message PMultiGetResponse {
     repeated PRowLocation row_locs = 5;
 };
 
+// Eeach block have own schema to read
+message PRequestBlockDesc {
+    optional bool fetch_row_store = 1;
+    repeated PSlotDescriptor slots = 2;
+    repeated ColumnPB column_descs = 3;
+    repeated uint32 file_id = 4;
+    repeated uint32 row_id = 5;
+    optional PTupleDescriptor desc = 6;
+    repeated uint32 column_idxs = 7;
+}
+
+message PMultiGetRequestV2 {
+    repeated PRequestBlockDesc request_block_descs = 1;
+
+    // for compability
+    optional int32 be_exec_version = 2;
+    optional PUniqueId query_id = 3;
+    optional bool gc_id_map = 4;
+    optional uint64 wg_id = 5;
+};
+
+message PMultiGetBlockV2 {
+    optional PBlock block = 1;
+    // more effecient serialization fields for row store
+    enum RowFormat {
+        JSONB = 0;
+    };
+    optional RowFormat format = 2;
+    repeated bytes binary_row_data = 3;
+    optional PRuntimeProfileTree profile = 4;
+}
+
+message PMultiGetResponseV2 {
+    optional PStatus status = 1;
+    repeated PMultiGetBlockV2 blocks = 2;
+};
+
 message PFetchColIdsRequest {
     message PFetchColIdParam {
         required int64 indexId = 1;
@@ -821,6 +860,31 @@ message PGetFileCacheMetaResponse {
     repeated FileCacheBlockMeta file_cache_block_metas = 1;
 }
 
+message PWarmUpRowsetRequest {
+    repeated RowsetMetaPB rowset_metas = 1;
+    optional int64 unix_ts_us = 2;
+    optional int64 sync_wait_timeout_ms = 3;
+    optional bool skip_existence_check = 4;
+}
+
+message PWarmUpRowsetResponse {
+    optional PStatus status = 1;
+}
+
+message RecycleCacheMeta {
+    optional int64 tablet_id = 1;
+    optional string rowset_id = 2;
+    optional int64 num_segments = 3;
+    repeated string index_file_names = 4;
+}
+
+message PRecycleCacheRequest {
+    repeated RecycleCacheMeta cache_metas = 1;
+}
+
+message PRecycleCacheResponse {
+}
+
 message PReportStreamLoadStatusRequest {
     optional PUniqueId load_id = 1;
     optional PStatus status = 2;
@@ -868,6 +932,7 @@ message PGroupCommitInsertResponse {
     optional int64 loaded_rows = 4;
     optional int64 filtered_rows = 5;
     optional string error_url = 6;
+    optional string first_error_msg = 7;
 }
 
 message POpenLoadStreamRequest {
@@ -1035,7 +1100,10 @@ service PBackendService {
     rpc outfile_write_success(POutfileWriteSuccessRequest) returns (POutfileWriteSuccessResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
     rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc multiget_data_v2(PMultiGetRequestV2) returns (PMultiGetResponseV2);
     rpc get_file_cache_meta_by_tablet_id(PGetFileCacheMetaRequest) returns (PGetFileCacheMetaResponse);
+    rpc warm_up_rowset(PWarmUpRowsetRequest) returns (PWarmUpRowsetResponse);
+    rpc recycle_cache(PRecycleCacheRequest) returns (PRecycleCacheResponse);
     rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
     rpc get_column_ids_by_tablet_ids(PFetchColIdsRequest) returns (PFetchColIdsResponse);
     rpc get_tablet_rowset_versions(PGetTabletVersionsRequest) returns (PGetTabletVersionsResponse);

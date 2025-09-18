@@ -392,7 +392,10 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
-        _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        // if parsed_values is 0, we don't need to decode levels
+        if (parsed_values != 0) {
+            _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        }
     } else {
         std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
@@ -574,9 +577,10 @@ Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
     return Status::OK();
 }
 
-Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            FilterMap& filter_map, size_t batch_size,
-                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status ScalarColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     if (_converter == nullptr) {
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
                 _field_schema, _field_schema->data_type, type, _ctz, is_dict_filter);
@@ -689,9 +693,10 @@ Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_read
     return Status::OK();
 }
 
-Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                           FilterMap& filter_map, size_t batch_size,
-                                           size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status ArrayColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -715,7 +720,8 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     auto& element_type = const_cast<DataTypePtr&>(
             (assert_cast<const DataTypeArray*>(remove_nullable(type).get()))->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, filter_map,
+    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type,
+                                                      root_node->get_element_node(), filter_map,
                                                       batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
@@ -739,9 +745,10 @@ Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
     return Status::OK();
 }
 
-Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                         FilterMap& filter_map, size_t batch_size,
-                                         size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status MapColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -773,14 +780,16 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     size_t value_rows = 0;
     bool key_eof = false;
     bool value_eof = false;
-    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, filter_map, batch_size,
-                                                  &key_rows, &key_eof, is_dict_filter));
+
+    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, root_node->get_key_node(),
+                                                  filter_map, batch_size, &key_rows, &key_eof,
+                                                  is_dict_filter));
 
     while (value_rows < key_rows && !value_eof) {
         size_t loop_rows = 0;
-        RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, filter_map,
-                                                        key_rows - value_rows, &loop_rows,
-                                                        &value_eof, is_dict_filter));
+        RETURN_IF_ERROR(_value_reader->read_column_data(
+                value_column, value_type, root_node->get_value_node(), filter_map,
+                key_rows - value_rows, &loop_rows, &value_eof, is_dict_filter));
         value_rows += loop_rows;
     }
     DCHECK_EQ(key_rows, value_rows);
@@ -796,6 +805,7 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    RETURN_IF_ERROR(map.deduplicate_keys());
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();
@@ -808,9 +818,10 @@ Status StructColumnReader::init(
     _child_readers = std::move(child_readers);
     return Status::OK();
 }
-Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            FilterMap& filter_map, size_t batch_size,
-                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
+Status StructColumnReader::read_column_data(
+        ColumnPtr& doris_column, DataTypePtr& type,
+        const std::shared_ptr<TableSchemaChangeHelper::Node>& root_node, FilterMap& filter_map,
+        size_t batch_size, size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
     if (doris_column->is_nullable()) {
@@ -842,23 +853,21 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
         auto& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
         auto& doris_name = const_cast<String&>(doris_struct_type->get_element_name(i));
-
-        // remember the missing column index
-        if (_child_readers.find(doris_name) == _child_readers.end()) {
+        if (!root_node->children_column_exists(doris_name)) {
             missing_column_idxs.push_back(i);
             continue;
         }
+        auto file_name = root_node->children_file_column_name(doris_name);
 
-        _read_column_names.emplace_back(doris_name);
+        _read_column_names.emplace_back(file_name);
 
-        //        select_vector.reset();
         size_t field_rows = 0;
         bool field_eof = false;
         if (not_missing_column_id == -1) {
             not_missing_column_id = i;
-            RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                    doris_field, doris_type, filter_map, batch_size, &field_rows, &field_eof,
-                    is_dict_filter));
+            RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
+                    doris_field, doris_type, root_node->get_children_node(doris_name), filter_map,
+                    batch_size, &field_rows, &field_eof, is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
             /*
@@ -873,9 +882,10 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         } else {
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
-                RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                        doris_field, doris_type, filter_map, *read_rows - field_rows, &loop_rows,
-                        &field_eof, is_dict_filter));
+                RETURN_IF_ERROR(_child_readers[file_name]->read_column_data(
+                        doris_field, doris_type, root_node->get_children_node(doris_name),
+                        filter_map, *read_rows - field_rows, &loop_rows, &field_eof,
+                        is_dict_filter));
                 field_rows += loop_rows;
             }
             DCHECK_EQ(*read_rows, field_rows);

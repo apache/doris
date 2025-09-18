@@ -51,13 +51,18 @@ public class ReplaceEmpty extends ScalarFunction
         super("replace_empty", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ReplaceEmpty(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ReplaceEmpty withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new ReplaceEmpty(children.get(0), children.get(1), children.get(2));
+        return new ReplaceEmpty(getFunctionParams(children));
     }
 
     @Override

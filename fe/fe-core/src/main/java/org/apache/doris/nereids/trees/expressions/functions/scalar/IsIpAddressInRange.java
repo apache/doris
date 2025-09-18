@@ -52,13 +52,18 @@ public class IsIpAddressInRange extends ScalarFunction
         super("is_ip_address_in_range", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private IsIpAddressInRange(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public IsIpAddressInRange withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2,
                 "is_ip_address_in_range accept 2 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new IsIpAddressInRange(children.get(0), children.get(1));
+        return new IsIpAddressInRange(getFunctionParams(children));
     }
 
     @Override

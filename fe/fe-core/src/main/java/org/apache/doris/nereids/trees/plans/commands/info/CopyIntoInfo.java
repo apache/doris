@@ -21,11 +21,9 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CopyFromParam;
 import org.apache.doris.analysis.CopyIntoProperties;
-import org.apache.doris.analysis.CopyStmt;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LabelName;
-import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StageAndPattern;
@@ -33,7 +31,9 @@ import org.apache.doris.analysis.StageProperties;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
@@ -45,14 +45,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.BosProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.storage.S3PropertyUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Analyzer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
@@ -65,11 +67,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -89,6 +93,17 @@ import java.util.Map;
 public class CopyIntoInfo {
     private static final Logger LOG = LogManager.getLogger(CopyIntoInfo.class);
 
+    private static final ShowResultSetMetaData COPY_INTO_META_DATA =
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("id", ScalarType.createVarchar(64)))
+                .addColumn(new Column("state", ScalarType.createVarchar(64)))
+                .addColumn(new Column("type", ScalarType.createVarchar(64)))
+                .addColumn(new Column("msg", ScalarType.createVarchar(128)))
+                .addColumn(new Column("loadedRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("filterRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("unselectRows", ScalarType.createVarchar(64)))
+                .addColumn(new Column("url", ScalarType.createVarchar(128)))
+                .build();
     private static final String S3_BUCKET = "bucket";
     private static final String S3_PREFIX = "prefix";
 
@@ -111,6 +126,8 @@ public class CopyIntoInfo {
     private RemoteBase.ObjectInfo objectInfo;
     private String userName;
     private TableName tableName;
+
+    private OriginStatement originStmt;
 
     /**
      * copy into informations
@@ -206,8 +223,12 @@ public class CopyIntoInfo {
         Plan unboundRelation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
         CascadesContext cascadesContext = CascadesContext.initContext(ConnectContext.get().getStatementContext(),
                 unboundRelation, PhysicalProperties.ANY);
-        Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-            ImmutableList.of(Rewriter.bottomUp(new BindRelation()))).execute();
+        Analyzer.buildCustomAnalyzer(
+                cascadesContext, ImmutableList.of(Analyzer.bottomUp(new BindRelation()))
+        ).execute();
+        Rewriter.getWholeTreeRewriterWithCustomJobs(
+                cascadesContext, ImmutableList.of()
+        ).execute();
         Plan boundRelation = cascadesContext.getRewritePlan();
         // table could have delete sign in LogicalFilter above
         if (cascadesContext.getRewritePlan() instanceof LogicalFilter) {
@@ -242,11 +263,11 @@ public class CopyIntoInfo {
                     analyzer, context, cascadesContext);
         }
 
+        dataDescProperties.put(FileFormatProperties.PROP_COMPRESS_TYPE, copyIntoProperties.getCompression());
         dataDescription = new DataDescription(tableName.getTbl(), null, Lists.newArrayList(filePath),
             copyFromDesc.getFileColumns(), separator, fileFormatStr, null, false,
             legacyColumnMappingList, legacyFileFilterExpr, null, LoadTask.MergeType.APPEND, null,
             null, dataDescProperties);
-        dataDescription.setCompressType(StageUtil.parseCompressType(copyIntoProperties.getCompression()));
         if (!(copyFromDesc.getColumnMappingList() == null
                 || copyFromDesc.getColumnMappingList().isEmpty())) {
             dataDescription.setIgnoreCsvRedundantCol(true);
@@ -260,7 +281,7 @@ public class CopyIntoInfo {
         String path;
         for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
             path = dataDescription.getFilePaths().get(i);
-            dataDescription.getFilePaths().set(i, BosProperties.convertPathToS3(path));
+            dataDescription.getFilePaths().set(i, S3PropertyUtils.convertPathToS3(path));
             StorageBackend.checkPath(path, brokerDesc.getStorageType(), null);
             dataDescription.getFilePaths().set(i, path);
         }
@@ -268,7 +289,7 @@ public class CopyIntoInfo {
         try {
             properties.putAll(copyIntoProperties.getExecProperties());
             // TODO support exec params as LoadStmt
-            LoadStmt.checkProperties(properties);
+            LoadCommand.checkProperties(properties);
         } catch (DdlException e) {
             throw new AnalysisException(e.getMessage());
         }
@@ -351,8 +372,75 @@ public class CopyIntoInfo {
         this.copyIntoProperties.analyze();
     }
 
-    public CopyStmt toLegacyStatement(OriginStatement originStmt) {
-        return new CopyStmt(tableName, legacyCopyFromParam, copyIntoProperties, optHints, label, stageId, stageType,
-            stagePrefix, objectInfo, userName, brokerProperties, properties, dataDescription, brokerDesc, originStmt);
+    public ShowResultSetMetaData getMetaData() {
+        return COPY_INTO_META_DATA;
+    }
+
+    public String getDbName() {
+        return label.getDbName();
+    }
+
+    public BrokerDesc getBrokerDesc() {
+        return brokerDesc;
+    }
+
+    public List<DataDescription> getDataDescriptions() {
+        return Lists.newArrayList(dataDescription);
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public LabelName getLabel() {
+        return label;
+    }
+
+    public OriginStatement getOriginStmt() {
+        return originStmt;
+    }
+
+    public void setOriginStmt(OriginStatement originStmt) {
+        this.originStmt = originStmt;
+    }
+
+    public String getStage() {
+        return stage;
+    }
+
+    public String getStageId() {
+        return stageId;
+    }
+
+    public StageType getStageType() {
+        return stageType;
+    }
+
+    public String getStagePrefix() {
+        return stagePrefix;
+    }
+
+    public long getSizeLimit() {
+        return this.copyIntoProperties.getSizeLimit();
+    }
+
+    public boolean isAsync() {
+        return this.copyIntoProperties.isAsync();
+    }
+
+    public boolean isForce() {
+        return this.copyIntoProperties.isForce();
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public RemoteBase.ObjectInfo getObjectInfo() {
+        return objectInfo;
+    }
+
+    public String getPattern() {
+        return this.legacyCopyFromParam.getStageAndPattern().getPattern();
     }
 }

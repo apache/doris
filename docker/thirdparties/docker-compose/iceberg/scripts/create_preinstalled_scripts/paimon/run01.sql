@@ -42,12 +42,21 @@ insert into two_partition values(4,'2038-01-01','sh');
 insert into two_partition values(5,'2038-01-02','bj');
 
 drop table if exists null_partition;
+-- CREATE TABLE null_partition (
+--    id BIGINT,
+--    region STRING
+-- ) PARTITIONED BY (region) TBLPROPERTIES (
+--     'primary-key' = 'region,id',
+--     'bucket'=10,
+--     'file.format'='orc'
+-- );
+-- in paimon 1.0.1 ,primary-key is `not null`. 
 CREATE TABLE null_partition (
    id BIGINT,
    region STRING
 ) PARTITIONED BY (region) TBLPROPERTIES (
-    'primary-key' = 'region,id',
-    'bucket'=10,
+    'primary-key' = 'id',
+    'bucket'='-1',
     'file.format'='orc'
 );
 -- null NULL "null" all will be in partition [null]
@@ -68,3 +77,11 @@ CREATE TABLE date_partition (
 );
 
 insert into date_partition values(1,date '2020-01-01');
+
+drop table if exists test_schema_change;
+create table test_schema_change;
+alter table test_schema_change add column id int;
+insert into test_schema_change values(1);
+CALL sys.create_tag(table => 'test_schema_change', tag => 'tag1', snapshot => 1);
+CALL sys.create_branch('test_schema_change', 'branch1', 'tag1');
+alter table test_schema_change add column name string;

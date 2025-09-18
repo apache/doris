@@ -25,7 +25,7 @@ suite("regression_test_variant_column_name", "variant_type"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true");
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """ 
 
     sql """insert into ${table_name} values (1, '{"中文" : "中文", "\\\u4E2C\\\u6587": "unicode"}')"""
@@ -61,12 +61,36 @@ suite("regression_test_variant_column_name", "variant_type"){
     sql """insert into var_column_name values (7, '{"": 1234566}')"""
     sql """insert into var_column_name values (7, '{"": 8888888}')"""
 
-    qt_sql "select Tags[''] from var_column_name order by cast(Tags[''] as string)"
+    qt_sql "select cast(Tags[''] as text) from var_column_name order by cast(Tags[''] as string)"
+
+    // name with `.`
+    sql "truncate table var_column_name"
+    test {
+        sql """insert into var_column_name values (7, '{"a.b": "UPPER CASE", "a.c": "lower case", "a" : {"b" : 123}, "a" : {"c" : 456}}')"""
+        exception "may contains duplicated entry"
+    }
+    for (int i = 0; i < 7; i++) {
+        sql """insert into var_column_name select * from var_column_name"""
+    }
+    qt_sql_cnt_1 "select count(Tags['a.b']) from var_column_name"
+    qt_sql_cnt_2 "select count(Tags['a.c']) from var_column_name"
+    qt_sql_cnt_3 "select count(Tags['a']['b']) from var_column_name"
+    qt_sql_cnt_4 "select count(Tags['a']['c']) from var_column_name"
 
     try {
         sql """insert into var_column_name values (7, '{"": "UPPER CASE", "": "lower case"}')"""
     } catch(Exception ex) {
         logger.info("""INSERT INTO ${table_name} failed: """ + ex)
         assertTrue(ex.toString().contains("may contains duplicated entry"));
+    }
+
+    // test key length larger than 255 bytes
+    def key = "a"
+    for (int i = 0; i < 256; i++) {
+        key += "a"
+    }
+    test {
+        sql """insert into var_column_name values (8, '{"${key}": "test"}')"""
+        exception "Key length exceeds maximum allowed size of 255 bytes."
     }
 }

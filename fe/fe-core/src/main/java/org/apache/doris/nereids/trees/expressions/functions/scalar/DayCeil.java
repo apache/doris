@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.DateCeilFloorMonoton
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -52,12 +51,7 @@ public class DayCeil extends ScalarFunction
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeType.INSTANCE)
-                    .args(DateTimeType.INSTANCE, IntegerType.INSTANCE, DateTimeType.INSTANCE)
+                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE)
     );
 
     /**
@@ -81,6 +75,11 @@ public class DayCeil extends ScalarFunction
         super("day_ceil", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DayCeil(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -89,13 +88,7 @@ public class DayCeil extends ScalarFunction
         Preconditions.checkArgument(children.size() == 1
                 || children.size() == 2
                 || children.size() == 3);
-        if (children.size() == 1) {
-            return new DayCeil(children.get(0));
-        } else if (children.size() == 2) {
-            return new DayCeil(children.get(0), children.get(1));
-        } else {
-            return new DayCeil(children.get(0), children.get(1), children.get(2));
-        }
+        return new DayCeil(getFunctionParams(children));
     }
 
     @Override

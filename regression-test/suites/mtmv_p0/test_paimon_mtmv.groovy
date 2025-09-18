@@ -54,7 +54,9 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             "s3.access_key" = "admin",
             "s3.secret_key" = "password",
             "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
-            "s3.region" = "us-east-1"
+            "s3.region" = "us-east-1",
+            "fs.oss.connection.timeout" = "1000",
+            "fs.oss.connection.establish.timeout" = "1000"
         );"""
 
     order_qt_base_table """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format ; """
@@ -266,8 +268,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
 
     // date type will has problem
     order_qt_date_partition_base_table "SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition"
-    test {
-         sql """
+    sql """
             CREATE MATERIALIZED VIEW ${mvName}
                 BUILD DEFERRED REFRESH AUTO ON MANUAL
                 partition by (`create_date`)
@@ -276,8 +277,15 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
                 AS
                 SELECT * FROM ${catalogName}.`test_paimon_spark`.date_partition;
             """
-          exception "Unable to find a suitable base table"
-      }
+    sql """
+         REFRESH MATERIALIZED VIEW ${mvName} auto;
+     """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    def showPaimonDateTypePartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPaimonDateTypePartitionsResult: " + showPaimonDateTypePartitionsResult.toString())
+    assertTrue(showPaimonDateTypePartitionsResult.toString().contains("p_20200101"))
+    order_qt_date_type_partition "select * FROM ${mvName}"
+    sql """drop materialized view if exists ${mvName};"""
 
     sql """
         CREATE MATERIALIZED VIEW ${mvName}

@@ -193,17 +193,23 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         jobType = analyzedJob.jobType;
         if (tableIf != null) {
             if (tableIf instanceof OlapTable) {
+                OlapTable olapTable = (OlapTable) tableIf;
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
-                clearStaleIndexRowCount((OlapTable) tableIf);
+                clearStaleIndexRowCount(olapTable);
+                if (analyzedJob.jobColumns.containsAll(
+                        olapTable.getColumnIndexPairs(olapTable.getSchemaAllIndexes(false)
+                                        .stream()
+                                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                                        .map(Column::getName).collect(Collectors.toSet()))
+                                .stream()
+                                .filter(c -> StatisticsUtil.canCollectColumn(olapTable.getIndexMetaByIndexId(
+                                        olapTable.getIndexIdByName(c.first)).getColumnByName(c.second),
+                                        olapTable, true, olapTable.getIndexIdByName(c.first)))
+                                .collect(Collectors.toSet()))) {
+                    partitionChanged.set(false);
+                }
             }
             rowCount = analyzedJob.rowCount;
-            if (analyzedJob.jobColumns.containsAll(
-                    tableIf.getColumnIndexPairs(
-                    tableIf.getSchemaAllIndexes(false).stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet())))) {
-                partitionChanged.set(false);
-            }
             // Set userInject back to false after manual analyze.
             if (JobType.MANUAL.equals(jobType) && !analyzedJob.userInject) {
                 userInjected = false;

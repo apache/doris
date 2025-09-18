@@ -72,6 +72,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(customer_address { customer { store_sales date_dim item promotion store } } ) leading(store_sales date_dim item { customer customer_address } store ) leading(promotional_sales all_sales )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

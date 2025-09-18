@@ -17,9 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
-import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -28,6 +27,9 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionInt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolAnd;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolOr;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BoolXor;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectSet;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Corr;
@@ -49,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
 import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
@@ -68,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Percentile;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
+import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
@@ -87,10 +91,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 /**
  * Builtin aggregate functions.
@@ -100,9 +106,8 @@ import java.util.Set;
  */
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
+            agg(AIAgg.class, "ai_agg"),
             agg(AnyValue.class, "any", "any_value"),
-            agg(ApproxTopK.class, "approx_top_k"),
-            agg(ApproxTopSum.class, "approx_top_sum"),
             agg(ArrayAgg.class, "array_agg"),
             agg(Avg.class, "avg"),
             agg(AvgWeighted.class, "avg_weighted"),
@@ -111,6 +116,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(BitmapUnion.class, "bitmap_union"),
             agg(BitmapUnionCount.class, "bitmap_union_count"),
             agg(BitmapUnionInt.class, "bitmap_union_int"),
+            agg(BoolOr.class, "bool_or", "boolor_agg"),
+            agg(BoolAnd.class, "bool_and", "booland_agg"),
+            agg(BoolXor.class, "bool_xor", "boolxor_agg"),
             agg(CollectList.class, "collect_list", "group_array"),
             agg(CollectSet.class, "collect_set", "group_uniq_array"),
             agg(Corr.class, "corr"),
@@ -131,7 +139,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(IntersectCount.class, "intersect_count"),
             agg(Kurt.class, "kurt", "kurt_pop", "kurtosis"),
             agg(LinearHistogram.class, "linear_histogram"),
-            agg(MapAgg.class, "map_agg"),
+            agg(MapAgg.class, "map_agg_v1"),
+            agg(MapAggV2.class, "map_agg_v2", "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
             agg(Median.class, "median"),
@@ -148,6 +157,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
             agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
             agg(Percentile.class, "percentile", "percentile_cont"),
+            agg(PercentileReservoir.class, "percentile_reservoir"),
             agg(PercentileApprox.class, "percentile_approx"),
             agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
             agg(PercentileArray.class, "percentile_array"),
@@ -158,7 +168,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Skew.class, "skew", "skew_pop", "skewness"),
-            agg(Stddev.class, "stddev_pop", "stddev"),
+            agg(Stddev.class, "stddev_pop", "stddev", "std"),
             agg(StddevSamp.class, "stddev_samp"),
             agg(Sum.class, "sum"),
             agg(Sum0.class, "sum0"),
@@ -170,9 +180,13 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(WindowFunnel.class, "window_funnel")
     );
 
-    public final Set<String> aggFuncNames = aggregateFunctions.stream()
-            .flatMap(fun -> fun.names.stream())
-            .collect(ImmutableSet.toImmutableSet());
+    public final Set<String> aggFuncNames = Collections.unmodifiableSet(
+            aggregateFunctions.stream()
+                    .flatMap(fun -> fun.names.stream())
+                    .collect(Collectors.toCollection(
+                            () -> new TreeSet<>(String.CASE_INSENSITIVE_ORDER)
+                    ))
+    );
 
     public static final BuiltinAggregateFunctions INSTANCE = new BuiltinAggregateFunctions();
 

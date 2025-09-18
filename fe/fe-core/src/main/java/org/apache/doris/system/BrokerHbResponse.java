@@ -17,13 +17,9 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
-
-import java.io.DataInput;
-import java.io.IOException;
 
 /*
  * Broker heartbeat response currently contains nothing and the heartbeat status
@@ -69,14 +65,6 @@ public class BrokerHbResponse extends HeartbeatResponse implements Writable {
 
     public int getPort() {
         return port;
-    }
-
-    @Override
-    protected void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        name = Text.readString(in);
-        host = Text.readString(in);
-        port = in.readInt();
     }
 
     @Override

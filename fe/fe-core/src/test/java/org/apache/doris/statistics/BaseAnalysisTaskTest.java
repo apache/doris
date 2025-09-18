@@ -61,13 +61,12 @@ public class BaseAnalysisTaskTest {
         Assertions.assertEquals("NULL", maxFunction);
 
         String ndvFunction = olapAnalysisTask.getNdvFunction(String.valueOf(100));
-        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(1) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1, 1, 0)) "
-                + "+ SUM(IF(`t1`.`count` = 1, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
+        Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 100)", ndvFunction);
         System.out.println(ndvFunction);
     }
 
     @Test
-    public void testInvalidColStats() {
+    public void testNdvTooLarge() {
         List<String> values = Lists.newArrayList();
         values.add("id");
         values.add("10000");
@@ -83,6 +82,7 @@ public class BaseAnalysisTaskTest {
         values.add("max");
         values.add("400");
         values.add("500");
+        values.add(null);
         ResultRow row = new ResultRow(values);
         List<ResultRow> result = Lists.newArrayList();
         result.add(row);
@@ -99,10 +99,49 @@ public class BaseAnalysisTaskTest {
         } catch (Exception e) {
             Assertions.assertEquals(e.getMessage(),
                     "ColStatsData is invalid, skip analyzing. "
-                        + "('id',10000,20000,30000,0,'col',null,100,1100,300,'min','max',400,'500')");
+                            + "('id',10000,20000,30000,0,'col',null,100,1100,300,'min','max',400,'500',NULL)");
             return;
         }
         Assertions.fail();
     }
 
+    @Test
+    public void testNdv0MinMaxExistsNullNotEqualCount() {
+        List<String> values = Lists.newArrayList();
+        values.add("id");
+        values.add("10000");
+        values.add("20000");
+        values.add("30000");
+        values.add("0");
+        values.add("col");
+        values.add(null);
+        values.add("500"); // count
+        values.add("0"); // ndv
+        values.add("300"); // null
+        values.add("min");
+        values.add("max");
+        values.add("400");
+        values.add("500");
+        values.add(null);
+        ResultRow row = new ResultRow(values);
+        List<ResultRow> result = Lists.newArrayList();
+        result.add(row);
+
+        new MockUp<StmtExecutor>() {
+            @Mock
+            public List<ResultRow> executeInternalQuery() {
+                return result;
+            }
+        };
+        BaseAnalysisTask task = new OlapAnalysisTask();
+        try {
+            task.runQuery("test");
+        } catch (Exception e) {
+            Assertions.assertEquals(e.getMessage(),
+                    "ColStatsData is invalid, skip analyzing. "
+                            + "('id',10000,20000,30000,0,'col',null,500,0,300,'min','max',400,'500',NULL)");
+            return;
+        }
+        Assertions.fail();
+    }
 }

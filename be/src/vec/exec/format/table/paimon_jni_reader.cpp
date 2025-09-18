@@ -49,18 +49,11 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
         column_types.emplace_back(JniConnector::get_jni_type_with_different_string(desc->type()));
     }
     std::map<String, String> params;
-    params["db_name"] = range.table_format_params.paimon_params.db_name;
-    params["table_name"] = range.table_format_params.paimon_params.table_name;
     params["paimon_split"] = range.table_format_params.paimon_params.paimon_split;
-    params["paimon_column_names"] = range.table_format_params.paimon_params.paimon_column_names;
     params["paimon_predicate"] = range.table_format_params.paimon_params.paimon_predicate;
-    params["ctl_id"] = std::to_string(range.table_format_params.paimon_params.ctl_id);
-    params["db_id"] = std::to_string(range.table_format_params.paimon_params.db_id);
-    params["tbl_id"] = std::to_string(range.table_format_params.paimon_params.tbl_id);
-    params["last_update_time"] =
-            std::to_string(range.table_format_params.paimon_params.last_update_time);
     params["required_fields"] = join(column_names, ",");
     params["columns_types"] = join(column_types, "#");
+    params["time_zone"] = _state->timezone();
     if (range_params->__isset.serialized_table) {
         params["serialized_table"] = range_params->serialized_table;
     }
@@ -102,14 +95,6 @@ Status PaimonJniReader::get_next_block(Block* block, size_t* read_rows, bool* eo
         return Status::OK();
     }
     return _jni_connector->get_next_block(block, read_rows, eof);
-}
-
-Status PaimonJniReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                    std::unordered_set<std::string>* missing_cols) {
-    for (const auto& desc : _file_slot_descs) {
-        name_to_type->emplace(desc->col_name(), desc->type());
-    }
-    return Status::OK();
 }
 
 Status PaimonJniReader::init_reader(

@@ -26,6 +26,7 @@
 #include <typeinfo>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
@@ -35,7 +36,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -99,159 +99,16 @@ void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritabl
     ostr.write(str.c_str(), str.size());
 }
 
-bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
-    StringRef element(rb.position(), 0);
-    has_quota = false;
-    if (rb.eof()) {
-        return false;
-    }
-
-    // ltrim
-    while (!rb.eof() && isspace(*rb.position())) {
-        ++rb.position();
-        element.data = rb.position();
-    }
-
-    // parse string
-    if (*rb.position() == '"' || *rb.position() == '\'') {
-        const char str_sep = *rb.position();
-        size_t str_len = 1;
-        // search until next '"' or '\''
-        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
-            ++str_len;
-        }
-        // invalid string
-        if (str_len >= rb.count()) {
-            rb.position() = rb.end();
-            return false;
-        }
-        has_quota = true;
-        rb.position() += str_len + 1;
-        element.size += str_len + 1;
-    }
-
-    // parse array element until map separator ':' or ',' or end '}'
-    while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
-           (rb.count() != 1 || *rb.position() != '}')) {
-        if (has_quota && !isspace(*rb.position())) {
-            return false;
-        }
-        ++rb.position();
-        ++element.size;
-    }
-    // invalid array element
-    if (rb.eof()) {
-        return false;
-    }
-    // adjust read buffer position to first char of next array element
-    ++rb.position();
-
-    // rtrim
-    while (element.size > 0 && isspace(element.data[element.size - 1])) {
-        --element.size;
-    }
-
-    // trim '"' and '\'' for string
-    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
-        element.data[0] == element.data[element.size - 1]) {
-        ++element.data;
-        element.size -= 2;
-    }
-    output = element;
-    return true;
-}
-
-bool is_empty_null_element(StringRef element, IColumn* nested_column, bool has_quota) {
-    auto& nested_null_col = reinterpret_cast<ColumnNullable&>(*nested_column);
-    // handle empty element
-    if (element.size == 0) {
-        nested_null_col.get_nested_column().insert_default();
-        nested_null_col.get_null_map_data().push_back(0);
-        return true;
-    }
-
-    // handle null element
-    if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
-        nested_null_col.get_nested_column().insert_default();
-        nested_null_col.get_null_map_data().push_back(1);
-        return true;
-    }
-    return false;
-}
-Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
-    DCHECK(!rb.eof());
-    auto* map_column = assert_cast<ColumnMap*>(column);
-
-    if (*rb.position() != '{') {
-        return Status::InvalidArgument("map does not start with '{}' character, found '{}'", "{",
-                                       *rb.position());
-    }
-    if (*(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("map does not end with '{}' character, found '{}'", "}",
-                                       *(rb.end() - 1));
-    }
-
-    if (rb.count() == 2) {
-        // empty map {} , need to make empty array to add offset
-        map_column->insert_default();
-    } else {
-        // {"aaa": 1, "bbb": 20}, need to handle key slot and value slot to make key column arr and value arr
-        // skip "{"
-        ++rb.position();
-        ColumnArray::Offsets64& map_off = map_column->get_offsets();
-        IColumn& nested_key_column = map_column->get_keys();
-        DCHECK(nested_key_column.is_nullable());
-        IColumn& nested_val_column = map_column->get_values();
-        DCHECK(nested_val_column.is_nullable());
-
-        size_t element_num = 0;
-        while (!rb.eof()) {
-            StringRef key_element(rb.position(), rb.count());
-            bool has_quota = false;
-            if (!next_slot_from_string(rb, key_element, has_quota)) {
-                // pop this current row which already put element_num item into this row.
-                map_column->get_keys().pop_back(element_num);
-                map_column->get_values().pop_back(element_num);
-                return Status::InvalidArgument("Cannot read map key from text '{}'",
-                                               key_element.to_string());
-            }
-            if (!is_empty_null_element(key_element, &nested_key_column, has_quota)) {
-                ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
-                if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
-                    // pop this current row which already put element_num item into this row.
-                    map_column->get_keys().pop_back(element_num);
-                    map_column->get_values().pop_back(element_num);
-                    return st;
-                }
-            }
-
-            has_quota = false;
-            StringRef value_element(rb.position(), rb.count());
-            if (!next_slot_from_string(rb, value_element, has_quota)) {
-                // +1 just because key column already put succeed , but element_num not refresh here
-                map_column->get_keys().pop_back(element_num + 1);
-                map_column->get_values().pop_back(element_num);
-                return Status::InvalidArgument("Cannot read map value from text '{}'",
-                                               value_element.to_string());
-            }
-            if (!is_empty_null_element(value_element, &nested_val_column, has_quota)) {
-                ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
-                if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
-                    map_column->get_keys().pop_back(element_num + 1);
-                    map_column->get_values().pop_back(element_num);
-                    return st;
-                }
-            }
-            ++element_num;
-        }
-        map_off.push_back(map_off.back() + element_num);
-    }
-    return Status::OK();
-}
-
 MutableColumnPtr DataTypeMap::create_column() const {
     return ColumnMap::create(key_type->create_column(), value_type->create_column(),
                              ColumnArray::ColumnOffsets::create());
+}
+
+Status DataTypeMap::check_column(const IColumn& column) const {
+    const auto* column_map = DORIS_TRY(check_column_nested_type<ColumnMap>(column));
+    RETURN_IF_ERROR(key_type->check_column(column_map->get_keys()));
+    RETURN_IF_ERROR(value_type->check_column(column_map->get_values()));
+    return Status::OK();
 }
 
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {

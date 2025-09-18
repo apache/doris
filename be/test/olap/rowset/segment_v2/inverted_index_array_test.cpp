@@ -31,10 +31,10 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/index_file_reader.h"
+#include "olap/rowset/segment_v2/index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
@@ -51,13 +51,13 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_number.h"
 #include "vec/olap/olap_data_convertor.h"
 
 using namespace lucene::index;
-using doris::segment_v2::InvertedIndexFileWriter;
+using doris::segment_v2::IndexFileWriter;
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 class InvertedIndexArrayTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -76,7 +76,7 @@ public:
         } else if (format == InvertedIndexStorageFormatPB::V2) {
             file_str = InvertedIndexDescriptor::get_index_file_path_v2(index_prefix);
         }
-        std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
+        std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_prefix, format);
         auto st = reader->init();
         EXPECT_EQ(st, Status::OK());
@@ -119,7 +119,7 @@ public:
         std::cout << "==================================" << std::endl;
         lucene::store::Directory* dir = compound_reader.get();
 
-        IndexReader* r = IndexReader::open(dir);
+        lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
         printf("Max Docs: %d\n", r->maxDoc());
         printf("Num Docs: %d\n", r->numDocs());
@@ -220,12 +220,12 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is ["amory", "commiter"]
@@ -305,12 +305,12 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct two arrays: The first row is ["amory","doris"], and the second row is [NULL, "amory", "commiter"]
@@ -394,12 +394,12 @@ public:
         io::FileWriterOptions opts;
         Status sts = fs->create_file(index_path, &file_writer, &opts);
         ASSERT_TRUE(sts.ok());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Simulate outer null cases: 5 rows, outer null map = {1, 0, 0, 1, 0}, i.e., rows 0 and 3 are null
@@ -508,12 +508,12 @@ public:
         TabletIndex idx_meta;
         idx_meta.index_type();
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Simulate outer null cases: 5 rows, outer null map = {1, 0, 0, 1, 0}, i.e., rows 0 and 3 are null
@@ -621,11 +621,11 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
                 fs, index_path_prefix, "multi_block", 0, InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         ExpectedDocMap merged_expected;
@@ -818,12 +818,12 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         vectorized::DataTypePtr inner_int = std::make_shared<vectorized::DataTypeInt32>();
@@ -902,7 +902,7 @@ public:
         ExpectedDocMap expected = {{"123", {0}}, {"456", {0}}, {"789", {2}}, {"101112", {2}}};
         std::vector<int> expected_null_bitmap = {1};
 
-        std::unique_ptr<InvertedIndexFileReader> reader = std::make_unique<InvertedIndexFileReader>(
+        std::unique_ptr<IndexFileReader> reader = std::make_unique<IndexFileReader>(
                 io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V1);
         auto sts = reader->init();
         EXPECT_EQ(sts, Status::OK());
@@ -960,12 +960,12 @@ public:
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
-        auto index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                fs, index_path_prefix, std::string {rowset_id}, seg_id,
-                InvertedIndexStorageFormatPB::V1);
-        std::unique_ptr<segment_v2::InvertedIndexColumnWriter> _inverted_index_builder = nullptr;
-        EXPECT_EQ(InvertedIndexColumnWriter::create(field, &_inverted_index_builder,
-                                                    index_file_writer.get(), &idx_meta),
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
                   Status::OK());
 
         // Construct inner array type: DataTypeArray(DataTypeNullable(DataTypeString))
@@ -1112,5 +1112,4 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     test_array_numeric("int_test", 0, field);
     delete field;
 }
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

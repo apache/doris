@@ -181,9 +181,13 @@ Status BaseCompaction::pick_rowsets_to_compact() {
 
     int score = 0;
     int rowset_cnt = 0;
+    int64_t max_compaction_score = _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                                   _tablet->enable_unique_key_merge_on_write()
+                                           ? config::mow_base_compaction_max_compaction_score
+                                           : config::base_compaction_max_compaction_score;
     while (rowset_cnt < _input_rowsets.size()) {
         score += _input_rowsets[rowset_cnt++]->rowset_meta()->get_compaction_score();
-        if (score > config::base_compaction_max_compaction_score) {
+        if (score > max_compaction_score) {
             break;
         }
     }

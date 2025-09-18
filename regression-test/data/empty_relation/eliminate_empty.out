@@ -10,7 +10,7 @@ PhysicalResultSink
 -- !explain_union_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
 
@@ -38,21 +38,21 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 
 -- !explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
-------------PhysicalOlapScan[nation]
+------------PhysicalOlapScan[nation] RFV2: RF0
 
 -- !except_data_empty_data --
 1
@@ -77,7 +77,7 @@ PhysicalResultSink
 -- !null_explain_union_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[LOCAL]
+----hashAgg[GLOBAL]
 ------PhysicalProject
 --------PhysicalOlapScan[nation]
 
@@ -105,21 +105,21 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
 ----PhysicalProject
-------hashAgg[LOCAL]
+------hashAgg[GLOBAL]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 
 -- !null_explain_except_data_empty_data --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----PhysicalExcept
+----PhysicalExcept RFV2: RF0[n_nationkey->n_nationkey]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------PhysicalOlapScan[nation]
 ------PhysicalDistribute[DistributionSpecHash]
 --------PhysicalProject
 ----------filter(( not (n_nationkey = 1)))
-------------PhysicalOlapScan[nation]
+------------PhysicalOlapScan[nation] RFV2: RF0
 
 -- !null_except_data_empty_data --
 1
@@ -136,6 +136,28 @@ PhysicalResultSink
 1
 
 -- !null_except_empty_data --
+
+-- !union_to_onerow_1 --
+1	2
+
+-- !union_to_onerow_1_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOneRowRelation
+
+-- !union_to_onerow_2 --
+1	2
+
+-- !union_to_onerow_2_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----hashAgg[GLOBAL]
+------PhysicalDistribute[DistributionSpecHash]
+--------hashAgg[LOCAL]
+----------PhysicalOneRowRelation
 
 -- !prune_partition1 --
 PhysicalResultSink

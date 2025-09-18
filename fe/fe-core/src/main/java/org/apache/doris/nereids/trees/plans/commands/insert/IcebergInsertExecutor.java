@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -48,21 +48,19 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
 
     @Override
     protected void beforeExec() throws UserException {
-        String dbName = ((IcebergExternalTable) table).getDbName();
-        String tbName = table.getName();
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert(tableInfo);
+        transaction.beginInsert((IcebergExternalTable) table, insertCtx);
     }
 
     @Override
     protected void doBeforeCommit() throws UserException {
-        String dbName = ((IcebergExternalTable) table).getDbName();
-        String tbName = table.getName();
-        SimpleTableInfo tableInfo = new SimpleTableInfo(dbName, tbName);
+        IcebergExternalTable dorisTable = (IcebergExternalTable) table;
+        NameMapping nameMapping = new NameMapping(dorisTable.getCatalog().getId(),
+                dorisTable.getDbName(), dorisTable.getName(),
+                dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         this.loadedRows = transaction.getUpdateCnt();
-        transaction.finishInsert(tableInfo, insertCtx);
+        transaction.finishInsert(nameMapping);
     }
 
     @Override

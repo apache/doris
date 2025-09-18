@@ -18,6 +18,7 @@
 #include "vhive_table_writer.h"
 
 #include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/materialize_block.h"
@@ -42,21 +43,22 @@ Status VHiveTableWriter::init_properties(ObjectPool* pool) {
     return Status::OK();
 }
 
-Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
     _state = state;
-    _profile = profile;
-
+    _operator_profile = operator_profile;
+    DCHECK(_operator_profile->get_child("CustomCounters") != nullptr);
+    RuntimeProfile* custom_counters = _operator_profile->get_child("CustomCounters");
     // add all counter
-    _written_rows_counter = ADD_COUNTER(_profile, "WrittenRows", TUnit::UNIT);
-    _send_data_timer = ADD_TIMER(_profile, "SendDataTime");
+    _written_rows_counter = ADD_COUNTER(custom_counters, "WrittenRows", TUnit::UNIT);
+    _send_data_timer = ADD_TIMER(custom_counters, "SendDataTime");
     _partition_writers_dispatch_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsDispatchTime", "SendDataTime");
+            ADD_CHILD_TIMER(custom_counters, "PartitionsDispatchTime", "SendDataTime");
     _partition_writers_write_timer =
-            ADD_CHILD_TIMER(_profile, "PartitionsWriteTime", "SendDataTime");
-    _partition_writers_count = ADD_COUNTER(_profile, "PartitionsWriteCount", TUnit::UNIT);
-    _open_timer = ADD_TIMER(_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_profile, "CloseTime");
-    _write_file_counter = ADD_COUNTER(_profile, "WriteFileCount", TUnit::UNIT);
+            ADD_CHILD_TIMER(custom_counters, "PartitionsWriteTime", "SendDataTime");
+    _partition_writers_count = ADD_COUNTER(custom_counters, "PartitionsWriteCount", TUnit::UNIT);
+    _open_timer = ADD_TIMER(custom_counters, "OpenTime");
+    _close_timer = ADD_TIMER(custom_counters, "CloseTime");
+    _write_file_counter = ADD_COUNTER(custom_counters, "WriteFileCount", TUnit::UNIT);
 
     SCOPED_TIMER(_open_timer);
     for (int i = 0; i < _t_sink.hive_table_sink.columns.size(); ++i) {
@@ -111,7 +113,7 @@ Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
                     return e.to_status();
                 }
                 _partitions_to_writers.insert({"", writer});
-                RETURN_IF_ERROR(writer->open(_state, _profile));
+                RETURN_IF_ERROR(writer->open(_state, _operator_profile));
             } else {
                 if (writer_iter->second->written_len() > config::hive_sink_max_file_size) {
                     std::string file_name(writer_iter->second->file_name());
@@ -128,7 +130,7 @@ Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
                         return e.to_status();
                     }
                     _partitions_to_writers.insert({"", writer});
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                 } else {
                     writer = writer_iter->second;
                 }
@@ -159,7 +161,7 @@ Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
                 try {
                     auto writer = _create_partition_writer(output_block, position, file_name,
                                                            file_name_index);
-                    RETURN_IF_ERROR(writer->open(_state, _profile));
+                    RETURN_IF_ERROR(writer->open(_state, _operator_profile));
                     IColumn::Filter filter(output_block.rows(), 0);
                     filter[position] = 1;
                     writer_positions.insert({writer, std::move(filter)});
@@ -261,7 +263,7 @@ Status VHiveTableWriter::close(Status status) {
         _partitions_to_writers.clear();
     }
     if (status.ok()) {
-        SCOPED_TIMER(_profile->total_time_counter());
+        SCOPED_TIMER(_operator_profile->total_time_counter());
 
         COUNTER_SET(_written_rows_counter, static_cast<int64_t>(_row_count));
         COUNTER_SET(_send_data_timer, _send_data_ns);
@@ -302,30 +304,42 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
         if (existing_table == false) {   // new table
             update_mode = TUpdateMode::NEW;
             if (_partition_columns_input_index.empty()) { // new unpartitioned table
-                write_info = {write_location.write_path, write_location.original_write_path,
-                              write_location.target_path, write_location.file_type};
+                write_info = {write_location.write_path,
+                              write_location.original_write_path,
+                              write_location.target_path,
+                              write_location.file_type,
+                              {}};
             } else { // a new partition in a new partitioned table
                 auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
                 auto original_write_path =
                         fmt::format("{}/{}", write_location.original_write_path, partition_name);
                 auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-                write_info = {std::move(write_path), std::move(original_write_path),
-                              std::move(target_path), write_location.file_type};
+                write_info = {std::move(write_path),
+                              std::move(original_write_path),
+                              std::move(target_path),
+                              write_location.file_type,
+                              {}};
             }
         } else { // a new partition in an existing partitioned table, or an existing unpartitioned table
             if (_partition_columns_input_index.empty()) { // an existing unpartitioned table
                 update_mode =
                         !hive_table_sink.overwrite ? TUpdateMode::APPEND : TUpdateMode::OVERWRITE;
-                write_info = {write_location.write_path, write_location.original_write_path,
-                              write_location.target_path, write_location.file_type};
+                write_info = {write_location.write_path,
+                              write_location.original_write_path,
+                              write_location.target_path,
+                              write_location.file_type,
+                              {}};
             } else { // a new partition in an existing partitioned table
                 update_mode = TUpdateMode::NEW;
                 auto write_path = fmt::format("{}/{}", write_location.write_path, partition_name);
                 auto original_write_path =
                         fmt::format("{}/{}", write_location.original_write_path, partition_name);
                 auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-                write_info = {std::move(write_path), std::move(original_write_path),
-                              std::move(target_path), write_location.file_type};
+                write_info = {std::move(write_path),
+                              std::move(original_write_path),
+                              std::move(target_path),
+                              write_location.file_type,
+                              {}};
             }
             // need to get schema from existing table ?
         }
@@ -338,8 +352,11 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             auto original_write_path =
                     fmt::format("{}/{}", write_location.original_write_path, partition_name);
             auto target_path = fmt::format("{}", existing_partition->location.target_path);
-            write_info = {std::move(write_path), std::move(original_write_path),
-                          std::move(target_path), existing_partition->location.file_type};
+            write_info = {std::move(write_path),
+                          std::move(original_write_path),
+                          std::move(target_path),
+                          existing_partition->location.file_type,
+                          {}};
             file_format_type = existing_partition->file_format;
             write_compress_type = hive_table_sink.compression_type;
         } else {
@@ -348,12 +365,19 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             auto original_write_path =
                     fmt::format("{}/{}", write_location.original_write_path, partition_name);
             auto target_path = fmt::format("{}/{}", write_location.target_path, partition_name);
-            write_info = {std::move(write_path), std::move(original_write_path),
-                          std::move(target_path), write_location.file_type};
+            write_info = {std::move(write_path),
+                          std::move(original_write_path),
+                          std::move(target_path),
+                          write_location.file_type,
+                          {}};
             file_format_type = hive_table_sink.file_format;
             write_compress_type = hive_table_sink.compression_type;
             // need to get schema from existing table ?
         }
+    }
+    if (hive_table_sink.__isset.broker_addresses) {
+        write_info.broker_addresses.assign(hive_table_sink.broker_addresses.begin(),
+                                           hive_table_sink.broker_addresses.end());
     }
 
     _write_file_count++;

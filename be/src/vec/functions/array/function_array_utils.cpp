@@ -24,7 +24,7 @@
 
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/columns/column_object.h"
+#include "vec/columns/column_variant.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 

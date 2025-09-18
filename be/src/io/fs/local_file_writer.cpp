@@ -26,15 +26,15 @@
 
 #include <algorithm>
 #include <cstring>
-#include <memory>
 #include <ostream>
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/macros.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -44,6 +44,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 namespace {
 
 Status sync_dir(const io::Path& dirname) {
@@ -144,9 +145,9 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
         // Never request more than IOV_MAX in one request.
         size_t iov_count = std::min(data_cnt - completed_iov, static_cast<size_t>(IOV_MAX));
         ssize_t res;
-        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(
-                                    ::writev(_fd, iov.data() + completed_iov, iov_count),
-                                    "LocalFileWriter::writev", _fd));
+        RETRY_ON_EINTR(res, SYNC_POINT_HOOK_RETURN_VALUE(::writev(_fd, iov.data() + completed_iov,
+                                                                  cast_set<int32_t>(iov_count)),
+                                                         "LocalFileWriter::writev", _fd));
         DBUG_EXECUTE_IF("LocalFileWriter::appendv.io_error", {
             auto sub_path = dp->param<std::string>("sub_path", "");
             if ((sub_path.empty() && _path.filename().compare(kTestFilePath)) ||
@@ -244,5 +245,6 @@ Status LocalFileWriter::_close(bool sync) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileWriter::close", Status::IOError("inject io error"));
     return fd_reclaim_func(Status::OK());
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

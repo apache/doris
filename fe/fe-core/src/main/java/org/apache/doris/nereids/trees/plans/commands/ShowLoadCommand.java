@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.ShowStreamLoadStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -35,7 +34,6 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -76,6 +74,7 @@ public class ShowLoadCommand extends ShowCommand {
             .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
             .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
             .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets").add("User").add("Comment")
+            .add("FirstErrorMsg")
             .build();
 
     // STREAM_LOAD_TITLE_NAMES copy from org.apache.doris.analysis.org.apache.doris.analysis
@@ -84,6 +83,7 @@ public class ShowLoadCommand extends ShowCommand {
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
             .add("StartTime").add("FinishTime").add("User").add("Comment")
+            .add("FirstErrorMsg")
             .build();
     protected String labelValue;
     protected String stateValue;
@@ -101,6 +101,14 @@ public class ShowLoadCommand extends ShowCommand {
     private String dbName;
     private ArrayList<OrderByPair> orderByPairs;
     private boolean isStreamLoad;
+
+    /**
+     * StreamLoadState
+     */
+    public enum StreamLoadState {
+        SUCCESS,
+        FAIL
+    }
 
     /**
      * constructor for show load
@@ -164,14 +172,14 @@ public class ShowLoadCommand extends ShowCommand {
         return org.apache.doris.load.loadv2.JobState.valueOf(stateValue);
     }
 
-    private ShowStreamLoadStmt.StreamLoadState getStreamLoadState() {
+    private StreamLoadState getStreamLoadState() {
         if (Strings.isNullOrEmpty(stateValue)) {
             return null;
         }
 
-        ShowStreamLoadStmt.StreamLoadState state = null;
+        StreamLoadState state = null;
         try {
-            state = ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
+            state = StreamLoadState.valueOf(stateValue);
         } catch (Exception e) {
             // CHECKSTYLE IGNORE THIS LINE
         }
@@ -202,10 +210,7 @@ public class ShowLoadCommand extends ShowCommand {
         Env env = ctx.getEnv();
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(dbName);
         long dbId = db.getId();
-        List<List<Comparable>> loadInfos;
-        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-        Load load = env.getLoadInstance();
-        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), labelValue, isAccurateMatch, getStates());
+        List<List<Comparable>> loadInfos = Lists.newArrayList();
         Set<String> statesValue = getStates() == null ? null : getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
@@ -250,7 +255,7 @@ public class ShowLoadCommand extends ShowCommand {
             }
 
             for (Comparable element : loadInfo) {
-                oneInfo.add(element.toString());
+                oneInfo.add(String.valueOf(element));
             }
             rows.add(oneInfo);
         }
@@ -297,8 +302,8 @@ public class ShowLoadCommand extends ShowCommand {
     }
 
     private boolean analyzeCompoundPredicate(Expression expr) throws AnalysisException {
-        if (wildWhere instanceof CompoundPredicate) {
-            if (!(wildWhere instanceof And)) {
+        if (expr instanceof CompoundPredicate) {
+            if (!(expr instanceof And)) {
                 throw new AnalysisException("Only allow compound predicate with operator AND");
             }
             checkPredicateName(expr.child(0), expr.child(1));
@@ -321,73 +326,66 @@ public class ShowLoadCommand extends ShowCommand {
             return true;
         }
 
-        boolean valid = true;
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK: {
-            if (!(expr instanceof EqualTo) && !(expr instanceof Like)) {
-                valid = false;
-                break CHECK;
-            }
+        if (!(expr instanceof EqualTo) && !(expr instanceof Like)) {
+            return false;
+        }
 
-            // left child
-            if (!(expr.child(0) instanceof UnboundSlot)) {
-                valid = false;
-                break CHECK;
-            }
-            String leftKey = ((UnboundSlot) expr.child(0)).getName();
-            if (leftKey.equalsIgnoreCase("label")) {
-                hasLabel = true;
-            } else if (leftKey.equalsIgnoreCase("state")) {
-                hasState = true;
-            } else {
-                valid = false;
-                break CHECK;
-            }
+        // left child
+        if (!(expr.child(0) instanceof UnboundSlot)) {
+            return false;
+        }
 
-            if (hasState && !(expr instanceof EqualTo)) {
-                valid = false;
-                break CHECK;
-            }
+        String leftKey = ((UnboundSlot) expr.child(0)).getName();
+        if (leftKey.equalsIgnoreCase("label")) {
+            hasLabel = true;
+        } else if (leftKey.equalsIgnoreCase("state")) {
+            hasState = true;
+        } else {
+            return false;
+        }
 
-            if (hasLabel && expr instanceof EqualTo) {
-                isAccurateMatch = true;
-            }
+        if (hasState && !(expr instanceof EqualTo)) {
+            return false;
+        }
 
-            // right child
-            if (!(expr.child(1) instanceof StringLikeLiteral)) {
-                valid = false;
-                break CHECK;
-            }
-            String rightValue = ((StringLikeLiteral) expr.child(1)).getStringValue();
-            if (Strings.isNullOrEmpty(rightValue)) {
-                valid = false;
-                break CHECK;
-            }
+        if (hasLabel && expr instanceof EqualTo) {
+            isAccurateMatch = true;
+        }
 
-            if (hasLabel && !isAccurateMatch && !rightValue.contains("%")) {
-                rightValue = "%" + rightValue + "%";
-            }
-            if (hasLabel) {
-                labelValue = rightValue;
-            } else if (hasState) {
-                stateValue = rightValue.toUpperCase();
+        // right child
+        if (!(expr.child(1) instanceof StringLikeLiteral)) {
+            return false;
+        }
 
-                try {
-                    if (isStreamLoad) {
-                        ShowStreamLoadStmt.StreamLoadState.valueOf(stateValue);
-                    } else {
-                        LoadJob.JobState.valueOf(stateValue);
-                    }
-                } catch (Exception e) {
-                    valid = false;
-                    break CHECK;
+        String rightValue = ((StringLikeLiteral) expr.child(1)).getStringValue();
+        if (Strings.isNullOrEmpty(rightValue)) {
+            return false;
+        }
+
+        if (hasLabel && !isAccurateMatch && !rightValue.contains("%")) {
+            rightValue = "%" + rightValue + "%";
+        }
+
+        if (hasLabel) {
+            labelValue = rightValue;
+        } else if (hasState) {
+            stateValue = rightValue.toUpperCase();
+
+            try {
+                if (isStreamLoad) {
+                    StreamLoadState.valueOf(stateValue);
+                } else {
+                    LoadJob.JobState.valueOf(stateValue);
                 }
+            } catch (Exception e) {
+                return false;
             }
         }
 
-        return valid;
+        return true;
     }
 
     @Override

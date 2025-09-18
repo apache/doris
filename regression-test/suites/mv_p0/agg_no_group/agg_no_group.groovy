@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("agg_no_group") {
     sql "DROP TABLE IF EXISTS lineitem_2_agg"
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """
             CREATE TABLE `lineitem_2_agg` (
             `l_orderkey` BIGINT NULL,
@@ -57,7 +59,7 @@ suite ("agg_no_group") {
 
     test {
         sql """CREATE MATERIALIZED VIEW mv_name_2_3_5  AS  
-        select l_shipdate, l_partkey, l_orderkey from lineitem_2_agg"""
+        select l_shipdate as a1, l_partkey as a2, l_orderkey as a3 from lineitem_2_agg"""
         exception "agg mv must has group by clause"
     }
 }

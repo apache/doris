@@ -17,5 +17,5 @@
 
 suite("push_limit_with_eliminate_union") {
     // this should not failed for [INTERNAL_ERROR]VSlotRef  have invalid slot id
-    sql """(select 1 limit 0 union all select count() + 1) limit 1;"""
+    sql """((select 1 limit 0) union all select count() + 1) limit 1;"""
 }

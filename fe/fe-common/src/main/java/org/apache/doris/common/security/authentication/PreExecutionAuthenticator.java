@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.security.authentication;
 
+import org.apache.hadoop.conf.Configuration;
+
 import java.util.concurrent.Callable;
 
 /**
@@ -38,6 +40,23 @@ public class PreExecutionAuthenticator {
      */
     public PreExecutionAuthenticator() {
     }
+
+    /**
+     * Constructor to initialize the PreExecutionAuthenticator object.
+     * This constructor is responsible for initializing the Hadoop authenticator required for Kerberos authentication
+     * based on the provided configuration information.
+     *
+     * @param configuration Configuration information used to obtain Kerberos authentication settings
+     */
+    public PreExecutionAuthenticator(Configuration configuration) {
+        AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(configuration);
+        this.hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+    }
+
+    public PreExecutionAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
+        this.hadoopAuthenticator = hadoopAuthenticator;
+    }
+
 
     /**
      * Executes the specified task with necessary authentication.

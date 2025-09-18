@@ -19,14 +19,18 @@ package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TSortField;
 
@@ -56,9 +60,21 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
             add(TFileFormatType.FORMAT_PARQUET);
         }};
 
+    // Store PropertiesMap, including vended credentials or static credentials
+    // get them in doInitialize() to ensure internal consistency of ScanNode
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+
     public IcebergTableSink(IcebergExternalTable targetTable) {
         super();
+        if (targetTable.isView()) {
+            throw new UnsupportedOperationException("Write data to iceberg view is not supported");
+        }
         this.targetTable = targetTable;
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) targetTable.getCatalog();
+        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                targetTable.getIcebergTable());
     }
 
     @Override
@@ -125,19 +141,24 @@ public class IcebergTableSink extends BaseExternalTableDataSink {
         tSink.setCompressionType(getTFileCompressType(IcebergUtils.getFileCompress(icebergTable)));
 
         // hadoop config
-        HashMap<String, String> props = new HashMap<>(icebergTable.properties());
-        Map<String, String> catalogProps = targetTable.getCatalog().getProperties();
-        props.putAll(catalogProps);
+        Map<String, String> props = new HashMap<>();
+        for (StorageProperties storageProperties : storagePropertiesMap.values()) {
+            props.putAll(storageProperties.getBackendConfigProperties());
+        }
         tSink.setHadoopConfig(props);
 
         // location
-        LocationPath locationPath = new LocationPath(IcebergUtils.dataLocation(icebergTable), catalogProps);
+        LocationPath locationPath = LocationPath.of(IcebergUtils.dataLocation(icebergTable), storagePropertiesMap);
         tSink.setOutputPath(locationPath.toStorageLocation().toString());
         tSink.setOriginalOutputPath(locationPath.getPath().toString());
-        tSink.setFileType(locationPath.getTFileTypeForBE());
+        TFileType fileType = locationPath.getTFileTypeForBE();
+        tSink.setFileType(fileType);
+        if (fileType.equals(TFileType.FILE_BROKER)) {
+            tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
+        }
 
         if (insertCtx.isPresent()) {
-            BaseExternalTableInsertCommandContext context = (BaseExternalTableInsertCommandContext) insertCtx.get();
+            IcebergInsertCommandContext context = (IcebergInsertCommandContext) insertCtx.get();
             tSink.setOverwrite(context.isOverwrite());
         }
         tDataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);

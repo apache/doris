@@ -53,6 +53,29 @@ extern bvar::LatencyRecorder s3_get_bucket_version_latency;
 extern bvar::LatencyRecorder s3_copy_object_latency;
 }; // namespace s3_bvar
 
+class S3Environment {
+public:
+    S3Environment(const S3Environment&) = delete;
+    S3Environment& operator=(const S3Environment&) = delete;
+
+    static S3Environment& getInstance();
+
+    static Aws::Client::ClientConfiguration& getClientConfiguration() {
+        // The default constructor of ClientConfiguration will do some http call
+        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
+        // which is unnecessary.
+        // So here we use a static instance, and deep copy every time
+        // to avoid unnecessary operations.
+        static Aws::Client::ClientConfiguration instance;
+        return instance;
+    }
+
+    ~S3Environment();
+
+private:
+    S3Environment();
+    Aws::SDKOptions aws_options_;
+};
 struct AccessorRateLimiter {
 public:
     ~AccessorRateLimiter() = default;

@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -59,6 +60,15 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
+// FIXME: This file contains widespread UB due to unsafe type-punning casts.
+//        These must be properly refactored to eliminate reliance on reinterpret-style behavior.
+//
+// Temporarily suppress GCC 15+ warnings on user-defined type casts to allow build to proceed.
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-user-defined"
+#endif
+
 namespace doris::vectorized {
 struct DayCeil;
 struct DayFloor;
@@ -87,7 +97,8 @@ class FunctionDateTimeFloorCeil : public IFunction {
 public:
     using DateValueType = date_cast::TypeToValueTypeV<DateType>;
     using NativeType = DateType::FieldType;
-    using DeltaDataType = DataTypeNumber<Int32>;
+    static constexpr PrimitiveType PType = DateType::PType;
+    using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
 
@@ -123,11 +134,10 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto* sources =
-                    check_and_get_column<ColumnVector<NativeType>>(source_col.get())) {
-            auto col_to = ColumnVector<NativeType>::create();
+        if (const auto* sources = check_and_get_column<ColumnVector<PType>>(source_col.get())) {
+            auto col_to = ColumnVector<PType>::create();
             col_to->resize(input_rows_count);
-            auto null_map = ColumnVector<UInt8>::create();
+            auto null_map = ColumnUInt8::create();
             null_map->get_data().resize_fill(input_rows_count, false);
 
             if constexpr (ArgNum == 1) {
@@ -150,13 +160,13 @@ public:
                     }
                 } else {
                     if (const auto* delta_vec_column0 =
-                                check_and_get_column<ColumnVector<NativeType>>(delta_column)) {
+                                check_and_get_column<ColumnVector<PType>>(delta_column)) {
                         // time_round(datetime, origin)
                         vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
                                              col_to->get_data(), null_map->get_data());
                     } else {
                         const auto* delta_vec_column1 =
-                                check_and_get_column<ColumnVector<Int32>>(delta_column);
+                                check_and_get_column<ColumnInt32>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         // time_round(datetime, period)
                         vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
@@ -181,8 +191,7 @@ public:
                 } else if (arg1_const && !arg2_const) {
                     Field arg1;
                     arg1_col->get(0, arg1);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     // time_round(datetime, const(period), origin)
                     vector_const_vector(sources->get_data(), arg1.get<Int32>(),
                                         arg2_column->get_data(), col_to->get_data(),
@@ -190,15 +199,14 @@ public:
                 } else if (!arg1_const && arg2_const) {
                     Field arg2;
                     arg2_col->get(0, arg2);
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
                     // time_round(datetime, period, const(origin))
                     vector_vector_const(sources->get_data(), arg1_column->get_data(),
                                         arg2.get<NativeType>(), col_to->get_data(),
                                         null_map->get_data());
                 } else {
-                    const auto* arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
-                    const auto arg2_column =
-                            check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
+                    const auto* arg1_column = check_and_get_column<ColumnInt32>(*arg1_col);
+                    const auto arg2_column = check_and_get_column<ColumnVector<PType>>(*arg2_col);
                     DCHECK(arg1_column != nullptr);
                     DCHECK(arg2_column != nullptr);
                     // time_round(datetime, period, origin)
@@ -372,8 +380,10 @@ private:
 
     //// time rounds
     static constexpr uint32_t MASK_YEAR_FOR_DATEV2 = ((uint32_t)-1) >> 23;
+    static constexpr uint32_t BASE_MONTH_FOR_DATEV2 = 1U << 5;
     static constexpr uint32_t MASK_YEAR_MONTH_FOR_DATEV2 = ((uint32_t)-1) >> 27;
     static constexpr uint64_t MASK_YEAR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 18;
+    static constexpr uint64_t BASE_MONTH_FOR_DATETIMEV2 = 1ULL << 42;
     static constexpr uint64_t MASK_YEAR_MONTH_FOR_DATETIMEV2 = ((uint64_t)-1) >> 22;
     static constexpr uint64_t MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2 = ((uint64_t)-1) >> 27;
     static constexpr uint64_t MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2 = ((uint64_t)-1) >> 32;
@@ -435,35 +445,39 @@ private:
                 ts_res.reset_zero_by_type(ts_arg.type());
             }
             int64_t diff;
-            int64_t part;
+            bool part;
             if constexpr (Flag::Unit == YEAR) {
                 diff = ts_arg.year();
-                part = (ts_arg.month() - 1) + (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() +
-                       ts_arg.second();
+                part = (ts_arg.month() - 1) | (ts_arg.day() - 1) | ts_arg.hour() | ts_arg.minute() |
+                       ts_arg.second() | ts_arg.microsecond();
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                // only ceil cannot be optimized then reach here.
+                diff = ts_arg.year() * 4 + ts_arg.quarter() - 1;
+                part = (ts_arg.month() - 1) % 3 | (ts_arg.day() - 1) | ts_arg.hour() |
+                       ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == MONTH) {
                 diff = ts_arg.year() * 12 + ts_arg.month() - 1;
-                part = (ts_arg.day() - 1) + ts_arg.hour() + ts_arg.minute() + ts_arg.second();
+                part = (ts_arg.day() - 1) | ts_arg.hour() | ts_arg.minute() | ts_arg.second() |
+                       ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == DAY) {
                 diff = ts_arg.daynr();
-                part = ts_arg.hour() + ts_arg.minute() + ts_arg.second();
+                part = ts_arg.hour() | ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == HOUR) {
                 diff = ts_arg.daynr() * 24 + ts_arg.hour();
-                part = ts_arg.minute() + ts_arg.second();
+                part = ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == MINUTE) {
                 diff = ts_arg.daynr() * 24L * 60 + ts_arg.hour() * 60 + ts_arg.minute();
-                part = ts_arg.second();
+                part = ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == SECOND) {
                 diff = ts_arg.daynr() * 24L * 60 * 60 + ts_arg.hour() * 60L * 60 +
                        ts_arg.minute() * 60L + ts_arg.second();
-                part = 0;
-                if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
-                    part = ts_arg.microsecond();
-                }
+                part = ts_arg.microsecond();
             }
 
             if constexpr (Flag::Type == CEIL) {
@@ -471,137 +485,176 @@ private:
                     diff++;
                 }
             }
-            TimeInterval interval(Flag::Unit, diff, 1);
+            TimeInterval interval(Flag::Unit, diff, false);
             return ts_res.template date_set_interval<Flag::Unit>(interval);
         }
     }
 
+    // ts_res should be initialized with the ts_origin.
     template <Int32 const_period = 0>
     static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
-                                    DateValueType& ts_res) {
+                                    DateValueType& ts_origin) {
+        DateValueType& ts_res = ts_origin;
         int64_t diff;
         int64_t trivial_part_ts_res;
         int64_t trivial_part_ts_arg;
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             if constexpr (Flag::Unit == YEAR) {
-                diff = (ts_arg.year() - ts_res.year());
+                diff = (ts_arg.year() - ts_origin.year());
                 trivial_part_ts_arg = ts_arg.to_int64() % 10000000000;
-                trivial_part_ts_res = ts_res.to_int64() % 10000000000;
+                trivial_part_ts_res = ts_origin.to_int64() % 10000000000;
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_origin.year()) * 4 +
+                       (ts_arg.month() - ts_origin.month()) / 3;
+                trivial_part_ts_arg =
+                        (ts_arg.month() - 1) % 3 * 100000000 + (ts_arg.to_int64() % 100000000);
+                trivial_part_ts_res = (ts_origin.month() - 1) % 3 * 100000000 +
+                                      (ts_origin.to_int64() % 100000000);
             }
             if constexpr (Flag::Unit == MONTH) {
-                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                diff = (ts_arg.year() - ts_origin.year()) * 12 +
+                       (ts_arg.month() - ts_origin.month());
                 trivial_part_ts_arg = ts_arg.to_int64() % 100000000;
-                trivial_part_ts_res = ts_res.to_int64() % 100000000;
+                trivial_part_ts_res = ts_origin.to_int64() % 100000000;
             }
             if constexpr (Flag::Unit == WEEK) {
-                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                diff = ts_arg.daynr() / 7 - ts_origin.daynr() / 7;
                 trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
                                       ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
-                                      ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res = ts_origin.daynr() % 7 * 24 * 3600 + ts_origin.hour() * 3600 +
+                                      ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == DAY) {
-                diff = ts_arg.daynr() - ts_res.daynr();
+                diff = ts_arg.daynr() - ts_origin.daynr();
                 trivial_part_ts_arg = ts_arg.hour() * 3600 + ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.hour() * 3600 + ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res =
+                        ts_origin.hour() * 3600 + ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == HOUR) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 +
+                       (ts_arg.hour() - ts_origin.hour());
                 trivial_part_ts_arg = ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res = ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == MINUTE) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
-                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_origin.hour()) * 60 +
+                       (ts_arg.minute() - ts_origin.minute());
                 trivial_part_ts_arg = ts_arg.second();
-                trivial_part_ts_res = ts_res.second();
+                trivial_part_ts_res = ts_origin.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_origin);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
         } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>) {
             if constexpr (Flag::Unit == YEAR) {
-                diff = (ts_arg.year() - ts_res.year());
+                diff = (ts_arg.year() - ts_origin.year());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
-                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+                trivial_part_ts_res = ts_origin.to_date_int_val() & MASK_YEAR_FOR_DATEV2;
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_origin.year()) * 4 +
+                       (ts_arg.month() - ts_origin.month()) / 3;
+                trivial_part_ts_arg = ((ts_arg.month() - 1) % 3) * BASE_MONTH_FOR_DATEV2 +
+                                      (ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2);
+                trivial_part_ts_res = ((ts_origin.month() - 1) % 3) * BASE_MONTH_FOR_DATEV2 +
+                                      (ts_origin.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2);
             }
             if constexpr (Flag::Unit == MONTH) {
-                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                diff = (ts_arg.year() - ts_origin.year()) * 12 +
+                       (ts_arg.month() - ts_origin.month());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
-                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
+                trivial_part_ts_res = ts_origin.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATEV2;
             }
             if constexpr (Flag::Unit == WEEK) {
-                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                diff = ts_arg.daynr() / 7 - ts_origin.daynr() / 7;
                 trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
                                       ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
-                                      ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res = ts_origin.daynr() % 7 * 24 * 3600 + ts_origin.hour() * 3600 +
+                                      ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == DAY) {
-                diff = ts_arg.daynr() - ts_res.daynr();
+                diff = ts_arg.daynr() - ts_origin.daynr();
                 trivial_part_ts_arg = ts_arg.hour() * 3600 + ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.hour() * 3600 + ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res =
+                        ts_origin.hour() * 3600 + ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == HOUR) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 +
+                       (ts_arg.hour() - ts_origin.hour());
                 trivial_part_ts_arg = ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res = ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == MINUTE) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
-                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_origin.hour()) * 60 +
+                       (ts_arg.minute() - ts_origin.minute());
                 trivial_part_ts_arg = ts_arg.second();
-                trivial_part_ts_res = ts_res.second();
+                trivial_part_ts_res = ts_origin.second();
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_origin);
                 trivial_part_ts_res = 0;
                 trivial_part_ts_arg = 0;
             }
         } else if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
             if constexpr (Flag::Unit == YEAR) {
-                diff = (ts_arg.year() - ts_res.year());
+                diff = (ts_arg.year() - ts_origin.year());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
-                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_origin.to_date_int_val() & MASK_YEAR_FOR_DATETIMEV2;
+            }
+            if constexpr (Flag::Unit == QUARTER) {
+                diff = (ts_arg.year() - ts_origin.year()) * 4 +
+                       (ts_arg.month() - ts_origin.month()) / 3;
+                trivial_part_ts_arg = ((ts_arg.month() - 1) % 3) * BASE_MONTH_FOR_DATETIMEV2 +
+                                      (ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2);
+                trivial_part_ts_res =
+                        ((ts_origin.month() - 1) % 3) * BASE_MONTH_FOR_DATETIMEV2 +
+                        (ts_origin.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2);
             }
             if constexpr (Flag::Unit == MONTH) {
-                diff = (ts_arg.year() - ts_res.year()) * 12 + (ts_arg.month() - ts_res.month());
+                diff = (ts_arg.year() - ts_origin.year()) * 12 +
+                       (ts_arg.month() - ts_origin.month());
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
-                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_origin.to_date_int_val() & MASK_YEAR_MONTH_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == WEEK) {
-                diff = ts_arg.daynr() / 7 - ts_res.daynr() / 7;
+                diff = ts_arg.daynr() / 7 - ts_origin.daynr() / 7;
                 trivial_part_ts_arg = ts_arg.daynr() % 7 * 24 * 3600 + ts_arg.hour() * 3600 +
                                       ts_arg.minute() * 60 + ts_arg.second();
-                trivial_part_ts_res = ts_res.daynr() % 7 * 24 * 3600 + ts_res.hour() * 3600 +
-                                      ts_res.minute() * 60 + ts_res.second();
+                trivial_part_ts_res = ts_origin.daynr() % 7 * 24 * 3600 + ts_origin.hour() * 3600 +
+                                      ts_origin.minute() * 60 + ts_origin.second();
             }
             if constexpr (Flag::Unit == DAY) {
-                diff = ts_arg.daynr() - ts_res.daynr();
+                diff = ts_arg.daynr() - ts_origin.daynr();
                 trivial_part_ts_arg = ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
-                trivial_part_ts_res = ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
+                trivial_part_ts_res =
+                        ts_origin.to_date_int_val() & MASK_YEAR_MONTH_DAY_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == HOUR) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 + (ts_arg.hour() - ts_res.hour());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 +
+                       (ts_arg.hour() - ts_origin.hour());
                 trivial_part_ts_arg =
                         ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
                 trivial_part_ts_res =
-                        ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
+                        ts_origin.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == MINUTE) {
-                diff = (ts_arg.daynr() - ts_res.daynr()) * 24 * 60 +
-                       (ts_arg.hour() - ts_res.hour()) * 60 + (ts_arg.minute() - ts_res.minute());
+                diff = (ts_arg.daynr() - ts_origin.daynr()) * 24 * 60 +
+                       (ts_arg.hour() - ts_origin.hour()) * 60 +
+                       (ts_arg.minute() - ts_origin.minute());
                 trivial_part_ts_arg =
                         ts_arg.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
-                trivial_part_ts_res =
-                        ts_res.to_date_int_val() & MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
+                trivial_part_ts_res = ts_origin.to_date_int_val() &
+                                      MASK_YEAR_MONTH_DAY_HOUR_MINUTE_FOR_DATETIMEV2;
             }
             if constexpr (Flag::Unit == SECOND) {
-                diff = ts_arg.datetime_diff_in_seconds(ts_res);
+                diff = ts_arg.datetime_diff_in_seconds(ts_origin);
                 trivial_part_ts_arg = ts_arg.microsecond();
-                trivial_part_ts_res = ts_res.microsecond();
+                trivial_part_ts_res = ts_origin.microsecond();
             }
         }
 
@@ -615,7 +668,8 @@ private:
             diff -= trivial_part_ts_arg < trivial_part_ts_res;
         }
 
-        //round down/up inside time period(several time-units)
+        // round down/up inside time period(several time-units)
+        // e.g. if period is 3, diff is 8, then delta_inside_period is 2,
         int64_t delta_inside_period;
         if constexpr (const_period != 0) {
             delta_inside_period = diff >= 0 ? diff % const_period
@@ -625,18 +679,16 @@ private:
         }
 
         int64_t step = diff - delta_inside_period +
-                       (Flag::Type == FLOOR        ? 0
-                        : delta_inside_period == 0 ? 0
-                                                   : period);
+                       (Flag::Type == FLOOR ? 0 : (delta_inside_period == 0 ? 0 : period));
         bool is_neg = step < 0;
-        TimeInterval interval(Flag::Unit, is_neg ? -step : step, is_neg);
+        TimeInterval interval(Flag::Unit, std::abs(step), is_neg);
         return ts_res.template date_add_interval<Flag::Unit>(interval);
     }
 
     /// optimized path
     constexpr static bool can_use_optimize(int period) {
         if constexpr (!std::is_same_v<DateValueType, VecDateTimeValue> && Flag::Type == FLOOR) {
-            if constexpr (Flag::Unit == YEAR || Flag::Unit == DAY) {
+            if constexpr (Flag::Unit == YEAR || Flag::Unit == DAY || Flag::Unit == QUARTER) {
                 return period == 1;
             }
             if constexpr (Flag::Unit == MONTH) {
@@ -657,6 +709,7 @@ private:
 
     static void floor_opt(const DateValueType& ts2, DateValueType& ts1, int period) {
         if (period == 1) {
+            // year, day, quarter must go through this path
             floor_opt_one_period(ts2, ts1);
         } else {
             static constexpr uint64_t MASK_HOUR_FLOOR =
@@ -712,6 +765,18 @@ private:
         if constexpr (Flag::Unit == YEAR) {
             ts1.unchecked_set_time(ts2.year(), 1, 1, 0, 0, 0);
         }
+        if constexpr (Flag::Unit == QUARTER) {
+            // 1,4,7,10 are the first month of each quarter
+            if (ts2.month() <= 3) {
+                ts1.unchecked_set_time(ts2.year(), 1, 1, 0, 0, 0);
+            } else if (ts2.month() <= 6) {
+                ts1.unchecked_set_time(ts2.year(), 4, 1, 0, 0, 0);
+            } else if (ts2.month() <= 9) {
+                ts1.unchecked_set_time(ts2.year(), 7, 1, 0, 0, 0);
+            } else {
+                ts1.unchecked_set_time(ts2.year(), 10, 1, 0, 0, 0);
+            }
+        }
         if constexpr (Flag::Unit == MONTH) {
             ts1.unchecked_set_time(ts2.year(), ts2.month(), 1, 0, 0, 0);
         }
@@ -760,7 +825,7 @@ private:
     using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                               \
             FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 3>;
 
-#define TIME_ROUND(IMPL, NAME, UNIT, TYPE)                                                       \
+#define TIME_ROUND_DECLARE(IMPL, NAME, UNIT, TYPE)                                               \
     struct IMPL {                                                                                \
         static constexpr auto name = #NAME;                                                      \
         static constexpr TimeUnit Unit = UNIT;                                                   \
@@ -775,21 +840,23 @@ private:
             FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 2,                                 \
                                       true>; /*DateTime and Date is same here*/
 
-TIME_ROUND(YearFloor, year_floor, YEAR, FLOOR);
-TIME_ROUND(MonthFloor, month_floor, MONTH, FLOOR);
-TIME_ROUND(WeekFloor, week_floor, WEEK, FLOOR);
-TIME_ROUND(DayFloor, day_floor, DAY, FLOOR);
-TIME_ROUND(HourFloor, hour_floor, HOUR, FLOOR);
-TIME_ROUND(MinuteFloor, minute_floor, MINUTE, FLOOR);
-TIME_ROUND(SecondFloor, second_floor, SECOND, FLOOR);
+TIME_ROUND_DECLARE(YearFloor, year_floor, YEAR, FLOOR);
+TIME_ROUND_DECLARE(QuarterFloor, quarter_floor, QUARTER, FLOOR);
+TIME_ROUND_DECLARE(MonthFloor, month_floor, MONTH, FLOOR);
+TIME_ROUND_DECLARE(WeekFloor, week_floor, WEEK, FLOOR);
+TIME_ROUND_DECLARE(DayFloor, day_floor, DAY, FLOOR);
+TIME_ROUND_DECLARE(HourFloor, hour_floor, HOUR, FLOOR);
+TIME_ROUND_DECLARE(MinuteFloor, minute_floor, MINUTE, FLOOR);
+TIME_ROUND_DECLARE(SecondFloor, second_floor, SECOND, FLOOR);
 
-TIME_ROUND(YearCeil, year_ceil, YEAR, CEIL);
-TIME_ROUND(MonthCeil, month_ceil, MONTH, CEIL);
-TIME_ROUND(WeekCeil, week_ceil, WEEK, CEIL);
-TIME_ROUND(DayCeil, day_ceil, DAY, CEIL);
-TIME_ROUND(HourCeil, hour_ceil, HOUR, CEIL);
-TIME_ROUND(MinuteCeil, minute_ceil, MINUTE, CEIL);
-TIME_ROUND(SecondCeil, second_ceil, SECOND, CEIL);
+TIME_ROUND_DECLARE(YearCeil, year_ceil, YEAR, CEIL);
+TIME_ROUND_DECLARE(QuarterCeil, quarter_ceil, QUARTER, CEIL);
+TIME_ROUND_DECLARE(MonthCeil, month_ceil, MONTH, CEIL);
+TIME_ROUND_DECLARE(WeekCeil, week_ceil, WEEK, CEIL);
+TIME_ROUND_DECLARE(DayCeil, day_ceil, DAY, CEIL);
+TIME_ROUND_DECLARE(HourCeil, hour_ceil, HOUR, CEIL);
+TIME_ROUND_DECLARE(MinuteCeil, minute_ceil, MINUTE, CEIL);
+TIME_ROUND_DECLARE(SecondCeil, second_ceil, SECOND, CEIL);
 
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #define REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, DELTA)                        \
@@ -809,6 +876,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #define REGISTER_FUNC(IMPL) REGISTER_FUNC_WITH_DELTA_TYPE(IMPL, Int32)
 
     REGISTER_FUNC(YearFloor);
+    REGISTER_FUNC(QuarterFloor);
     REGISTER_FUNC(MonthFloor);
     REGISTER_FUNC(WeekFloor);
     REGISTER_FUNC(DayFloor);
@@ -817,6 +885,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     REGISTER_FUNC(SecondFloor);
 
     REGISTER_FUNC(YearCeil);
+    REGISTER_FUNC(QuarterCeil);
     REGISTER_FUNC(MonthCeil);
     REGISTER_FUNC(WeekCeil);
     REGISTER_FUNC(DayCeil);
@@ -827,3 +896,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 #undef FLOOR
 #undef CEIL
 } // namespace doris::vectorized
+
+#if defined(__GNUC__) && (__GNUC__ >= 15)
+#pragma GCC diagnostic pop
+#endif

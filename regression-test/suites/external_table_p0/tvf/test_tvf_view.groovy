@@ -44,6 +44,7 @@ suite("test_tvf_view", "p0,external,tvf,external_docker,hive") {
             contains("_table_valued_function_hdfs.p_container")
             contains("_table_valued_function_hdfs.p_retailprice")
             contains("_table_valued_function_hdfs.p_comment")
+            contains("table: null.null.HDFSTableValuedFunction")
         }
         explain{
             sql("select * from hdfs (\n" +
@@ -61,7 +62,19 @@ suite("test_tvf_view", "p0,external,tvf,external_docker,hive") {
             contains("_table_valued_function_hdfs.p_comment")
         }
 
-        sql """drop database if exists test_tvf_view_p2"""
+        sql """create view tvf_view_count as select * from hdfs (
+            "uri"="hdfs://${nameNodeHost}:${hdfsPort}/user/doris/tpch1.db/tpch1_parquet/part/part-00000-cb9099f7-a053-4f9a-80af-c659cfa947cc-c000.snappy.parquet",
+            "hadoop.username" = "hadoop",
+            "format"="parquet");"""
+
+        explain {
+            verbose true
+            sql("select count(1) from tvf_view_count")
+            contains "SlotDescriptor{id=0,"
+            notContains "SlotDescriptor{id=1,"
+        }
+
+        // sql """drop database if exists test_tvf_view_p2"""
     }
 }
 

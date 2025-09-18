@@ -33,6 +33,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
 #include "olap/lru_cache.h"
@@ -53,7 +54,6 @@
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
-#include "vec/columns/columns_number.h"
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -63,6 +63,8 @@
 #include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
+
+#include "common/compile_check_begin.h"
 
 class PointQueryResultBlockBuffer final : public vectorized::MySQLResultBlockBuffer {
 public:
@@ -291,17 +293,17 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         auto reusable_ptr = std::make_shared<Reusable>();
         TDescriptorTable t_desc_tbl;
         TExprList t_output_exprs;
-        uint32_t len = request->desc_tbl().size();
+        auto len = cast_set<uint32_t>(request->desc_tbl().size());
         RETURN_IF_ERROR(
                 deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(request->desc_tbl().data()),
                                        &len, false, &t_desc_tbl));
-        len = request->output_expr().size();
+        len = cast_set<uint32_t>(request->output_expr().size());
         RETURN_IF_ERROR(deserialize_thrift_msg(
                 reinterpret_cast<const uint8_t*>(request->output_expr().data()), &len, false,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         TQueryOptions t_query_options;
-        len = request->query_options().size();
+        len = cast_set<uint32_t>(request->query_options().size());
         if (request->has_query_options()) {
             RETURN_IF_ERROR(deserialize_thrift_msg(
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
@@ -385,7 +387,7 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     // 1. get primary key from conditions
     std::vector<OlapTuple> olap_tuples;
     olap_tuples.resize(request->key_tuples().size());
-    for (size_t i = 0; i < request->key_tuples().size(); ++i) {
+    for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
         for (const std::string& key_col : key_tuple.key_column_rep()) {
             olap_tuples[i].add_value(key_col);
@@ -457,12 +459,12 @@ Status PointQueryExecutor::_lookup_row_data() {
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         if (_row_read_ctxs[i]._cached_row_data.valid()) {
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(),
                     _row_read_ctxs[i]._cached_row_data.data().data,
                     _row_read_ctxs[i]._cached_row_data.data().size, _reusable->get_col_uid_to_idx(),
                     *_result_block, _reusable->get_col_default_values(),
-                    _reusable->include_col_uids());
+                    _reusable->include_col_uids()));
             continue;
         }
         if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -477,10 +479,10 @@ Status PointQueryExecutor::_lookup_row_data() {
                     *(_row_read_ctxs[i]._rowset_ptr), _profile_metrics.read_stats, value,
                     use_row_cache));
             // serilize value to block, currently only jsonb row formt
-            vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
                     _reusable->get_data_type_serdes(), value.data(), value.size(),
                     _reusable->get_col_uid_to_idx(), *_result_block,
-                    _reusable->get_col_default_values(), _reusable->include_col_uids());
+                    _reusable->get_col_default_values(), _reusable->include_col_uids()));
         }
         if (!_reusable->missing_col_uids().empty()) {
             if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
@@ -517,9 +519,14 @@ Status PointQueryExecutor::_lookup_row_data() {
                 vectorized::MutableColumnPtr column =
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
-                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                        *_tablet->tablet_schema(), _reusable->tuple_desc()->slots()[pos], row_id,
-                        column, _read_stats, iter));
+                SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
+                                                                row_id, column, _read_stats, iter));
+                if (_tablet->tablet_schema()
+                            ->column_by_uid(slot->col_unique_id())
+                            .has_char_type()) {
+                    column->shrink_padding_chars();
+                }
             }
         }
     }
@@ -532,7 +539,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         // thus missing in include_col_uids and missing_col_uids
         for (size_t i = 0; i < _result_block->columns(); ++i) {
             auto column = _result_block->get_by_position(i).column;
-            int padding_rows = _row_hits - column->size();
+            int padding_rows = _row_hits - cast_set<int>(column->size());
             if (padding_rows > 0) {
                 column->assume_mutable()->insert_many_defaults(padding_rows);
             }
@@ -602,5 +609,7 @@ Status PointQueryExecutor::_output_data() {
     _reusable->return_block(_result_block);
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_context.h"
@@ -54,6 +53,10 @@ public:
                                  _fn.name.function_name, get_child_names(), _data_type->get_name());
     }
 
+#ifdef BE_TEST
+    VCompoundPred() = default;
+#endif
+
     const std::string& expr_name() const override { return _expr_name; }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
@@ -70,18 +73,19 @@ public:
                     all_pass = false;
                     continue;
                 }
-                if (context->get_inverted_index_context()->has_inverted_index_result_for_expr(
-                            child.get())) {
+                auto inverted_index_context = context->get_inverted_index_context();
+                if (inverted_index_context->has_inverted_index_result_for_expr(child.get())) {
                     const auto* index_result =
-                            context->get_inverted_index_context()
-                                    ->get_inverted_index_result_for_expr(child.get());
+                            inverted_index_context->get_inverted_index_result_for_expr(child.get());
                     if (res.is_empty()) {
                         res = *index_result;
                     } else {
                         res |= *index_result;
                     }
-                    if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
-                        break; // Early exit if result is full
+                    if (inverted_index_context->get_score_runtime() == nullptr) {
+                        if (res.get_data_bitmap()->cardinality() == segment_num_rows) {
+                            break; // Early exit if result is full
+                        }
                     }
                 } else {
                     all_pass = false;
@@ -182,8 +186,8 @@ public:
         }
 
         ColumnPtr rhs_column = nullptr;
-        uint8* __restrict rhs_data_column = nullptr;
-        uint8* __restrict rhs_null_map = nullptr;
+        uint8_t* __restrict rhs_data_column = nullptr;
+        uint8_t* __restrict rhs_null_map = nullptr;
         bool rhs_is_nullable = false;
         bool rhs_all_true = false;
         bool rhs_all_false = false;
@@ -230,7 +234,7 @@ public:
         };
 
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
-                                          uint8* __restrict null_map_data) {
+                                          uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);
                 null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
@@ -374,11 +378,11 @@ public:
     bool is_compound_predicate() const override { return true; }
 
 private:
-    static inline constexpr uint8 apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
     }
-    static inline constexpr uint8 apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
+    static inline constexpr uint8_t apply_or_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> || true) is true, (false || NULL) is NULL
         return (l_null & r_null) | (r_null & (r_null ^ a)) | (l_null & (l_null ^ b));
     }
@@ -388,8 +392,8 @@ private:
                                    [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
-    std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                         bool has_nullable_column) const {
+    std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
+                                                             bool has_nullable_column) const {
         if (has_nullable_column) {
             auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
             auto* data_column =

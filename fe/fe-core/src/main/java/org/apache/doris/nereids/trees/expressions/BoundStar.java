@@ -18,21 +18,35 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-
-import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.stream.Collectors;
 
 /** BoundStar is used to wrap list of slots for temporary. */
 public class BoundStar extends NamedExpression implements PropagateNullable {
+    /** BoundStar */
     public BoundStar(List<Slot> children) {
         super((List) children);
-        Preconditions.checkArgument(children.stream().noneMatch(slot -> slot instanceof UnboundSlot),
-                "BoundStar can not wrap UnboundSlot"
-        );
+
+        for (Slot slot : children) {
+            if (slot instanceof UnboundSlot) {
+                throw new AnalysisException("BoundStar can not wrap UnboundSlot");
+            }
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return children.equals(((BoundStar) o).getSlots());
     }
 
     public String computeToSql() {

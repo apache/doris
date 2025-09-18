@@ -22,11 +22,17 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.CollectOneLevelRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -50,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -137,7 +144,23 @@ public class PlanUtils {
     }
 
     /**
-     * merge childProjects with parentProjects
+     * try merge childProjects with parentProjects. if merged expression exceeds limit, return empty.
+     */
+    public static Optional<List<NamedExpression>> tryMergeProjections(List<? extends NamedExpression> childProjects,
+            List<? extends NamedExpression> parentProjects) {
+        try {
+            return Optional.of(mergeProjections(childProjects, parentProjects));
+        } catch (AnalysisException e) {
+            if (e.getErrorCode() == AnalysisException.ErrorCode.EXPRESSION_EXCEEDS_LIMIT) {
+                return Optional.empty();
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * merge childProjects with parentProjects. if merged expression exceeds limit, will throw AnalysisException.
      */
     public static List<NamedExpression> mergeProjections(List<? extends NamedExpression> childProjects,
             List<? extends NamedExpression> parentProjects) {
@@ -154,24 +177,26 @@ public class PlanUtils {
     /**
      * replace targetExpressions with project.
      * if the target expression contains a slot which is an alias and its origin expression contains
-     * non-foldable expression and the slot exits multiple times, then can not replace.
+     * unique function and the slot exits multiple times, then can not replace.
      * for example, target expressions: [a, a + 10],  child project: [ t + random() as a ],
      * if replace with the projects, then result expressions: [ t + random(),  t + random() + 10 ],
      * it will calculate random two times, this is error.
      */
-    public static boolean canReplaceWithProjections(List<? extends NamedExpression> childProjects,
+    public static boolean canMergeWithProjections(List<? extends NamedExpression> childProjects,
             List<? extends Expression> targetExpressions) {
-        Set<Slot> nonfoldableSlots = ExpressionUtils.generateReplaceMap(childProjects).entrySet().stream()
-                .filter(entry -> entry.getValue().containsNonfoldable())
-                .map(Entry::getKey)
-                .collect(Collectors.toSet());
-        if (nonfoldableSlots.isEmpty()) {
+        Set<Slot> uniqueFunctionSlots = Sets.newHashSet();
+        for (Entry<Slot, Expression> kv : ExpressionUtils.generateReplaceMap(childProjects).entrySet()) {
+            if (kv.getValue().containsUniqueFunction()) {
+                uniqueFunctionSlots.add(kv.getKey());
+            }
+        }
+        if (uniqueFunctionSlots.isEmpty()) {
             return true;
         }
 
         Set<Slot> counterSet = Sets.newHashSet();
         return targetExpressions.stream().noneMatch(target -> target.anyMatch(
-                e -> (e instanceof Slot) && nonfoldableSlots.contains(e) && !counterSet.add((Slot) e)));
+                e -> (e instanceof Slot) && uniqueFunctionSlots.contains(e) && !counterSet.add((Slot) e)));
     }
 
     public static Plan skipProjectFilterLimit(Plan plan) {
@@ -286,8 +311,8 @@ public class PlanUtils {
      */
     public static boolean isColumnRef(Expression expr) {
         return expr instanceof SlotReference
-                && ((SlotReference) expr).getColumn().isPresent()
-                && ((SlotReference) expr).getTable().isPresent();
+                && ((SlotReference) expr).getOriginalColumn().isPresent()
+                && ((SlotReference) expr).getOriginalTable().isPresent();
     }
 
     /**
@@ -404,8 +429,21 @@ public class PlanUtils {
             SlotRef slotRef = new SlotRef(slotReference.getDataType().toCatalogDataType(), slotReference.nullable());
             slotRef.setLabel(slotReference.getName());
             slotRef.setCol(slotReference.getName());
-            slotRef.setDisableTableName(true);
+            slotRef.disableTableName();
             return slotRef;
         }
+    }
+
+    /**
+     * table collect
+     */
+    public static Map<List<String>, TableIf> tableCollect(String sql, ConnectContext connectContext) {
+        ImmutableList<RewriteJob> rewriteJobs = ImmutableList.of(Rewriter.topDown(new CollectOneLevelRelation()));
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        CascadesContext cascadesContext = CascadesContext.initContext(
+                statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
+        Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
+        return statementContext.getTables();
     }
 }

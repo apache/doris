@@ -131,7 +131,7 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
     return _cached_src_physical_column;
 }
 
-static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_logical_type,
+static void get_decimal_converter(const FieldSchema* field_schema, DataTypePtr src_logical_type,
                                   const DataTypePtr& dst_logical_type,
                                   ConvertParams* convert_params,
                                   std::unique_ptr<PhysicalToLogicalConverter>& physical_converter) {
@@ -145,12 +145,11 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
 
     if (src_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        physical_converter.reset(                                                                 \
-                new FixedSizeToDecimal<DECIMAL_TYPE>(parquet_schema.type_length));                \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                                     \
+    case LOGICAL_PTYPE: {                                                           \
+        physical_converter.reset(                                                   \
+                new FixedSizeToDecimal<LOGICAL_PTYPE>(parquet_schema.type_length)); \
+        break;                                                                      \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -160,11 +159,10 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
         }
     } else if (src_physical_type == tparquet::Type::BYTE_ARRAY) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        physical_converter.reset(new StringToDecimal<DECIMAL_TYPE>());                            \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                         \
+    case LOGICAL_PTYPE: {                                               \
+        physical_converter.reset(new StringToDecimal<LOGICAL_PTYPE>()); \
+        break;                                                          \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -175,15 +173,14 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
     } else if (src_physical_type == tparquet::Type::INT32 ||
                src_physical_type == tparquet::Type::INT64) {
         switch (src_logical_primitive) {
-#define DISPATCH(LOGICAL_PTYPE)                                                                   \
-    case LOGICAL_PTYPE: {                                                                         \
-        using DECIMAL_TYPE = typename PrimitiveTypeTraits<LOGICAL_PTYPE>::ColumnType::value_type; \
-        if (src_physical_type == tparquet::Type::INT32) {                                         \
-            physical_converter.reset(new NumberToDecimal<int32_t, DECIMAL_TYPE>());               \
-        } else {                                                                                  \
-            physical_converter.reset(new NumberToDecimal<int64_t, DECIMAL_TYPE>());               \
-        }                                                                                         \
-        break;                                                                                    \
+#define DISPATCH(LOGICAL_PTYPE)                                                          \
+    case LOGICAL_PTYPE: {                                                                \
+        if (src_physical_type == tparquet::Type::INT32) {                                \
+            physical_converter.reset(new NumberToDecimal<TYPE_INT, LOGICAL_PTYPE>());    \
+        } else {                                                                         \
+            physical_converter.reset(new NumberToDecimal<TYPE_BIGINT, LOGICAL_PTYPE>()); \
+        }                                                                                \
+        break;                                                                           \
     }
             FOR_LOGICAL_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
@@ -198,8 +195,8 @@ static void get_decimal_converter(FieldSchema* field_schema, DataTypePtr src_log
 }
 
 std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_converter(
-        FieldSchema* field_schema, DataTypePtr src_logical_type,
-        const DataTypePtr& dst_logical_type, cctz::time_zone* ctz, bool is_dict_filter) {
+        const FieldSchema* field_schema, DataTypePtr src_logical_type,
+        const DataTypePtr& dst_logical_type, const cctz::time_zone* ctz, bool is_dict_filter) {
     std::unique_ptr<ConvertParams> convert_params = std::make_unique<ConvertParams>();
     const tparquet::SchemaElement& parquet_schema = field_schema->parquet_schema;
     convert_params->init(field_schema, ctz);
@@ -249,7 +246,7 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
             convert_params->reset_time_scale_if_missing(9);
             physical_converter = std::make_unique<Int96toTimestamp>();
         } else if (src_physical_type == tparquet::Type::INT64) {
-            convert_params->reset_time_scale_if_missing(dst_logical_type->get_scale());
+            convert_params->reset_time_scale_if_missing(src_logical_type->get_scale());
             physical_converter = std::make_unique<Int64ToTimestamp>();
         } else {
             physical_converter =

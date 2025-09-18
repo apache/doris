@@ -136,33 +136,28 @@ public class FunctionRegistry {
         int arity = arguments.size();
         String qualifiedName = StringUtils.isEmpty(dbName) ? name : dbName + "." + name;
 
-        if (StringUtils.isEmpty(dbName)) {
-            // search internal function only if dbName is empty
-            functionBuilders = name2BuiltinBuilders.get(name.toLowerCase());
-            if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
-                String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
-                String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
-                functionBuilders = name2BuiltinBuilders.get(nestedName.toLowerCase());
-                if (functionBuilders != null) {
-                    List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
-                    for (FunctionBuilder functionBuilder : functionBuilders) {
-                        AggCombinerFunctionBuilder combinerBuilder
-                                = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
-                        if (combinerBuilder.canApply(arguments)) {
-                            candidateBuilders.add(combinerBuilder);
-                        }
-                    }
-                    functionBuilders = candidateBuilders;
-                }
+        boolean preferUdfOverBuiltin = ConnectContext.get() == null ? false
+                : ConnectContext.get().getSessionVariable().preferUdfOverBuiltin;
+
+        if (preferUdfOverBuiltin) {
+            // find udf first, then find builtin function
+            functionBuilders = findUdfBuilder(dbName, name);
+            if (CollectionUtils.isEmpty(functionBuilders) && StringUtils.isEmpty(dbName)) {
+                // if dbName is not empty, we should search builtin functions first
+                functionBuilders = findBuiltinFunctionBuilder(name, arguments);
+            }
+        } else {
+            // find builtin function first, then find udf
+            if (StringUtils.isEmpty(dbName)) {
+                functionBuilders = findBuiltinFunctionBuilder(name, arguments);
+            }
+            if (CollectionUtils.isEmpty(functionBuilders)) {
+                functionBuilders = findUdfBuilder(dbName, name);
             }
         }
 
-        // search udf
-        if (CollectionUtils.isEmpty(functionBuilders)) {
-            functionBuilders = findUdfBuilder(dbName, name);
-            if (functionBuilders == null || functionBuilders.isEmpty()) {
-                throw new AnalysisException("Can not found function '" + qualifiedName + "'");
-            }
+        if (functionBuilders == null || functionBuilders.isEmpty()) {
+            throw new AnalysisException("Can not found function '" + qualifiedName + "'");
         }
 
         // check the arity and type
@@ -215,6 +210,29 @@ public class FunctionRegistry {
             throw new AnalysisException("Function '" + qualifiedName + "' is ambiguous: " + candidateHints);
         }
         return candidateBuilders.get(0);
+    }
+
+    public List<FunctionBuilder> findBuiltinFunctionBuilder(String name, List<?> arguments) {
+        List<FunctionBuilder> functionBuilders;
+        // search internal function only if dbName is empty
+        functionBuilders = name2BuiltinBuilders.get(name.toLowerCase());
+        if (CollectionUtils.isEmpty(functionBuilders) && AggCombinerFunctionBuilder.isAggStateCombinator(name)) {
+            String nestedName = AggCombinerFunctionBuilder.getNestedName(name);
+            String combinatorSuffix = AggCombinerFunctionBuilder.getCombinatorSuffix(name);
+            functionBuilders = name2BuiltinBuilders.get(nestedName.toLowerCase());
+            if (functionBuilders != null) {
+                List<FunctionBuilder> candidateBuilders = Lists.newArrayListWithCapacity(functionBuilders.size());
+                for (FunctionBuilder functionBuilder : functionBuilders) {
+                    AggCombinerFunctionBuilder combinerBuilder
+                            = new AggCombinerFunctionBuilder(combinatorSuffix, functionBuilder);
+                    if (combinerBuilder.canApply(arguments)) {
+                        candidateBuilders.add(combinerBuilder);
+                    }
+                }
+                functionBuilders = candidateBuilders;
+            }
+        }
+        return functionBuilders;
     }
 
     /**
@@ -359,7 +377,6 @@ public class FunctionRegistry {
         @Override
         public Expression withChildren(List<Expression> children) {
             throw new AnalysisException("could not call withChildren on UdfSignatureSearcher");
-
         }
     }
 }

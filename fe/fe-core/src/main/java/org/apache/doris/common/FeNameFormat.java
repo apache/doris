@@ -18,8 +18,8 @@
 package org.apache.doris.common;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.RoleManager;
@@ -34,18 +34,19 @@ public class FeNameFormat {
     // please modify error msg when FeNameFormat.checkCommonName throw exception in CreateRoutineLoadStmt
     private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
     private static final String UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z][a-zA-Z0-9\\-_]{0,63}$";
-    private static final String TABLE_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]*$";
+    private static final String TABLE_NAME_REGEX = "^[a-zA-Z0-9\\-_$]*$";
     private static final String USER_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9.\\-_]*$";
     private static final String REPOSITORY_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9\\-_]{0,255}$";
-    private static final String COLUMN_NAME_REGEX = "^[.a-zA-Z0-9_+\\-/?@#$%^&*\"\\s,:]{1,256}$";
+    private static final String COLUMN_NAME_REGEX
+            = "^[.a-zA-Z0-9_+\\-/?@#$%^&*\"\\s,:]{0,255}[.a-zA-Z0-9_+\\-/?@#$%^&*\",:]$";
 
     private static final String UNICODE_LABEL_REGEX = "^[\\-_A-Za-z0-9:\\p{L}]{1," + Config.label_regex_length + "}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
     private static final String UNICODE_UNDERSCORE_COMMON_NAME_REGEX = "^[_a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,63}$";
-    private static final String UNICODE_TABLE_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]*$";
+    private static final String UNICODE_TABLE_NAME_REGEX = "^[\\s\\S]*[\\S]$";
     private static final String UNICODE_USER_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9.\\-_\\p{L}]*$";
     private static final String UNICODE_COLUMN_NAME_REGEX
-            = "^[.a-zA-Z0-9_+\\-/?@#$%^&*\"\\s,:\\p{L}]{1,256}$";
+            = "^[\\s\\S]{0,255}[\\S]$";
     private static final String UNICODE_REPOSITORY_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9\\-_\\p{L}]{0,255}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
@@ -93,18 +94,27 @@ public class FeNameFormat {
     }
 
     public static void checkColumnName(String columnName) throws AnalysisException {
+        // if need check another column name prefix, add in `checkColumnNameBypassHiddenColumn`
+        checkColumnNameBypassHiddenColumn(columnName);
+        checkColumnNamePrefix(columnName, Column.HIDDEN_COLUMN_PREFIX);
+    }
+
+    public static void checkColumnNameBypassHiddenColumn(String columnName) throws AnalysisException {
         if (Strings.isNullOrEmpty(columnName) || !columnName.matches(getColumnNameRegex())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, getColumnNameRegex());
         }
-        if (columnName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
-                    columnName, getColumnNameRegex());
+        checkColumnNamePrefix(columnName, SchemaChangeHandler.SHADOW_NAME_PREFIX);
+    }
+
+    private static void checkColumnNamePrefix(String columnName, String prefix) throws AnalysisException {
+        int prefixLength = prefix.length();
+        if (columnName.length() < prefixLength) {
+            return;
         }
-        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
-                || columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
+        if (columnName.substring(0, prefixLength).equalsIgnoreCase(prefix)) {
             throw new AnalysisException(
-                    "Incorrect column name " + columnName + ", column name can't start with 'mv_'/'mva_'");
+                    "Incorrect column name " + columnName + ", column name can't start with '" + prefix + "'");
         }
     }
 
@@ -119,6 +129,12 @@ public class FeNameFormat {
     public static void checkLabel(String label) throws AnalysisException {
         if (Strings.isNullOrEmpty(label) || !label.matches(getLabelRegex())) {
             throw new AnalysisException("Label format error. regex: " + getLabelRegex() + ", label: " + label);
+        }
+    }
+
+    public static void checkJobName(String jobName) throws AnalysisException {
+        if (Strings.isNullOrEmpty(jobName) || !jobName.matches(getLabelRegex())) {
+            throw new AnalysisException("jobName format error. regex: " + getLabelRegex() + ", jobName: " + jobName);
         }
     }
 
@@ -164,6 +180,10 @@ public class FeNameFormat {
 
     public static void checkWorkloadSchedPolicyName(String policyName) throws AnalysisException {
         checkCommonName("workload schedule policy", policyName);
+    }
+
+    public static void checkIndexPolicyName(String policyName) throws AnalysisException {
+        checkCommonName("index policy", policyName);
     }
 
     public static void checkCommonName(String type, String name) throws AnalysisException {

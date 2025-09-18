@@ -39,15 +39,15 @@
 namespace doris::vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 
 class DataTypeString : public IDataType {
 public:
     using ColumnType = ColumnString;
     using FieldType = String;
+    static constexpr PrimitiveType PType = TYPE_STRING;
     static constexpr bool is_parametric = false;
 
-    const char* get_family_name() const override { return "String"; }
+    const std::string get_family_name() const override { return "String"; }
 
     DataTypeString(int len = -1, PrimitiveType primitive_type = PrimitiveType::TYPE_STRING)
             : _len(len), _primitive_type(primitive_type) {
@@ -65,6 +65,7 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -74,19 +75,16 @@ public:
         return Field::create_field<TYPE_STRING>(node.string_literal.value);
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return false; }
-    bool is_comparable() const override { return true; }
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
-    bool can_be_inside_low_cardinality() const override { return true; }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
+    using SerDeType = DataTypeStringSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeStringSerDe>(nesting_level);
+        return std::make_shared<SerDeType>(nesting_level);
     };
     bool is_char_type() const { return _primitive_type == PrimitiveType::TYPE_CHAR; }
     int len() const { return _len; }
@@ -108,5 +106,10 @@ private:
     const int _len;
     const PrimitiveType _primitive_type;
 };
+
+template <typename T>
+constexpr static bool IsStringType = false;
+template <>
+inline constexpr bool IsStringType<DataTypeString> = true;
 
 } // namespace doris::vectorized

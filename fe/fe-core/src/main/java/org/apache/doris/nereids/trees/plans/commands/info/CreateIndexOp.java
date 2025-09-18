@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.CreateIndexClause;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -33,8 +34,6 @@ import java.util.Map;
  * CreateIndexOp
  */
 public class CreateIndexOp extends AlterTableOp {
-    // in which table the index on, only used when alter = false
-    private TableNameInfo tableName;
     // index definition class
     private IndexDefinition indexDef;
     // when alter = true, clause like: alter table add index xxxx
@@ -79,6 +78,12 @@ public class CreateIndexOp extends AlterTableOp {
         if (tableName != null) {
             tableName.analyze(ctx);
         }
+
+        if (indexDef.getIndexType() == IndexDef.IndexType.ANN) {
+            throw new AnalysisException(
+                "ANN index can only be created during table creation, not through CREATE INDEX.");
+        }
+
         indexDef.validate();
         index = indexDef.translateToCatalogStyle();
     }

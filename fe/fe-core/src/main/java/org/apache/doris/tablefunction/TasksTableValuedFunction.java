@@ -98,7 +98,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
     }
 
     @Override
-    public TMetaScanRange getMetaScanRange() {
+    public TMetaScanRange getMetaScanRange(List<String> requiredFileds) {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.TASKS);
         TTasksMetadataParams taskParam = new TTasksMetadataParams();

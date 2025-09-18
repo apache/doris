@@ -129,11 +129,12 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .matches(
                         logicalProject(
                                 logicalFilter(
-                                        logicalProject().when(p -> getOutputQualifiedNames(p)
-                                                .containsAll(ImmutableList.of(
-                                                        "internal.test.student.name",
-                                                        "internal.test.student.id",
-                                                        "internal.test.student.age")))
+                                        logicalOlapScan()
+                                )
+                        ).when(p -> getOutputQualifiedNames(p)
+                                .containsAll(ImmutableList.of(
+                                        "internal.test.student.id",
+                                        "internal.test.student.name")
                                 )
                         )
                 );
@@ -320,12 +321,10 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                 .analyze("select count() from (select 1, 2 union all select id, age from student) t")
                 .customRewrite(new ColumnPruning())
                 .matches(
-                        logicalProject(
-                                logicalUnion(
-                                        logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral),
-                                        logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
-                                )
-                        ).when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
+                        logicalUnion(
+                                logicalOneRowRelation().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral),
+                                logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
+                        ).when(u -> u.getOutputs().size() == 1 && u.getOutputs().get(0) instanceof SlotReference)
                 );
     }
 

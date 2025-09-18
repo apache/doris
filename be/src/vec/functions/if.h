@@ -37,13 +37,14 @@
 
 namespace doris::vectorized {
 
-template <typename Type>
+template <PrimitiveType PType>
 struct NumIfImpl {
 private:
+    using Type = typename PrimitiveTypeTraits<PType>::ColumnItemType;
     using ArrayCond = PaddedPODArray<UInt8>;
     using Array = PaddedPODArray<Type>;
-    using ColVecResult = ColumnVector<Type>;
-    using ColVecT = ColumnVector<Type>;
+    using ColVecResult = ColumnVector<PType>;
+    using ColVecT = ColumnVector<PType>;
 
 public:
     static const Array& get_data_from_column_const(const ColumnConst* column) {

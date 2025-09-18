@@ -55,7 +55,7 @@ public:
         // Nothing to do. For this constructor, we only need it to represent a basic primitive type.
     }
 
-    const char* get_family_name() const override { return "AggState"; }
+    const std::string get_family_name() const override { return "AggState"; }
 
     std::string do_get_name() const override {
         return fmt::format(
@@ -116,6 +116,10 @@ public:
     MutableColumnPtr create_column() const override {
         //need pass the agg sizeof data
         return _agg_function->create_serialize_column();
+    }
+
+    Status check_column(const IColumn& column) const override {
+        return _agg_serialized_type->check_column(column);
     }
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

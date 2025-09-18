@@ -12,35 +12,80 @@
 926895541712428044
 
 -- !sql_5 --
-99999999999999999.9
+\N
 
 -- !sql_decimalv3 --
-0
+0.294015992
 
 -- !sql_decimalv3 --
-1
+1.294015992
 
 -- !sql_decimalv3 --
-10
+10.294015992
 
 -- !sql_decimalv3 --
--9.9
+\N
 
 -- !sql_decimalv3 --
-9.9
+\N
 
 -- !sql_decimalv3 --
 0.0
 
 -- !sql_decimalv3 --
-1001.000000000
+\N
 
 -- !sql_decimalv3 --
-1001
+\N
 
 -- !sql_decimalv3 --
-99
+\N
 
 -- !sql_decimalv3 --
-9
+\N
+
+-- !double_to_tinyint --
+\N	127	-128	\N
+
+-- !double_to_smallint --
+\N	32767	-32768	\N
+
+-- !double_to_int --
+\N	2147483647	-2147483648	\N
+
+-- !double_to_bigint --
+\N	9223372036854774800	-9223372036854774800	\N
+
+-- !double_to_largeint --
+\N	170141183460469230000000000000000000000	\N	-170141183460469230000000000000000000000
+
+-- !float_to_tinyint --
+\N	127	-128	\N
+
+-- !float_to_smallint --
+\N	32767	-32768	\N
+
+-- !float_to_int --
+\N	2147483520	-2147483520	\N
+
+-- !float_to_bigint --
+\N	9223372000000000000	\N	-9223372000000000000
+
+-- !float_to_largeint --
+170141180000000000000000000000000000000	170141180000000000000000000000000000000	-170141180000000000000000000000000000000	-170141180000000000000000000000000000000
+
+-- !int_array_to_smallint_array --
+[null, 1, null]
+
+-- !int_array_to_decimal_array2 --
+[32768.0, 1.0, null]
+
+-- !map_to_map1 --
+{1:10}
+
+-- !map_to_map2 --
+{null:10}
+
+-- !map_to_map3 --
+{null:null}
 

@@ -93,6 +93,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
@@ -135,7 +136,7 @@ static Status _do_fetch_running_queries_rpc(const FrontendInfo& fe_info,
     TFetchRunningQueriesRequest rpc_request;
 
     Status client_status;
-    const int32 timeout_ms = 3 * 1000;
+    const int32_t timeout_ms = 3 * 1000;
     FrontendServiceConnection rpc_client(ExecEnv::GetInstance()->frontend_client_cache(),
                                          fe_info.info.coordinator_address, timeout_ms,
                                          &client_status);
@@ -320,9 +321,9 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env)
     CHECK(s.ok()) << s.to_string();
 
     s = ThreadPoolBuilder("FragmentMgrAsyncWorkThreadPool")
-                .set_min_threads(config::fragment_mgr_asynic_work_pool_thread_num_min)
-                .set_max_threads(config::fragment_mgr_asynic_work_pool_thread_num_max)
-                .set_max_queue_size(config::fragment_mgr_asynic_work_pool_queue_size)
+                .set_min_threads(config::fragment_mgr_async_work_pool_thread_num_min)
+                .set_max_threads(config::fragment_mgr_async_work_pool_thread_num_max)
+                .set_max_queue_size(config::fragment_mgr_async_work_pool_queue_size)
                 .build(&_thread_pool);
     CHECK(s.ok()) << s.to_string();
 }
@@ -336,10 +337,10 @@ void FragmentMgr::stop() {
         _cancel_thread->join();
     }
 
+    _thread_pool->shutdown();
     // Only me can delete
     _query_ctx_map.clear();
     _pipeline_map.clear();
-    _thread_pool->shutdown();
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -440,14 +441,14 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         params.__isset.fragment_instance_reports = true;
         TFragmentInstanceReport t;
         t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
-        t.__set_num_finished_range(req.runtime_state->num_finished_range());
+        t.__set_num_finished_range(cast_set<int>(req.runtime_state->num_finished_range()));
         t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
         params.fragment_instance_reports.push_back(t);
     } else if (!req.runtime_states.empty()) {
         for (auto* rs : req.runtime_states) {
             if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
-                req.runtime_state->num_finished_range() > 0) {
+                rs->num_finished_range() > 0) {
                 params.__isset.load_counters = true;
                 num_rows_load_success += rs->num_rows_load_success();
                 num_rows_load_filtered += rs->num_rows_load_filtered();
@@ -455,7 +456,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.fragment_instance_reports = true;
                 TFragmentInstanceReport t;
                 t.__set_fragment_instance_id(rs->fragment_instance_id());
-                t.__set_num_finished_range(rs->num_finished_range());
+                t.__set_num_finished_range(cast_set<int>(rs->num_finished_range()));
                 t.__set_loaded_rows(rs->num_rows_load_total());
                 t.__set_loaded_bytes(rs->num_bytes_load_total());
                 params.fragment_instance_reports.push_back(t);
@@ -468,6 +469,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
     if (!req.load_error_url.empty()) {
         params.__set_tracking_url(req.load_error_url);
+    }
+    if (!req.first_error_msg.empty()) {
+        params.__set_first_error_msg(req.first_error_msg);
     }
     for (auto* rs : req.runtime_states) {
         if (rs->wal_id() > 0) {
@@ -591,11 +595,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const QuerySource query_source) {
-    return Status::InternalError("Non-pipeline is disabled!");
-}
-
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const QuerySource query_source,
                                        const TPipelineFragmentParamsList& parent) {
@@ -646,17 +645,17 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
-                "Failed to get query fragments context. Query may be "
+                "Failed to get query fragments context. Query {} may be "
                 "timeout or be cancelled. host: {}",
-                BackendOptions::get_localhost());
+                print_id(query_id), BackendOptions::get_localhost());
     }
     return Status::OK();
 }
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
+    int64_t now = duration_cast<std::chrono::milliseconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
     g_fragment_executing_count << -1;
     g_fragment_last_active_time.set_value(now);
 
@@ -699,16 +698,13 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                     [&](phmap::flat_hash_map<TUniqueId, std::weak_ptr<QueryContext>>& map)
                             -> Status {
                         WorkloadGroupPtr workload_group_ptr = nullptr;
-                        std::string wg_info_str = "Workload Group not set";
+                        std::vector<uint64_t> wg_id_set;
                         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
-                            uint64_t wg_id = params.workload_groups[0].id;
-                            workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id);
-                            if (workload_group_ptr != nullptr) {
-                                wg_info_str = workload_group_ptr->debug_string();
-                            } else {
-                                wg_info_str = "set wg but not find it in be";
+                            for (auto& wg : params.workload_groups) {
+                                wg_id_set.push_back(wg.id);
                             }
                         }
+                        workload_group_ptr = _exec_env->workload_group_mgr()->get_group(wg_id_set);
 
                         // First time a fragment of a query arrived. print logs.
                         LOG(INFO) << "query_id: " << print_id(query_id)
@@ -718,7 +714,8 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                                   << ", fe process uuid: " << params.query_options.fe_process_uuid
                                   << ", query type: " << params.query_options.query_type
                                   << ", report audit fe:" << params.current_connect_fe
-                                  << ", use wg:" << wg_info_str;
+                                  << ", use wg:" << workload_group_ptr->id() << ","
+                                  << workload_group_ptr->name();
 
                         // This may be a first fragment request of the query.
                         // Create the query fragments context.
@@ -741,16 +738,11 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
                             query_ctx->set_rsc_info = true;
                         }
 
-                        _set_scan_concurrency(params, query_ctx.get());
-
-                        if (workload_group_ptr != nullptr) {
-                            RETURN_IF_ERROR(workload_group_ptr->add_resource_ctx(
-                                    query_id, query_ctx->resource_ctx()));
-                            query_ctx->set_workload_group(workload_group_ptr);
-                        } else {
-                            auto dummy_wg = _exec_env->workload_group_mgr()->dummy_workload_group();
-                            query_ctx->set_workload_group(dummy_wg);
+                        if (params.__isset.ai_resources) {
+                            query_ctx->set_ai_resources(params.ai_resources);
                         }
+
+                        RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
 
                         if (parent.__isset.runtime_filter_info) {
                             auto info = parent.runtime_filter_info;
@@ -781,11 +773,6 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       QuerySource query_source, const FinishCallback& cb) {
-    return Status::InternalError("Non-pipeline is disabled!");
-}
-
 std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
@@ -801,7 +788,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
             for (auto& it : map) {
-                auto elapsed = it.second->elapsed_time() / 1000000000.0;
+                auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
@@ -835,7 +822,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const TPipelineFragmentParamsList& parent) {
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
-    // sometimes TExecPlanFragmentParams debug string is too long and glog
+    // sometimes TPipelineFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
@@ -867,9 +854,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
     {
-        int64 now = duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
         g_fragment_executing_count << 1;
         g_fragment_last_active_time.set_value(now);
 
@@ -891,18 +878,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
     RETURN_IF_ERROR(context->submit());
     return Status::OK();
-}
-
-template <typename Param>
-void FragmentMgr::_set_scan_concurrency(const Param& params, QueryContext* query_ctx) {
-#ifndef BE_TEST
-    // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
-    // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
-    if (params.query_options.__isset.resource_limit &&
-        params.query_options.resource_limit.__isset.cpu_limit) {
-        query_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
-    }
-#endif
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
@@ -1177,7 +1152,7 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
 void FragmentMgr::debug(std::stringstream& ss) {}
 /*
  * 1. resolve opaqued_query_plan to thrift structure
- * 2. build TExecPlanFragmentParams
+ * 2. build TPipelineFragmentParams
  */
 Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                                                 const TQueryPlanInfo& t_query_plan_info,
@@ -1390,5 +1365,16 @@ Status FragmentMgr::get_realtime_exec_status(const TUniqueId& query_id,
 
     return Status::OK();
 }
+
+Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatistics* query_stats) {
+    if (query_stats == nullptr) {
+        return Status::InvalidArgument("query_stats is nullptr");
+    }
+
+    return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
+            print_id(query_id), query_stats);
+}
+
+#include "common/compile_check_end.h"
 
 } // namespace doris

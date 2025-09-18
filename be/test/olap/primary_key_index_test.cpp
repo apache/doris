@@ -98,7 +98,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
     }
     // find a non-existing key "8701"
     {
-        string key("8701");
+        std::string key("8701");
         Slice slice(key);
         bool exists = index_reader.check_present(slice);
         EXPECT_FALSE(exists);
@@ -111,7 +111,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
 
     // find prefix "87"
     {
-        string key("87");
+        std::string key("87");
         Slice slice(key);
         bool exists = index_reader.check_present(slice);
         EXPECT_FALSE(exists);
@@ -124,7 +124,7 @@ TEST_F(PrimaryKeyIndexTest, builder) {
 
     // find prefix "9999"
     {
-        string key("9999");
+        std::string key("9999");
         Slice slice(key);
         bool exists = index_reader.check_present(slice);
         EXPECT_FALSE(exists);
@@ -243,7 +243,7 @@ TEST_F(PrimaryKeyIndexTest, multiple_pages) {
         EXPECT_EQ(i + 1, row_id);
     }
     {
-        string key("00019");
+        std::string key("00019");
         Slice slice(key);
         bool exists = index_reader.check_present(slice);
         EXPECT_FALSE(exists);
@@ -313,7 +313,7 @@ TEST_F(PrimaryKeyIndexTest, single_page) {
         EXPECT_EQ(i + 1, row_id);
     }
     {
-        string key("00019");
+        std::string key("00019");
         Slice slice(key);
         bool exists = index_reader.check_present(slice);
         EXPECT_FALSE(exists);

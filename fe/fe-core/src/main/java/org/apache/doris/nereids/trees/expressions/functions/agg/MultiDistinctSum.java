@@ -54,6 +54,12 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MultiDistinctSum(boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
@@ -75,13 +81,13 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, distinct, alwaysNullable, children.get(0));
+        return new MultiDistinctSum(mustUseMultiDistinctAgg, getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override
     public MultiDistinctSum withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, distinct, alwaysNullable, children.get(0));
+        return new MultiDistinctSum(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override
@@ -96,6 +102,6 @@ public class MultiDistinctSum extends NullableAggregateFunction implements Unary
 
     @Override
     public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctSum(mustUseMultiDistinctAgg, false, alwaysNullable, children.get(0));
+        return new MultiDistinctSum(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 }

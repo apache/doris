@@ -48,13 +48,18 @@ public class DateV2 extends ScalarFunction
         super("datev2", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private DateV2(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public DateV2 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new DateV2(children.get(0));
+        return new DateV2(getFunctionParams(children));
     }
 
     @Override

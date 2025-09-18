@@ -34,6 +34,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TypeInfo;
 
 namespace io {
@@ -132,7 +133,7 @@ public:
         return _bf->test_bytes(key.data, key.size);
     }
 
-    uint32_t num_rows() const {
+    int64_t num_rows() const {
         DCHECK(_index_parsed);
         return _index_reader->num_values();
     }
@@ -155,7 +156,7 @@ private:
     std::unique_ptr<segment_v2::IndexedColumnReader> _index_reader;
     std::unique_ptr<segment_v2::BloomFilter> _bf;
     size_t _bf_num = 0;
-    uint64 _bf_bytes = 0;
+    uint64_t _bf_bytes = 0;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris

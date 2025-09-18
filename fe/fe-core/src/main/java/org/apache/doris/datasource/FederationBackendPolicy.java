@@ -179,8 +179,12 @@ public class FederationBackendPolicy {
 
         backends.addAll(policy.getCandidateBackends(computeGroup.getBackendList()));
         if (backends.isEmpty()) {
-            throw new UserException("No available backends, "
-                    + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+            if (Config.isCloudMode()) {
+                throw new UserException("No available backends, "
+                        + "in cloud maybe this cluster has been dropped, please `use @otherClusterName` switch it");
+            } else {
+                throw new UserException("No available backends for compute group: " + computeGroup.toString());
+            }
         }
         for (Backend backend : backends) {
             assignedWeightPerBackend.put(backend, 0L);

@@ -35,7 +35,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.load.loadv2.IngestionLoadJob;
-import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -448,9 +447,7 @@ public class MasterImpl {
                             olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
-                        if (job instanceof SparkLoadJob) {
-                            ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
-                        } else if (job instanceof IngestionLoadJob) {
+                        if (job instanceof IngestionLoadJob) {
                             ((IngestionLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
                         }
                     }
@@ -705,12 +702,8 @@ public class MasterImpl {
         // and if meta is missing, we no longer need to resend this task
         try {
             CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
-            if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
-                calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
-                                + ", error_tablets: " + request.getErrorTabletIds()
-                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
-            } else if (request.isSetRespPartitions()
+            // check if the request is stale first, if so, let it retry regardless of the status code
+            if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
                         + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
@@ -721,6 +714,11 @@ public class MasterImpl {
                 calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
                         "get staled response from backend " + task.getBackendId() + ", report version: "
                                 + request.getReportVersion());
+            } else if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+                calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
+                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                                + ", error_tablets: " + request.getErrorTabletIds()
+                                + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {

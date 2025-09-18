@@ -42,7 +42,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -54,6 +53,7 @@ private:
     DataTypePtr nested;
 
 public:
+    static constexpr PrimitiveType PType = TYPE_ARRAY;
     static constexpr bool is_parametric = true;
 
     DataTypeArray(const DataTypePtr& nested_);
@@ -66,10 +66,10 @@ public:
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Array"; }
+    const std::string get_family_name() const override { return "Array"; }
 
     MutableColumnPtr create_column() const override;
-
+    Status check_column(const IColumn& column) const override;
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
@@ -77,17 +77,10 @@ public:
                                "Unimplemented get_field for array");
     }
 
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
+
     bool equals(const IDataType& rhs) const override;
-
-    bool have_subtypes() const override { return true; }
-    bool text_can_contain_only_valid_utf8() const override {
-        return nested->text_can_contain_only_valid_utf8();
-    }
-    bool is_comparable() const override { return nested->is_comparable(); }
-
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return nested->is_value_unambiguously_represented_in_contiguous_memory_region();
-    }
 
     const DataTypePtr& get_nested_type() const { return nested; }
 
@@ -103,11 +96,10 @@ public:
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
+    using SerDeType = DataTypeArraySerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeArraySerDe>(nested->get_serde(nesting_level + 1),
-                                                    nesting_level);
+        return std::make_shared<SerDeType>(nested->get_serde(nesting_level + 1), nesting_level);
     };
 
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {

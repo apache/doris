@@ -43,7 +43,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -67,6 +66,7 @@ private:
 
 public:
     static constexpr bool is_parametric = true;
+    static constexpr PrimitiveType PType = TYPE_STRUCT;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
@@ -76,11 +76,12 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
     }
     std::string do_get_name() const override;
-    const char* get_family_name() const override { return "Struct"; }
+    const std::string get_family_name() const override { return "Struct"; }
 
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
+    Status check_column(const IColumn& column) const override;
 
     Field get_default() const override;
 
@@ -91,9 +92,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return !elems.empty(); }
-    bool is_comparable() const override;
-    bool text_can_contain_only_valid_utf8() const override;
     bool have_maximum_size_of_value() const override;
     size_t get_size_of_value_in_memory() const override;
 
@@ -112,17 +110,16 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }
+    using SerDeType = DataTypeStructSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         DataTypeSerDeSPtrs ptrs;
         for (auto iter = elems.begin(); iter < elems.end(); ++iter) {
             ptrs.push_back((*iter)->get_serde(nesting_level + 1));
         }
-        return std::make_shared<DataTypeStructSerDe>(ptrs, names, nesting_level);
+        return std::make_shared<SerDeType>(ptrs, names, nesting_level);
     };
     void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const override {
         node->set_type(TTypeNodeType::STRUCT);

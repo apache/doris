@@ -31,9 +31,9 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_variant.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
@@ -116,7 +116,7 @@ struct FunctionPoseExplode {
         DCHECK(arguments[0]->get_primitive_type() == TYPE_ARRAY)
                 << arguments[0]->get_name() << " not supported";
         DataTypes fieldTypes(2);
-        fieldTypes[0] = make_nullable(std::make_shared<DataTypeInt32>());
+        fieldTypes[0] = std::make_shared<DataTypeInt32>();
         fieldTypes[1] =
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type();
         auto struct_type = std::make_shared<vectorized::DataTypeStruct>(fieldTypes);

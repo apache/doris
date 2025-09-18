@@ -9,11 +9,11 @@
 
 #include "murmur_hash3.h"
 
-//-----------------------------------------------------------------------------
-// Platform-specific functions and macros
+#include "vec/common/unaligned.h"
 
-// Microsoft Visual Studio
+namespace doris {
 
+#include "common/compile_check_begin.h"
 #if defined(_MSC_VER)
 
 #define FORCE_INLINE __forceinline
@@ -51,11 +51,11 @@ FORCE_INLINE uint64_t rotl64(uint64_t x, int8_t r) {
 // handle aligned reads, do the conversion here
 
 FORCE_INLINE uint32_t getblock32(const uint32_t* p, int i) {
-    return p[i];
+    return unaligned_load<uint32_t>(&p[i]);
 }
 
 FORCE_INLINE uint64_t getblock64(const uint64_t* p, int i) {
-    return p[i];
+    return unaligned_load<uint64_t>(&p[i]);
 }
 
 //-----------------------------------------------------------------------------
@@ -87,7 +87,7 @@ FORCE_INLINE uint64_t fmix64(uint64_t k) {
 
 void murmur_hash3_x86_32(const void* key, int64_t len, uint32_t seed, void* out) {
     const uint8_t* data = (const uint8_t*)key;
-    const int nblocks = len / 4;
+    const int nblocks = (int)len / 4;
 
     uint32_t h1 = seed;
 
@@ -437,7 +437,7 @@ void murmur_hash3_x64_128(const void* key, const int len, const uint32_t seed, v
 
 void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed, void* out) {
     const uint8_t* data = (const uint8_t*)key;
-    const int nblocks = len / 8;
+    const int nblocks = (int)len / 8;
     uint64_t h1 = seed;
 
     const uint64_t c1 = BIG_CONSTANT(0x87c37b91114253d5);
@@ -501,5 +501,6 @@ void murmur_hash3_x64_64(const void* key, const int64_t len, const uint64_t seed
 
     ((uint64_t*)out)[0] = h1;
 }
+#include "common/compile_check_end.h"
 
-//-----------------------------------------------------------------------------
+} // namespace doris

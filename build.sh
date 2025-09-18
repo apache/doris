@@ -36,10 +36,6 @@ fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 
-TARGET_SYSTEM="$(uname -s)"
-TARGET_ARCH="$(uname -m)"
-echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
-
 . "${DORIS_HOME}/env.sh"
 
 # Check args
@@ -48,16 +44,16 @@ usage() {
 Usage: $0 <options>
   Optional options:
      [no option]                build all components
-     --fe                       build Frontend and Spark DPP application. Default ON.
+     --fe                       build Frontend. Default ON.
      --be                       build Backend. Default ON.
      --meta-tool                build Backend meta tool. Default OFF.
      --file-cache-microbench    build Backend file cache microbench tool. Default OFF.
      --cloud                    build Cloud. Default OFF.
      --index-tool               build Backend inverted index tool. Default OFF.
      --benchmark                build Google Benchmark. Default OFF.
+     --task-executor-simulator  build Backend task executor simulator. Default OFF.
      --broker                   build Broker. Default ON.
-     --spark-dpp                build Spark DPP application. Default ON.
-     --hive-udf                 build Hive UDF library for Spark Load. Default ON.
+     --hive-udf                 build Hive UDF library for Ingestion Load. Default ON.
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --clean                    clean and build target
@@ -66,11 +62,11 @@ Usage: $0 <options>
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
-    ENABLE_BUILD_FAISS          If set BUILD_FAISS=ON, it will link BE with faiss.
 
   Eg.
     $0                                      build all
@@ -80,17 +76,18 @@ Usage: $0 <options>
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
     $0 --benchmark                          build Google Benchmark of Backend
-    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
-    $0 --spark-dpp                          build Spark DPP application alone
+    $0 --fe --clean                         clean and build Frontend.
+    $0 --fe --be --clean                    clean and build Frontend and Backend
+    $0 --task-executor-simulator            build task executor simulator
     $0 --broker                             build Broker
-    $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
+    $0 --be --fe                            build Backend, Frontend, and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
     $0 --be --output PATH                   build Backend, the result will be output to PATH(relative paths are available)
     $0 --be-extension-ignore avro-scanner   build be-java-extensions, choose which modules to ignore. Multiple modules separated by commas, like --be-extension-ignore avro-scanner,hadoop-hudi-scanner
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
+    ARM_MARCH=armv8-a+crc+simd $0 --be      build Backend with specified ARM architecture instruction set
   "
     exit 1
 }
@@ -141,6 +138,7 @@ if ! OPTS="$(getopt \
     -l 'file-cache-microbench' \
     -l 'index-tool' \
     -l 'benchmark' \
+    -l 'task-executor-simulator' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -165,7 +163,7 @@ BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
 BUILD_BENCHMARK='OFF'
-BUILD_SPARK_DPP=0
+BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
 CLEAN=0
@@ -174,7 +172,6 @@ PARAMETER_COUNT="$#"
 PARAMETER_FLAG=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
-BUILD_FAISS='OFF'
 BUILD_UI=1
 if [[ "$#" == 1 ]]; then
     # default
@@ -185,9 +182,9 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
+    BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
     BUILD_INDEX_TOOL='OFF'
     BUILD_BENCHMARK='OFF'
-    BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
     CLEAN=0
@@ -196,7 +193,6 @@ else
         case "$1" in
         --fe)
             BUILD_FE=1
-            BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
             BUILD_BE_JAVA_EXTENSIONS=1
             shift
@@ -229,6 +225,11 @@ else
         --benchmark)
             BUILD_BENCHMARK='ON'
             BUILD_BE=1 # go into BE cmake building, but benchmark instead of doris_be
+            shift
+            ;;
+        --task-executor-simulator)
+            BUILD_TASK_EXECUTOR_SIMULATOR='ON'
+            BUILD_BE=1
             shift
             ;;
         --spark-dpp)
@@ -291,7 +292,7 @@ else
         BUILD_META_TOOL='ON'
         BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
         BUILD_INDEX_TOOL='ON'
-        BUILD_SPARK_DPP=1
+	BUILD_TASK_EXECUTOR_SIMULATOR='OFF'
         BUILD_HIVE_UDF=1
         BUILD_BE_JAVA_EXTENSIONS=1
         CLEAN=0
@@ -355,7 +356,7 @@ update_submodule() {
     fi
 }
 
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
     clean_gensrc
     clean_be
     clean_fe
@@ -371,6 +372,9 @@ if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
 fi
 if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
+fi
+if [[ -z "${ARM_MARCH}" ]]; then
+    ARM_MARCH='armv8-a+crc'
 fi
 if [[ -z "${USE_LIBCPP}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
@@ -392,26 +396,9 @@ elif [[ -z "${USE_JEMALLOC}" ]]; then
         USE_JEMALLOC='OFF'
     fi
 fi
-if [[ -f "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" ]]; then
-    # compatible with old thirdparty
-    rm -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris.a"
-    rm -rf "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    rm -rf "${TP_INCLUDE_DIR}/rocksdb"
-    rm -rf "${TP_LIB_DIR}/librocksdb.a"
 
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris_with_prefix.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix.a" "${TP_LIB_DIR}/libjemalloc_doris.a"
-    mv "${TP_LIB_DIR}/libjemalloc_doris_with_prefix_pic.a" "${TP_LIB_DIR}/libjemalloc_doris_pic.a"
-    mv "${TP_LIB_DIR}/librocksdb_jemalloc_with_prefix.a" "${TP_LIB_DIR}/librocksdb.a"
-    mv -f "${TP_INCLUDE_DIR}/rocksdb_jemalloc_with_prefix" "${TP_INCLUDE_DIR}/rocksdb"
-fi
 if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
     USE_BTHREAD_SCANNER='OFF'
-fi
-
-if [[ -z "${USE_DWARF}" ]]; then
-    USE_DWARF='OFF'
 fi
 
 if [[ -z "${USE_UNWIND}" ]]; then
@@ -444,12 +431,6 @@ if [[ -n "${DISABLE_BUILD_UI}" ]]; then
     fi
 fi
 
-if [[ -n "${DISABLE_BUILD_SPARK_DPP}" ]]; then
-    if [[ "${DISABLE_BUILD_SPARK_DPP}" == "ON" ]]; then
-        BUILD_SPARK_DPP=0
-    fi
-fi
-
 if [[ -n "${DISABLE_BUILD_HIVE_UDF}" ]]; then
     if [[ "${DISABLE_BUILD_HIVE_UDF}" == "ON" ]]; then
         BUILD_HIVE_UDF=0
@@ -460,12 +441,8 @@ if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
     DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
-if [[ -n "${DISABLE_BUILD_AZURE}" ]]; then
+if [[ "$(echo "${DISABLE_BUILD_AZURE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
     BUILD_AZURE='OFF'
-fi
-
-if [[ -n "${ENABLE_BUILD_FAISS}" ]]; then
-    BUILD_FAISS='ON'
 fi
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
@@ -503,6 +480,10 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && "${TARGET_SYSTEM}" == 'Darwin' ]]; 
     fi
 fi
 
+if [[ -z "${WITH_TDE_DIR}" ]]; then
+    WITH_TDE_DIR=''
+fi
+
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
@@ -512,7 +493,7 @@ echo "Get params:
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
     BUILD_INDEX_TOOL                    -- ${BUILD_INDEX_TOOL}
     BUILD_BENCHMARK                     -- ${BUILD_BENCHMARK}
-    BUILD_SPARK_DPP                     -- ${BUILD_SPARK_DPP}
+    BUILD_TASK_EXECUTOR_SIMULATOR       -- ${BUILD_TASK_EXECUTOR_SIMULATOR}
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
     PARALLEL                            -- ${PARALLEL}
@@ -520,7 +501,6 @@ echo "Get params:
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
     USE_AVX2                            -- ${USE_AVX2}
     USE_LIBCPP                          -- ${USE_LIBCPP}
-    USE_DWARF                           -- ${USE_DWARF}
     USE_UNWIND                          -- ${USE_UNWIND}
     STRIP_DEBUG_INFO                    -- ${STRIP_DEBUG_INFO}
     USE_JEMALLOC                        -- ${USE_JEMALLOC}
@@ -530,6 +510,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
 "
 
 # Clean and build generated code
@@ -544,10 +525,9 @@ modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
     modules+=("fe-core")
-fi
-if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
-    modules+=("fe-common")
-    modules+=("spark-dpp")
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        modules+=("fe-${WITH_TDE_DIR}")
+    fi
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -555,6 +535,7 @@ if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
+    modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
     modules+=("be-java-extensions/java-common")
     modules+=("be-java-extensions/java-udf")
@@ -581,8 +562,10 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
-    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
+    update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
+    update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -598,10 +581,20 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         BUILD_FS_BENCHMARK=OFF
     fi
 
+    if [[ -z "${BUILD_TASK_EXECUTOR_SIMULATOR}" ]]; then
+        BUILD_TASK_EXECUTOR_SIMULATOR=OFF
+    fi
+
+    if [[ -z "${BUILD_FILE_CACHE_LRU_TOOL}" ]]; then
+        BUILD_FILE_CACHE_LRU_TOOL=OFF
+    fi
+
     echo "-- Make program: ${MAKE_PROGRAM}"
     echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
+    echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
+    echo "-- Build file cache lru tool: ${BUILD_FILE_CACHE_LRU_TOOL}"
 
     mkdir -p "${CMAKE_BUILD_DIR}"
     cd "${CMAKE_BUILD_DIR}"
@@ -614,24 +607,26 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
+        -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
+        -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
         -DBUILD_META_TOOL="${BUILD_META_TOOL}" \
         -DBUILD_FILE_CACHE_MICROBENCH_TOOL="${BUILD_FILE_CACHE_MICROBENCH_TOOL}" \
         -DBUILD_INDEX_TOOL="${BUILD_INDEX_TOOL}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DARM_MARCH="${ARM_MARCH}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
-        -DBUILD_FAISS="${BUILD_FAISS}" \
+        -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -667,13 +662,12 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
+        -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
-        -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
-        -DBUILD_FAISS="${BUILD_FAISS}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -755,18 +749,23 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
+    if [[ "${WITH_TDE_DIR}" != "" ]]; then
+        cp -r -p "${DORIS_HOME}/fe/fe-${WITH_TDE_DIR}/target/fe-${WITH_TDE_DIR}-1.2-SNAPSHOT.jar" "${DORIS_OUTPUT}/fe/lib"/
+    fi
+
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # copy jindofs jars, only support for Linux x64 or arm
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -782,12 +781,15 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/connectors/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
-fi
 
-if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/fe/spark-dpp"
-    rm -rf "${DORIS_OUTPUT}/fe/spark-dpp"/*
-    cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
+    if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
+      mkdir -p "${DORIS_OUTPUT}/fe/arthas"
+      rm -rf "${DORIS_OUTPUT}/fe/arthas/*"
+      unzip -o "${DORIS_OUTPUT}/fe/lib/arthas-packaging-*.jar" arthas-bin.zip -d "${DORIS_OUTPUT}/fe/arthas/"
+      unzip -o "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip" -d "${DORIS_OUTPUT}/fe/arthas/"
+      rm "${DORIS_OUTPUT}/fe/arthas/math-game.jar"
+      rm "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip"
+    fi
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
@@ -799,7 +801,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         "${DORIS_OUTPUT}/be/www" \
         "${DORIS_OUTPUT}/be/tools/FlameGraph"
 
-    cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
+    cp -r -p "${DORIS_HOME}/bin"/*_be.sh "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
 
@@ -860,6 +862,11 @@ EOF
         cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi
 
+    if [[ "${BUILD_TASK_EXECUTOR_SIMULATOR}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/bin/run-task-executor-simulator.sh" "${DORIS_OUTPUT}/be/bin/"/
+        cp -r -p "${DORIS_HOME}/be/output/lib/task_executor_simulator" "${DORIS_OUTPUT}/be/lib/"/
+    fi
+
     extensions_modules=("java-udf")
     extensions_modules+=("jdbc-scanner")
     extensions_modules+=("hadoop-hudi-scanner")
@@ -869,6 +876,7 @@ EOF
     extensions_modules+=("avro-scanner")
     extensions_modules+=("lakesoul-scanner")
     extensions_modules+=("preload-extensions")
+    extensions_modules+=("iceberg-metadata-scanner")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -907,13 +915,14 @@ EOF
     done
 
     # copy jindofs jars, only support for Linux x64 or arm
+    install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
     if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
     elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
-        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/preload-extensions"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
+        cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
     fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/

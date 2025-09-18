@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.NameMapping;
 
 import com.google.common.base.Preconditions;
 import lombok.Data;
@@ -32,7 +32,7 @@ public class HivePartition {
     public static final String LAST_MODIFY_TIME_KEY = "transient_lastDdlTime";
     public static final String FILE_NUM_KEY = "numFiles";
 
-    private SimpleTableInfo tableInfo;
+    private NameMapping nameMapping;
     private String inputFormat;
     private String path;
     private List<String> partitionValues;
@@ -43,9 +43,9 @@ public class HivePartition {
     private List<FieldSchema> columns;
 
     // If you want to read the data under a partition, you can use this constructor
-    public HivePartition(SimpleTableInfo tableInfo, boolean isDummyPartition,
+    public HivePartition(NameMapping nameMapping, boolean isDummyPartition,
             String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
-        this.tableInfo = tableInfo;
+        this.nameMapping = nameMapping;
         this.isDummyPartition = isDummyPartition;
         // eg: org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat
         this.inputFormat = inputFormat;
@@ -56,29 +56,19 @@ public class HivePartition {
         this.parameters = parameters;
     }
 
-    public HivePartition(String database, String tableName, boolean isDummyPartition,
-            String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters) {
-        this(new SimpleTableInfo(database, tableName), isDummyPartition, inputFormat, path, partitionValues,
-                parameters);
-    }
-
     // If you want to update hms with partition, then you can use this constructor,
     // as updating hms requires some additional information, such as outputFormat and so on
-    public HivePartition(SimpleTableInfo tableInfo, boolean isDummyPartition,
+    public HivePartition(NameMapping nameMapping, boolean isDummyPartition,
             String inputFormat, String path, List<String> partitionValues, Map<String, String> parameters,
             String outputFormat, String serde, List<FieldSchema> columns) {
-        this(tableInfo, isDummyPartition, inputFormat, path, partitionValues, parameters);
+        this(nameMapping, isDummyPartition, inputFormat, path, partitionValues, parameters);
         this.outputFormat = outputFormat;
         this.serde = serde;
         this.columns = columns;
     }
 
-    public String getDbName() {
-        return tableInfo.getDbName();
-    }
-
-    public String getTblName() {
-        return tableInfo.getTbName();
+    public NameMapping getNameMapping() {
+        return nameMapping;
     }
 
     // return partition name like: nation=cn/city=beijing
@@ -127,7 +117,7 @@ public class HivePartition {
     @Override
     public String toString() {
         final StringBuilder sb = new StringBuilder("HivePartition{");
-        sb.append("tableInfo=").append(tableInfo);
+        sb.append("nameMapping=").append(nameMapping);
         sb.append(", inputFormat='").append(inputFormat).append('\'');
         sb.append(", path='").append(path).append('\'');
         sb.append(", partitionValues=").append(partitionValues);

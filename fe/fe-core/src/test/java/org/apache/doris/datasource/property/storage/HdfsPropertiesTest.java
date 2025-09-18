@@ -42,7 +42,7 @@ public class HdfsPropertiesTest {
         Map<String, String> origProps = createBaseHdfsProperties();
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
-        Configuration conf = hdfsProperties.getHadoopConfiguration();
+        Configuration conf = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("simple", conf.get("hadoop.security.authentication"));
 
         // Test 2: Kerberos without necessary configurations (should throw exception)
@@ -57,7 +57,7 @@ public class HdfsPropertiesTest {
         origProps.put("hdfs.authentication.kerberos.keytab", "keytab");
         HdfsProperties properties = (HdfsProperties) StorageProperties.createAll(origProps)
                 .get(0);  // No exception expected
-        Configuration configuration = properties.getHadoopConfiguration();
+        Configuration configuration = properties.getHadoopStorageConfig();
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
         Assertions.assertEquals("keytab", configuration.get("hadoop.kerberos.keytab"));
@@ -76,9 +76,13 @@ public class HdfsPropertiesTest {
 
         // Test 3: Valid config resources (should succeed)
         origProps.put("hadoop.config.resources", "hadoop1/core-site.xml,hadoop1/hdfs-site.xml");
+        origProps.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn1", "localhost:9000");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn2", "localhost:9001");
+        origProps.put("dfs.client.failover.proxy.provider.ns1", "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         List<StorageProperties> storageProperties = StorageProperties.createAll(origProps);
         HdfsProperties hdfsProperties = (HdfsProperties) storageProperties.get(0);
-        Configuration conf = hdfsProperties.getHadoopConfiguration();
+        Configuration conf = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("hdfs://localhost:9000", conf.get("fs.defaultFS"));
         Assertions.assertEquals("ns1", conf.get("dfs.nameservices"));
 
@@ -93,7 +97,7 @@ public class HdfsPropertiesTest {
         // Test 6: Kerberos with complete config (should succeed)
         origProps.put("hdfs.authentication.kerberos.keytab", "keytab");
         hdfsProperties = (HdfsProperties) StorageProperties.createAll(origProps).get(0);  // No exception expected
-        Configuration configuration = hdfsProperties.getHadoopConfiguration();
+        Configuration configuration = hdfsProperties.getHadoopStorageConfig();
         Assertions.assertEquals("kerberos", configuration.get("hdfs.security.authentication"));
         Assertions.assertEquals("hadoop", configuration.get("hadoop.kerberos.principal"));
         Assertions.assertEquals("keytab", configuration.get("hadoop.kerberos.keytab"));
@@ -112,7 +116,7 @@ public class HdfsPropertiesTest {
         origProps.put(StorageProperties.FS_HDFS_SUPPORT, "true");
         HdfsProperties hdfsProperties = (HdfsProperties) StorageProperties.createPrimary(origProps);
         Assertions.assertEquals("HDFS", hdfsProperties.getStorageName());
-        Assertions.assertNotEquals(null, hdfsProperties.getHadoopConfiguration());
+        Assertions.assertNotEquals(null, hdfsProperties.getHadoopStorageConfig());
         Assertions.assertNotEquals(null, hdfsProperties.getBackendConfigProperties());
         Map<String, String> resourceNullVal = new HashMap<>();
         resourceNullVal.put(StorageProperties.FS_HDFS_SUPPORT, "true");
@@ -129,6 +133,8 @@ public class HdfsPropertiesTest {
         origProps.put("dfs.nameservices", "ns1");
         origProps.put("dfs.ha.namenodes.ns1", "nn1,nn2");
         origProps.put("dfs.namenode.rpc-address.ns1.nn1", "localhost:9000");
+        origProps.put("dfs.namenode.rpc-address.ns1.nn2", "localhost:9001");
+        origProps.put("dfs.client.failover.proxy.provider.ns1", "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         origProps.put("hadoop.async.threads.max", "10");
         properties = StorageProperties.createAll(origProps).get(0);
         Assertions.assertEquals(properties.getClass(), HdfsProperties.class);

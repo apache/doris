@@ -36,6 +36,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "io/fs/s3_file_system.h"
+#include "olap/id_manager.h"
 #include "olap/storage_engine.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
@@ -127,6 +128,31 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
     _query_mem_tracker = ctx->query_mem_tracker();
+}
+
+RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
+                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
+                           ExecEnv* exec_env,
+                           const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
+        : _profile("PipelineX  " + std::to_string(fragment_id)),
+          _load_channel_profile("<unnamed>"),
+          _obj_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _query_id(query_id),
+          _fragment_id(fragment_id),
+          _per_fragment_instance_idx(0),
+          _num_rows_load_total(0),
+          _num_rows_load_filtered(0),
+          _num_rows_load_unselected(0),
+          _num_rows_filtered_in_strict_mode_partial_update(0),
+          _num_print_error_rows(0),
+          _num_bytes_load_total(0),
+          _num_finished_scan_range(0),
+          _error_row_number(0) {
+    Status status = init(TUniqueId(), query_options, query_globals, exec_env);
+    DCHECK(status.ok());
+    _query_mem_tracker = query_mem_tracker;
+    DCHECK(_query_mem_tracker != nullptr);
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
@@ -306,7 +332,7 @@ Status RuntimeState::create_error_log_file() {
             // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_err_packet.html
             // shorten the path as much as possible to prevent the length of the presigned URL from
             // exceeding the MySQL error packet size limit
-            ss << "error_log/" << std::hex << _query_id.hi;
+            ss << "error_log/" << std::hex << _fragment_instance_id.lo;
             _s3_error_log_file_path = ss.str();
         }
     }
@@ -345,6 +371,9 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             }
             return status;
         }
+        // record the first error message if the file is just created
+        _first_error_msg = error_msg() + ". Src line: " + line();
+        LOG(INFO) << "The first error message: " << _first_error_msg;
     }
 
     // if num of printed error row exceeds the limit, and this is not a summary message,
@@ -528,5 +557,8 @@ bool RuntimeState::low_memory_mode() const {
     return _query_ctx->low_memory_mode();
 }
 
+void RuntimeState::set_id_file_map() {
+    _id_file_map = _exec_env->get_id_manager()->add_id_file_map(_query_id, execution_timeout());
+}
 #include "common/compile_check_end.h"
 } // end namespace doris

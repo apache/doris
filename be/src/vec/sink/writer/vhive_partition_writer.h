@@ -46,6 +46,7 @@ public:
         std::string original_write_path;
         std::string target_path;
         TFileType::type file_type;
+        std::vector<TNetworkAddress> broker_addresses;
     };
 
     VHivePartitionWriter(const TDataSink& t_sink, std::string partition_name,

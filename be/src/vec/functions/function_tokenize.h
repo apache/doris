@@ -63,16 +63,13 @@ public:
         DCHECK(is_string_type(arguments[1]->get_primitive_type()))
                 << "second argument for function: " << name << " should be string"
                 << " and arguments[1] is " << arguments[1]->get_name();
-        return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
+        return std::make_shared<DataTypeString>();
     }
     void _do_tokenize(const ColumnString& src_column_string, InvertedIndexCtx& inverted_index_ctx,
-                      IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                      NullMapType* dest_nested_null_map) const;
+                      const MutableColumnPtr& dest_column_ptr) const;
+    void _do_tokenize_none(const ColumnString& src_column_string,
+                           const MutableColumnPtr& dest_column_ptr) const;
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
 };
-
-void register_function_tokenize(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionTokenize>();
-}
 } // namespace doris::vectorized

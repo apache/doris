@@ -68,10 +68,6 @@ public class PartitionSortNode extends PlanNode {
         this.children.add(input);
     }
 
-    public SortInfo getSortInfo() {
-        return info;
-    }
-
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         if (detailLevel == TExplainLevel.BRIEF) {

@@ -17,14 +17,13 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -46,13 +45,9 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -101,7 +96,6 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -109,13 +103,17 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
+import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
@@ -323,6 +321,10 @@ public class TypeCoercionUtils {
         return hasSpecifiedType(dataType, DateTimeV2Type.class);
     }
 
+    public static boolean hasTimeV2Type(DataType dataType) {
+        return hasSpecifiedType(dataType, TimeV2Type.class);
+    }
+
     private static boolean hasSpecifiedType(DataType dataType, Class<? extends DataType> specifiedType) {
         if (dataType instanceof ArrayType) {
             return hasSpecifiedType(((ArrayType) dataType).getItemType(), specifiedType);
@@ -355,12 +357,14 @@ public class TypeCoercionUtils {
         return replaceSpecifiedType(dataType, DecimalV3Type.class, DecimalV3Type.WILDCARD);
     }
 
-    public static DataType replaceDateTimeV2WithTarget(DataType dataType, DateTimeV2Type target) {
-        return replaceSpecifiedType(dataType, DateTimeV2Type.class, target);
-    }
-
     public static DataType replaceDateTimeV2WithMax(DataType dataType) {
         return replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.MAX);
+    }
+
+    public static DataType replaceTimesWithTargetPrecision(DataType dataType, int targetScale) {
+        return replaceSpecifiedType(
+                replaceSpecifiedType(dataType, DateTimeV2Type.class, DateTimeV2Type.of(targetScale)), TimeV2Type.class,
+                TimeV2Type.of(targetScale));
     }
 
     /**
@@ -402,7 +406,7 @@ public class TypeCoercionUtils {
         if (type.isDateLikeType()) {
             return BigIntType.INSTANCE;
         }
-        if (type.isStringLikeType() || type.isHllType() || type.isTimeType() || type.isTimeV2Type()) {
+        if (type.isStringLikeType() || type.isHllType() || type.isTimeType() || type.isJsonType()) {
             return DoubleType.INSTANCE;
         }
         throw new AnalysisException("Cannot cast from " + type + " to numeric type.");
@@ -484,7 +488,7 @@ public class TypeCoercionUtils {
     }
 
     private static boolean canCastTo(DataType input, DataType target) {
-        return Type.canCastTo(input.toCatalogDataType(), target.toCatalogDataType());
+        return CheckCast.checkWithLooseAggState(input, target, SessionVariable.enableStrictCast());
     }
 
     public static void checkCanCastTo(DataType input, DataType target) {
@@ -525,10 +529,11 @@ public class TypeCoercionUtils {
      * convert character literal to another side type.
      */
     @Developing
-    public static <T extends BinaryOperator> T processCharacterLiteralInBinaryOperator(
-            T op, Expression left, Expression right) {
+    public static <T extends BinaryOperator> T processCharacterLiteralInBinaryOperator(T op) {
+        Expression left = op.left();
+        Expression right = op.right();
         if (!(left instanceof Literal) && !(right instanceof Literal)) {
-            return (T) op.withChildren(left, right);
+            return op;
         }
         if (left instanceof Literal && ((Literal) left).isStringLikeLiteral()
                 && !right.getDataType().isStringLikeType()) {
@@ -541,7 +546,10 @@ public class TypeCoercionUtils {
                     ((Literal) right).getStringValue(), left.getDataType()).orElse(right);
 
         }
-        return (T) op.withChildren(left, right);
+        if (left != op.left() || right != op.right()) {
+            return (T) op.withChildren(left, right);
+        }
+        return op;
     }
 
     /**
@@ -620,7 +628,7 @@ public class TypeCoercionUtils {
             } else if (dataType.isDateTimeType() && DateTimeChecker.isValidDateTime(value)) {
                 ret = DateTimeLiteral.parseDateTimeLiteral(value, false).orElse(null);
             } else if (dataType.isDateV2Type() && DateTimeChecker.isValidDateTime(value)) {
-                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value);
+                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
                 if (parseResult.isOk()) {
                     ret = parseResult.get();
                 } else {
@@ -631,7 +639,7 @@ public class TypeCoercionUtils {
                     }
                 }
             } else if (dataType.isDateType() && DateTimeChecker.isValidDateTime(value)) {
-                ret = DateLiteral.parseDateLiteral(value).orElse(null);
+                ret = DateLiteral.parseDateLiteral(value, false).orElse(null);
             }
         } catch (Exception e) {
             if (LOG.isDebugEnabled()) {
@@ -679,17 +687,6 @@ public class TypeCoercionUtils {
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
 
-        // TODO: if we have other functions need to add argument after bind and before coercion,
-        //  we need to use a new framework to do this.
-        // this moved from translate phase to here, because we need to add the type info before cast all args to string
-        if (boundFunction instanceof JsonArray || boundFunction instanceof JsonObject) {
-            boundFunction = TypeCoercionUtils.fillJsonTypeArgument(boundFunction, boundFunction instanceof JsonObject);
-        }
-        if (boundFunction instanceof JsonInsert
-                || boundFunction instanceof JsonReplace
-                || boundFunction instanceof JsonSet) {
-            boundFunction = TypeCoercionUtils.fillJsonValueModifyTypeArgument(boundFunction);
-        }
         if (boundFunction instanceof CreateMap) {
             return processCreateMap((CreateMap) boundFunction);
         }
@@ -795,9 +792,7 @@ public class TypeCoercionUtils {
             }
         }
 
-        Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, commonType);
-        Expression newRight = TypeCoercionUtils.castIfNotSameType(right, commonType);
-        return divide.withChildren(newLeft, newRight);
+        return castChildren(divide, left, right, commonType);
     }
 
     private static Expression castChildren(Expression parent, Expression left, Expression right, DataType commonType) {
@@ -826,13 +821,10 @@ public class TypeCoercionUtils {
         // check
         binaryArithmetic.checkLegalityBeforeTypeCoercion();
 
-        Expression left = binaryArithmetic.left();
-        Expression right = binaryArithmetic.right();
-
         // characterLiteralTypeCoercion
         // we do this because string is cast to double by default
         // but if string literal could be cast to small type, we could use smaller type than double.
-        binaryArithmetic = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(binaryArithmetic, left, right);
+        binaryArithmetic = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(binaryArithmetic);
 
         // check string literal can cast to double
         for (Expression expr : binaryArithmetic.children()) {
@@ -845,6 +837,9 @@ public class TypeCoercionUtils {
                 }
             }
         }
+
+        Expression left = binaryArithmetic.left();
+        Expression right = binaryArithmetic.right();
 
         // 1. choose default numeric type for left and right
         DataType t1 = TypeCoercionUtils.getNumResultType(left.getDataType());
@@ -924,64 +919,358 @@ public class TypeCoercionUtils {
         }
 
         // add, subtract and multiply do not need to cast children for fixed point type
-        return binaryArithmetic.withChildren(castIfNotSameType(left, t1), castIfNotSameType(right, t2));
+        return castChildren(binaryArithmetic, left, right, commonType.promotion());
     }
 
     /**
      * process timestamp arithmetic type coercion.
      */
     public static Expression processTimestampArithmetic(TimestampArithmetic timestampArithmetic) {
-        // check
         timestampArithmetic.checkLegalityBeforeTypeCoercion();
 
+        String name = timestampArithmetic.getFuncName().toLowerCase();
+        List<Expression> children = timestampArithmetic.children();
         Expression left = timestampArithmetic.left();
         Expression right = timestampArithmetic.right();
-        // left
-        DataType leftType = left.getDataType();
 
-        if (!leftType.isDateLikeType()) {
-            if (Config.enable_date_conversion && canCastTo(leftType, DateTimeV2Type.SYSTEM_DEFAULT)) {
-                leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-            } else if (canCastTo(leftType, DateTimeType.INSTANCE)) {
-                leftType = DateTimeType.INSTANCE;
-            } else {
-                throw new AnalysisException("Operand '" + left.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + left.getDataType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-            }
-        }
-        if (leftType.isDateType() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeType.INSTANCE;
-        }
-        if (leftType.isDateV2Type() && timestampArithmetic.getTimeUnit().isDateTimeUnit()) {
-            leftType = DateTimeV2Type.SYSTEM_DEFAULT;
-        }
-        if (!left.getDataType().isDateLikeType() && !left.getDataType().isNullType()) {
-            checkCanCastTo(left.getDataType(), leftType);
-            left = castIfNotSameType(left, leftType);
-        }
+        // get right signature by normal function resolution
+        FunctionBuilder functionBuilder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(name,
+                children);
+        Pair<? extends Expression, ? extends BoundFunction> targetExpressionPair = functionBuilder.build(name,
+                children);
+        FunctionSignature signature = targetExpressionPair.second.getSignature();
+        DataType leftType = signature.getArgType(0);
+        DataType rightType = signature.getArgType(1);
 
-        // right
-        if (!(right.getDataType() instanceof PrimitiveType)) {
-            throw new AnalysisException("the second argument must be a scalar type. but it is " + right.toSql());
-        }
-        if (!right.getDataType().isIntegerType()) {
-            if (!ScalarType.canCastTo((ScalarType) right.getDataType().toCatalogDataType(), Type.INT)) {
-                throw new AnalysisException("Operand '" + right.toSql()
-                        + "' of timestamp arithmetic expression '" + timestampArithmetic.toSql() + "' returns type '"
-                        + right.getDataType() + "' which is incompatible with expected type 'INT'.");
-            }
-            right = castIfNotSameType(right, IntegerType.INSTANCE);
-        }
+        left = castIfNotSameType(left, leftType);
+        right = castIfNotSameType(right, rightType);
 
         return timestampArithmetic.withChildren(left, right);
+    }
+
+    /**
+     * left type must be DateType or DateV2Type.
+     */
+    private static Optional<DataType> getCommonDataTypeWithDateType(DataType leftType, DataType rightType) {
+        if (rightType.isNumericType()) {
+            if (rightType instanceof TinyIntType || rightType instanceof SmallIntType) {
+                return Optional.of(DateV2Type.INSTANCE);
+            } else if (rightType.isIntegralType()) {
+                return Optional.of(DateTimeV2Type.SYSTEM_DEFAULT);
+            } else if (rightType instanceof DecimalV2Type) {
+                DecimalV2Type decimalV2Type = (DecimalV2Type) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE, decimalV2Type.getScale())));
+            } else if (rightType instanceof DecimalV3Type) {
+                DecimalV3Type decimalV3Type = (DecimalV3Type) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE, decimalV3Type.getScale())));
+            } else {
+                return Optional.of(DateTimeV2Type.MAX);
+            }
+        } else if (rightType.isDateLikeType()) {
+            if (rightType instanceof DateTimeType) {
+                return Optional.of(DateTimeV2Type.SYSTEM_DEFAULT);
+            } else if (rightType instanceof DateType) {
+                return Optional.of(DateV2Type.INSTANCE);
+            } else {
+                return Optional.of(rightType);
+            }
+        } else if (rightType instanceof TimeV2Type) {
+            TimeV2Type timeV2Type = (TimeV2Type) rightType;
+            return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE, timeV2Type.getScale())));
+        } else if (rightType.isStringLikeType()) {
+            return Optional.of(DateTimeV2Type.MAX);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * left type must be DateTimeV2 Type
+     */
+    private static Optional<DataType> getCommonDataTypeWithDateTimeV2Type(
+            DateTimeV2Type leftType, DataType rightType) {
+        if (rightType.isNumericType()) {
+            if (rightType instanceof IntegralType) {
+                return Optional.of(leftType);
+            } else if (rightType instanceof DecimalV2Type) {
+                DecimalV2Type decimalV2Type = (DecimalV2Type) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE,
+                        Math.max(leftType.getScale(), decimalV2Type.getScale()))));
+            } else if (rightType instanceof DecimalV3Type) {
+                DecimalV3Type decimalV3Type = (DecimalV3Type) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.min(DateTimeV2Type.MAX_SCALE,
+                        Math.max(leftType.getScale(), decimalV3Type.getScale()))));
+            } else {
+                return Optional.of(DateTimeV2Type.MAX);
+            }
+        } else if (rightType.isDateLikeType()) {
+            if (rightType instanceof DateTimeV2Type) {
+                DateTimeV2Type dateTimeV2Type = (DateTimeV2Type) rightType;
+                return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), dateTimeV2Type.getScale())));
+            } else {
+                return Optional.of(leftType);
+            }
+        } else if (rightType instanceof TimeV2Type) {
+            TimeV2Type timeV2Type = (TimeV2Type) rightType;
+            return Optional.of(DateTimeV2Type.of(Math.max(leftType.getScale(), timeV2Type.getScale())));
+        } else if (rightType.isStringLikeType()) {
+            return Optional.of(DateTimeV2Type.MAX);
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * left type must be TimeV2Type Type
+     */
+    private static Optional<DataType> getCommonDataTypeWithTimeV2Type(
+            TimeV2Type leftType, DataType rightType) {
+        Preconditions.checkArgument(!rightType.isDateLikeType(), "rightType should not be DateLikeType");
+
+        if (rightType.isNumericType()) {
+            if (rightType instanceof IntegralType) {
+                return Optional.of(leftType);
+            } else if (rightType instanceof DecimalV2Type) {
+                DecimalV2Type decimalV2Type = (DecimalV2Type) rightType;
+                return Optional.of(TimeV2Type.of(Math.min(TimeV2Type.MAX_SCALE,
+                        Math.max(leftType.getScale(), decimalV2Type.getScale()))));
+            } else if (rightType instanceof DecimalV3Type) {
+                DecimalV3Type decimalV3Type = (DecimalV3Type) rightType;
+                return Optional.of(TimeV2Type.of(Math.min(TimeV2Type.MAX_SCALE,
+                        Math.max(leftType.getScale(), decimalV3Type.getScale()))));
+            } else {
+                return Optional.of(TimeV2Type.MAX);
+            }
+        } else if (rightType instanceof TimeV2Type) {
+            TimeV2Type timeV2Type = (TimeV2Type) rightType;
+            return Optional.of(TimeV2Type.of(Math.max(leftType.getScale(), timeV2Type.getScale())));
+        } else if (rightType.isStringLikeType()) {
+            return Optional.of(DateTimeV2Type.MAX);
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DataType> getCommonDataTypeWithFloatNumericType(DataType leftType, DataType rightType) {
+        Preconditions.checkArgument(leftType.isFloatLikeType(), "leftType should be FloatLikeType");
+        Preconditions.checkArgument(!rightType.isDateLikeType(), "rightType should not be DateLikeType");
+        Preconditions.checkArgument(!rightType.isTimeType(), "rightType should not be TimeType");
+
+        if (!rightType.isNumericType() && !rightType.isStringLikeType()
+                && !rightType.isJsonType() && !rightType.isBooleanType()) {
+            return Optional.empty();
+        }
+        if (rightType instanceof BooleanType
+                || rightType instanceof TinyIntType
+                || rightType instanceof SmallIntType) {
+            return Optional.of(leftType);
+        }
+        return Optional.of(DoubleType.INSTANCE);
+    }
+
+    /**
+     * left type must be Numeric Type
+     */
+    private static Optional<DataType> getCommonDataTypeWithFixedNumericType(
+            NumericType leftType, DataType rightType, boolean overflowToDouble) {
+        Preconditions.checkArgument(!rightType.isDateLikeType(), "rightType should not be DateLikeType");
+        Preconditions.checkArgument(!rightType.isTimeType(), "rightType should not be TimeType");
+        Preconditions.checkArgument(!rightType.isFloatLikeType(), "rightType should not be FloatLikeType");
+
+        if (!rightType.isNumericType() && !rightType.isStringLikeType()
+                && !rightType.isJsonType() && !rightType.isBooleanType()) {
+            return Optional.empty();
+        }
+
+        if (rightType instanceof BooleanType) {
+            if (leftType.isIntegralType()) {
+                return Optional.of(leftType);
+            } else {
+                return Optional.of(DecimalV3Type.widerDecimalV3Type(
+                        DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
+            }
+        }
+        if (rightType instanceof JsonType || rightType.isStringLikeType()) {
+            if (SessionVariable.getEnableDecimal256()) {
+                return Optional.of(DecimalV3Type.createDecimalV3Type(DecimalV3Type.MAX_DECIMAL256_PRECISION,
+                        SessionVariable.getDecimalOverFlowScale()));
+            }
+            return Optional.of(DecimalV3Type.createDecimalV3Type(DecimalV3Type.MAX_DECIMAL128_PRECISION,
+                    SessionVariable.getDecimalOverFlowScale()));
+        } else if (leftType.isIntegralType() && rightType.isIntegralType()) {
+            for (DataType dataType : NUMERIC_PRECEDENCE) {
+                if (leftType.equals(dataType) || rightType.equals(dataType)) {
+                    return Optional.of(dataType);
+                }
+            }
+        } else if (leftType.isDecimalV2Type() && rightType.isDecimalV2Type()) {
+            return Optional.of(DecimalV2Type.SYSTEM_DEFAULT);
+        } else {
+            return Optional.of(DecimalV3Type.widerDecimalV3Type(
+                    DecimalV3Type.forType(leftType), DecimalV3Type.forType(rightType), overflowToDouble));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * find wider type for input
+     * @return if find return wider type, if not find return Optional.empty()
+     */
+    public static Optional<DataType> findWiderTypeForTwo(DataType left, DataType right, boolean overflowToDouble) {
+        if (left.equals(right)) {
+            return Optional.of(left);
+        } else if (left instanceof NullType) {
+            return Optional.of(right);
+        } else if (right instanceof NullType) {
+            return Optional.of(left);
+        } else if (left instanceof VariantType) {
+            return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
+                            replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(right),
+                                            IntegralType.class, DecimalV3Type.SYSTEM_DEFAULT),
+                                    DateLikeType.class, DateTimeV2Type.MAX),
+                            DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
+                    FloatType.class, DoubleType.INSTANCE));
+        } else if (right instanceof VariantType) {
+            return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
+                            replaceSpecifiedType(replaceSpecifiedType(replaceCharacterToString(left),
+                                            IntegralType.class, DecimalV3Type.SYSTEM_DEFAULT),
+                                    DateLikeType.class, DateTimeV2Type.MAX),
+                            DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
+                    FloatType.class, DoubleType.INSTANCE));
+        } else if (left instanceof ComplexDataType || right instanceof ComplexDataType) {
+            return findWiderComplexTypeForTwo(left, right, overflowToDouble);
+        } else {
+            return findWiderPrimitiveTypeForTwo(left, right, overflowToDouble);
+        }
+    }
+
+    private static Optional<DataType> findWiderComplexTypeForTwo(
+            DataType left, DataType right, boolean overflowToDouble) {
+        if (right.isStringLikeType()) {
+            return Optional.of(left);
+        } else if (left.isStringLikeType()) {
+            return Optional.of(right);
+        } else if ((left instanceof ArrayType || left instanceof StructType) && right instanceof JsonType) {
+            return Optional.of(left);
+        } else if (left instanceof JsonType && (right instanceof ArrayType || right instanceof StructType)) {
+            return Optional.of(right);
+        } else if (left instanceof ArrayType && right instanceof ArrayType) {
+            Optional<DataType> itemType = findWiderTypeForTwo(
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType(), overflowToDouble);
+            return itemType.map(ArrayType::of);
+        } else if (left instanceof MapType && right instanceof MapType) {
+            Optional<DataType> keyType = findWiderTypeForTwo(
+                    ((MapType) left).getKeyType(), ((MapType) right).getKeyType(), overflowToDouble);
+            Optional<DataType> valueType = findWiderTypeForTwo(
+                    ((MapType) left).getValueType(), ((MapType) right).getValueType(), overflowToDouble);
+            if (keyType.isPresent() && valueType.isPresent()) {
+                return Optional.of(MapType.of(keyType.get(), valueType.get()));
+            }
+        } else if (left instanceof StructType && right instanceof StructType) {
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                return Optional.empty();
+            }
+            List<StructField> newFields = Lists.newArrayList();
+            for (int i = 0; i < leftFields.size(); i++) {
+                Optional<DataType> newDataType = findWiderTypeForTwo(
+                        leftFields.get(i).getDataType(), rightFields.get(i).getDataType(), overflowToDouble);
+                if (newDataType.isPresent()) {
+                    newFields.add(leftFields.get(i).withDataType(newDataType.get()));
+                } else {
+                    return Optional.empty();
+                }
+            }
+            return Optional.of(new StructType(newFields));
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DataType> findWiderPrimitiveTypeForTwo(
+            DataType leftType, DataType rightType, boolean overflowToDouble) {
+        // we process date like type first
+        if (!leftType.isDateLikeType() && rightType.isDateLikeType()) {
+            DataType temp = leftType;
+            leftType = rightType;
+            rightType = temp;
+        }
+        if (leftType instanceof DateType || leftType instanceof DateV2Type) {
+            return getCommonDataTypeWithDateType(leftType, rightType);
+        } else if (leftType instanceof DateTimeType) {
+            return getCommonDataTypeWithDateTimeV2Type(DateTimeV2Type.SYSTEM_DEFAULT, rightType);
+        } else if (leftType instanceof DateTimeV2Type) {
+            return getCommonDataTypeWithDateTimeV2Type((DateTimeV2Type) leftType, rightType);
+        }
+
+        // then we process time type
+        if (leftType instanceof TimeV2Type) {
+            return getCommonDataTypeWithTimeV2Type((TimeV2Type) leftType, rightType);
+        } else if (rightType instanceof TimeV2Type) {
+            return getCommonDataTypeWithTimeV2Type((TimeV2Type) rightType, leftType);
+
+        }
+
+        // then, we process float type
+        if (leftType.isFloatLikeType()) {
+            return getCommonDataTypeWithFloatNumericType(leftType, rightType);
+        } else if (rightType.isFloatLikeType()) {
+            return getCommonDataTypeWithFloatNumericType(rightType, leftType);
+        }
+
+        // then, we process numeric type
+        if (leftType instanceof NumericType) {
+            return getCommonDataTypeWithFixedNumericType((NumericType) leftType, rightType, overflowToDouble);
+        } else if (rightType instanceof NumericType) {
+            return getCommonDataTypeWithFixedNumericType((NumericType) rightType, leftType, overflowToDouble);
+        }
+
+        // then we process boolean
+        if (leftType instanceof BooleanType) {
+            if (rightType.isJsonType() || rightType.isStringLikeType()) {
+                return Optional.of(leftType);
+            }
+        } else if (rightType instanceof BooleanType) {
+            if (leftType.isJsonType() || leftType.isStringLikeType()) {
+                return Optional.of(rightType);
+            }
+        }
+
+        // then we process json
+        if (leftType instanceof JsonType) {
+            if (rightType.isStringLikeType()) {
+                return Optional.of(leftType);
+            }
+        } else if (rightType instanceof JsonType) {
+            if (leftType.isStringLikeType()) {
+                return Optional.of(rightType);
+            }
+        }
+
+        // then we process ip
+        if (leftType instanceof IPv6Type) {
+            if (rightType instanceof IPv4Type || rightType.isStringLikeType()) {
+                return Optional.of(leftType);
+            }
+        } else if (rightType instanceof IPv6Type) {
+            if (leftType instanceof IPv4Type || leftType.isStringLikeType()) {
+                return Optional.of(rightType);
+            }
+        } else if ((leftType instanceof IPv4Type && rightType.isStringLikeType())
+                || (rightType instanceof IPv4Type && leftType.isStringLikeType())) {
+            return Optional.of(IPv4Type.INSTANCE);
+        }
+
+        // then we process string like
+        if (leftType.isStringLikeType() && rightType.isStringLikeType()) {
+            return Optional.of(StringType.INSTANCE);
+        }
+
+        // all other case is invalid, so return empty
+        return Optional.empty();
     }
 
     /**
      * process comparison predicate type coercion.
      */
     public static Expression processComparisonPredicate(ComparisonPredicate comparisonPredicate) {
-        // check
         comparisonPredicate.checkLegalityBeforeTypeCoercion();
 
         Expression left = comparisonPredicate.left();
@@ -989,21 +1278,23 @@ public class TypeCoercionUtils {
 
         // same type
         if (left.getDataType().equals(right.getDataType())) {
-            if (!supportCompare(left.getDataType())) {
+            if (!supportCompare(left.getDataType(), false)) {
                 throw new AnalysisException("data type " + left.getDataType()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
-            return comparisonPredicate.withChildren(left, right);
+            return comparisonPredicate;
         }
 
-        // process string literal with numeric
-        comparisonPredicate = TypeCoercionUtils
-                .processCharacterLiteralInBinaryOperator(comparisonPredicate, left, right);
+        comparisonPredicate = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(comparisonPredicate);
         left = comparisonPredicate.left();
         right = comparisonPredicate.right();
 
-        Optional<DataType> commonType = findWiderTypeForTwoForComparison(
-                left.getDataType(), right.getDataType(), false);
+        Optional<DataType> commonType;
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false);
+        } else {
+            commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
+        }
 
         if (commonType.isPresent()) {
             commonType = Optional.of(downgradeDecimalAndDateLikeType(
@@ -1017,14 +1308,20 @@ public class TypeCoercionUtils {
         }
 
         if (commonType.isPresent()) {
-            if (!supportCompare(commonType.get())) {
+            if (!supportCompare(commonType.get(), false)) {
                 throw new AnalysisException("data type " + commonType.get()
                         + " could not used in ComparisonPredicate " + comparisonPredicate.toSql());
             }
             left = castIfNotSameType(left, commonType.get());
             right = castIfNotSameType(right, commonType.get());
+        } else {
+            throw new AnalysisException("unsupported comparison predicate " + comparisonPredicate.toSql());
         }
-        return comparisonPredicate.withChildren(left, right);
+        if (left != comparisonPredicate.left() || right != comparisonPredicate.right()) {
+            return comparisonPredicate.withChildren(left, right);
+        } else {
+            return comparisonPredicate;
+        }
     }
 
     /**
@@ -1036,14 +1333,14 @@ public class TypeCoercionUtils {
 
         if (inPredicate.getOptions().stream().map(Expression::getDataType)
                 .allMatch(dt -> dt.equals(inPredicate.getCompareExpr().getDataType()))) {
-            if (!supportCompare(inPredicate.getCompareExpr().getDataType())
-                    && !inPredicate.getCompareExpr().getDataType().isStructType() && !inPredicate.getCompareExpr()
-                    .getDataType().isArrayType()) {
+            if (!supportCompare(inPredicate.getCompareExpr().getDataType(), true)
+                    && !inPredicate.getCompareExpr().getDataType().isStructType()) {
                 throw new AnalysisException("data type " + inPredicate.getCompareExpr().getDataType()
                         + " could not used in InPredicate " + inPredicate.toSql());
             }
             return inPredicate;
         }
+
         // process string literal with numeric
         boolean hitString = false;
         List<Expression> newOptions = new ArrayList<>(inPredicate.getOptions());
@@ -1064,23 +1361,17 @@ public class TypeCoercionUtils {
         final InPredicate fmtInPredicate =
                 hitString ? new InPredicate(inPredicate.getCompareExpr(), newOptions) : inPredicate;
 
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(
-                fmtInPredicate.children()
-                        .stream()
-                        .map(Expression::getDataType).collect(Collectors.toList()),
-                true);
-        if (inPredicate.getCompareExpr().getDataType().isStructType() && optionalCommonType.isPresent()
-                && !optionalCommonType.get().isStructType()) {
-            throw new AnalysisException("data type " + optionalCommonType.get()
-                    + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
+        List<DataType> waitForCoercion = fmtInPredicate.children()
+                .stream()
+                .map(Expression::getDataType).collect(Collectors.toList());
+        Optional<DataType> optionalCommonType;
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            optionalCommonType = TypeCoercionUtils.findWiderCommonType(waitForCoercion, false);
+        } else {
+            optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(waitForCoercion, true);
         }
-        if (inPredicate.getCompareExpr().getDataType().isArrayType() && optionalCommonType.isPresent()
-                && !optionalCommonType.get().isArrayType()) {
-            throw new AnalysisException("data type " + optionalCommonType.get()
-                    + " is not match " + inPredicate.getCompareExpr().getDataType() + " used in InPredicate");
-        }
-        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get())
-                && !optionalCommonType.get().isStructType() && !optionalCommonType.get().isArrayType()) {
+
+        if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get(), true)) {
             throw new AnalysisException("data type " + optionalCommonType.get()
                     + " could not used in InPredicate " + inPredicate.toSql());
         }
@@ -1090,13 +1381,15 @@ public class TypeCoercionUtils {
                     optionalCommonType.get(),
                     fmtInPredicate.getCompareExpr(),
                     fmtInPredicate.getOptions().toArray(new Expression[0])));
+        } else {
+            throw new AnalysisException("unsupported in predicate " + inPredicate.toSql());
         }
 
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren = fmtInPredicate.children().stream()
                             .map(e -> TypeCoercionUtils.castIfNotSameType(e, commonType))
-                            .collect(Collectors.toList());
+                            .collect(ImmutableList.toImmutableList());
                     return fmtInPredicate.withChildren(newChildren);
                 })
                 .orElse(fmtInPredicate);
@@ -1142,6 +1435,7 @@ public class TypeCoercionUtils {
 
     /**
      * check should downgrade from commonTypeClazz to targetTypeClazz.
+     *
      * @param commonTypeClazz before downgrade type
      * @param targetTypeClazz try to downgrade to type
      * @param commonType original common type
@@ -1149,7 +1443,6 @@ public class TypeCoercionUtils {
      * @param commonTypePredicate constraint for original type
      * @param otherPredicate constraint for other expressions aka literals
      * @param others literals
-     *
      * @return true for should downgrade
      */
     private static boolean shouldDowngrade(
@@ -1193,30 +1486,34 @@ public class TypeCoercionUtils {
         if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
             return caseWhen;
         }
-        Optional<DataType> optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
+
+        Optional<DataType> optionalCommonType;
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion, false);
+        } else {
+            optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
+        }
         return optionalCommonType
                 .map(commonType -> {
-                    DataType realCommonType = commonType instanceof DecimalV2Type
-                            ? DecimalV3Type.forType(commonType) : commonType;
                     List<Expression> newChildren
                             = caseWhen.getWhenClauses().stream()
                             .map(wc -> {
                                 Expression valueExpr = TypeCoercionUtils.castIfNotSameType(
-                                        wc.getResult(), realCommonType);
+                                        wc.getResult(), commonType);
                                 // we must cast every child to the common type, and then
                                 // FoldConstantRuleOnFe can eliminate some branches and direct
                                 // return a branch value
-                                if (!valueExpr.getDataType().equals(realCommonType)) {
-                                    valueExpr = new Cast(valueExpr, realCommonType);
+                                if (!valueExpr.getDataType().equals(commonType)) {
+                                    valueExpr = new Cast(valueExpr, commonType);
                                 }
                                 return wc.withChildren(wc.getOperand(), valueExpr);
                             })
                             .collect(Collectors.toList());
                     caseWhen.getDefaultValue()
                             .map(dv -> {
-                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, realCommonType);
-                                if (!defaultExpr.getDataType().equals(realCommonType)) {
-                                    defaultExpr = new Cast(defaultExpr, realCommonType);
+                                Expression defaultExpr = TypeCoercionUtils.castIfNotSameType(dv, commonType);
+                                if (!defaultExpr.getDataType().equals(commonType)) {
+                                    defaultExpr = new Cast(defaultExpr, commonType);
                                 }
                                 return defaultExpr;
                             })
@@ -1226,6 +1523,39 @@ public class TypeCoercionUtils {
                 .orElseThrow(() -> new AnalysisException("Cannot find common type for case when " + caseWhen));
     }
 
+    /**
+     * find wider common type for input data types.
+     * @return return a type if find one, return Optional.empty() if not find
+     */
+    public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes, boolean overflowToDouble) {
+        return dataTypes.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
+                (r, c) -> {
+                    if (r.isPresent() && c.isPresent()) {
+                        return findWiderTypeForTwo(r.get(), c.get(), overflowToDouble);
+                    } else {
+                        return Optional.empty();
+                    }
+                });
+    }
+
+    public static Optional<DataType> findWiderCommonTypeByVariable(List<DataType> dataTypes, boolean overflowToDouble) {
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            return findWiderCommonType(dataTypes, overflowToDouble);
+        } else {
+            return findWiderCommonTypeForCaseWhen(dataTypes);
+        }
+    }
+
+    public static Optional<DataType> findWiderTypeForTwoByVariable(
+            DataType left, DataType right, boolean overflowToDouble) {
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            return findWiderTypeForTwo(left, right, overflowToDouble);
+        } else {
+            return findWiderTypeForTwoForCaseWhen(left, right);
+        }
+    }
+
+    @Deprecated
     private static boolean canCompareDate(DataType t1, DataType t2) {
         DataType dateType = t1;
         DataType anotherType = t2;
@@ -1240,16 +1570,18 @@ public class TypeCoercionUtils {
         return false;
     }
 
+    @Deprecated
     private static boolean maybeCastToVarchar(DataType t) {
-        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isTimeV2Type() || t.isJsonType()
-                || t.isHllType() || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
+        return t.isVarcharType() || t.isCharType() || t.isTimeType() || t.isJsonType() || t.isHllType()
+                || t.isBitmapType() || t.isQuantileStateType() || t.isAggStateType();
     }
 
+    @Deprecated
     public static Optional<DataType> findWiderCommonTypeForComparison(List<DataType> dataTypes) {
         return findWiderCommonTypeForComparison(dataTypes, false);
     }
 
-    @Developing
+    @Deprecated
     private static Optional<DataType> findWiderCommonTypeForComparison(
             List<DataType> dataTypes, boolean intStringToString) {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
@@ -1274,7 +1606,7 @@ public class TypeCoercionUtils {
     /**
      * find wider common type for two data type.
      */
-    @Developing
+    @Deprecated
     private static Optional<DataType> findWiderTypeForTwoForComparison(
             DataType left, DataType right, boolean intStringToString) {
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
@@ -1290,7 +1622,7 @@ public class TypeCoercionUtils {
     /**
      * find common type for complex type.
      */
-    @Developing
+    @Deprecated
     private static Optional<DataType> findCommonComplexTypeForComparison(
             DataType left, DataType right, boolean intStringToString) {
         if (left instanceof ArrayType && right instanceof ArrayType) {
@@ -1329,11 +1661,12 @@ public class TypeCoercionUtils {
     /**
      * get common type for comparison.
      * in legacy planner, comparison predicate convert int vs string to double.
-     *   however, in predicate and between predicate convert int vs string to string
-     *   but after between rewritten to comparison predicate,
-     *   int vs string been convert to double again
-     *   so, in Nereids, only in predicate set this flag to true.
+     * however, in predicate and between predicate convert int vs string to string
+     * but after between rewritten to comparison predicate,
+     * int vs string been convert to double again
+     * so, in Nereids, only in predicate set this flag to true.
      */
+    @Deprecated
     private static Optional<DataType> findCommonPrimitiveTypeForComparison(
             DataType leftType, DataType rightType, boolean intStringToString) {
         // same type
@@ -1487,6 +1820,7 @@ public class TypeCoercionUtils {
     /**
      * find wider common type for data type list.
      */
+    @Deprecated
     public static Optional<DataType> findWiderCommonTypeForCaseWhen(List<DataType> dataTypes) {
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
@@ -1512,7 +1846,7 @@ public class TypeCoercionUtils {
     /**
      * find wider common type for two data type.
      */
-    @Developing
+    @Deprecated
     private static Optional<DataType> findWiderTypeForTwoForCaseWhen(DataType left, DataType right) {
         // TODO: need to rethink how to handle char and varchar to return char or varchar as much as possible.
         Optional<DataType> commonType = findCommonComplexTypeForCaseWhen(left, right);
@@ -1525,7 +1859,7 @@ public class TypeCoercionUtils {
     /**
      * find common type for complex type.
      */
-    @Developing
+    @Deprecated
     private static Optional<DataType> findCommonComplexTypeForCaseWhen(DataType left, DataType right) {
         if (left.isNullType()) {
             return Optional.of(right);
@@ -1573,6 +1907,7 @@ public class TypeCoercionUtils {
      * two types' common type, see TypeCoercionUtilsTest#testFindCommonPrimitiveTypeForCaseWhen()
      */
     @VisibleForTesting
+    @Deprecated
     protected static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
         if (!(t1 instanceof PrimitiveType) || !(t2 instanceof PrimitiveType)) {
             return Optional.empty();
@@ -1689,13 +2024,10 @@ public class TypeCoercionUtils {
         }
 
         // time-like vs all other type
-        if (t1.isTimeLikeType() && t2.isTimeLikeType()) {
-            if (t1.isTimeType() && t2.isTimeType()) {
-                return Optional.of(TimeType.INSTANCE);
-            }
+        if (t1.isTimeType() && t2.isTimeType()) {
             return Optional.of(TimeV2Type.INSTANCE);
         }
-        if (t1.isTimeLikeType() || t2.isTimeLikeType()) {
+        if (t1.isTimeType() || t2.isTimeType()) {
             if (t1.isNumericType() || t2.isNumericType() || t1.isBooleanType() || t2.isBooleanType()) {
                 return Optional.of(DoubleType.INSTANCE);
             }
@@ -1714,78 +2046,6 @@ public class TypeCoercionUtils {
         }
 
         return Optional.empty();
-    }
-
-    /**
-     * add json type info as the last argument of the function.
-     *
-     * @param function function need to add json type info
-     * @param checkKey check key not null
-     * @return function already processed
-     */
-    public static BoundFunction fillJsonTypeArgument(BoundFunction function, boolean checkKey) {
-        List<Expression> arguments = function.getArguments();
-        try {
-            List<Expression> newArguments = Lists.newArrayList();
-            StringBuilder jsonTypeStr = new StringBuilder();
-            for (int i = 0; i < arguments.size(); i++) {
-                Expression argument = arguments.get(i);
-                Type type = argument.getDataType().toCatalogDataType();
-                int jsonType = FunctionCallExpr.computeJsonDataType(type);
-                jsonTypeStr.append(jsonType);
-
-                if (type.isNull()) {
-                    if ((i & 1) == 0 && checkKey) {
-                        throw new AnalysisException(function.getName() + " key can't be NULL: " + function.toSql());
-                    }
-                    // Not to return NULL directly, so save string, but flag is '0'
-                    newArguments.add(new StringLiteral("NULL"));
-                } else {
-                    newArguments.add(argument);
-                }
-            }
-            if (arguments.isEmpty()) {
-                newArguments.add(new StringLiteral(""));
-            } else {
-                // add json type string to the last
-                newArguments.add(new StringLiteral(jsonTypeStr.toString()));
-            }
-            return (BoundFunction) function.withChildren(newArguments);
-        } catch (Throwable t) {
-            throw new AnalysisException(t.getMessage());
-        }
-    }
-
-    /**
-     * add json type info as the last argument of the function.
-     * used for json_insert, json_replace, json_set.
-     *
-     * @param function function need to add json type info
-     * @return function already processed
-     */
-    public static BoundFunction fillJsonValueModifyTypeArgument(BoundFunction function) {
-        List<Expression> arguments = function.getArguments();
-        List<Expression> newArguments = Lists.newArrayListWithCapacity(arguments.size() + 1);
-        StringBuilder jsonTypeStr = new StringBuilder();
-        for (int i = 0; i < arguments.size(); i++) {
-            Expression argument = arguments.get(i);
-            Type type = argument.getDataType().toCatalogDataType();
-            int jsonType = FunctionCallExpr.computeJsonDataType(type);
-            jsonTypeStr.append(jsonType);
-
-            if (i > 0 && (i & 1) == 0 && type.isNull()) {
-                newArguments.add(new StringLiteral("NULL"));
-            } else {
-                newArguments.add(argument);
-            }
-        }
-        if (arguments.isEmpty()) {
-            newArguments.add(new StringLiteral(""));
-        } else {
-            // add json type string to the last
-            newArguments.add(new StringLiteral(jsonTypeStr.toString()));
-        }
-        return (BoundFunction) function.withChildren(newArguments);
     }
 
     private static Expression processDecimalV3BinaryArithmetic(BinaryArithmetic binaryArithmetic,
@@ -1850,17 +2110,25 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
-    private static boolean supportCompare(DataType dataType) {
+    /**
+     * BE only support numeric, character, date-time and array
+     */
+    private static boolean supportCompare(DataType dataType, boolean allowStruct) {
         if (dataType.isArrayType()) {
+            return supportCompare(((ArrayType) dataType).getItemType(), allowStruct);
+        }
+        if (allowStruct && dataType instanceof StructType) {
+            for (StructField field : ((StructType) dataType).getFields()) {
+                if (!supportCompare(field.getDataType(), allowStruct)) {
+                    return false;
+                }
+            }
             return true;
         }
         if (!(dataType instanceof PrimitiveType)) {
             return false;
         }
-        if (dataType.isObjectType()) {
-            return false;
-        }
-        if (dataType instanceof JsonType) {
+        if (dataType.isJsonType() || dataType.isObjectOrVariantType()) {
             return false;
         }
         return true;

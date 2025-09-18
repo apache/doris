@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(cast(c_acctbal as DECIMALV3(17, 4))))
+----------------NestedLoopJoin[INNER_JOIN](cast(c_acctbal as DECIMALV3(38, 4)) > avg(c_acctbal))
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_ANTI_JOIN bucketShuffle] hashCondition=((orders.o_custkey = customer.c_custkey)) otherCondition=()
 ----------------------PhysicalProject

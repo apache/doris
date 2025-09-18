@@ -5,6 +5,7 @@ APEX_040000
 APEX_PUBLIC_USER
 DORIS_TEST
 HR
+SYNONYM_TEST_USER
 information_schema
 mysql
 
@@ -427,6 +428,36 @@ doris
 -- !null_operator9 --
 
 -- !null_operator10 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !sql_syn01 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !sql_syn02 --
+
+-- !sql_syn01 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !sql_syn02 --
+TEST_SYNONYM_STUDENT
+TEST_SYNONYM_STUDENT2
+
+-- !sql_syn03 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !sql_syn04 --
 1	alice	20	99.5
 2	bob	21	90.5
 3	jerry	23	88.0

@@ -22,7 +22,7 @@
 #include <atomic>
 
 #include "common/simple_thread_pool.h"
-#include "meta-service/txn_kv.h"
+#include "meta-store/txn_kv.h"
 
 namespace doris::cloud {
 

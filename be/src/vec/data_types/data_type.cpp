@@ -36,7 +36,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -57,7 +56,6 @@ String IDataType::do_get_name() const {
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
-    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
@@ -81,12 +79,6 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_string not implement.", get_name());
     return "";
-}
-Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} from_string not implement.", get_name());
-
-    return Status::OK();
 }
 
 void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
@@ -149,7 +141,7 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::VARIANT;
     case PrimitiveType::TYPE_DATETIMEV2:
         return PGenericType::DATETIMEV2;
-    case PrimitiveType::TYPE_OBJECT:
+    case PrimitiveType::TYPE_BITMAP:
         return PGenericType::BITMAP;
     case PrimitiveType::TYPE_HLL:
         return PGenericType::HLL;
@@ -169,13 +161,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::AGG_STATE;
     case PrimitiveType::TYPE_TIMEV2:
         return PGenericType::TIMEV2;
-    case PrimitiveType::INVALID_TYPE: {
-        // TODO(gabriel): we need another primitive type to represent FixedLengthObject
-        if (data_type->is_fixed_length_object()) {
-            return PGenericType::FIXEDLENGTHOBJECT;
-        }
-        break;
-    }
+    case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
+        return PGenericType::FIXEDLENGTHOBJECT;
     default:
         break;
     }
@@ -190,17 +177,17 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
     const auto* col = *column;
     // const flag
     bool is_const_column = is_column_const(*col);
-    *reinterpret_cast<bool*>(buf) = is_const_column;
+    unaligned_store<bool>(buf, is_const_column);
     buf += sizeof(bool);
 
     // row num
     const auto row_num = col->size();
-    *reinterpret_cast<size_t*>(buf) = row_num;
+    unaligned_store<size_t>(buf, row_num);
     buf += sizeof(size_t);
 
     // real saved num
     *real_need_copy_num = is_const_column ? 1 : row_num;
-    *reinterpret_cast<size_t*>(buf) = *real_need_copy_num;
+    unaligned_store<size_t>(buf, *real_need_copy_num);
     buf += sizeof(size_t);
 
     if (is_const_column) {
@@ -213,20 +200,25 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num) {
     // const flag
-    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    bool is_const_column = unaligned_load<bool>(buf);
     buf += sizeof(bool);
     // row num
-    size_t row_num = *reinterpret_cast<const size_t*>(buf);
+    size_t row_num = unaligned_load<size_t>(buf);
     buf += sizeof(size_t);
     // real saved num
-    *real_have_saved_num = *reinterpret_cast<const size_t*>(buf);
-    buf += sizeof(size_t);
+    *real_have_saved_num = unaligned_load<size_t>(buf);
+    buf += sizeof(size_t*);
 
     if (is_const_column) {
         auto const_column = ColumnConst::create((*column)->get_ptr(), row_num, true);
         *column = const_column->get_ptr();
     }
     return buf;
+}
+
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

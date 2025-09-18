@@ -104,6 +104,9 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
                                  int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
+    if (is_const_and_have_executed()) { // const have executed in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
     // for each child call execute
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
@@ -112,19 +115,11 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     uint32_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-
-    auto state = Status::OK();
-    try {
-        state = _function->execute(context->fn_context(_fn_context_index), *block,
-                                   {static_cast<uint32_t>(column_id)}, num_columns_without_result,
-                                   block->rows(), false);
-        RETURN_IF_ERROR(state);
-        // set the result column id only state is ok
-        *result_column_id = num_columns_without_result;
-    } catch (const Exception& e) {
-        state = e.to_status();
-    }
-    return state;
+    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block,
+                                       {static_cast<uint32_t>(column_id)},
+                                       num_columns_without_result, block->rows()));
+    *result_column_id = num_columns_without_result;
+    return Status::OK();
 }
 
 const std::string& VCastExpr::expr_name() const {

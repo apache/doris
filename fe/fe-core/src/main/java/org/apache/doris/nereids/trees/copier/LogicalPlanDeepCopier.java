@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.copier;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -35,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -63,7 +66,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Multimap;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +80,7 @@ import java.util.Set;
  * deep copy a plan
  */
 public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext> {
+    public static final Logger LOG = LogManager.getLogger(LogicalPlanDeepCopier.class);
 
     public static LogicalPlanDeepCopier INSTANCE = new LogicalPlanDeepCopier();
 
@@ -91,6 +98,34 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         updateReplaceMapWithOutput(logicalRelation, newRelation, context.exprIdReplaceMap);
         context.putRelation(logicalRelation.getRelationId(), newRelation);
         return newRelation;
+    }
+
+    @Override
+    public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation, DeepCopierContext context) {
+        if (context.getRelationReplaceMap().containsKey(catalogRelation.getRelationId())) {
+            return context.getRelationReplaceMap().get(catalogRelation.getRelationId());
+        }
+        LogicalCatalogRelation newRelation =
+                catalogRelation.withRelationId(StatementScopeIdGenerator.newRelationId());
+        updateReplaceMapWithOutput(catalogRelation, newRelation, context.exprIdReplaceMap);
+        List<NamedExpression> virtualColumns = catalogRelation.getVirtualColumns().stream()
+                .map(e -> {
+                    if (e instanceof Alias) {
+                        return new Alias(((Alias) e).child(), e.getName());
+                    }
+                    return e;
+                })
+                .collect(ImmutableList.toImmutableList());
+        for (int i = 0; i < virtualColumns.size(); i++) {
+            context.exprIdReplaceMap.put(catalogRelation.getVirtualColumns().get(i).getExprId(),
+                    virtualColumns.get(i).getExprId());
+        }
+        virtualColumns = virtualColumns.stream()
+                .map(o -> (NamedExpression) ExpressionDeepCopier.INSTANCE.deepCopy(o, context))
+                .collect(ImmutableList.toImmutableList());
+        newRelation = newRelation.withVirtualColumns(virtualColumns);
+        context.putRelation(catalogRelation.getRelationId(), newRelation);
+        return updateOperativeSlots(catalogRelation, newRelation);
     }
 
     @Override
@@ -125,8 +160,8 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     public Plan visitLogicalApply(LogicalApply<? extends Plan, ? extends Plan> apply, DeepCopierContext context) {
         Plan left = apply.left().accept(this, context);
         Plan right = apply.right().accept(this, context);
-        List<Expression> correlationSlot = apply.getCorrelationSlot().stream()
-                .map(s -> ExpressionDeepCopier.INSTANCE.deepCopy(s, context))
+        List<Slot> correlationSlot = apply.getCorrelationSlot().stream()
+                .map(s -> (Slot) ExpressionDeepCopier.INSTANCE.deepCopy(s, context))
                 .collect(ImmutableList.toImmutableList());
         Optional<Expression> compareExpr = apply.getCompareExpr()
                 .map(f -> ExpressionDeepCopier.INSTANCE.deepCopy(f, context));
@@ -138,7 +173,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                 .map(m -> (MarkJoinSlotReference) ExpressionDeepCopier.INSTANCE.deepCopy(m, context));
         return new LogicalApply<>(correlationSlot, apply.getSubqueryType(), apply.isNot(),
                 compareExpr, typeCoercionExpr, correlationFilter,
-                markJoinSlotReference, apply.isNeedAddSubOutputToProjects(), apply.isInProject(),
+                markJoinSlotReference, apply.isNeedAddSubOutputToProjects(),
                 apply.isMarkJoinSlotNotNull(), left, right);
     }
 
@@ -272,8 +307,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
                     .deepCopy(join.getMarkJoinSlotReference().get(), context));
 
         }
+        DistributeHint hint = join.getDistributeHint();
+        if (hint.getSkewInfo() != null) {
+            Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(hint.getSkewExpr(), context);
+            hint.setSkewInfo(hint.getSkewInfo().withSkewExpr(skewExpr));
+        }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,
-                join.getDistributeHint(), markJoinSlotReference, children, join.getJoinReorderContext());
+                hint, markJoinSlotReference, children, join.getJoinReorderContext());
     }
 
     @Override
@@ -410,6 +450,26 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         for (int i = 0; i < newOutput.size(); i++) {
             replaceMap.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
         }
+    }
+
+    private Plan updateOperativeSlots(LogicalCatalogRelation oldRelation, LogicalCatalogRelation newRelation) {
+        List<Slot> oldOperativeSlots = oldRelation.getOperativeSlots();
+        List<Slot> newOperativeSlots = new ArrayList<>(oldOperativeSlots.size());
+        int outputSize = oldOperativeSlots.size();
+        for (Slot opSlot : oldOperativeSlots) {
+            int idx;
+            for (idx = 0; idx < outputSize; idx++) {
+                if (opSlot.equals(oldRelation.getOutput().get(idx))) {
+                    newOperativeSlots.add(newRelation.getOutput().get(idx));
+                    break;
+                }
+            }
+            if (idx == outputSize) {
+                LOG.warn("deep copy failed, cannot find operative slot {} from {}",
+                        opSlot, oldRelation.treeString());
+            }
+        }
+        return (Plan) newRelation.withOperativeSlots(newOperativeSlots);
     }
 
 }

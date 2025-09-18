@@ -82,7 +82,7 @@ void PartitionCacheTest::clear() {
     SAFE_DELETE(_clear_response);
 }
 
-void set_sql_key(PUniqueId* sql_key, int64 hi, int64 lo) {
+void set_sql_key(PUniqueId* sql_key, int64_t hi, int64_t lo) {
     sql_key->set_hi(hi);
     sql_key->set_lo(lo);
 }

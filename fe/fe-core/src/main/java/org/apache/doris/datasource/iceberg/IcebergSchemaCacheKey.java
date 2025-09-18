@@ -18,14 +18,15 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.datasource.NameMapping;
 
 import com.google.common.base.Objects;
 
 public class IcebergSchemaCacheKey extends SchemaCacheKey {
     private final long schemaId;
 
-    public IcebergSchemaCacheKey(String dbName, String tableName, long schemaId) {
-        super(dbName, tableName);
+    public IcebergSchemaCacheKey(NameMapping nameMapping, long schemaId) {
+        super(nameMapping);
         this.schemaId = schemaId;
     }
 

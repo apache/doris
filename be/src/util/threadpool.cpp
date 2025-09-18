@@ -33,7 +33,6 @@
 #include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
-#include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 
@@ -424,11 +423,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     DCHECK(token);
 
     std::unique_lock<std::mutex> l(_lock);
-    if (PREDICT_FALSE(!_pool_status.ok())) {
+    if (!_pool_status.ok()) [[unlikely]] {
         return _pool_status;
     }
 
-    if (PREDICT_FALSE(!token->may_submit_new_tasks())) {
+    if (!token->may_submit_new_tasks()) [[unlikely]] {
         return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
     }
 
@@ -566,14 +565,14 @@ void ThreadPool::dispatch_thread() {
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
             _idle_threads.push_front(me);
-            SCOPED_CLEANUP({
+            Defer defer = [&] {
                 // For some wake ups (i.e. shutdown or do_submit) this thread is
                 // guaranteed to be unlinked after being awakened. In others (i.e.
                 // spurious wake-up or Wait timeout), it'll still be linked.
                 if (me.is_linked()) {
                     _idle_threads.erase(_idle_threads.iterator_to(me));
                 }
-            });
+            };
             if (me.not_empty.wait_for(l, _idle_timeout) == std::cv_status::timeout) {
                 // After much investigation, it appears that pthread condition variables have
                 // a weird behavior in which they can return ETIMEDOUT from timed_wait even if

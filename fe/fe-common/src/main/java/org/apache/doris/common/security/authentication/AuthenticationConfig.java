@@ -30,8 +30,7 @@ public abstract class AuthenticationConfig {
     public static String HADOOP_USER_NAME = "hadoop.username";
     public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
     public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HIVE_KERBEROS_PRINCIPAL = "hive.metastore.kerberos.principal";
-    public static String HIVE_KERBEROS_KEYTAB = "hive.metastore.kerberos.keytab.file";
+    public static String HADOOP_SECURITY_AUTH_TO_LOCAL = "hadoop.security.auth_to_local";
     public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
     private static final String DEFAULT_HADOOP_USERNAME = "hadoop";
 
@@ -60,6 +59,12 @@ public abstract class AuthenticationConfig {
         return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
     }
 
+    public static AuthenticationConfig getKerberosConfig(Map<String, String> params) {
+        Configuration conf = new Configuration();
+        params.forEach(conf::set);
+        return AuthenticationConfig.getKerberosConfig(conf, HADOOP_KERBEROS_PRINCIPAL, HADOOP_KERBEROS_KEYTAB);
+    }
+
     public static AuthenticationConfig getSimpleAuthenticationConfig(Configuration conf) {
         return AuthenticationConfig.createSimpleAuthenticationConfig(conf);
     }
@@ -79,12 +84,8 @@ public abstract class AuthenticationConfig {
             String principalKey = conf.get(krbPrincipalKey);
             String keytabKey = conf.get(krbKeytabKey);
             if (!Strings.isNullOrEmpty(principalKey) && !Strings.isNullOrEmpty(keytabKey)) {
-                KerberosAuthenticationConfig krbConfig = new KerberosAuthenticationConfig();
-                krbConfig.setKerberosPrincipal(principalKey);
-                krbConfig.setKerberosKeytab(keytabKey);
-                krbConfig.setConf(conf);
-                krbConfig.setPrintDebugLog(Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false")));
-                return krbConfig;
+                Boolean isDebug = Boolean.parseBoolean(conf.get(DORIS_KRB5_DEBUG, "false"));
+                return new KerberosAuthenticationConfig(principalKey, keytabKey, conf, isDebug);
             } else {
                 // Due to some historical reasons, `core-size.xml` may be stored in path:`fe/conf`,
                 // but this file may only contain `hadoop.security.authentication configuration`,

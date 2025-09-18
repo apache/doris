@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
         std::cerr << "failed to init glog" << std::endl;
         return -1;
     }
-    doris::cloud::config::aws_log_level = 5;
+    LOG(INFO) << "s3_accessor_test starting";
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

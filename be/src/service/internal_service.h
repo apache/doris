@@ -190,6 +190,10 @@ public:
     void multiget_data(google::protobuf::RpcController* controller, const PMultiGetRequest* request,
                        PMultiGetResponse* response, google::protobuf::Closure* done) override;
 
+    void multiget_data_v2(google::protobuf::RpcController* controller,
+                          const PMultiGetRequestV2* request, PMultiGetResponseV2* response,
+                          google::protobuf::Closure* done) override;
+
     void tablet_fetch_data(google::protobuf::RpcController* controller,
                            const PTabletKeyLookupRequest* request,
                            PTabletKeyLookupResponse* response,
@@ -233,8 +237,6 @@ private:
                                     bool compact,
                                     const std::function<void(RuntimeState*, Status*)>& cb =
                                             std::function<void(RuntimeState*, Status*)>());
-
-    Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 
     void _transmit_block(::google::protobuf::RpcController* controller,
                          const ::doris::PTransmitDataParams* request,

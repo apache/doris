@@ -23,8 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.CharType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -37,26 +35,24 @@ import java.util.List;
 /** MultiDistinctGroupConcat */
 public class MultiDistinctGroupConcat extends NullableAggregateFunction
         implements ExplicitlyCastableSignature, MultiDistinction {
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT,
-                    AnyDataType.INSTANCE_WITHOUT_INDEX),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT,
-                    VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX),
-
-            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE,
-                    AnyDataType.INSTANCE_WITHOUT_INDEX),
-            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE,
-                    StringType.INSTANCE, AnyDataType.INSTANCE_WITHOUT_INDEX),
-
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).args(CharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
-                    AnyDataType.INSTANCE_WITHOUT_INDEX),
-            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
-                    CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX));
+    private static final List<FunctionSignature> ONE_ARG = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> ONE_ARG_WITH_ORDER_BY = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
+    );
+    private static final List<FunctionSignature> TWO_ARGS = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .args(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+    );
+    private static final List<FunctionSignature> TWO_ARGS_WITH_ORDER_BY = ImmutableList.of(
+            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+                    .varArgs(VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE_WITHOUT_INDEX)
+    );
 
     private final boolean mustUseMultiDistinctAgg;
+    private final int nonOrderArguments;
 
     /**
      * constructor with 1 argument with other arguments.
@@ -79,8 +75,16 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     private MultiDistinctGroupConcat(boolean mustUseMultiDistinctAgg, boolean alwaysNullable, List<Expression> args) {
         super("multi_distinct_group_concat", false, alwaysNullable, args);
-        checkArguments(children);
         this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+        this.nonOrderArguments = findOrderExprIndex(children);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    protected MultiDistinctGroupConcat(
+            boolean mustUseMultiDistinctAgg, NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
+        this.nonOrderArguments = findOrderExprIndex(children);
     }
 
     @Override
@@ -91,7 +95,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public MultiDistinctGroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     /**
@@ -99,8 +103,7 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
      */
     @Override
     public MultiDistinctGroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        checkArguments(children);
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, getFunctionParams(false, children));
     }
 
     @Override
@@ -110,10 +113,30 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        if (nonOrderArguments == 2) {
+            if (arity() >= 3) {
+                return TWO_ARGS_WITH_ORDER_BY;
+            }
+            return TWO_ARGS;
+        } else {
+            if (arity() >= 2) {
+                return ONE_ARG_WITH_ORDER_BY;
+            }
+            return ONE_ARG;
+        }
     }
 
-    private void checkArguments(List<Expression> children) {
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return mustUseMultiDistinctAgg || children.stream().anyMatch(OrderExpression.class::isInstance);
+    }
+
+    @Override
+    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
+        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+    }
+
+    private int findOrderExprIndex(List<Expression> children) {
         Preconditions.checkArgument(children().size() >= 1, "children's size should >= 1");
         boolean foundOrderExpr = false;
         int firstOrderExrIndex = 0;
@@ -133,15 +156,6 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             throw new AnalysisException(
                     "multi_distinct_group_concat requires one or two parameters: " + children);
         }
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg || children.stream().anyMatch(OrderExpression.class::isInstance);
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctGroupConcat(mustUseMultiDistinctAgg, alwaysNullable, children);
+        return firstOrderExrIndex;
     }
 }

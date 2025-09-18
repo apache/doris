@@ -145,6 +145,17 @@ public abstract class AgentTask {
         return isFinished;
     }
 
+    public boolean isNeedResendType() {
+        // these tasks no need to do diff
+        // 1. CREATE
+        // 2. SYNC DELETE
+        // 3. CHECK_CONSISTENCY
+        // 4. STORAGE_MEDIUM_MIGRATE
+        return !(taskType == TTaskType.CREATE
+                || taskType == TTaskType.CHECK_CONSISTENCY
+                || taskType == TTaskType.STORAGE_MEDIUM_MIGRATE);
+    }
+
     public boolean shouldResend(long currentTimeMillis) {
         return createTime == -1 || currentTimeMillis - createTime > Config.agent_task_resend_wait_time_ms;
     }

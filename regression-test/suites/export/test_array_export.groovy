@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_array_export", "export") {
+suite("test_array_export", "export,external") {
     // check whether the FE config 'enable_outfile_to_local' is true
     StringBuilder strBuilder = new StringBuilder()
     strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
@@ -110,18 +110,20 @@ suite("test_array_export", "export") {
                     "column_separator"=",",
                     "format"="${exportFormat}"
                 )
-                WITH BROKER "${BrokerName}" (
+                WITH HDFS (
                     "username"="${HdfsUserName}",
-                    "password"="${HdfsPasswd}"
+                    "password"="${HdfsPasswd}",
+                    "fs.defaultFS"="context.config.otherConfigs.get('hdfsFs')"
                 )
             """
     }
 
     def select_out_file = {exportTable, HdfsPath, outFormat, BrokerName, HdfsUserName, HdfsPasswd->
-        sql """
+
+        def sqlString = """
             SELECT * FROM ${exportTable}
             INTO OUTFILE "${HdfsPath}"
-            FORMAT AS "${outFormat}"
+            FORMAT AS ${outFormat}
             PROPERTIES
             (
                 "broker.name" = "${BrokerName}",
@@ -131,6 +133,8 @@ suite("test_array_export", "export") {
                 "broker.password"="${HdfsPasswd}"
             )
         """
+        logger.info("sqlString: ${sqlString}")
+        sql sqlString
     }
 
     def check_export_result = {checklabel->
@@ -210,20 +214,20 @@ suite("test_array_export", "export") {
     
     
     if (enableHdfs()) {
-        brokerName = getBrokerName()
-        hdfsUser = getHdfsUser()
-        hdfsPasswd = getHdfsPasswd()
-        hdfsDataDir = getHdfsDataDir()
+        def brokerName = getBrokerName()
+        def hdfsUser = getHdfsUser()
+        def hdfsPasswd = getHdfsPasswd()
+        def hdfsDataDir = getHdfsDataDir()
 
         // case2: test "select ...into outfile 'hdfs_path'"
         try {
             create_test_table.call(tableName)
 
-            resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def resultCount = sql "select count(*) from ${tableName}"
+            def currentTotalRows = resultCount[0][0]
 
-            label = UUID.randomUUID().toString().replaceAll("-", "")
-            select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
+            def result = select_out_file(tableName, hdfsDataDir + "/" + label + "/export-data", "csv", brokerName, hdfsUser, hdfsPasswd)
             result = downloadExportFromHdfs(label + "/export-data")
             check_download_result(result, currentTotalRows)
         } finally {
@@ -234,13 +238,13 @@ suite("test_array_export", "export") {
         try {
             create_test_table.call(tableName)
 
-            resultCount = sql "select count(*) from ${tableName}"
-            currentTotalRows = resultCount[0][0]
+            def resultCount = sql "select count(*) from ${tableName}"
+            def currentTotalRows = resultCount[0][0]
 
-            label = UUID.randomUUID().toString().replaceAll("-", "")
+            def label = UUID.randomUUID().toString().replaceAll("-", "")
             export_to_hdfs.call(tableName, label, hdfsDataDir + "/" + label, '', brokerName, hdfsUser, hdfsPasswd)
             check_export_result(label)
-            result = downloadExportFromHdfs(label + "/export-data")
+            def result = downloadExportFromHdfs(label + "/export-data")
             check_download_result(result, currentTotalRows)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${tableName}")

@@ -60,6 +60,7 @@ static const std::string HTTP_COMMENT = "comment";
 static const std::string HTTP_ENABLE_PROFILE = "enable_profile";
 static const std::string HTTP_PARTIAL_COLUMNS = "partial_columns";
 static const std::string HTTP_UNIQUE_KEY_UPDATE_MODE = "unique_key_update_mode";
+static const std::string HTTP_PARTIAL_UPDATE_NEW_ROW_POLICY = "partial_update_new_key_behavior";
 static const std::string HTTP_SQL = "sql";
 static const std::string HTTP_TWO_PHASE_COMMIT = "two_phase_commit";
 static const std::string HTTP_TXN_ID_KEY = "txn_id";
@@ -70,5 +71,6 @@ static const std::string HTTP_WAL_ID_KY = "wal_id";
 static const std::string HTTP_AUTH_CODE = "auth_code"; // deprecated
 static const std::string HTTP_GROUP_COMMIT = "group_commit";
 static const std::string HTTP_CLOUD_CLUSTER = "cloud_cluster";
+static const std::string HTTP_EMPTY_FIELD_AS_NULL = "empty_field_as_null";
 
 } // namespace doris

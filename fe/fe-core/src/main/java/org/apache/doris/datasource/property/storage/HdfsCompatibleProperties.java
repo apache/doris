@@ -17,40 +17,36 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
+import org.apache.doris.common.security.authentication.SimpleAuthenticationConfig;
 
-import org.apache.hadoop.conf.Configuration;
+import lombok.Getter;
 
-import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 
 public abstract class HdfsCompatibleProperties extends StorageProperties {
 
 
-    @ConnectorProperty(names = {"fs.defaultFS"}, required = false, description = "")
-    protected String fsDefaultFS = "";
+    public static final String HDFS_DEFAULT_FS_NAME = "fs.defaultFS";
 
-    @ConnectorProperty(names = {"hadoop.config.resources"},
-            required = false,
-            description = "The xml files of Hadoop configuration.")
-    protected String hadoopConfigResources = "";
-
-    protected static final List<String> HDFS_COMPATIBLE_PROPERTIES_KEYS = Arrays.asList("fs.defaultFS",
-            "hadoop.config.resources");
-
-    protected Configuration configuration;
-
+    protected Map<String, String> backendConfigProperties;
 
     protected HdfsCompatibleProperties(Type type, Map<String, String> origProps) {
         super(type, origProps);
     }
 
-    public abstract Configuration getHadoopConfiguration();
-
+    @Getter
+    protected HadoopAuthenticator hadoopAuthenticator = new HadoopSimpleAuthenticator(new SimpleAuthenticationConfig());
 
     @Override
     protected String getResourceConfigPropName() {
         return "hadoop.config.resources";
     }
+
+    @Override
+    public void initializeHadoopStorageConfig() {
+        //nothing to do
+    }
+
 }

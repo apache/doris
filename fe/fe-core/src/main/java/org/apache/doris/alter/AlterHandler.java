@@ -18,7 +18,6 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -201,11 +200,6 @@ public abstract class AlterHandler extends MasterDaemon {
      */
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
             throws UserException {}
-
-    /*
-     * cancel alter ops
-     */
-    public abstract void cancel(CancelStmt stmt) throws DdlException;
 
     /*
      * Handle the finish report of alter task.

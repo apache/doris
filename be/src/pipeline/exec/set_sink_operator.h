@@ -40,7 +40,11 @@ public:
     using Base = PipelineXSinkLocalState<SetSharedState>;
     using Parent = SetSinkOperatorX<is_intersect>;
 
-    SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
+    SetSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {
+        _finish_dependency = std::make_shared<CountedFinishDependency>(
+                parent->operator_id(), parent->node_id(),
+                parent->get_name() + "_FINISH_DEPENDENCY");
+    }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;

@@ -211,6 +211,11 @@ beijing chengdu shanghai
 2	216.5
 3	36.0
 
+-- !select29 --
+1	0.0
+2	216.5
+3	36.0
+
 -- !select30 --
 1	0.0
 2	216.5

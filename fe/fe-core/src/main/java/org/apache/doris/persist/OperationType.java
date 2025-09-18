@@ -56,6 +56,7 @@ public class OperationType {
     public static final short OP_REPLACE_TEMP_PARTITION = 210;
     public static final short OP_BATCH_MODIFY_PARTITION = 211;
     public static final short OP_REPLACE_TABLE = 212;
+    public static final short OP_BRANCH_OR_TAG = 213;
 
     // 20~29 120~129 220~229 ...
     @Deprecated
@@ -232,9 +233,9 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
-    // create sync job
+    @Deprecated
     public static final short OP_CREATE_SYNC_JOB = 234;
-    // update sync job state
+    @Deprecated
     public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
@@ -300,20 +301,6 @@ public class OperationType {
     @Deprecated
     public static final short OP_INIT_EXTERNAL_TABLE = 329;
 
-    @Deprecated
-    public static final short OP_CREATE_MTMV_JOB = 330;
-    @Deprecated
-    public static final short OP_DROP_MTMV_JOB = 331;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_JOB = 332;
-    @Deprecated
-    public static final short OP_CREATE_MTMV_TASK = 340;
-    @Deprecated
-    public static final short OP_DROP_MTMV_TASK = 341;
-    @Deprecated
-    public static final short OP_CHANGE_MTMV_TASK = 342;
-    @Deprecated
-    public static final short OP_ALTER_MTMV_STMT = 345;
     public static final short OP_ADD_CONSTRAINT = 346;
     public  static final short OP_DROP_CONSTRAINT = 347;
 
@@ -421,11 +408,19 @@ public class OperationType {
     public static final short OP_DICTIONARY_INC_VERSION = 482;
     public static final short OP_DICTIONARY_DEC_VERSION = 483;
 
+    // index policy 490 ~ 499
+    public static final short OP_CREATE_INDEX_POLICY = 490;
+    public static final short OP_DROP_INDEX_POLICY = 491;
+
+    public static final short OP_OPERATE_KEY = 492;
+
     // For cloud.
     public static final short OP_UPDATE_CLOUD_REPLICA = 1000;
     @Deprecated
     public static final short OP_MODIFY_TTL_SECONDS = 1001;
     public static final short OP_MODIFY_CLOUD_WARM_UP_JOB = 1002;
+
+    public static final short OP_BEGIN_SNAPSHOT = 1100;
 
     /**
      * Get opcode name by op code.

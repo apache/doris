@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -37,7 +37,7 @@ import java.util.List;
  * ScalarFunction 'months_between'.
  */
 public class MonthsBetween extends ScalarFunction
-        implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+        implements TernaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE,
@@ -58,17 +58,18 @@ public class MonthsBetween extends ScalarFunction
         super("months_between", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MonthsBetween(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MonthsBetween withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
-        if (children.size() == 2) {
-            return new MonthsBetween(children.get(0), children.get(1));
-        } else {
-            return new MonthsBetween(children.get(0), children.get(1), children.get(2));
-        }
+        return new MonthsBetween(getFunctionParams(children));
     }
 
     @Override

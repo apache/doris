@@ -32,9 +32,9 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _sort_blocks_memory_usage =
-            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
-    _append_blocks_timer = ADD_TIMER(profile(), "AppendBlockTime");
-    _update_runtime_predicate_timer = ADD_TIMER(profile(), "UpdateRuntimePredicateTime");
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "MemoryUsageSortBlocks", TUnit::BYTES, 1);
+    _append_blocks_timer = ADD_TIMER(custom_profile(), "AppendBlockTime");
+    _update_runtime_predicate_timer = ADD_TIMER(custom_profile(), "UpdateRuntimePredicateTime");
     return Status::OK();
 }
 
@@ -55,13 +55,17 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     case TSortAlgorithm::TOPN_SORT: {
         _shared_state->sorter = vectorized::TopNSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state, custom_profile());
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        _shared_state->sorter = vectorized::FullSorter::create_shared(
+        auto sorter = vectorized::FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, _profile);
+                p._child->row_desc(), state, custom_profile());
+        if (p._max_buffered_bytes > 0) {
+            sorter->set_max_buffered_block_bytes(p._max_buffered_bytes);
+        }
+        _shared_state->sorter = std::move(sorter);
         break;
     }
     default: {
@@ -69,10 +73,10 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     }
     }
 
-    _shared_state->sorter->init_profile(_profile);
+    _shared_state->sorter->init_profile(custom_profile());
 
-    _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
-    _profile->add_info_string(
+    custom_profile()->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
+    custom_profile()->add_info_string(
             "SortAlgorithm",
             p._algorithm == TSortAlgorithm::HEAP_SORT
                     ? "HEAP_SORT"
@@ -98,7 +102,10 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, int dest
                                                                : std::vector<TExpr> {}),
           _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
                                                        : TSortAlgorithm::FULL_SORT),
-          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT),
+          _max_buffered_bytes(tnode.sort_node.__isset.full_sort_max_buffered_bytes
+                                      ? tnode.sort_node.full_sort_max_buffered_bytes
+                                      : -1) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -153,7 +160,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     }
 
     if (eos) {
-        RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read());
+        RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read(false));
         local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
@@ -171,7 +178,7 @@ size_t SortSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
 
 Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    return local_state._shared_state->sorter->prepare_for_read();
+    return local_state._shared_state->sorter->prepare_for_read(true);
 }
 
 Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,

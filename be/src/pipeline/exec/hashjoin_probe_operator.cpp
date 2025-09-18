@@ -56,15 +56,16 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
 
     _construct_mutable_join_block();
     _probe_column_disguise_null.reserve(_probe_expr_ctxs.size());
-    _probe_arena_memory_usage =
-            profile()->AddHighWaterMarkCounter("MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
+    _probe_arena_memory_usage = custom_profile()->AddHighWaterMarkCounter(
+            "MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
     // Probe phase
-    _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
-    _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
-    _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
-    _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
-    _non_equal_join_conjuncts_timer = ADD_TIMER(profile(), "NonEqualJoinConjunctEvaluationTime");
-    _init_probe_side_timer = ADD_TIMER(profile(), "InitProbeSideTime");
+    _probe_expr_call_timer = ADD_TIMER(custom_profile(), "ProbeExprCallTime");
+    _search_hashtable_timer = ADD_TIMER(custom_profile(), "ProbeWhenSearchHashTableTime");
+    _build_side_output_timer = ADD_TIMER(custom_profile(), "ProbeWhenBuildSideOutputTime");
+    _probe_side_output_timer = ADD_TIMER(custom_profile(), "ProbeWhenProbeSideOutputTime");
+    _non_equal_join_conjuncts_timer =
+            ADD_TIMER(custom_profile(), "NonEqualJoinConjunctEvaluationTime");
+    _init_probe_side_timer = ADD_TIMER(custom_profile(), "InitProbeSideTime");
     return Status::OK();
 }
 
@@ -196,8 +197,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
             column->resize(block_rows);
-            auto null_map_column =
-                    vectorized::ColumnVector<vectorized::UInt8>::create(block_rows, 1);
+            auto null_map_column = vectorized::ColumnUInt8::create(block_rows, 1);
             auto nullable_column = vectorized::ColumnNullable::create(std::move(column),
                                                                       std::move(null_map_column));
             local_state._probe_block.insert({std::move(nullable_column), make_nullable(type),

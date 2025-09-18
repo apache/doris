@@ -48,7 +48,9 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(CompoundPredicate.class).then(this::rewrite)
+                matchesTopType(CompoundPredicate.class)
+                        .when(c -> c.containsType(Not.class))
+                        .then(this::rewrite)
                         .toRule(ExpressionRuleType.SIMPLIFY_CONFLICT_COMPOUND)
         );
     }
@@ -60,28 +62,32 @@ public class SimplifyConflictCompound implements ExpressionPatternRuleFactory {
         // expression -> (exist expression, exist (not expression))
         // if expression -> (true, true) then expression has conflict,
         // ie, predicate contains expression 'expression' and 'not expression'
-        Map<Expression, Pair<Boolean, Boolean>> exprExistMarks = Maps.newHashMap();
+        Map<Expression, Pair<Boolean, Boolean>> exprExistMarks = Maps.newLinkedHashMap();
+        boolean canSimplify = false;
         for (Expression child : flatten) {
-            if (!child.containsNonfoldable()) {
-                if (child instanceof CompoundPredicate) {
-                    Expression newChild = rewrite((CompoundPredicate) child);
-                    if (!child.equals(newChild)) {
-                        child = newChild;
-                        changed = true;
-                    }
+            if (child instanceof CompoundPredicate) {
+                Expression newChild = rewrite((CompoundPredicate) child);
+                if (!child.equals(newChild)) {
+                    child = newChild;
+                    changed = true;
                 }
-                Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
-                Expression normalExpr = pair.first;
-                boolean isNot = pair.second;
-                Pair<Boolean, Boolean> mark = exprExistMarks.computeIfAbsent(normalExpr, k -> Pair.of(false, false));
-                if (isNot) {
-                    mark = Pair.of(mark.first, true);
-                } else {
-                    mark = Pair.of(true, mark.second);
-                }
-                exprExistMarks.put(normalExpr, mark);
             }
+            Pair<Expression, Boolean> pair = normalComparisonAndNot(child);
+            Expression normalExpr = pair.first;
+            boolean isNot = pair.second;
+            Pair<Boolean, Boolean> mark = exprExistMarks.computeIfAbsent(normalExpr, k -> Pair.of(false, false));
+            if (isNot) {
+                canSimplify |= mark.first;
+                mark = Pair.of(mark.first, true);
+            } else {
+                canSimplify |= mark.second;
+                mark = Pair.of(true, mark.second);
+            }
+            exprExistMarks.put(normalExpr, mark);
             newChildren.add(child);
+        }
+        if (!canSimplify && !changed) {
+            return compoundPredicate;
         }
         // conflict expression -> had written
         Map<Expression, Boolean> conflictExprMarks = exprExistMarks.entrySet().stream()

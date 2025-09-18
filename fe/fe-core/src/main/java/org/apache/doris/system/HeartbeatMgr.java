@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TBrokerVersion;
+import org.apache.doris.thrift.TCloudClusterInfo;
 import org.apache.doris.thrift.TFrontendInfo;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
@@ -109,6 +110,9 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        if (Config.isCloudMode() && masterInfo.get() != null) {
+            masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
+        }
         // Get feInfos of previous iteration.
         List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
@@ -264,6 +268,9 @@ public class HeartbeatMgr extends MasterDaemon {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
                     copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
+                    TCloudClusterInfo clusterInfo = new TCloudClusterInfo();
+                    clusterInfo.setIsStandby(backend.isInStandbyCluster());
+                    copiedMasterInfo.setCloudClusterInfo(clusterInfo);
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {

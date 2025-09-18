@@ -96,6 +96,9 @@ public class HiveMetaStoreClientHelper {
     public static final String HIVE_JSON_SERDE = "org.apache.hive.hcatalog.data.JsonSerDe";
     public static final String LEGACY_HIVE_JSON_SERDE = "org.apache.hadoop.hive.serde2.JsonSerDe";
     public static final String OPENX_JSON_SERDE = "org.openx.data.jsonserde.JsonSerDe";
+    public static final String HIVE_TEXT_SERDE = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+    public static final String HIVE_OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
+    public static final String HIVE_MULTI_DELIMIT_SERDE = "org.apache.hadoop.hive.serde2.MultiDelimitSerDe";
 
     public enum HiveFileFormat {
         TEXT_FILE(0, "text"),
@@ -716,7 +719,7 @@ public class HiveMetaStoreClientHelper {
     public static String showCreateTable(HMSExternalTable hmsTable) {
         // Always use the latest schema
         HMSExternalCatalog catalog = (HMSExternalCatalog) hmsTable.getCatalog();
-        Table remoteTable = catalog.getClient().getTable(hmsTable.getDbName(), hmsTable.getRemoteName());
+        Table remoteTable = catalog.getClient().getTable(hmsTable.getRemoteDbName(), hmsTable.getRemoteName());
         StringBuilder output = new StringBuilder();
         if (remoteTable.isSetViewOriginalText() || remoteTable.isSetViewExpandedText()) {
             output.append(String.format("CREATE VIEW `%s` AS ", remoteTable.getTableName()));
@@ -860,7 +863,7 @@ public class HiveMetaStoreClientHelper {
 
     private static Optional<String> firstNonNullable(String... values) {
         for (String value : values) {
-            if (!Strings.isNullOrEmpty(value)) {
+            if (value != null) {
                 return Optional.of(value);
             }
         }
@@ -881,8 +884,10 @@ public class HiveMetaStoreClientHelper {
      *
      * @param altValue
      *                 The string containing a number.
+     * @param defValue
+     *                 The default value to return if altValue is invalid.
      */
-    public static String getByte(String altValue) {
+    public static String getByte(String altValue, String defValue) {
         if (altValue != null && altValue.length() > 0) {
             try {
                 return Character.toString((char) ((Byte.parseByte(altValue) + 256) % 256));
@@ -890,6 +895,6 @@ public class HiveMetaStoreClientHelper {
                 return altValue.substring(0, 1);
             }
         }
-        return null;
+        return defValue;
     }
 }

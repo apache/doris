@@ -387,7 +387,112 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         order_qt_null_operator9 """ SELECT * FROM STUDENT WHERE (id IS NOT NULL AND NULL); """
         order_qt_null_operator10 """ SELECT * FROM STUDENT WHERE (name IS NULL OR age IS NOT NULL); """
 
-        sql """ drop catalog if exists oracle_null_operator; """
+        // test function rules
+        // test push down
+        sql """ drop catalog if exists oracle_function_rules"""
+        // test invalid config
+        test {
+            sql """create catalog if not exists oracle_function_rules properties(
+                "type"="jdbc",
+                "user"="doris_test",
+                "password"="123456",
+                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                "function_rules" = '{"pushdown" : {"supported" : [null]}}'
+            );"""
+
+            exception """Failed to parse push down rules: {"pushdown" : {"supported" : [null]}}"""
+        }
+
+        sql """create catalog if not exists oracle_function_rules properties(
+            "type"="jdbc",
+            "user"="doris_test",
+            "password"="123456",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver",
+            "function_rules" = '{"pushdown" : {"supported" : ["abs"]}}'
+        );"""
+
+        sql "use oracle_function_rules.DORIS_TEST"
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"], "unsupported" : []}}')"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test rewrite
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["abs"]}, "rewrite" : {"abs" : "abs2"}}');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((abs2("ID") > 0)) AND ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // reset function rules
+        sql """alter catalog oracle_function_rules set properties("function_rules" = '');"""
+        explain {
+            sql """select id from STUDENT where abs(id) > 0 and ifnull(id, 3) = 3;"""
+            contains """QUERY: SELECT "ID" FROM "DORIS_TEST"."STUDENT" WHERE ((nvl("ID", 3) = 3))"""
+            contains """PREDICATES: ((abs(ID[#0]) > 0) AND (ifnull(ID[#0], 3) = 3))"""
+        }
+
+        // test invalid config
+        test {
+            sql """alter catalog oracle_function_rules set properties("function_rules" = 'invalid_json')"""
+            exception """Failed to parse push down rules: invalid_json"""
+        }
+
+        // test synonym
+        sql """drop catalog if exists oracle_test_synonym"""
+        sql """create catalog oracle_test_synonym properties(
+            "type"="jdbc",
+            "user"="doris_test",
+            "password"="123456",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver"
+        );"""
+
+        // TEST_SYNONYM_STUDENT is a synonym of "student" table in DORIS_TEST
+        order_qt_sql_syn01 """select * from oracle_test_synonym.DORIS_TEST.TEST_SYNONYM_STUDENT"""
+        // should be empty, because user "doris_test" has no priv on SYNONYM_TEST_USER
+        qt_sql_syn02 """show tables from oracle_test_synonym.SYNONYM_TEST_USER;"""
+
+        // create catalog with admin priv
+        sql """drop catalog if exists oracle_test_synonym_sys"""
+        sql """create catalog oracle_test_synonym_sys properties(
+            "type"="jdbc",
+            "user"="system",
+            "password"="oracle",
+            "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "oracle.jdbc.driver.OracleDriver"
+        );"""
+
+        // can still see synonym in DORIS_TEST
+        order_qt_sql_syn01 """select * from oracle_test_synonym_sys.DORIS_TEST.TEST_SYNONYM_STUDENT"""
+        // should has priv to see 2 synonym in SYNONYM_TEST_USER
+        qt_sql_syn02 """show tables from oracle_test_synonym_sys.SYNONYM_TEST_USER;"""
+        order_qt_sql_syn03 """select * from oracle_test_synonym_sys.SYNONYM_TEST_USER.TEST_SYNONYM_STUDENT"""
+        order_qt_sql_syn04 """select * from oracle_test_synonym_sys.SYNONYM_TEST_USER.TEST_SYNONYM_STUDENT2"""
+        
+
+        // sql """ drop catalog if exists oracle_null_operator; """
 
     }
 }

@@ -30,6 +30,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.Base64;
 import java.util.List;
@@ -101,7 +102,7 @@ public abstract class RemoteBase {
             return "Obj{"
                 + "provider=" + provider
                 + ", ak='" + ak + '\''
-                + ", sk='" + sk + '\''
+                + ", sk='******" + '\''
                 + ", bucket='" + bucket + '\''
                 + ", endpoint='" + endpoint + '\''
                 + ", region='" + region + '\''
@@ -136,6 +137,10 @@ public abstract class RemoteBase {
 
     public abstract void deleteObjects(List<String> keys) throws DdlException;
 
+    public abstract void putObject(File file, String key) throws DdlException;
+
+    public abstract void getObject(String key, String file) throws DdlException;
+
     public void close() {}
 
     public static RemoteBase newInstance(ObjectInfo obj) throws Exception {
@@ -153,6 +158,8 @@ public abstract class RemoteBase {
                 return new BosRemote(obj);
             case AZURE:
                 return new AzureRemote(obj);
+            case TOS:
+                return new TosRemote(obj);
             default:
                 throw new Exception("current not support obj : " + obj.toString());
         }

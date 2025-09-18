@@ -90,7 +90,7 @@ void HeapProfiler::heap_profiler_stop() {
     set_prof_active(false);
 }
 
-bool HeapProfiler::check_heap_profiler() {
+bool HeapProfiler::check_active_heap_profiler() {
 #ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
@@ -98,6 +98,19 @@ bool HeapProfiler::check_heap_profiler() {
     // the real conf `prof` value cannot be checked.
     jemallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
+#else
+    return false;
+#endif
+}
+
+bool HeapProfiler::check_enable_heap_profiler() {
+#ifdef USE_JEMALLOC
+    bool prof = false;
+    size_t sz = sizeof(prof);
+    if (jemallctl("opt.prof", &prof, &sz, nullptr, 0) != 0) {
+        LOG(WARNING) << "Failed to get option: opt.prof";
+    }
+    return prof;
 #else
     return false;
 #endif
@@ -128,6 +141,18 @@ std::string HeapProfiler::dump_heap_profile_to_dot() {
     } else {
         return "";
     }
+}
+
+bool HeapProfiler::heap_profiler_reset(size_t lg_sample) {
+#ifdef USE_JEMALLOC
+    int ret = jemallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample));
+    if (ret != 0) {
+        LOG(WARNING) << "jemallctl failed to set prof.reset:" << lg_sample
+                     << ".Check whether JEMALLOC_CONF is configured with prof:true.";
+        return false;
+    }
+#endif
+    return true;
 }
 
 #include "common/compile_check_end.h"

@@ -75,4 +75,25 @@ public class TableRefInfo {
             partitionNamesInfo.validate();
         }
     }
+
+    public String getTableAlias() {
+        return tableAlias;
+    }
+
+    public boolean hasAlias() {
+        return tableAlias != null;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(tableNameInfo.getTbl());
+        if (partitionNamesInfo != null) {
+            sb.append(partitionNamesInfo.toSql());
+        }
+        if (tableAlias != null) {
+            sb.append(" AS ").append(tableAlias);
+        }
+        return sb.toString();
+    }
 }

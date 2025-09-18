@@ -41,13 +41,14 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
 class Block;
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
-template <typename T>
+template <PrimitiveType T>
 class ColumnVector;
 } // namespace vectorized
 } // namespace doris
@@ -109,16 +110,16 @@ public:
 
         int length() {
             // name_length(4) + column_name + operator(4) + scale(4) + num_values(4)
-            int len = 4 + column_name.size() + 4 + 4 + 4;
+            int len = 4 + static_cast<int>(column_name.size()) + 4 + 4 + 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
                     // string_length(4) + string
-                    len += 4 + s->size;
+                    len += static_cast<int>(4 + s->size);
                 }
             } else {
                 int type_len = sizeof(CppType);
                 // value_length(4) + value
-                len += (4 + type_len) * values.size();
+                len += static_cast<int>((4 + type_len) * values.size());
             }
             return len;
         }
@@ -144,22 +145,22 @@ public:
             *reinterpret_cast<int*>(new_bytes) = num_filters;
 
             char* char_ptr = new_bytes + origin_length;
-            *reinterpret_cast<int*>(char_ptr) = column_name.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(column_name.size());
             char_ptr += 4;
             memcpy(char_ptr, column_name.data(), column_name.size());
-            char_ptr += column_name.size();
+            char_ptr += static_cast<int>(column_name.size());
             *reinterpret_cast<int*>(char_ptr) = op;
             char_ptr += 4;
             *reinterpret_cast<int*>(char_ptr) = scale;
             char_ptr += 4;
-            *reinterpret_cast<int*>(char_ptr) = values.size();
+            *reinterpret_cast<int*>(char_ptr) = static_cast<int>(values.size());
             char_ptr += 4;
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 for (const StringRef* s : values) {
-                    *reinterpret_cast<int*>(char_ptr) = s->size;
+                    *reinterpret_cast<int*>(char_ptr) = static_cast<int>(s->size);
                     char_ptr += 4;
                     memcpy(char_ptr, s->data, s->size);
-                    char_ptr += s->size;
+                    char_ptr += static_cast<int>(s->size);
                 }
             } else {
                 // FIXME: it can not handle decimal type correctly.
@@ -191,7 +192,7 @@ public:
             : _connector_class(std::move(connector_class)),
               _scanner_params(std::move(scanner_params)),
               _column_names(std::move(column_names)),
-              _self_split_weight(self_split_weight) {
+              _self_split_weight(static_cast<int32_t>(self_split_weight)) {
         // Use java class name as connector name
         _connector_name = split(_connector_class, "/").back();
     }
@@ -242,7 +243,7 @@ public:
     /**
      * Get performance metrics from java scanner
      */
-    std::map<std::string, std::string> get_statistics(JNIEnv* env);
+    Status get_statistics(JNIEnv* env, std::map<std::string, std::string>* result);
 
     /**
      * Call java side function JniScanner.getTableSchema.
@@ -301,17 +302,17 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    jclass _jni_scanner_cls;
-    jobject _jni_scanner_obj;
-    jmethodID _jni_scanner_open;
-    jmethodID _jni_scanner_get_append_data_time;
-    jmethodID _jni_scanner_get_create_vector_table_time;
-    jmethodID _jni_scanner_get_next_batch;
-    jmethodID _jni_scanner_get_table_schema;
-    jmethodID _jni_scanner_close;
-    jmethodID _jni_scanner_release_column;
-    jmethodID _jni_scanner_release_table;
-    jmethodID _jni_scanner_get_statistics;
+    jclass _jni_scanner_cls = nullptr;
+    jobject _jni_scanner_obj = nullptr;
+    jmethodID _jni_scanner_open = nullptr;
+    jmethodID _jni_scanner_get_append_data_time = nullptr;
+    jmethodID _jni_scanner_get_create_vector_table_time = nullptr;
+    jmethodID _jni_scanner_get_next_batch = nullptr;
+    jmethodID _jni_scanner_get_table_schema = nullptr;
+    jmethodID _jni_scanner_close = nullptr;
+    jmethodID _jni_scanner_release_column = nullptr;
+    jmethodID _jni_scanner_release_table = nullptr;
+    jmethodID _jni_scanner_get_statistics = nullptr;
 
     TableMetaAddress _table_meta;
 
@@ -332,6 +333,9 @@ private:
 
     static Status _fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                       size_t num_rows);
+
+    static Status _fill_varbinary_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
+                                         size_t num_rows);
 
     static Status _fill_map_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                    DataTypePtr& data_type, size_t num_rows);
@@ -390,12 +394,12 @@ private:
         // orc can only push down is_null. When col_value_range._contain_null = true, only indicating that
         // value can be null, not equals null, so ignore _contain_null in col_value_range
         if (col_val_range.is_high_value_maximum() && high_op == SQLFilterOp::FILTER_LESS_OR_EQUAL &&
-            col_val_range.is_low_value_mininum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
+            col_val_range.is_low_value_minimum() && low_op == SQLFilterOp::FILTER_LARGER_OR_EQUAL) {
             return;
         }
 
         if (low_value < high_value) {
-            if (!col_val_range.is_low_value_mininum() ||
+            if (!col_val_range.is_low_value_minimum() ||
                 SQLFilterOp::FILTER_LARGER_OR_EQUAL != low_op) {
                 ScanPredicate<CppType> low_predicate(column_name);
                 low_predicate.scale = col_val_range.scale();
@@ -414,5 +418,5 @@ private:
         }
     }
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

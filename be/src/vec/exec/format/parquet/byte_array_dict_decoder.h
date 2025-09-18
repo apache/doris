@@ -24,7 +24,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -32,7 +31,7 @@
 #include "vec/exec/format/parquet/parquet_common.h"
 
 namespace doris::vectorized {
-template <typename T>
+template <PrimitiveType T>
 class ColumnDecimal;
 template <typename T>
 class ColumnStr;
@@ -50,7 +49,8 @@ public:
     Status _decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                           ColumnSelectVector& select_vector, bool is_dict_filter);
 
-    Status set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length, size_t num_values) override;
+    Status set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
+                    size_t num_values) override;
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
 

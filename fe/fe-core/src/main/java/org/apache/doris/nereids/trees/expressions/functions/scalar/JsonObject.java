@@ -46,18 +46,22 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
         super("json_object", ExpressionUtils.mergeArguments(varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonObject(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
         for (int i = 0; i < arity(); i++) {
-            if ((i & 1) == 1 && (getArgumentType(i).isComplexType() || getArgumentType(i).isJsonType())) {
-                // keep origin type for BE Serialization
-                arguments.add(JsonType.INSTANCE);
+            if (i % 2 == 1) {
+                arguments.add(getArgumentType(i));
             } else {
                 arguments.add(VarcharType.SYSTEM_DEFAULT);
             }
         }
-        return FunctionSignature.of(VarcharType.SYSTEM_DEFAULT, arguments);
+        return FunctionSignature.of(JsonType.INSTANCE, arguments);
     }
 
     @Override
@@ -77,7 +81,7 @@ public class JsonObject extends ScalarFunction implements CustomSignature, Alway
      */
     @Override
     public JsonObject withChildren(List<Expression> children) {
-        return new JsonObject(children.toArray(new Expression[0]));
+        return new JsonObject(getFunctionParams(children));
     }
 
     @Override

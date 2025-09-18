@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -56,16 +55,17 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 public class MTMVPlanUtil {
@@ -86,9 +86,9 @@ public class MTMVPlanUtil {
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext) {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
+        ctx.getState().setInternal(true);
         ctx.setThreadLocalInfo();
         // Debug session variable should be disabled when refreshed
         ctx.getSessionVariable().skipDeletePredicate = false;
@@ -97,12 +97,18 @@ public class MTMVPlanUtil {
         ctx.getSessionVariable().skipStorageEngineMerge = false;
         ctx.getSessionVariable().showHiddenColumns = false;
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
-        // Disable add default limit rule to avoid refresh data wrong
+        // Rules disabled during materialized view plan generation. These rules can cause significant plan changes,
+        // which may affect transparent query rewriting by mv
+        List<RuleType> disableRules = Arrays.asList(
+                RuleType.COMPRESSED_MATERIALIZE_AGG,
+                RuleType.COMPRESSED_MATERIALIZE_SORT,
+                RuleType.ELIMINATE_CONST_JOIN_CONDITION,
+                RuleType.CONSTANT_PROPAGATION,
+                RuleType.ADD_DEFAULT_LIMIT,
+                RuleType.ELIMINATE_GROUP_BY
+        );
         ctx.getSessionVariable().setDisableNereidsRules(
-                String.join(",", ImmutableSet.of(
-                        "COMPRESSED_MATERIALIZE_AGG", "COMPRESSED_MATERIALIZE_SORT",
-                        "ELIMINATE_CONST_JOIN_CONDITION",
-                        RuleType.ADD_DEFAULT_LIMIT.name())));
+                disableRules.stream().map(RuleType::name).collect(Collectors.joining(",")));
         ctx.setStartTime();
         if (parentContext != null) {
             ctx.changeDefaultCatalog(parentContext.getDefaultCatalog());
@@ -299,8 +305,8 @@ public class MTMVPlanUtil {
                     DecimalV2Type.class, DecimalV2Type.SYSTEM_DEFAULT);
             if (s.isColumnFromTable()) {
                 // check if external table
-                if ((!((SlotReference) s).getTable().isPresent()
-                        || !((SlotReference) s).getTable().get().isManagedTable())) {
+                if ((!((SlotReference) s).getOriginalTable().isPresent()
+                        || !((SlotReference) s).getOriginalTable().get().isManagedTable())) {
                     if (s.getName().equals(partitionCol) || distributionColumnNames.contains(s.getName())) {
                         // String type can not be used in partition/distributed column
                         // so we replace it to varchar

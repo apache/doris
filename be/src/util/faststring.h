@@ -27,6 +27,7 @@
 #include "util/memcpy_inlined.h"
 #include "util/slice.h"
 #include "vec/common/allocator.h"
+#include "vec/common/allocator_fwd.h"
 
 namespace doris {
 

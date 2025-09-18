@@ -17,7 +17,9 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
@@ -27,12 +29,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -195,6 +199,7 @@ public class MTMVTask extends AbstractTask {
             tableIfs.sort(Comparator.comparing(TableIf::getId));
 
             MTMVRefreshContext context;
+            Pair<List<String>, List<PartitionKeyDesc>> syncPartitions = null;
             // lock table order by id to avoid deadlock
             MetaLockUtils.readLockTables(tableIfs);
             try {
@@ -211,8 +216,21 @@ public class MTMVTask extends AbstractTask {
                                 + " e.g. Table has multiple partition columns"
                                 + " or including not supported transform functions.");
                     }
-                    MTMVPartitionUtil.alignMvPartition(mtmv);
+                    syncPartitions = MTMVPartitionUtil.alignMvPartition(mtmv);
                 }
+            } finally {
+                MetaLockUtils.readUnlockTables(tableIfs);
+            }
+            if (syncPartitions != null) {
+                for (String pName : syncPartitions.first) {
+                    MTMVPartitionUtil.dropPartition(mtmv, pName);
+                }
+                for (PartitionKeyDesc partitionKeyDesc : syncPartitions.second) {
+                    MTMVPartitionUtil.addPartition(mtmv, partitionKeyDesc);
+                }
+            }
+            MetaLockUtils.readLockTables(tableIfs);
+            try {
                 context = MTMVRefreshContext.buildContext(mtmv);
                 this.needRefreshPartitions = calculateNeedRefreshPartitions(context);
             } finally {
@@ -363,10 +381,19 @@ public class MTMVTask extends AbstractTask {
     }
 
     private String getDummyStmt(Set<String> refreshPartitionNames) {
+        String mvName = mtmv.getName();
+        DatabaseIf database = mtmv.getDatabase();
+        if (database != null) {
+            mvName = database.getFullName() + "." + mvName;
+            CatalogIf catalog = database.getCatalog();
+            if (catalog != null) {
+                mvName = catalog.getName() + mvName;
+            }
+        }
         return String.format(
                 "Asynchronous materialized view refresh task, mvName: %s,"
                         + "taskId: %s, partitions refreshed by this insert overwrite: %s",
-                mtmv.getName(), super.getTaskId(), refreshPartitionNames);
+                mvName, super.getTaskId(), refreshPartitionNames);
     }
 
     @Override
@@ -452,7 +479,7 @@ public class MTMVTask extends AbstractTask {
             }
             if (tableIf instanceof MvccTable) {
                 MvccTable mvccTable = (MvccTable) tableIf;
-                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty());
+                MvccSnapshot mvccSnapshot = mvccTable.loadSnapshot(Optional.empty(), Optional.empty());
                 snapshots.put(new MvccTableInfo(mvccTable), mvccSnapshot);
             }
         }

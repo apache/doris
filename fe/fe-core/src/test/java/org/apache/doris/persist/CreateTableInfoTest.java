@@ -95,7 +95,7 @@ public class CreateTableInfoTest {
                 TStorageType.COLUMN, KeysType.AGG_KEYS);
         Deencapsulation.setField(table, "baseIndexId", 1000);
         table.addPartition(partition);
-        CreateTableInfo info = new CreateTableInfo("db1", table);
+        CreateTableInfo info = new CreateTableInfo("db1", -1L, table);
         info.write(dos);
 
         dos.flush();

@@ -22,7 +22,6 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/columns_number.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/core/block.h"
@@ -46,38 +45,42 @@ inline bool allow_decimal_comparison(const DataTypePtr& left_type, const DataTyp
 
 template <size_t>
 struct ConstructDecInt {
-    using Type = Int32;
+    static constexpr PrimitiveType Type = TYPE_INT;
 };
 template <>
 struct ConstructDecInt<8> {
-    using Type = Int64;
+    static constexpr PrimitiveType Type = TYPE_BIGINT;
 };
 template <>
 struct ConstructDecInt<16> {
-    using Type = Int128;
+    static constexpr PrimitiveType Type = TYPE_LARGEINT;
 };
 template <>
 struct ConstructDecInt<32> {
-    using Type = wide::Int256;
+    static constexpr PrimitiveType Type = TYPE_DECIMAL256;
 };
 
-template <typename T, typename U>
+template <PrimitiveType T, PrimitiveType U>
 struct DecCompareInt {
-    using Type = typename ConstructDecInt<
-            (!IsDecimalNumber<U> || sizeof(T) > sizeof(U)) ? sizeof(T) : sizeof(U)>::Type;
-    using TypeA = Type;
-    using TypeB = Type;
+    static constexpr PrimitiveType Type =
+            ConstructDecInt < (!is_decimal(U) ||
+                               sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >
+                                       sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType))
+                    ? sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType)
+                    : sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType) > ::Type;
 };
 
 ///
-template <typename A, typename B, template <typename, typename> typename Operation,
-          bool _check_overflow = true, bool _actual = IsDecimalNumber<A> || IsDecimalNumber<B>>
+template <PrimitiveType A, PrimitiveType B,
+          template <PrimitiveType, PrimitiveType> typename Operation, bool _check_overflow = true,
+          bool _actual = is_decimal(A) || is_decimal(B)>
 class DecimalComparison {
 public:
-    using CompareInt = typename DecCompareInt<A, B>::Type;
-    using Op = Operation<CompareInt, CompareInt>;
-    using ColVecA = std::conditional_t<IsDecimalNumber<A>, ColumnDecimal<A>, ColumnVector<A>>;
-    using ColVecB = std::conditional_t<IsDecimalNumber<B>, ColumnDecimal<B>, ColumnVector<B>>;
+    static constexpr PrimitiveType CompareIntPType = DecCompareInt<A, B>::Type;
+    using CompareInt = typename PrimitiveTypeTraits<CompareIntPType>::CppNativeType;
+    using Op = Operation<CompareIntPType, CompareIntPType>;
+    using ColVecA = typename PrimitiveTypeTraits<A>::ColumnType;
+    using ColVecB = typename PrimitiveTypeTraits<B>::ColumnType;
     using ArrayA = typename ColVecA::Container;
     using ArrayB = typename ColVecB::Container;
 
@@ -106,22 +109,22 @@ public:
         return false;
     }
 
-    static bool compare(A a, B b, UInt32 scale_a, UInt32 scale_b) {
-        static const UInt32 max_scale = max_decimal_precision<Decimal256>();
+    static bool compare(typename PrimitiveTypeTraits<A>::ColumnItemType a,
+                        typename PrimitiveTypeTraits<B>::ColumnItemType b, UInt32 scale_a,
+                        UInt32 scale_b) {
+        static const UInt32 max_scale = max_decimal_precision<TYPE_DECIMAL256>();
         if (scale_a > max_scale || scale_b > max_scale) {
             throw Exception(Status::FatalError("Bad scale of decimal field"));
         }
 
         Shift shift;
         if (scale_a < scale_b) {
-            shift.a = DataTypeDecimal<B>(max_decimal_precision<B>(), scale_b)
-                              .get_scale_multiplier(scale_b - scale_a)
-                              .value;
+            shift.a = typename PrimitiveTypeTraits<B>::DataType(max_decimal_precision<B>(), scale_b)
+                              .get_scale_multiplier(scale_b - scale_a);
         }
         if (scale_a > scale_b) {
-            shift.b = DataTypeDecimal<A>(max_decimal_precision<A>(), scale_a)
-                              .get_scale_multiplier(scale_a - scale_b)
-                              .value;
+            shift.b = typename PrimitiveTypeTraits<A>::DataType(max_decimal_precision<A>(), scale_a)
+                              .get_scale_multiplier(scale_a - scale_b);
         }
 
         return apply_with_scale(a, b, shift);
@@ -146,46 +149,51 @@ private:
         return apply<false, false>(a, b, 1);
     }
 
-    template <typename T, typename U>
-        requires IsDecimalNumber<T> && IsDecimalNumber<U>
+    template <PrimitiveType T, PrimitiveType U>
+        requires(is_decimal(T) && is_decimal(U))
     static Shift getScales(const DataTypePtr& left_type, const DataTypePtr& right_type) {
-        const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
-        const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
+        const typename PrimitiveTypeTraits<T>::DataType* decimal0 = check_decimal<T>(*left_type);
+        const typename PrimitiveTypeTraits<U>::DataType* decimal1 = check_decimal<U>(*right_type);
 
         Shift shift;
         if (decimal0 && decimal1) {
-            using Type = std::conditional_t<sizeof(T) >= sizeof(U), T, U>;
+            constexpr PrimitiveType Type =
+                    sizeof(typename PrimitiveTypeTraits<T>::ColumnItemType) >=
+                                    sizeof(typename PrimitiveTypeTraits<U>::ColumnItemType)
+                            ? T
+                            : U;
             auto type_ptr = decimal_result_type(*decimal0, *decimal1, false, false, false);
             const DataTypeDecimal<Type>* result_type = check_decimal<Type>(*type_ptr);
-            shift.a = result_type->scale_factor_for(*decimal0).value;
-            shift.b = result_type->scale_factor_for(*decimal1).value;
+            shift.a = result_type->scale_factor_for(*decimal0);
+            shift.b = result_type->scale_factor_for(*decimal1);
         } else if (decimal0) {
-            shift.b = decimal0->get_scale_multiplier().value;
+            shift.b = decimal0->get_scale_multiplier();
         } else if (decimal1) {
-            shift.a = decimal1->get_scale_multiplier().value;
+            shift.a = decimal1->get_scale_multiplier();
         }
 
         return shift;
     }
 
-    template <typename T, typename U>
-        requires(IsDecimalNumber<T> && !IsDecimalNumber<U>)
+    template <PrimitiveType T, PrimitiveType U>
+        requires(is_decimal(T) && !is_decimal(U))
     static Shift getScales(const DataTypePtr& left_type, const DataTypePtr&) {
         Shift shift;
-        const DataTypeDecimal<T>* decimal0 = check_decimal<T>(*left_type);
+        const typename PrimitiveTypeTraits<T>::DataTypeType* decimal0 =
+                check_decimal<T>(*left_type);
         if (decimal0) {
-            shift.b = decimal0->get_scale_multiplier().value;
+            shift.b = decimal0->get_scale_multiplier();
         }
         return shift;
     }
 
-    template <typename T, typename U>
-        requires(!IsDecimalNumber<T> && IsDecimalNumber<U>)
+    template <PrimitiveType T, PrimitiveType U>
+        requires(!is_decimal(T) && is_decimal(U))
     static Shift getScales(const DataTypePtr&, const DataTypePtr& right_type) {
         Shift shift;
-        const DataTypeDecimal<U>* decimal1 = check_decimal<U>(*right_type);
+        const typename PrimitiveTypeTraits<U>::DataType* decimal1 = check_decimal<U>(*right_type);
         if (decimal1) {
-            shift.a = decimal1->get_scale_multiplier().value;
+            shift.a = decimal1->get_scale_multiplier();
         }
         return shift;
     }
@@ -200,8 +208,10 @@ private:
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
 
-                A a = c0_const->template get_value<A>();
-                B b = c1_const->template get_value<B>();
+                typename PrimitiveTypeTraits<A>::ColumnItemType a = c0_const->template get_value<
+                        typename PrimitiveTypeTraits<A>::ColumnItemType>();
+                typename PrimitiveTypeTraits<B>::ColumnItemType b = c1_const->template get_value<
+                        typename PrimitiveTypeTraits<B>::ColumnItemType>();
                 UInt8 res = apply<scale_left, scale_right>(a, b, scale);
                 return DataTypeUInt8().create_column_const(c0->size(), to_field<TYPE_BOOLEAN>(res));
             }
@@ -211,7 +221,8 @@ private:
 
             if (c0_is_const) {
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());
-                A a = c0_const->template get_value<A>();
+                typename PrimitiveTypeTraits<A>::ColumnItemType a = c0_const->template get_value<
+                        typename PrimitiveTypeTraits<A>::ColumnItemType>();
                 if (const ColVecB* c1_vec = check_and_get_column<ColVecB>(c1.get()))
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
@@ -219,7 +230,8 @@ private:
                 }
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
-                B b = c1_const->template get_value<B>();
+                typename PrimitiveTypeTraits<B>::ColumnItemType b = c1_const->template get_value<
+                        typename PrimitiveTypeTraits<B>::ColumnItemType>();
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get()))
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
@@ -244,17 +256,25 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static UInt8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
+    static UInt8 apply(typename PrimitiveTypeTraits<A>::ColumnItemType a,
+                       typename PrimitiveTypeTraits<B>::ColumnItemType b,
+                       CompareInt scale [[maybe_unused]]) {
         CompareInt x = a;
         CompareInt y = b;
 
         if constexpr (_check_overflow) {
             bool overflow = false;
 
-            if constexpr (sizeof(A) > sizeof(CompareInt)) overflow |= (A(x) != a);
-            if constexpr (sizeof(B) > sizeof(CompareInt)) overflow |= (B(y) != b);
-            if constexpr (std::is_unsigned_v<A>) overflow |= (x < 0);
-            if constexpr (std::is_unsigned_v<B>) overflow |= (y < 0);
+            if constexpr (sizeof(typename PrimitiveTypeTraits<A>::ColumnItemType) >
+                          sizeof(CompareInt))
+                overflow |= (typename PrimitiveTypeTraits<A>::ColumnItemType(x) != a);
+            if constexpr (sizeof(typename PrimitiveTypeTraits<B>::ColumnItemType) >
+                          sizeof(CompareInt))
+                overflow |= (typename PrimitiveTypeTraits<B>::ColumnItemType(y) != b);
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<A>::ColumnItemType>)
+                overflow |= (x < 0);
+            if constexpr (IsUnsignedV<typename PrimitiveTypeTraits<B>::ColumnItemType>)
+                overflow |= (y < 0);
 
             if constexpr (scale_left) overflow |= common::mul_overflow(x, scale, x);
             if constexpr (scale_right) overflow |= common::mul_overflow(y, scale, y);
@@ -274,10 +294,10 @@ private:
     static void NO_INLINE vector_vector(const ArrayA& a, const ArrayB& b, PaddedPODArray<UInt8>& c,
                                         CompareInt scale) {
         size_t size = a.size();
-        const A* a_pos = a.data();
-        const B* b_pos = b.data();
+        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_pos = a.data();
+        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_pos = b.data();
         UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = apply<scale_left, scale_right>(*a_pos, *b_pos, scale);
@@ -288,12 +308,13 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static void NO_INLINE vector_constant(const ArrayA& a, B b, PaddedPODArray<UInt8>& c,
-                                          CompareInt scale) {
+    static void NO_INLINE vector_constant(const ArrayA& a,
+                                          typename PrimitiveTypeTraits<B>::ColumnItemType b,
+                                          PaddedPODArray<UInt8>& c, CompareInt scale) {
         size_t size = a.size();
-        const A* a_pos = a.data();
+        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_pos = a.data();
         UInt8* c_pos = c.data();
-        const A* a_end = a_pos + size;
+        const typename PrimitiveTypeTraits<A>::ColumnItemType* a_end = a_pos + size;
 
         while (a_pos < a_end) {
             *c_pos = apply<scale_left, scale_right>(*a_pos, b, scale);
@@ -303,12 +324,13 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static void NO_INLINE constant_vector(A a, const ArrayB& b, PaddedPODArray<UInt8>& c,
+    static void NO_INLINE constant_vector(typename PrimitiveTypeTraits<A>::ColumnItemType a,
+                                          const ArrayB& b, PaddedPODArray<UInt8>& c,
                                           CompareInt scale) {
         size_t size = b.size();
-        const B* b_pos = b.data();
+        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_pos = b.data();
         UInt8* c_pos = c.data();
-        const B* b_end = b_pos + size;
+        const typename PrimitiveTypeTraits<B>::ColumnItemType* b_end = b_pos + size;
 
         while (b_pos < b_end) {
             *c_pos = apply<scale_left, scale_right>(a, *b_pos, scale);

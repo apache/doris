@@ -115,7 +115,7 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
     for (def tablet in tablets) {
         int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
-        (code, out, err) = curl("GET", tablet.CompactionStatus)
+        def (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def tabletJson = parseJson(out.trim())

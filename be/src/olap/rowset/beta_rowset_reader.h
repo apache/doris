@@ -86,6 +86,8 @@ public:
 
     void set_topn_limit(size_t topn_limit) override { _topn_limit = topn_limit; }
 
+    OlapReaderStatistics* get_stats() { return _stats; }
+
 private:
     [[nodiscard]] Status _init_iterator_once();
     [[nodiscard]] Status _init_iterator();

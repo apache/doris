@@ -28,7 +28,9 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #endif
@@ -46,6 +48,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
+#include "cpp/util.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
 #endif
@@ -110,23 +113,52 @@ int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_bur
     return AccessorRateLimiter::instance().rate_limiter(type)->reset(max_speed, max_burst, limit);
 }
 
-class S3Environment {
-public:
-    S3Environment() {
-        aws_options_ = Aws::SDKOptions {};
-        auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
-        aws_options_.loggingOptions.logLevel = logLevel;
-        aws_options_.loggingOptions.logger_create_fn = [logLevel] {
-            return std::make_shared<DorisAWSLogger>(logLevel);
-        };
-        Aws::InitAPI(aws_options_);
-    }
+S3Environment::S3Environment() {
+    LOG(INFO) << "Initializing S3 environment";
+    aws_options_ = Aws::SDKOptions {};
+    auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
+    aws_options_.loggingOptions.logLevel = logLevel;
+    aws_options_.loggingOptions.logger_create_fn = [logLevel] {
+        return std::make_shared<DorisAWSLogger>(logLevel);
+    };
+    Aws::InitAPI(aws_options_);
 
-    ~S3Environment() { Aws::ShutdownAPI(aws_options_); }
+#ifdef USE_AZURE
+    auto azureLogLevel =
+            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+    Azure::Core::Diagnostics::Logger::SetListener(
+            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                switch (level) {
+                case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Informational:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Warning:
+                    LOG(WARNING) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Error:
+                    LOG(ERROR) << message;
+                    break;
+                default:
+                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                 << ", message: " << message;
+                    break;
+                }
+            });
+#endif
+}
 
-private:
-    Aws::SDKOptions aws_options_;
-};
+S3Environment& S3Environment::getInstance() {
+    static S3Environment instance;
+    return instance;
+}
+
+S3Environment::~S3Environment() {
+    Aws::ShutdownAPI(aws_options_);
+}
 
 class S3ListIterator final : public ListIterator {
 public:
@@ -260,7 +292,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
-        Aws::Client::ClientConfiguration clientConfiguration;
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
                     get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
@@ -288,6 +321,7 @@ int S3Accessor::init() {
                 std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism, "s3_accessor");
         worker_pool->start();
     });
+    S3Environment::getInstance();
     switch (conf_.provider) {
     case S3Conf::AZURE: {
 #ifdef USE_AZURE
@@ -304,16 +338,16 @@ int S3Accessor::init() {
                 uri_ = "https://" + uri_;
             }
         }
+        uri_ = normalize_http_uri(uri_);
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
         // Therefore, you only need to add a policy to check if the response code is 429 and if the retry count meets the condition, it can record the retry count.
-        options.PerRetryPolicies.emplace_back(
-                std::make_unique<AzureRetryRecordPolicy>(config::max_s3_client_retry));
+        options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
-        uri_ = uri_ + '/' + conf_.prefix;
+        uri_ = normalize_http_uri(uri_ + '/' + conf_.prefix);
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
 #else
@@ -327,11 +361,10 @@ int S3Accessor::init() {
         } else {
             uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
         }
-
-        static S3Environment s3_env;
+        uri_ = normalize_http_uri(uri_);
 
         // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config;
+        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
         // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck

@@ -67,7 +67,7 @@ Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnN
         return Status::InternalError("call to rpc function {} failed: {}", _signature,
                                      response.status().DebugString());
     }
-    _convert_to_block(block, response.result(0), result);
+    RETURN_IF_ERROR(_convert_to_block(block, response.result(0), result));
     return Status::OK();
 }
 
@@ -77,19 +77,20 @@ Status RPCFnImpl::_convert_block_to_proto(Block& block, const ColumnNumbers& arg
     for (size_t col_idx : arguments) {
         PValues* arg = request->add_args();
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
-        arg->set_has_null(column.column->has_null(row_count));
+        arg->set_has_null(column.column->has_null(0, row_count));
         auto col = column.column->convert_to_full_column_if_const();
         RETURN_IF_ERROR(column.type->get_serde()->write_column_to_pb(*col, *arg, 0, row_count));
     }
     return Status::OK();
 }
 
-void RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
+Status RPCFnImpl::_convert_to_block(Block& block, const PValues& result, size_t pos) {
     auto data_type = block.get_data_type(pos);
     auto col = data_type->create_column();
     auto serde = data_type->get_serde();
-    static_cast<void>(serde->read_column_from_pb(*col, result));
+    RETURN_IF_ERROR(serde->read_column_from_pb(*col, result));
     block.replace_by_position(pos, std::move(col));
+    return Status::OK();
 }
 
 FunctionRPC::FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
@@ -105,12 +106,5 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
         context->set_function_state(FunctionContext::FRAGMENT_LOCAL, fn);
     }
     return Status::OK();
-}
-
-Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                            uint32_t result, size_t input_rows_count, bool dry_run) const {
-    auto* fn = reinterpret_cast<RPCFnImpl*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    return fn->vec_call(context, block, arguments, result, input_rows_count);
 }
 } // namespace doris::vectorized

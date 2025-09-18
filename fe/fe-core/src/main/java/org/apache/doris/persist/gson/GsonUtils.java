@@ -61,6 +61,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
@@ -71,7 +72,6 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Function;
@@ -118,6 +118,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
@@ -125,7 +126,6 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -191,7 +191,6 @@ import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
-import org.apache.doris.load.loadv2.MiniLoadJob;
 import org.apache.doris.load.loadv2.MiniLoadTxnCommitAttachment;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
@@ -246,7 +245,6 @@ import com.google.gson.ToNumberPolicy;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
-import com.google.gson.internal.Streams;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -255,7 +253,6 @@ import org.apache.commons.lang3.reflect.TypeUtils;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
-import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -263,7 +260,6 @@ import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -362,7 +358,8 @@ public class GsonUtils {
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
-            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName())
+            .registerSubtype(AIResource.class, AIResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;
@@ -585,7 +582,8 @@ public class GsonUtils {
             jobBackupTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
                     .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
-                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
+                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName())
+                    .registerSubtype(CloudRestoreJob.class, CloudRestoreJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")
@@ -594,7 +592,6 @@ public class GsonUtils {
                     .registerSubtype(CloudBrokerLoadJob.class, CloudBrokerLoadJob.class.getSimpleName())
                     .registerSubtype(CopyJob.class, CopyJob.class.getSimpleName())
                     .registerSubtype(InsertLoadJob.class, InsertLoadJob.class.getSimpleName())
-                    .registerSubtype(MiniLoadJob.class, MiniLoadJob.class.getSimpleName())
                     .registerSubtype(SparkLoadJob.class, SparkLoadJob.class.getSimpleName())
                     .registerSubtype(IngestionLoadJob.class, IngestionLoadJob.class.getSimpleName());
 
@@ -617,12 +614,10 @@ public class GsonUtils {
             .enableComplexMapKeySerialization()
             .addReflectionAccessFilter(ReflectionAccessFilter.BLOCK_INACCESSIBLE_JAVA)
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
-            // .registerTypeHierarchyAdapter(Expr.class, new ExprAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(new PreProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(exprAdapterFactory)
-            .registerTypeAdapterFactory(new ExprAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
             .registerTypeAdapterFactory(resourceTypeAdapterFactory)
@@ -797,43 +792,6 @@ public class GsonUtils {
                 table.put(rowKey, columnKey, value);
             }
             return table;
-        }
-    }
-
-    private static class ExprAdapterFactory implements TypeAdapterFactory {
-
-        private static final String EXPR_PROP = "expr";
-
-        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-            final Class<T> rawType = (Class<T>) type.getRawType();
-            final TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
-
-            if (!Expr.class.isAssignableFrom(rawType)) {
-                // reduce the stack depth.
-                return null;
-            }
-
-            return new TypeAdapter<T>() {
-                public void write(JsonWriter out, T value) throws IOException {
-                    delegate.write(out, value);
-                }
-
-                public T read(JsonReader in) throws IOException {
-                    if (Expr.class.isAssignableFrom(rawType)
-                            && Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_133) {
-                        JsonElement json = Streams.parse(in);
-                        String base64Str = json.getAsJsonObject().get(EXPR_PROP).getAsString();
-                        try (DataInputStream dataInputStream = new DataInputStream(
-                                new ByteArrayInputStream(Base64.getDecoder().decode(base64Str)))) {
-                            return (T) Expr.readIn(dataInputStream);
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    } else {
-                        return delegate.read(in);
-                    }
-                }
-            };
         }
     }
 

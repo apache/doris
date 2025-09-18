@@ -102,8 +102,6 @@ public:
             return "QueryCache";
         case CacheType::TABLET_COLUMN_OBJECT_POOL:
             return "TabletColumnObjectPool";
-        case CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE:
-            return "SchemaCloudDictionaryCache";
         default:
             throw Exception(Status::FatalError("not match type of cache policy :{}",
                                                static_cast<int>(type)));
@@ -133,7 +131,6 @@ public:
             {"ForUTCacheNumber", CacheType::FOR_UT_CACHE_NUMBER},
             {"QueryCache", CacheType::QUERY_CACHE},
             {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL},
-            {"SchemaCloudDictionaryCache", CacheType::SCHEMA_CLOUD_DICTIONARY_CACHE},
     };
 
     static CacheType string_to_type(std::string type) {
@@ -157,6 +154,7 @@ public:
 
     CacheType type() { return _type; }
     size_t initial_capacity() const { return _initial_capacity; }
+    virtual int64_t reset_initial_capacity(double adjust_weighted) = 0;
     bool enable_prune() const { return _enable_prune; }
     RuntimeProfile* profile() { return _profile.get(); }
 

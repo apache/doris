@@ -26,10 +26,12 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.ByteBufferUtil;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -37,15 +39,24 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.MathContext;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -58,6 +69,7 @@ import java.util.Optional;
  */
 public abstract class Literal extends Expression implements LeafExpression {
 
+    private static final Logger logger = Logger.getLogger(Literal.class);
     protected final DataType dataType;
 
     /**
@@ -162,8 +174,7 @@ public abstract class Literal extends Expression implements LeafExpression {
     /**
      * literal expr compare.
      */
-    @Override
-    public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+    public Expression deprecatingCheckedCastTo(DataType targetType) throws AnalysisException {
         if (getDataType().isNumericType()) {
             String desc = getStringValue();
             BigDecimal val = new BigDecimal(desc);
@@ -197,11 +208,10 @@ public abstract class Literal extends Expression implements LeafExpression {
                         String.format("%s can't cast to %s", desc, targetType));
             }
         }
-        return uncheckedCastTo(targetType);
+        return deprecatingUncheckedCastTo(targetType);
     }
 
-    @Override
-    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+    protected Expression deprecatingUncheckedCastTo(DataType targetType) throws AnalysisException {
         if (this.dataType.equals(targetType)) {
             return this;
         }
@@ -280,9 +290,9 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new DateLiteral(desc);
         } else if (targetType.isDateTimeType()) {
             return new DateTimeLiteral(desc);
-        } else if (targetType.isDecimalV2Type()) {
+        } else if (targetType.isDecimalV2Type() && !desc.isEmpty()) {
             return new DecimalLiteral((DecimalV2Type) targetType, new BigDecimal(desc));
-        } else if (targetType.isDecimalV3Type()) {
+        } else if (targetType.isDecimalV3Type() && !desc.isEmpty()) {
             return new DecimalV3Literal((DecimalV3Type) targetType, new BigDecimal(desc));
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(desc);
@@ -294,8 +304,118 @@ public abstract class Literal extends Expression implements LeafExpression {
             return new IPv4Literal(desc);
         } else if (targetType.isIPv6Type()) {
             return new IPv6Literal(desc);
+        } else if (targetType.isTimeType()) {
+            if (this.dataType.isStringLikeType()) { // could parse in FE
+                return new TimeV2Literal((TimeV2Type) targetType, desc);
+            }
+            throw new AnalysisException("cast to TimeType only in BE now");
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
+    }
+
+    /**
+     * Fall back to old cast logic when new cast not covered yet.
+     */
+    public Expression checkedCastWithFallback(DataType targetType) {
+        try {
+            return checkedCastTo(targetType);
+        } catch (CastException c) {
+            if (SessionVariable.enableStrictCast()) {
+                throw c;
+            } else {
+                return new NullLiteral(dataType);
+            }
+        } catch (Throwable t) {
+            return deprecatingCheckedCastTo(targetType);
+        }
+    }
+
+    /**
+     * literal expr compare.
+     */
+    @Override
+    public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
+        if (getDataType().isNumericType()) {
+            String desc = getStringValue();
+            if (numericOverflow(desc, targetType)) {
+                throw new CastException(String.format("%s can't cast to %s, overflow.", desc, targetType));
+            }
+        }
+        return uncheckedCastTo(targetType);
+    }
+
+    protected boolean numericOverflow(String desc, DataType targetType) {
+        if (this instanceof FloatLiteral || this instanceof DoubleLiteral) {
+            if (DoubleLiteral.POS_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NEG_INF_NAME.contains(desc.toLowerCase())
+                    || DoubleLiteral.NAN_NAME.contains(desc.toLowerCase())) {
+                return false;
+            }
+        }
+        BigDecimal val = new BigDecimal(desc);
+        return numericOverflow(val, targetType);
+    }
+
+    protected boolean numericOverflow(BigDecimal value, DataType targetType) {
+        BigDecimal maxVal = value;
+        BigDecimal minVal = value;
+        if (targetType.isTinyIntType()) {
+            maxVal = new BigDecimal(Byte.MAX_VALUE);
+            minVal = new BigDecimal(Byte.MIN_VALUE);
+        } else if (targetType.isSmallIntType()) {
+            maxVal = new BigDecimal(Short.MAX_VALUE);
+            minVal = new BigDecimal(Short.MIN_VALUE);
+        } else if (targetType.isIntegerType()) {
+            maxVal = new BigDecimal(Integer.MAX_VALUE);
+            minVal = new BigDecimal(Integer.MIN_VALUE);
+        } else if (targetType.isBigIntType()) {
+            maxVal = new BigDecimal(Long.MAX_VALUE);
+            minVal = new BigDecimal(Long.MIN_VALUE);
+        } else if (targetType.isLargeIntType()) {
+            maxVal = new BigDecimal(LargeIntType.MAX_VALUE);
+            minVal = new BigDecimal(LargeIntType.MIN_VALUE);
+        }
+        BigInteger integerValue = value.toBigInteger();
+        return integerValue.compareTo(maxVal.toBigInteger()) > 0
+                || integerValue.compareTo(minVal.toBigInteger()) < 0;
+    }
+
+    protected Expression getDecimalLiteral(BigDecimal bigDecimal, DataType targetType) {
+        int pReal = bigDecimal.precision();
+        int sReal = bigDecimal.scale();
+        int pTarget = targetType.isDecimalV2Type()
+                ? ((DecimalV2Type) targetType).getPrecision() : ((DecimalV3Type) targetType).getPrecision();
+        int sTarget = targetType.isDecimalV2Type()
+                ? ((DecimalV2Type) targetType).getScale() : ((DecimalV3Type) targetType).getScale();
+        if (bigDecimal.compareTo(BigDecimal.ZERO) != 0 && pTarget - sTarget < pReal - sReal) {
+            throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
+        }
+        BigDecimal result = bigDecimal.setScale(sTarget, RoundingMode.HALF_UP)
+                .round(new MathContext(pTarget, RoundingMode.HALF_UP));
+        logger.info("getDecimalLiteral orig bigDecimal: " + bigDecimal
+                + ", targetType: " + targetType + ", result big decimal: " + result);
+        if (targetType.isDecimalV2Type()) {
+            return new DecimalLiteral((DecimalV2Type) targetType, result);
+        } else {
+            return new DecimalV3Literal((DecimalV3Type) targetType, result);
+        }
+    }
+
+    @Override
+    protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
+        if (this.dataType.equals(targetType)) {
+            return this;
+        }
+        if (this instanceof NullLiteral) {
+            return new NullLiteral(targetType);
+        }
+        if (targetType.isStringLikeType()) {
+            return deprecatingUncheckedCastTo(targetType);
+        }
+        throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
     private static int findPointZeroIndex(String str) {
@@ -406,6 +526,7 @@ public abstract class Literal extends Expression implements LeafExpression {
             case JSONB: return new JsonLiteral(literalExpr.getStringValue());
             case IPV4: return new IPv4Literal(literalExpr.getStringValue());
             case IPV6: return new IPv6Literal(literalExpr.getStringValue());
+            case TIMEV2: return new TimeV2Literal((TimeV2Type) dataType, literalExpr.getStringValue());
             default: {
                 throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                         + " of legacy literal to nereids literal");
@@ -671,5 +792,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
         // different environment
         return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
+    }
+
+    /**convertToTypedLiteral*/
+    public static Literal convertToTypedLiteral(Object value, DataType dataType) {
+        Number number = (Number) value;
+        if (dataType.equals(TinyIntType.INSTANCE)) {
+            return new TinyIntLiteral(number.byteValue());
+        } else if (dataType.equals(SmallIntType.INSTANCE)) {
+            return new SmallIntLiteral(number.shortValue());
+        } else if (dataType.equals(IntegerType.INSTANCE)) {
+            return new IntegerLiteral(number.intValue());
+        } else if (dataType.equals(BigIntType.INSTANCE)) {
+            return new BigIntLiteral(number.longValue());
+        } else if (dataType.equals(DoubleType.INSTANCE)) {
+            return new DoubleLiteral(number.doubleValue());
+        }
+        return null;
     }
 }

@@ -75,7 +75,24 @@ public class StorageBackend implements ParseNode {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze() throws UserException {
+        StorageBackend.StorageType storageType = storageDesc.getStorageType();
+        if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
+            storageDesc.setName(storageType.name());
+        }
+        if (storageType != StorageType.BROKER && storageType != StorageType.S3
+                && storageType != StorageType.HDFS) {
+            throw new NotImplementedException(storageType.toString() + " is not support now.");
+        }
+        FeNameFormat.checkCommonName("repository", storageDesc.getName());
+
+        if (Strings.isNullOrEmpty(location)) {
+            throw new AnalysisException("You must specify a location on the repository");
+        }
+        checkPath(location, storageType, null);
+    }
+
+    public void validate() throws UserException {
         StorageBackend.StorageType storageType = storageDesc.getStorageType();
         if (storageType != StorageType.BROKER && StringUtils.isEmpty(storageDesc.getName())) {
             storageDesc.setName(storageType.name());

@@ -17,11 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.analysis.AlterRoutineLoadStmt;
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.PauseRoutineLoadStmt;
-import org.apache.doris.analysis.ResumeRoutineLoadStmt;
-import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -44,6 +39,8 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.PauseRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.ResumeRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand;
@@ -174,36 +171,35 @@ public class RoutineLoadManager implements Writable {
 
     }
 
-    // cloud override
-    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt)
+    public void createRoutineLoadJob(CreateRoutineLoadInfo info, ConnectContext ctx)
             throws UserException {
         // check load auth
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 InternalCatalog.INTERNAL_CATALOG_NAME,
-                createRoutineLoadStmt.getDBName(),
-                createRoutineLoadStmt.getTableName(),
+                info.getDBName(),
+                info.getTableName(),
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
+                    info.getDBName(),
+                    info.getDBName() + ": " + info.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
-        LoadDataSourceType type = LoadDataSourceType.valueOf(createRoutineLoadStmt.getTypeName());
+        LoadDataSourceType type = LoadDataSourceType.valueOf(info.getTypeName());
         switch (type) {
             case KAFKA:
-                routineLoadJob = KafkaRoutineLoadJob.fromCreateStmt(createRoutineLoadStmt);
+                routineLoadJob = KafkaRoutineLoadJob.fromCreateInfo(info, ctx);
                 break;
             default:
                 throw new UserException("Unknown data source type: " + type);
         }
 
-        routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
-        routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
-                    createRoutineLoadStmt.getTableName());
+        routineLoadJob.setOrigStmt(ctx.getStatementContext().getOriginStatement());
+        routineLoadJob.setComment(info.getComment());
+        addRoutineLoadJob(routineLoadJob, info.getDBName(),
+                info.getTableName());
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
@@ -432,110 +428,6 @@ public class RoutineLoadManager implements Writable {
                 .build());
     }
 
-    public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
-            throws UserException {
-        List<RoutineLoadJob> jobs = Lists.newArrayList();
-        // it needs lock when getting routine load job,
-        // otherwise, it may cause the editLog out of order in the following scenarios:
-        // thread A: create job and record job meta
-        // thread B: change job state and persist in editlog according to meta
-        // thread A: persist in editlog
-        // which will cause the null pointer exception when replaying editLog
-        readLock();
-        try {
-            if (pauseRoutineLoadStmt.isAll()) {
-                jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
-            } else {
-                RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
-                        pauseRoutineLoadStmt.getName());
-                jobs.add(routineLoadJob);
-            }
-        } finally {
-            readUnlock();
-        }
-
-        for (RoutineLoadJob routineLoadJob : jobs) {
-            try {
-                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
-                                "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
-                        false /* not replay */);
-                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
-                        routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
-                        "routine load job has been paused by user").build());
-            } catch (UserException e) {
-                LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
-                // if user want to pause a certain job and failed, return error.
-                // if user want to pause all possible jobs, skip error jobs.
-                if (!pauseRoutineLoadStmt.isAll()) {
-                    throw e;
-                }
-                continue;
-            }
-        }
-    }
-
-    public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-
-        List<RoutineLoadJob> jobs = Lists.newArrayList();
-        if (resumeRoutineLoadStmt.isAll()) {
-            jobs = checkPrivAndGetAllJobs(resumeRoutineLoadStmt.getDbFullName());
-        } else {
-            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
-                    resumeRoutineLoadStmt.getName());
-            jobs.add(routineLoadJob);
-        }
-
-        for (RoutineLoadJob routineLoadJob : jobs) {
-            try {
-                routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
-                routineLoadJob.autoResumeCount = 0;
-                routineLoadJob.latestResumeTimestamp = 0;
-                routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
-                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                        .add("current_state", routineLoadJob.getState())
-                        .add("user", ConnectContext.get().getQualifiedUser())
-                        .add("msg", "routine load job has been resumed by user")
-                        .build());
-            } catch (UserException e) {
-                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
-                // if user want to resume a certain job and failed, return error.
-                // if user want to resume all possible jobs, skip error jobs.
-                if (!resumeRoutineLoadStmt.isAll()) {
-                    throw e;
-                }
-                continue;
-            }
-        }
-    }
-
-    public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
-            throws UserException {
-        RoutineLoadJob routineLoadJob;
-        // it needs lock when getting routine load job,
-        // otherwise, it may cause the editLog out of order in the following scenarios:
-        // thread A: create job and record job meta
-        // thread B: change job state and persist in editlog according to meta
-        // thread A: persist in editlog
-        // which will cause the null pointer exception when replaying editLog
-        readLock();
-        try {
-            routineLoadJob = checkPrivAndGetJob(stopRoutineLoadStmt.getDbFullName(),
-                    stopRoutineLoadStmt.getName());
-        } finally {
-            readUnlock();
-        }
-        routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
-                new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR,
-                        "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
-                false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                .add("current_state", routineLoadJob.getState())
-                .add("user", ConnectContext.get().getQualifiedUser())
-                .add("msg", "routine load job has been stopped by user")
-                .build());
-    }
-
     public int getSizeOfIdToRoutineLoadTask() {
         int sizeOfTasks = 0;
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
@@ -603,8 +495,18 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long jobId, long previousBeId) throws LoadException {
+    public long getAvailableBeForTask(long jobId, long previousBeId) throws UserException {
         List<Long> availableBeIds = getAvailableBackendIds(jobId);
+        if (availableBeIds.isEmpty()) {
+            RoutineLoadJob job = getJob(jobId);
+            if (job != null) {
+                String msg = "no available BE found for job " + jobId
+                        + "please check the BE status and user's cluster or tags";
+                job.updateState(RoutineLoadJob.JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.INTERNAL_ERR, msg), false /* not replay */);
+            }
+            return -1L;
+        }
 
         // check if be has idle slot
         readLock();
@@ -994,7 +896,7 @@ public class RoutineLoadManager implements Writable {
     /**
      * Enter of altering a routine load job
      */
-    public void alterRoutineLoadJob(AlterRoutineLoadStmt stmt) throws UserException {
+    public void alterRoutineLoadJob(AlterRoutineLoadCommand command) throws UserException {
         RoutineLoadJob job;
         // it needs lock when getting routine load job,
         // otherwise, it may cause the editLog out of order in the following scenarios:
@@ -1004,16 +906,17 @@ public class RoutineLoadManager implements Writable {
         // which will cause the null pointer exception when replaying editLog
         readLock();
         try {
-            job = checkPrivAndGetJob(stmt.getDbName(), stmt.getLabel());
+            job = checkPrivAndGetJob(command.getDbName(), command.getJobName());
         } finally {
             readUnlock();
         }
-        if (stmt.hasDataSourceProperty()
-                && !stmt.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
+        if (command.hasDataSourceProperty()
+                && !command.getDataSourceProperties().getDataSourceType().equalsIgnoreCase(job.dataSourceType.name())) {
             throw new DdlException("The specified job type is not: "
-                    + stmt.getDataSourceProperties().getDataSourceType());
+                + command.getDataSourceProperties().getDataSourceType());
         }
-        job.modifyProperties(stmt);
+        job.modifyProperties(command);
+        job.setRoutineLoadDesc(command.getRoutineLoadDesc());
     }
 
     public void replayAlterRoutineLoadJob(AlterRoutineLoadJobOperationLog log) {

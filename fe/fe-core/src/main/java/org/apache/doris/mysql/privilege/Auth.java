@@ -18,21 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.alter.AlterUserOpType;
-import org.apache.doris.analysis.AlterRoleStmt;
-import org.apache.doris.analysis.AlterUserStmt;
-import org.apache.doris.analysis.CreateRoleStmt;
-import org.apache.doris.analysis.CreateUserStmt;
-import org.apache.doris.analysis.DropRoleStmt;
-import org.apache.doris.analysis.DropUserStmt;
-import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.PasswordOptions;
-import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.RevokeStmt;
-import org.apache.doris.analysis.SetLdapPassVar;
-import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.WorkloadGroupPattern;
@@ -51,7 +39,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
@@ -65,9 +52,12 @@ import org.apache.doris.mysql.authenticate.ldap.LdapUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeResourcePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
@@ -276,8 +266,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkGlobalPriv(wanted)) {
+                if (role.checkGlobalPriv(wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -299,8 +290,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkCtlPriv(ctl, wanted)) {
+                if (role.checkCtlPriv(ctl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -322,8 +314,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkDbPriv(ctl, db, wanted)) {
+                if (role.checkDbPriv(ctl, db, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -345,8 +338,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkTblPriv(ctl, db, tbl, wanted)) {
+                if (role.checkTblPriv(ctl, db, tbl, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -373,8 +367,9 @@ public class Auth implements Writable {
 
     private boolean checkColPriv(String ctl, String db, String tbl,
             String col, PrivPredicate wanted, Set<Role> roles) {
+        PrivBitSet savedPrivs = PrivBitSet.of();
         for (Role role : roles) {
-            if (role.checkColPriv(ctl, db, tbl, col, wanted)) {
+            if (role.checkColPriv(ctl, db, tbl, col, wanted, savedPrivs)) {
                 return true;
             }
         }
@@ -386,8 +381,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkResourcePriv(resourceName, wanted)) {
+                if (role.checkResourcePriv(resourceName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -402,8 +398,9 @@ public class Auth implements Writable {
         readLock();
         try {
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkStorageVaultPriv(storageVaultName, wanted)) {
+                if (role.checkStorageVaultPriv(storageVaultName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -424,8 +421,9 @@ public class Auth implements Writable {
             }
 
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted)) {
+                if (role.checkWorkloadGroupPriv(workloadGroupName, wanted, savedPrivs)) {
                     return true;
                 }
             }
@@ -446,29 +444,10 @@ public class Auth implements Writable {
                     return true;
                 }
             }
-            Set<String> roles = userRoleManager.getRolesByUser(currentUser);
-            for (String roleName : roles) {
-                if (roleManager.getRole(roleName).checkCloudPriv(cloudName, wanted, type)) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    // ==== Other ====
-    /*
-     * Check if current user has certain privilege.
-     * This method will check the given privilege levels
-     */
-    public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
-        readLock();
-        try {
-            Set<Role> roles = getRolesByUserWithLdap(ctx.getCurrentUserIdentity());
+            Set<Role> roles = getRolesByUserWithLdap(currentUser);
+            PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {
-                if (role.checkHasPriv(priv, levels)) {
+                if (role.checkCloudPriv(cloudName, wanted, type, savedPrivs)) {
                     return true;
                 }
             }
@@ -481,13 +460,6 @@ public class Auth implements Writable {
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
         return AuthenticateType.getAuthTypeConfig() == AuthenticateType.LDAP;
-    }
-
-    // create user
-    public void createUser(CreateUserStmt stmt) throws DdlException {
-        createUserInternal(stmt.getUserIdent(), stmt.getQualifiedRole(),
-                stmt.getPassword(), stmt.isIfNotExist(), stmt.getPasswordOptions(),
-                stmt.getComment(), stmt.getUserId(), false);
     }
 
     public void createUser(CreateUserInfo info) throws DdlException {
@@ -570,11 +542,6 @@ public class Auth implements Writable {
         dropUserInternal(userIdent, ignoreIfNonExists, false);
     }
 
-    // drop user
-    public void dropUser(DropUserStmt stmt) throws DdlException {
-        dropUserInternal(stmt.getUserIdentity(), stmt.isSetIfExists(), false);
-    }
-
     public void replayDropUser(UserIdentity userIdent) {
         try {
             dropUserInternal(userIdent, false, true);
@@ -650,25 +617,6 @@ public class Auth implements Writable {
         if (retryTime >= Config.drop_user_notify_ms_max_times) {
             LOG.warn("drop user failed, tried {} times, but still failed, plz check",
                     Config.drop_user_notify_ms_max_times);
-        }
-    }
-
-    // grant
-    public void grant(GrantStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            grantInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
-                    true /* err on non exist */, false /* not replay */);
-        } else {
-            grantInternal(stmt.getUserIdent(), stmt.getRoles(), false);
         }
     }
 
@@ -874,28 +822,34 @@ public class Auth implements Writable {
         }
     }
 
-    // revoke
-    public void revoke(RevokeStmt stmt) throws DdlException {
-        if (stmt.getTblPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getTblPattern(), privs,
-                    stmt.getColPrivileges(), true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getResourcePattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getResourcePattern(), privs,
-                    true /* err on non exist */, false /* is replay */);
-        } else if (stmt.getWorkloadGroupPattern() != null) {
-            PrivBitSet privs = PrivBitSet.of(stmt.getPrivileges());
-            revokeInternal(stmt.getUserIdent(), stmt.getQualifiedRole(), stmt.getWorkloadGroupPattern(), privs,
-                    true /* err on non exist */, false /* is replay */);
-        } else {
-            revokeInternal(stmt.getUserIdent(), stmt.getRoles(), false);
-        }
-    }
-
     // revoke role
     public void revokeRole(RevokeRoleCommand command) throws DdlException {
         revokeInternal(command.getUserIdentity(), command.getRoles(), false);
+    }
+
+    // revoke resource
+    public void revokeResourcePrivilegeCommand(RevokeResourcePrivilegeCommand command) throws DdlException {
+        if (command.getResourcePattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getResourcePattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
+        } else if (command.getWorkloadGroupPattern().isPresent()) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getWorkloadGroupPattern().orElse(null), privs,
+                    true /* err on non exist */, false /* is replay */);
+        }
+    }
+
+    // revoke table
+    public void revokeTablePrivilegeCommand(RevokeTablePrivilegeCommand command) throws DdlException {
+        if (command.getTablePattern() != null) {
+            PrivBitSet privs = PrivBitSet.of(command.getPrivileges());
+            revokeInternal(command.getUserIdentity().orElse(null), command.getRole().orElse(null),
+                    command.getTablePattern(), privs, command.getColPrivileges(),
+                    true /* err on non exist */, false /* is replay */);
+        }
     }
 
     public void replayRevoke(PrivInfo info) {
@@ -1006,12 +960,6 @@ public class Auth implements Writable {
         }
     }
 
-    // set password
-    public void setPassword(SetPassVar stmt) throws DdlException {
-        setPasswordInternal(stmt.getUserIdent(), stmt.getPassword(), null, true /* err on non exist */,
-                false /* set by resolver */, false);
-    }
-
     public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
         setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
                 false /* set by resolver */, false);
@@ -1053,13 +1001,6 @@ public class Auth implements Writable {
         LOG.info("finished to set password for {}. is replay: {}", userIdent, isReplay);
     }
 
-    // set ldap admin password.
-    public void setLdapPassword(SetLdapPassVar stmt) {
-        ldapInfo = new LdapInfo(stmt.getLdapPassword());
-        Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
-        LOG.info("finished to set ldap password.");
-    }
-
     public void setLdapPassword(String ldapPassword) {
         ldapInfo = new LdapInfo(ldapPassword);
         Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
@@ -1073,21 +1014,12 @@ public class Auth implements Writable {
         }
     }
 
-    public void refreshLdap(RefreshLdapStmt refreshLdapStmt) {
-        ldapManager.refresh(refreshLdapStmt.getIsAll(), refreshLdapStmt.getUser());
-    }
-
-    // create role
-    public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), stmt.getComment(), false);
+    public void refreshLdap(RefreshLdapCommand command) {
+        ldapManager.refresh(command.getIsAll(), command.getUser());
     }
 
     public void createRole(String role, boolean ignoreIfExists, String comment) throws DdlException {
         createRoleInternal(role, ignoreIfExists, comment, false);
-    }
-
-    public void alterRole(AlterRoleStmt stmt) throws DdlException {
-        alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
     public void alterRole(String role, String comment) throws DdlException {
@@ -1144,11 +1076,6 @@ public class Auth implements Writable {
         LOG.info("finished to create role: {}, is replay: {}", role, isReplay);
     }
 
-    // drop role
-    public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
-    }
-
     public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
         dropRoleInternal(role, ignoreIfNonExists, false);
     }
@@ -1188,12 +1115,6 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-    }
-
-    // update user property
-    public void updateUserProperty(SetUserPropertyStmt stmt) throws UserException {
-        List<Pair<String, String>> properties = stmt.getPropertyPairList();
-        updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
     }
 
     public void replayUpdateUserProperty(UserPropertyInfo propInfo) {
@@ -1902,11 +1823,6 @@ public class Auth implements Writable {
         return passwdPolicyManager.getPolicyInfo(userIdent);
     }
 
-    public void alterUser(AlterUserStmt stmt) throws DdlException {
-        alterUserInternal(stmt.isIfExist(), stmt.getOpType(), stmt.getUserIdent(), stmt.getPassword(), stmt.getRole(),
-                stmt.getPasswordOptions(), stmt.getComment(), false);
-    }
-
     public void alterUser(AlterUserInfo info) throws DdlException {
         alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
                 null, info.getPasswordOptions(), info.getComment(), false);
@@ -2013,147 +1929,16 @@ public class Auth implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         roleManager = RoleManager.read(in);
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_116) {
-            userManager = UserManager.read(in);
-            userRoleManager = UserRoleManager.read(in);
-            propertyMgr = UserPropertyMgr.read(in);
-        } else {
-            // new Auth will fill userManager,roleManager,and userRoleManager,roleManager will be reset when read,
-            // so we need reset userManager and userRoleManager to avoid data inconsistency
-            userManager = new UserManager();
-            userRoleManager = new UserRoleManager();
-            UserPrivTable userPrivTable = (UserPrivTable) PrivTable.read(in);
-            CatalogPrivTable catalogPrivTable;
-            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
-                catalogPrivTable = (CatalogPrivTable) PrivTable.read(in);
-            } else {
-                catalogPrivTable = userPrivTable.degradeToInternalCatalogPriv();
-                LOG.info("Load auth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
-                        FeMetaVersion.VERSION_111);
-            }
-            DbPrivTable dbPrivTable = (DbPrivTable) PrivTable.read(in);
-            TablePrivTable tablePrivTable = (TablePrivTable) PrivTable.read(in);
-            ResourcePrivTable resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
-            propertyMgr = UserPropertyMgr.read(in);
-            try {
-                upgradeToVersion116(userPrivTable, catalogPrivTable, dbPrivTable, tablePrivTable, resourcePrivTable);
-            } catch (Exception e) {
-                // will not generate exception
-                LOG.warn("upgrade failed,", e);
-            }
-        }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_106) {
-            ldapInfo = LdapInfo.read(in);
-        }
+        userManager = UserManager.read(in);
+        userRoleManager = UserRoleManager.read(in);
+        propertyMgr = UserPropertyMgr.read(in);
+        ldapInfo = LdapInfo.read(in);
 
         if (userManager.getNameToUsers().isEmpty()) {
             // init root and admin user
             initUser();
         }
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
-            passwdPolicyManager = PasswordPolicyManager.read(in);
-        } else {
-            passwdPolicyManager = new PasswordPolicyManager();
-        }
-    }
-
-    private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
-            DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
-            throws AnalysisException, DdlException, PatternMatcherException {
-        // OPERATOR and Admin role not save users,if not inituser,root will do not have admin role
-        initUser();
-        for (Entry<String, UserProperty> entry : propertyMgr.propertyMap.entrySet()) {
-            for (Entry<String, byte[]> userEntry : entry.getValue().getWhiteList().getPasswordMap().entrySet()) {
-                // create user
-                User user = userManager
-                        .createUser(UserIdentity.createAnalyzedUserIdentWithDomain(entry.getKey(), userEntry.getKey()),
-                                userEntry.getValue(), null, false, "");
-                // create default role
-                Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
-                userRoleManager
-                        .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
-            }
-        }
-        List<PrivEntry> userPrivTableEntries = userPrivTable.getEntries();
-        for (PrivEntry privEntry : userPrivTableEntries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
-            // may repeat with created user from propertyMgr,but no influence
-            User user = userManager
-                    .createUser(globalPrivEntry.userIdentity, globalPrivEntry.password, globalPrivEntry.domainUserIdent,
-                            globalPrivEntry.isSetByDomainResolver, "");
-            // create default role
-            Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
-            userRoleManager
-                    .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
-            if (globalPrivEntry.privSet.isEmpty()) {
-                continue;
-            }
-            // grant global auth
-            if (globalPrivEntry.privSet.containsResourcePriv()) {
-                roleManager.addOrMergeRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                        ResourcePattern.ALL_GENERAL, PrivBitSet.of(Privilege.USAGE_PRIV)), false);
-            }
-            PrivBitSet copy = globalPrivEntry.privSet.copy();
-            copy.unset(Privilege.USAGE_PRIV.getIdx());
-            if (!copy.isEmpty()) {
-                roleManager.addOrMergeRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                        TablePattern.ALL, copy), false);
-            }
-        }
-
-        Map<String, Role> roles = roleManager.getRoles();
-        for (Role role : roles.values()) {
-            Set<UserIdentity> users = role.getUsers();
-            for (UserIdentity userIdentity : users) {
-                userRoleManager.addUserRole(userIdentity, role.getRoleName());
-            }
-        }
-
-        List<PrivEntry> catalogPrivTableEntries = catalogPrivTable.getEntries();
-        for (PrivEntry privEntry : catalogPrivTableEntries) {
-            CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
-            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(catalogPrivEntry.origCtl),
-                    "*", "*");
-            tablePattern.analyze();
-            Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
-                    tablePattern, catalogPrivEntry.privSet);
-            roleManager.addOrMergeRole(newRole, false);
-        }
-
-        List<PrivEntry> dbPrivTableEntries = dbPrivTable.getEntries();
-        for (PrivEntry privEntry : dbPrivTableEntries) {
-            DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
-            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(dbPrivEntry.origCtl),
-                    ClusterNamespace.getNameFromFullName(dbPrivEntry.origDb), "*");
-            tablePattern.analyze();
-            Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
-                    tablePattern, dbPrivEntry.privSet);
-            roleManager.addOrMergeRole(newRole, false);
-        }
-
-        List<PrivEntry> tblPrivTableEntries = tablePrivTable.getEntries();
-        for (PrivEntry privEntry : tblPrivTableEntries) {
-            TablePrivEntry tblPrivEntry = (TablePrivEntry) privEntry;
-            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(tblPrivEntry.origCtl),
-                    ClusterNamespace.getNameFromFullName(tblPrivEntry.origDb),
-                    ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigTbl()));
-            tablePattern.analyze();
-            Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
-                    tablePattern, tblPrivEntry.privSet);
-            roleManager.addOrMergeRole(newRole, false);
-        }
-
-        List<PrivEntry> resourcePrivTableEntries = resourcePrivTable.getEntries();
-        for (PrivEntry privEntry : resourcePrivTableEntries) {
-            ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) privEntry;
-            ResourcePattern resourcePattern = new ResourcePattern(
-                    ClusterNamespace.getNameFromFullName(resourcePrivEntry.origResource), ResourceTypeEnum.GENERAL);
-            resourcePattern.analyze();
-            Role newRole = new Role(roleManager.getUserDefaultRoleName(resourcePrivEntry.userIdentity),
-                    resourcePattern, resourcePrivEntry.privSet);
-            roleManager.addOrMergeRole(newRole, false);
-        }
-
+        passwdPolicyManager = PasswordPolicyManager.read(in);
     }
 
     @Override

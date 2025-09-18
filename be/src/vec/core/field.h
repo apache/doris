@@ -38,8 +38,10 @@
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
+#include "vec/common/string_view.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 template <PrimitiveType type>
@@ -70,23 +72,21 @@ using FieldVector = std::vector<Field>;
 /// construct a Field of Array or a Tuple type. An alternative approach would be
 /// to construct both of these types from FieldVector, and have the caller
 /// specify the desired Field type explicitly.
-#define DEFINE_FIELD_VECTOR(X)          \
-    struct X : public FieldVector {     \
-        using FieldVector::FieldVector; \
-    }
+struct Array : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-DEFINE_FIELD_VECTOR(Array);
-DEFINE_FIELD_VECTOR(Tuple);
-DEFINE_FIELD_VECTOR(Map);
-#undef DEFINE_FIELD_VECTOR
+struct Tuple : public FieldVector {
+    using FieldVector::FieldVector;
+};
 
-using FieldMap = std::map<String, Field>;
-#define DEFINE_FIELD_MAP(X)       \
-    struct X : public FieldMap {  \
-        using FieldMap::FieldMap; \
-    }
-DEFINE_FIELD_MAP(VariantMap);
-#undef DEFINE_FIELD_MAP
+struct Map : public FieldVector {
+    using FieldVector::FieldVector;
+};
+
+struct FieldWithDataType;
+
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -192,7 +192,6 @@ public:
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
-    T get_scale_multiplier() const;
     UInt32 get_scale() const { return scale; }
 
     template <typename U>
@@ -250,7 +249,7 @@ private:
 /** 32 is enough. Round number is used for alignment and for better arithmetic inside std::vector.
   * NOTE: Actually, sizeof(std::string) is 32 when using libc++, so Field is 40 bytes.
   */
-#define DBMS_MIN_FIELD_SIZE 32
+constexpr size_t DBMS_MIN_FIELD_SIZE = 32;
 
 /** Discriminated union of several types.
   * Made for replacement of `boost::variant`
@@ -353,7 +352,7 @@ public:
         }
 
         switch (type) {
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
         case PrimitiveType::TYPE_HLL:
         case PrimitiveType::TYPE_QUANTILE_STATE:
         case PrimitiveType::INVALID_TYPE:
@@ -376,6 +375,9 @@ public:
             return get<Int128>() <=> rhs.get<Int128>();
         case PrimitiveType::TYPE_IPV6:
             return get<IPv6>() <=> rhs.get<IPv6>();
+        case PrimitiveType::TYPE_IPV4:
+            return get<IPv4>() <=> rhs.get<IPv4>();
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             return get<Float64>() < rhs.get<Float64>()    ? std::strong_ordering::less
                    : get<Float64>() == rhs.get<Float64>() ? std::strong_ordering::equal
@@ -384,6 +386,8 @@ public:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
             return get<String>() <=> rhs.get<String>();
+        case PrimitiveType::TYPE_VARBINARY:
+            return get<doris::StringView>() <=> rhs.get<doris::StringView>();
         case PrimitiveType::TYPE_DECIMAL32:
             return get<Decimal32>() <=> rhs.get<Decimal32>();
         case PrimitiveType::TYPE_DECIMAL64:
@@ -421,6 +425,7 @@ public:
         case PrimitiveType::TYPE_IPV6:
             f(field.template get<IPv6>());
             return;
+        case PrimitiveType::TYPE_TIMEV2:
         case PrimitiveType::TYPE_DOUBLE:
             f(field.template get<Float64>());
             return;
@@ -428,6 +433,9 @@ public:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
             f(field.template get<String>());
+            return;
+        case PrimitiveType::TYPE_VARBINARY:
+            f(field.template get<doris::StringView>());
             return;
         case PrimitiveType::TYPE_JSONB:
             f(field.template get<JsonbField>());
@@ -459,7 +467,7 @@ public:
         case PrimitiveType::TYPE_VARIANT:
             f(field.template get<VariantMap>());
             return;
-        case PrimitiveType::TYPE_OBJECT:
+        case PrimitiveType::TYPE_BITMAP:
             f(field.template get<BitmapValue>());
             return;
         case PrimitiveType::TYPE_HLL:
@@ -474,12 +482,14 @@ public:
         }
     }
 
+    std::string_view as_string_view() const;
+
 private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+    std::aligned_union_t<
+            DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64, Int128, IPv6,
+            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
+            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, doris::StringView>
             storage;
 
     PrimitiveType type;
@@ -499,45 +509,7 @@ private:
 
     void assign(const Field& x);
 
-    ALWAYS_INLINE void destroy() {
-        // TODO(gabriel): Use `PrimitiveTypeTraits<>::CppType`
-        switch (type) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR:
-            destroy<String>();
-            break;
-        case PrimitiveType::TYPE_JSONB:
-            destroy<JsonbField>();
-            break;
-        case PrimitiveType::TYPE_ARRAY:
-            destroy<Array>();
-            break;
-        case PrimitiveType::TYPE_STRUCT:
-            destroy<Tuple>();
-            break;
-        case PrimitiveType::TYPE_MAP:
-            destroy<Map>();
-            break;
-        case PrimitiveType::TYPE_VARIANT:
-            destroy<VariantMap>();
-            break;
-        case PrimitiveType::TYPE_OBJECT:
-            destroy<BitmapValue>();
-            break;
-        case PrimitiveType::TYPE_HLL:
-            destroy<HyperLogLog>();
-            break;
-        case PrimitiveType::TYPE_QUANTILE_STATE:
-            destroy<QuantileState>();
-            break;
-        default:
-            break;
-        }
-
-        type = PrimitiveType::
-                TYPE_NULL; /// for exception safety in subsequent calls to destroy and create, when create fails.
-    }
+    void destroy();
 
     template <typename T>
     void destroy() {
@@ -546,7 +518,14 @@ private:
     }
 };
 
-#undef DBMS_MIN_FIELD_SIZE
+struct FieldWithDataType {
+    Field field;
+    // used for nested type of array
+    PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE;
+    uint8_t num_dimensions = 0;
+    int precision = -1;
+    int scale = -1;
+};
 
 template <typename T>
 T get(const Field& field) {
@@ -558,30 +537,12 @@ T get(Field& field) {
     return field.template get<T>();
 }
 
-template <>
-struct TypeName<Array> {
-    static std::string get() { return "Array"; }
-};
-template <>
-struct TypeName<Tuple> {
-    static std::string get() { return "Tuple"; }
-};
-
-template <>
-struct TypeName<VariantMap> {
-    static std::string get() { return "VariantMap"; }
-};
-template <>
-struct TypeName<Map> {
-    static std::string get() { return "Map"; }
-};
-
 /// char may be signed or unsigned, and behave identically to signed char or unsigned char,
 ///  but they are always three different types.
 /// signedness of char is different in Linux on x86 and Linux on ARM.
 template <>
 struct NearestFieldTypeImpl<char> {
-    using Type = std::conditional_t<std::is_signed_v<char>, Int64, UInt64>;
+    using Type = std::conditional_t<IsSignedV<char>, Int64, UInt64>;
 };
 template <>
 struct NearestFieldTypeImpl<signed char> {
@@ -693,3 +654,14 @@ decltype(auto) cast_to_nearest_field_type(T&& x) {
 }
 
 } // namespace doris::vectorized
+
+template <>
+struct std::hash<doris::vectorized::Field> {
+    size_t operator()(const doris::vectorized::Field& field) const {
+        if (field.is_null()) {
+            return 0;
+        }
+        std::hash<std::string_view> hasher;
+        return hasher(field.as_string_view());
+    }
+};

@@ -117,8 +117,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                         Long shadowTabletId = entry.getKey();
                         Long originTabletId = entry.getValue();
                         ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
-                                .removeSchemaChangeJob(dbId, tableId, originIndexId, shadowIndexId,
-                                    partitionId, originTabletId, shadowTabletId);
+                                .removeSchemaChangeJob(jobId, dbId, tableId, originIndexId, shadowIndexId,
+                                        partitionId, originTabletId, shadowTabletId);
                     }
                     LOG.info("Cancel SchemaChange. Remove SchemaChangeJob in ms."
                             + "dbId:{}, tableId:{}, originIndexId:{}, partitionId:{}. tabletSize:{}",
@@ -254,7 +254,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),
                                             tbl.variantEnableFlattenNested(), clusterKeyUids,
-                                            tbl.storagePageSize());
+                                            tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
+                                            tbl.storageDictPageSize(), true);
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

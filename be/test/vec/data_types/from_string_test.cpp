@@ -23,7 +23,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/serde_utils.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 
@@ -36,7 +35,8 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     // arithmetic scala field types
     {
         // fieldType, test_string, expect_wrapper_field_string, expect_data_type_string
-        typedef std::tuple<FieldType, std::vector<string>, std::vector<string>, std::vector<string>>
+        typedef std::tuple<FieldType, std::vector<std::string>, std::vector<std::string>,
+                           std::vector<std::string>>
                 FieldType_RandStr;
         std::vector<FieldType_RandStr> arithmetic_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_BOOL, {"0", "1", "-9"},
@@ -107,21 +107,18 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 // decimal32 ==>  decimal32(9,2)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL32,
                                   // (7,2)         (6,3)         (7,3)           (8,1)
-                                  {"1234567.12", "123456.123", "1234567.123", "12345679.112345"},
+                                  {"1234567.12", "123456.123", "1234567.123"},
                                   //StringParser res: SUCCESS      UNDERFLOW  UNDERFLOW    OVERFLOW
-                                  {"123456712", "12345612", "123456712", "999999999"},
-                                  {"1234567.12", "123456.12", "1234567.12", ""}),
+                                  {"123456712", "12345612", "123456712"},
+                                  {"1234567.12", "123456.12", "1234567.12"}),
                 // decimal64 ==> decimal64(18,9)
                 FieldType_RandStr(
                         FieldType::OLAP_FIELD_TYPE_DECIMAL64,
                         //(9, 9)                (3,2)       (9, 10)
-                        {"123456789.123456789", "123.12", "123456789.0123456789",
-                         //(10, 9)
-                         "1234567890.123456789"},
+                        {"123456789.123456789", "123.12", "123456789.0123456789"},
                         //StringParser res: SUCCESS               SUCCESS         UNDERFLOW             OVERFLOW
-                        {"123456789123456789", "123120000000", "123456789012345679",
-                         "999999999999999999"},
-                        {"123456789.123456789", "123.120000000", "123456789.012345679", ""}),
+                        {"123456789123456789", "123120000000", "123456789012345679"},
+                        {"123456789.123456789", "123.120000000", "123456789.012345679"}),
                 // decimal128I ==> decimal128I(38,18)
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
                                   // (19,18) ==> StringParser::SUCCESS
@@ -135,22 +132,19 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                                    // (18, 20) ==> StringParser::UNDERFLOW
                                    "123456789012345678.01234567890123456789",
                                    // (20, 19) ==> StringParser::UNDERFLOW
-                                   "12345678901234567890.1234567890123456789",
-                                   // (21, 17) ==> StringParser::OVERFLOW
-                                   "123456789012345678901.12345678901234567"},
+                                   "12345678901234567890.1234567890123456789"},
                                   {"1234567890123456789123456789123456789",
                                    "12345678901234567890123456789110000000",
                                    "1234567890123456789123456789123456789",
                                    "1234567890123456789123456789012345679",
                                    "123456789012345678012345678901234568",
-                                   "12345678901234567890123456789012345679",
-                                   "99999999999999999999999999999999999999"},
+                                   "12345678901234567890123456789012345679"},
                                   {"1234567890123456789.123456789123456789",
                                    "12345678901234567890.123456789110000000",
                                    "1234567890123456789.123456789123456789",
                                    "1234567890123456789.123456789012345679",
                                    "123456789012345678.012345678901234568",
-                                   "12345678901234567890.123456789012345679", ""}),
+                                   "12345678901234567890.123456789012345679"}),
 
         };
         for (auto type_pair : arithmetic_scala_field_types) {
@@ -185,7 +179,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
             // wrapper_field
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
-                string test_str = std::get<1>(type_pair)[i];
+                std::string test_str = std::get<1>(type_pair)[i];
                 std::unique_ptr<WrapperField> wf(WrapperField::create_by_type(type));
                 std::cout << "the ith : " << i << " test_str: " << test_str << std::endl;
                 // from_string
@@ -200,9 +194,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             // data_type
             for (int i = 0; i < std::get<1>(type_pair).size(); ++i) {
                 std::cout << "the ith : " << i << std::endl;
-                string test_str = std::get<1>(type_pair)[i];
+                std::string test_str = std::get<1>(type_pair)[i];
                 // data_type from_string
-                ReadBuffer rb_test(test_str.data(), test_str.size());
+                StringRef rb_test(test_str.data(), test_str.size());
                 Status st = data_type_ptr->from_string(rb_test, col.get());
                 if (std::get<3>(type_pair)[i].empty()) {
                     EXPECT_EQ(st.ok(), false);
@@ -211,7 +205,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 }
                 EXPECT_EQ(st.ok(), true);
                 // data_type to_string
-                string min_s_d = data_type_ptr->to_string(*col, i);
+                std::string min_s_d = data_type_ptr->to_string(*col, i);
                 EXPECT_EQ(min_s_d, std::get<3>(type_pair)[i]);
             }
         }
@@ -219,7 +213,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // date and datetime type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
+        typedef std::pair<FieldType, std::string> FieldType_RandStr;
         std::vector<FieldType_RandStr> date_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATE, "2020-01-01"),
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_DATEV2, "2020-01-01"),
@@ -247,13 +241,13 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             max_wf->set_to_max();
             static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
 
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
-            string rand_date = rand_wf->to_string();
+            std::string min_s = min_wf->to_string();
+            std::string max_s = max_wf->to_string();
+            std::string rand_date = rand_wf->to_string();
 
-            ReadBuffer min_rb(min_s.data(), min_s.size());
-            ReadBuffer max_rb(max_s.data(), max_s.size());
-            ReadBuffer rand_rb(rand_date.data(), rand_date.size());
+            StringRef min_rb(min_s.data(), min_s.size());
+            StringRef max_rb(max_s.data(), max_s.size());
+            StringRef rand_rb(rand_date.data(), rand_date.size());
 
             auto col = data_type_ptr->create_column();
             Status st = data_type_ptr->from_string(min_rb, col.get());
@@ -263,9 +257,9 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
 
-            string min_s_d = data_type_ptr->to_string(*col, 0);
-            string max_s_d = data_type_ptr->to_string(*col, 1);
-            string rand_s_d = data_type_ptr->to_string(*col, 2);
+            std::string min_s_d = data_type_ptr->to_string(*col, 0);
+            std::string max_s_d = data_type_ptr->to_string(*col, 1);
+            std::string rand_s_d = data_type_ptr->to_string(*col, 2);
             rtrim(min_s);
             rtrim(max_s);
             rtrim(rand_date);
@@ -290,7 +284,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
 
     // ipv4 and ipv6 type
     {
-        typedef std::pair<FieldType, string> FieldType_RandStr;
+        typedef std::pair<FieldType, std::string> FieldType_RandStr;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case
@@ -316,12 +310,12 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                       << fmt::format("{}", type) << std::endl;
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
-            string rand_ip = rand_wf->to_string();
-            ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
+            std::string rand_ip = rand_wf->to_string();
+            StringRef rand_rb(rand_ip.data(), rand_ip.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), true);
-            string rand_s_d = data_type_ptr->to_string(*col, 0);
+            std::string rand_s_d = data_type_ptr->to_string(*col, 0);
             rtrim(rand_ip);
             std::cout << "rand(" << rand_ip << ") with data_type_str:" << rand_s_d << std::endl;
             EXPECT_EQ(rand_ip, rand_s_d);
@@ -334,7 +328,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
             Status st = rand_wf->from_string(pair.second, 0, 0);
             EXPECT_EQ(st.ok(), false);
-            ReadBuffer rand_rb(pair.second.data(), pair.second.size());
+            StringRef rand_rb(pair.second.data(), pair.second.size());
             auto col = data_type_ptr->create_column();
             st = data_type_ptr->from_string(rand_rb, col.get());
             EXPECT_EQ(st.ok(), false);

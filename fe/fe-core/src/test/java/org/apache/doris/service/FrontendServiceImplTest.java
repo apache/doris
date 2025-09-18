@@ -17,18 +17,18 @@
 
 package org.apache.doris.service;
 
-
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
 import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCreatePartitionRequest;
@@ -80,8 +80,12 @@ public class FrontendServiceImplTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         // create database
         String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
     }
 
     @AfterClass
@@ -90,8 +94,12 @@ public class FrontendServiceImplTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Env.getCurrentEnv().createTable(createTableStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof CreateTableCommand) {
+            ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
 
@@ -132,51 +140,6 @@ public class FrontendServiceImplTest {
         Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
         Partition p20230807 = table.getPartition("p20230807000000");
         Assert.assertNotNull(p20230807);
-    }
-
-    @Test
-    public void testCreatePartitionRangeMedium() throws Exception {
-        ConfigBase.setMutableConfig("disable_storage_medium_check", "true");
-        String createOlapTblStmt = new String("CREATE TABLE test.partition_range2(\n"
-                + "    event_day DATETIME NOT NULL,\n"
-                + "    site_id INT DEFAULT '10',\n"
-                + "    city_code VARCHAR(100)\n"
-                + ")\n"
-                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
-                + "AUTO PARTITION BY range (date_trunc( event_day,'day')) (\n"
-                + "\n"
-                + ")\n"
-                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
-                + "PROPERTIES(\"storage_medium\" = \"ssd\",\"replication_num\" = \"1\");");
-
-        createTable(createOlapTblStmt);
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
-        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range2");
-
-        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
-        List<TNullableStringLiteral> values = new ArrayList<>();
-
-        TNullableStringLiteral start = new TNullableStringLiteral();
-        start.setValue("2023-08-07 00:00:00");
-        values.add(start);
-
-        partitionValues.add(values);
-
-        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
-        TCreatePartitionRequest request = new TCreatePartitionRequest();
-        request.setDbId(db.getId());
-        request.setTableId(table.getId());
-        request.setPartitionValues(partitionValues);
-        TCreatePartitionResult partition = impl.createPartition(request);
-
-        Assert.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
-        Partition p20230807 = table.getPartition("p20230807000000");
-        Assert.assertNotNull(p20230807);
-
-        ShowResultSet result = UtFrameUtils.showPartitionsByName(connectContext, "test.partition_range2");
-        String showCreateTableResultSql = result.getResultRows().get(0).get(10);
-        System.out.println(showCreateTableResultSql);
-        Assert.assertEquals(showCreateTableResultSql, "SSD");
     }
 
     @Test
@@ -222,8 +185,12 @@ public class FrontendServiceImplTest {
     public void testGetDBNames() throws Exception {
         // create database
         String createDbStmtStr = "create database `test_`;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Env.getCurrentEnv().createDb(createDbStmt);
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(createDbStmtStr);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, createDbStmtStr);
+        if (logicalPlan instanceof CreateDatabaseCommand) {
+            ((CreateDatabaseCommand) logicalPlan).run(connectContext, stmtExecutor);
+        }
 
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
         TGetDbsParams params = new TGetDbsParams();

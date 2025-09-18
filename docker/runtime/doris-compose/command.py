@@ -430,6 +430,14 @@ class UpCommand(Command):
                            help="Recreate containers even if their configuration " \
                                 "and image haven't changed. ")
 
+        parser.add_argument(
+            "--extra-hosts",
+            nargs="*",
+            type=str,
+            help=
+            "Add custom host-to-IP mappings (host:ip). For example: --extra-hosts myhost1:192.168.10.1 myhost2:192.168.10.2 . Only use when creating new cluster."
+        )
+
         parser.add_argument("--coverage-dir",
                             default="",
                             help="Set code coverage output directory")
@@ -472,19 +480,12 @@ class UpCommand(Command):
                 "Do not set BE meta service endpoint in conf. Default is False."
             )
 
-        if self._support_boolean_action():
-            parser.add_argument(
-                "--be-cluster-id",
-                default=True,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
-        else:
-            parser.add_argument(
-                "--no-be-cluster-id",
-                dest='be_cluster_id',
-                default=True,
-                action=self._get_parser_bool_action(False),
-                help="Do not set BE cluster ID in conf. Default is False.")
+        # if default==False, use this style to parser, like --be-cluster-id
+        parser.add_argument(
+            "--be-cluster-id",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help="Do not set BE cluster ID in conf. Default is False.")
 
         parser.add_argument(
             "--fdb-version",
@@ -492,6 +493,19 @@ class UpCommand(Command):
             default="7.1.26",
             help="fdb image version. Only use in cloud cluster.")
 
+        parser.add_argument(
+            "--tde-ak",
+            type=str,
+            default="",
+            help="tde ak")
+
+        parser.add_argument(
+            "--tde-sk",
+            type=str,
+            default="",
+            help="tde sk")
+
+        # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
             parser.add_argument(
                 "--detach",
@@ -599,9 +613,9 @@ class UpCommand(Command):
                 args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
-                args.be_disks, args.be_cluster, args.reg_be, args.coverage_dir,
-                cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cluster_id)
+                args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
+                args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
+                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
@@ -916,11 +930,11 @@ class DownCommand(Command):
                                                       "down",
                                                       options=options)
                 except Exception as e:
-                    LOG.warn("down cluster has exception: " + str(e))
+                    LOG.warning("down cluster has exception: " + str(e))
             try:
                 utils.remove_docker_network(cluster_name)
             except Exception as e:
-                LOG.warn("remove network has exception: " + str(e))
+                LOG.warning("remove network has exception: " + str(e))
             if args.clean:
                 cluster_path = CLUSTER.get_cluster_path(cluster_name)
                 if os.path.exists(cluster_path):
@@ -1256,8 +1270,7 @@ class ListCommand(Command):
                 if services is None:
                     return COMPOSE_BAD, {}
                 return COMPOSE_GOOD, {
-                    service:
-                    ComposeService(
+                    service: ComposeService(
                         service, ip_for_host_mode if ip_for_host_mode else
                         list(service_conf["networks"].values())[0]
                         ["ipv4_address"], service_conf["image"])
