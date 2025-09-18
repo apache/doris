@@ -59,6 +59,7 @@ class StreamLoadAction implements SuiteAction {
     SuiteContext context
     boolean directToBe = false
     boolean twoPhaseCommit = false
+    boolean enableUtf8Encoding = false  // 新增：UTF-8编码支持开关
 
     StreamLoadAction(SuiteContext context) {
         this.address = context.getFeHttpAddress()
@@ -154,6 +155,14 @@ class StreamLoadAction implements SuiteAction {
         this.twoPhaseCommit = twoPhaseCommit.call();
     }
 
+    void enableUtf8Encoding(boolean enable) {
+        this.enableUtf8Encoding = enable
+    }
+
+    void enableUtf8Encoding(Closure<Boolean> enable) {
+        this.enableUtf8Encoding = enable.call()
+    }
+
     // compatible with selectdb case
     void isCloud(boolean isCloud) {
     }
@@ -193,16 +202,32 @@ class StreamLoadAction implements SuiteAction {
             } else {
                 uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load"
             }
-            HttpClients.createDefault().withCloseable { client ->
+            def client
+            if (enableUtf8Encoding) {
+                // set UTF-8
+                def connConfig = ConnectionConfig.custom()
+                    .setCharset(StandardCharsets.UTF_8)
+                    .setMalformedInputAction(CodingErrorAction.REPLACE)
+                    .setUnmappableInputAction(CodingErrorAction.REPLACE)
+                    .build()
+                def cm = new PoolingHttpClientConnectionManager()
+                cm.setDefaultConnectionConfig(connConfig)
+                client = HttpClients.custom().setConnectionManager(cm).build()
+                log.info("Stream load using UTF-8 encoding for headers")
+            } else {
+                // default：ISO-8859-1
+                client = HttpClients.createDefault()
+            }
+            client.withCloseable { httpClient ->
                 RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
-                HttpEntity httpEntity = prepareHttpEntity(client)
+                HttpEntity httpEntity = prepareHttpEntity(httpClient)
                 if (!directToBe) {
-                    String beLocation = streamLoadToFe(client, requestBuilder)
+                    String beLocation = streamLoadToFe(httpClient, requestBuilder)
                     log.info("Redirect stream load to ${beLocation}".toString())
                     requestBuilder.setUri(beLocation)
                 }
                 requestBuilder.setEntity(httpEntity)
-                responseText = streamLoadToBe(client, requestBuilder)
+                responseText = streamLoadToBe(httpClient, requestBuilder)
             }
         } catch (Throwable t) {
             ex = t
