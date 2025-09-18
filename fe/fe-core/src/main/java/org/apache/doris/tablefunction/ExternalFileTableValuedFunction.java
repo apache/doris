@@ -147,10 +147,12 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     protected void parseFile() throws AnalysisException {
         String path = getFilePath();
+        LOG.info("Refrain parseFile in ExternalFileTVF strat, path: {}", path);
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
+            LOG.info("Refrain parseFile in ExternalFileTVF error, path: {}", path);
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         }
     }
