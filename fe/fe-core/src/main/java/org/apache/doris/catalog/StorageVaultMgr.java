@@ -20,8 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
-import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
-import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -53,8 +51,6 @@ public class StorageVaultMgr {
     private static final Logger LOG = LogManager.getLogger(StorageVaultMgr.class);
     private static final ExecutorService ALTER_BE_SYNC_THREAD_POOL = Executors.newFixedThreadPool(1);
     private final SystemInfoService systemInfoService;
-
-    public static final String S3_ROOT_PATH = "s3.root.path";
     // <VaultName, VaultId>
     private Pair<String, String> defaultVaultInfo;
     private Map<String, String> vaultNameToVaultId = new HashMap<>();
@@ -151,7 +147,7 @@ public class StorageVaultMgr {
 
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
             throws Exception {
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = getObjStoreInfoPB(properties);
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(properties);
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
@@ -159,56 +155,6 @@ public class StorageVaultMgr {
             alterObjVaultBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
         }
         return alterObjVaultBuilder;
-    }
-
-    private static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
-        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
-        if (properties.containsKey(S3Properties.ENDPOINT)) {
-            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
-        }
-        if (properties.containsKey(S3Properties.REGION)) {
-            builder.setRegion(properties.get(S3Properties.REGION));
-        }
-        if (properties.containsKey(S3Properties.ACCESS_KEY)) {
-            builder.setAk(properties.get(S3Properties.ACCESS_KEY));
-        }
-        if (properties.containsKey(S3Properties.SECRET_KEY)) {
-            builder.setSk(properties.get(S3Properties.SECRET_KEY));
-        }
-        if (properties.containsKey(S3_ROOT_PATH)) {
-            Preconditions.checkArgument(!Strings.isNullOrEmpty(properties.get(S3_ROOT_PATH)),
-                    "%s cannot be empty", S3_ROOT_PATH);
-            builder.setPrefix(properties.get(S3_ROOT_PATH));
-        }
-        if (properties.containsKey(S3Properties.BUCKET)) {
-            builder.setBucket(properties.get(S3Properties.BUCKET));
-        }
-        if (properties.containsKey(S3Properties.EXTERNAL_ENDPOINT)) {
-            builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
-        }
-        if (properties.containsKey(StorageProperties.FS_PROVIDER_KEY)) {
-            // S3 Provider properties should be case insensitive.
-            builder.setProvider(Provider.valueOf(properties.get(StorageProperties.FS_PROVIDER_KEY).toUpperCase()));
-        }
-
-        if (properties.containsKey(S3Properties.USE_PATH_STYLE)) {
-            String value = properties.get(S3Properties.USE_PATH_STYLE);
-            Preconditions.checkArgument(!Strings.isNullOrEmpty(value), "use_path_style cannot be empty");
-            Preconditions.checkArgument(value.equalsIgnoreCase("true")
-                            || value.equalsIgnoreCase("false"),
-                    "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
-            builder.setUsePathStyle(value.equalsIgnoreCase("true"));
-        }
-
-        if (properties.containsKey(S3Properties.ROLE_ARN)) {
-            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
-            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
-                builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
-            }
-            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
-        }
-
-        return builder;
     }
 
     private Cloud.StorageVaultPB.Builder buildAlterHdfsVaultRequest(Map<String, String> properties, String name)

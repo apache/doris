@@ -17,10 +17,17 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
+import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TS3StorageParam;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -88,6 +95,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
             "s3.secret-access-key"},
             required = false,
+            sensitive = true,
             description = "The secret key of S3. Optional for anonymous access to public datasets.")
     protected String secretKey = "";
 
@@ -368,11 +376,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
 
-    public static List<String> SENSITIVE_KEYS = Arrays.asList("s3.secret_key", "AWS_SECRET_KEY", "secret_key",
-            "SECRET_KEY", "glue.secret_key",
-            "aws.glue.secret-key", "client.credentials-provider.glue.secret_key", "iceberg.rest.secret-access-key",
-            "s3.secret-access-key");
-
     public static class Env {
         public static final String PROPERTIES_PREFIX = "AWS";
         // required
@@ -391,7 +394,6 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         public static final String DEFAULT_MAX_CONNECTIONS = "50";
         public static final String DEFAULT_REQUEST_TIMEOUT_MS = "3000";
         public static final String DEFAULT_CONNECTION_TIMEOUT_MS = "1000";
-        public static final String NEED_OVERRIDE_ENDPOINT = "AWS_NEED_OVERRIDE_ENDPOINT";
 
         public static final String ROLE_ARN = "AWS_ROLE_ARN";
         public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
@@ -515,5 +517,89 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         properties.putIfAbsent(Env.REQUEST_TIMEOUT_MS, Env.DEFAULT_REQUEST_TIMEOUT_MS);
         properties.putIfAbsent(Env.CONNECTION_TIMEOUT_MS, Env.DEFAULT_CONNECTION_TIMEOUT_MS);
     }
+
+    public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+        if (properties.containsKey(S3Properties.ENDPOINT)) {
+            builder.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        }
+        if (properties.containsKey(S3Properties.REGION)) {
+            builder.setRegion(properties.get(S3Properties.REGION));
+        }
+        if (properties.containsKey(S3Properties.ACCESS_KEY)) {
+            builder.setAk(properties.get(S3Properties.ACCESS_KEY));
+        }
+        if (properties.containsKey(S3Properties.SECRET_KEY)) {
+            builder.setSk(properties.get(S3Properties.SECRET_KEY));
+        }
+        if (properties.containsKey(S3Properties.ROOT_PATH)) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(properties.get(S3Properties.ROOT_PATH)),
+                    "%s cannot be empty", S3Properties.ROOT_PATH);
+            builder.setPrefix(properties.get(S3Properties.ROOT_PATH));
+        }
+        if (properties.containsKey(S3Properties.BUCKET)) {
+            builder.setBucket(properties.get(S3Properties.BUCKET));
+        }
+        if (properties.containsKey(S3Properties.EXTERNAL_ENDPOINT)) {
+            builder.setExternalEndpoint(properties.get(S3Properties.EXTERNAL_ENDPOINT));
+        }
+        if (properties.containsKey(StorageProperties.FS_PROVIDER_KEY)) {
+            // S3 Provider properties should be case insensitive.
+            builder.setProvider(Provider.valueOf(properties.get(StorageProperties.FS_PROVIDER_KEY).toUpperCase()));
+        }
+
+        if (properties.containsKey(S3Properties.USE_PATH_STYLE)) {
+            String value = properties.get(S3Properties.USE_PATH_STYLE);
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(value), "use_path_style cannot be empty");
+            Preconditions.checkArgument(value.equalsIgnoreCase("true")
+                            || value.equalsIgnoreCase("false"),
+                    "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
+            builder.setUsePathStyle(value.equalsIgnoreCase("true"));
+        }
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
+        }
+
+        return builder;
+    }
+
+    public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        TS3StorageParam s3Info = new TS3StorageParam();
+
+        if (properties.containsKey(S3Properties.ROLE_ARN)) {
+            s3Info.setRoleArn(properties.get(S3Properties.ROLE_ARN));
+            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+                s3Info.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
+            }
+            s3Info.setCredProviderType(TCredProviderType.INSTANCE_PROFILE);
+        }
+
+        s3Info.setEndpoint(properties.get(S3Properties.ENDPOINT));
+        s3Info.setRegion(properties.get(S3Properties.REGION));
+        s3Info.setAk(properties.get(S3Properties.ACCESS_KEY));
+        s3Info.setSk(properties.get(S3Properties.SECRET_KEY));
+        s3Info.setToken(properties.get(S3Properties.SESSION_TOKEN));
+
+        s3Info.setRootPath(properties.get(S3Properties.ROOT_PATH));
+        s3Info.setBucket(properties.get(S3Properties.BUCKET));
+        String maxConnections = properties.get(S3Properties.MAX_CONNECTIONS);
+        s3Info.setMaxConn(Integer.parseInt(maxConnections == null
+                ? S3Properties.Env.DEFAULT_MAX_CONNECTIONS : maxConnections));
+        String requestTimeoutMs = properties.get(S3Properties.REQUEST_TIMEOUT_MS);
+        s3Info.setRequestTimeoutMs(Integer.parseInt(requestTimeoutMs == null
+                ? S3Properties.Env.DEFAULT_REQUEST_TIMEOUT_MS : requestTimeoutMs));
+        String connTimeoutMs = properties.get(S3Properties.CONNECTION_TIMEOUT_MS);
+        s3Info.setConnTimeoutMs(Integer.parseInt(connTimeoutMs == null
+                ? S3Properties.Env.DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
+        String usePathStyle = properties.getOrDefault(S3Properties.USE_PATH_STYLE, "false");
+        s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
+        return s3Info;
+    }
+
 }
 

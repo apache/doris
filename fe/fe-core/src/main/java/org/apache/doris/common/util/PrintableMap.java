@@ -62,8 +62,7 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
-        SENSITIVE_KEY.addAll(S3Properties.SENSITIVE_KEYS);
-
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));

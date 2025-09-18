@@ -94,11 +94,6 @@ public class AzureProperties extends StorageProperties {
     @Getter
     protected String forceParsingByStandardUrl = "false";
 
-    public static final String ENDPOINT = "azure.endpoint";
-    public static final String REGION = "azure.region";
-    public static final String ACCESS_KEY = "azure.access_key";
-    public static final String SECRET_KEY = "azure.secret_key";
-
     public AzureProperties(Map<String, String> origProps) {
         super(Type.AZURE, origProps);
     }
