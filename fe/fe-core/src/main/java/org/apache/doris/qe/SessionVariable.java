@@ -856,6 +856,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MULTI_DISTINCT_STRATEGY = "multi_distinct_strategy";
     public static final String AGG_PHASE = "agg_phase";
 
+    public static final String MERGE_READ_SLICE_SIZE = "merge_read_slice_size";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -2529,6 +2531,11 @@ public class SessionVariable implements Serializable, Writable {
                     + "between 1 and 4 forces the use of phases 1 to 4 for aggregate calculations."},
             checker = "checkAggPhase")
     public int aggPhase = 0;
+
+
+    @VariableMgr.VarAttr(name = MERGE_READ_SLICE_SIZE, description = {"调整READ_SLICE_SIZE大小，降低Merge IO读放大影响",
+            "Make the READ_SLICE_SIZE variable configurable to reduce the impact caused by read amplification."})
+    public int mergeReadSliceSize = 8388608;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -4612,7 +4619,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHnswEfSearch(hnswEFSearch);
         tResult.setHnswCheckRelativeDistance(hnswCheckRelativeDistance);
         tResult.setHnswBoundedQueue(hnswBoundedQueue);
-
+        tResult.setMergeReadSliceSize(mergeReadSliceSize);
         return tResult;
     }
 
