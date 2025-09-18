@@ -184,6 +184,17 @@ public:
 
     std::shared_ptr<QueryContext> get_query_ctx(const TUniqueId& query_id);
 
+    Status transmit_rec_cte_block(const TUniqueId& query_id, const TUniqueId& instance_id,
+                                  int node_id,
+                                  const google::protobuf::RepeatedPtrField<PBlock>& pblocks,
+                                  bool eos);
+
+    Status rerun_fragment(const TUniqueId& query_id, int fragment,
+                          PRerunFragmentParams_Opcode stage);
+
+    Status reset_global_rf(const TUniqueId& query_id,
+                           const google::protobuf::RepeatedField<int32_t>& filter_ids);
+
 private:
     struct BrpcItem {
         TNetworkAddress network_address;

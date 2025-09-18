@@ -55,6 +55,7 @@ public:
 
     void set_detected_source() {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
+        _orderby_extrem = Field(PrimitiveType::TYPE_NULL);
         _detected_source = true;
     }
 

@@ -786,6 +786,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
 
+    public static final String CTE_MAX_RECURSION_DEPTH = "cte_max_recursion_depth";
+
     /**
      * Inserting overwrite for auto partition table allows creating partition for
      * datas which cannot find partition to overwrite.
@@ -988,6 +990,11 @@ public class SessionVariable implements Serializable, Writable {
             + "default 0 means use twice the number of Scan thread pool threads"
     })
     public int minScanSchedulerConcurrency = 0;
+
+    @VariableMgr.VarAttr(name = CTE_MAX_RECURSION_DEPTH, needForward = true, description = {
+            "CTE递归的最大深度，默认值100",
+            "The maximum depth of CTE recursion. Default is 100" })
+    public int cteMaxRecursionDepth = 100;
 
     // By default, the number of Limit items after OrderBy is changed from 65535 items
     // before v1.2.0 (not included), to return all items by default
@@ -4783,7 +4790,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
 
         tResult.setInvertedIndexCompatibleRead(invertedIndexCompatibleRead);
-
+        tResult.setCteMaxRecursionDepth(cteMaxRecursionDepth);
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
