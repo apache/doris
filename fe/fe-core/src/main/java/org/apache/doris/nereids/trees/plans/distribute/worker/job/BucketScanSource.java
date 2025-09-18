@@ -138,10 +138,10 @@ public class BucketScanSource extends ScanSource {
         for (Entry<Integer, Map<ScanNode, ScanRanges>> kv
                 : bucketScanSource.bucketIndexToScanNodeToTablets.entrySet()) {
             Integer bucketIndex = kv.getKey();
-            Map<ScanNode, ScanRanges> leftScanNodeToRanges = kv.getValue();
+            Map<ScanNode, ScanRanges> oldScanNodeToRanges = kv.getValue();
             Map<ScanNode, ScanRanges> newScanNodeToRanges
                     = mergeMap.computeIfAbsent(bucketIndex, k -> new LinkedHashMap<>());
-            for (Entry<ScanNode, ScanRanges> kv2 : leftScanNodeToRanges.entrySet()) {
+            for (Entry<ScanNode, ScanRanges> kv2 : oldScanNodeToRanges.entrySet()) {
                 ScanRanges scanRanges = newScanNodeToRanges.computeIfAbsent(kv2.getKey(), k -> new ScanRanges());
                 scanRanges.addScanRanges(kv2.getValue());
             }

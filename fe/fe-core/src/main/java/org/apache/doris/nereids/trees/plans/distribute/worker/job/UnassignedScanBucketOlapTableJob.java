@@ -264,13 +264,14 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             Map<ScanNode, ScanRanges> scanNodeToRanges = kv.getValue();
             ScanRanges scanRanges = scanNodeToRanges.get(findScanNode);
             if (scanRanges != null) {
-                Map<ScanNode, ScanRanges> serialScanNodeToRanges
+                Map<ScanNode, ScanRanges> newScanNodeToRanges
                         = result.computeIfAbsent(bucketIndex, k -> {
                             LinkedHashMap<ScanNode, ScanRanges> mergedRanges = new LinkedHashMap<>();
                             mergedRanges.put(findScanNode, new ScanRanges());
                             return mergedRanges;
                         });
-                serialScanNodeToRanges.get(findScanNode).addScanRanges(scanRanges);
+                newScanNodeToRanges.computeIfAbsent(findScanNode, scanNode -> new ScanRanges())
+                        .addScanRanges(scanRanges);
             }
         }
     }
