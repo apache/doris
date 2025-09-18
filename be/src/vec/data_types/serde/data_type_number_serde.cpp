@@ -271,11 +271,26 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE;
+           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_IPV4 || T == TYPE_IPV6 ||
+           T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
-bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
+bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
+    auto jsonb_writer_string = [](JsonbWriter& writer, const std::string& str) -> bool {
+        if (!writer.writeStartString()) {
+            return false;
+        }
+        if (!writer.writeString(str)) {
+            return false;
+        }
+        if (!writer.writeEndString()) {
+            return false;
+        }
+        return true;
+    };
+
     if constexpr (T == TYPE_BOOLEAN) {
         return writer.writeBool(data);
     } else if constexpr (T == TYPE_TINYINT) {
@@ -292,6 +307,21 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
         return writer.writeFloat(data);
     } else if constexpr (T == TYPE_DOUBLE) {
         return writer.writeDouble(data);
+    } else if constexpr (T == TYPE_DATEV2) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_datev2(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data)));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_datetimev2(
+                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data), scale));
+    } else if constexpr (T == TYPE_IPV4) {
+        return jsonb_writer_string(writer, CastToString::from_ip(data));
+    } else if constexpr (T == TYPE_IPV6) {
+        return jsonb_writer_string(writer, CastToString::from_ip(data));
+    } else if constexpr (T == TYPE_TIMEV2) {
+        return jsonb_writer_string(writer, CastToString::from_time(data, scale));
     } else {
         return false;
     }
@@ -305,7 +335,7 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_col
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
     const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
-    if (!write_to_jsonb_from_number<T>(data, writer)) {
+    if (!write_to_jsonb_from_number<T>(data, writer, get_scale())) {
         return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
     }
 
@@ -321,9 +351,10 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
     const auto size = from_column.size();
     JsonbWriter writer;
     const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+    const auto scale = get_scale();
     for (int i = 0; i < size; i++) {
         writer.reset();
-        if (!write_to_jsonb_from_number<T>(data[i], writer)) {
+        if (!write_to_jsonb_from_number<T>(data[i], writer, scale)) {
             return Status::InvalidArgument(
                     "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
         }
@@ -339,10 +370,6 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     } else {
-        if (jsonb_value->isString()) {
-            RETURN_IF_ERROR(parse_column_from_jsonb_string(column, jsonb_value, castParms));
-            return Status::OK();
-        }
         typename PrimitiveTypeTraits<T>::ColumnItemType to;
         auto cast_to_basic_number = [&]() {
             if constexpr (T == TYPE_BOOLEAN) {
@@ -360,6 +387,56 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
         }
         auto& data = assert_cast<ColumnType&>(column).get_data();
         data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        const size_t size = col_from_json.size();
+        const bool is_strict = castParms.is_strict;
+
+        auto& null_map = column_to.get_null_map_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+
+        null_map.resize_fill(size, false);
+        data.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto& val = col_from_json.get_data_at(i);
+            auto* jsonb_value = handle_jsonb_value(val);
+            if (!jsonb_value) {
+                null_map[i] = true;
+                continue;
+            }
+
+            typename PrimitiveTypeTraits<T>::ColumnItemType to;
+            auto cast_to_basic_number = [&]() {
+                if constexpr (T == TYPE_BOOLEAN) {
+                    return JsonbCast::cast_from_json_to_boolean(jsonb_value, to, castParms);
+                } else if constexpr (is_int(T)) {
+                    return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
+                } else if constexpr (is_float_or_double(T)) {
+                    return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+                } else {
+                    return false;
+                }
+            };
+            if (!cast_to_basic_number()) {
+                if (is_strict) {
+                    return JsonbCast::report_error(jsonb_value, T);
+                } else {
+                    null_map[i] = true;
+                    continue;
+                }
+            }
+            data[i] = to;
+        }
         return Status::OK();
     }
 }

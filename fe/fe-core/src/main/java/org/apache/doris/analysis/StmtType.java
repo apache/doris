@@ -39,6 +39,7 @@ public enum StmtType {
     KILL,
     LOAD,
     OTHER,
+    OPTIMIZE,
     PAUSE,
     PREPARE,
     RECOVER,

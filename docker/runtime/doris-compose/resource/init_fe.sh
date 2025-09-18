@@ -90,6 +90,8 @@ fe_daemon() {
 }
 
 run_fe() {
+    export DORIS_TDE_AK=${TDE_AK}
+    export DORIS_TDE_SK=${TDE_SK}
     health_log "run start_fe.sh"
     bash $DORIS_HOME/bin/start_fe.sh --daemon $@ | tee -a $DORIS_HOME/log/fe.out
 }

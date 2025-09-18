@@ -22,6 +22,14 @@
 // Note: To filter out tables from sql files, use the following one-liner comamnd
 // sed -nr 's/.*tables: (.*)$/\1/gp' /path/to/*.sql | sed -nr 's/,/\n/gp' | sort | uniq
 suite("load") {
+    try {
+        sql """ show storage vaults; """
+    } catch (Exception e) {
+        log.info("show storage vaults failed: ${e.message}")
+        if (e.message.contains("doesn't support storage vault")) {
+            return;
+        }
+    }
 
     // ssb_sf1_p1 is writted to test unique key table merge correctly.
     // It creates unique key table and sets bucket num to 1 in order to make sure that

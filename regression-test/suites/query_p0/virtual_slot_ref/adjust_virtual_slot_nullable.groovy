@@ -18,20 +18,23 @@
 suite("adjust_virtual_slot_nullable") {
     def tbl1 = "tbl_adjust_virtual_slot_nullable_1"
     def tbl2 = "tbl_adjust_virtual_slot_nullable_2"
+
     multi_sql """
+        set runtime_filter_mode='OFF';
+        set disable_join_reorder=false;
         SET ignore_shape_nodes='PhysicalDistribute';
-        drop table if exists ${tbl1} force;
-        drop table if exists ${tbl2} force;
-        create table ${tbl1} (c_int int not null, c_date date not null) properties('replication_num' = '1');
-        create table ${tbl2} (c_int int not null, c_date date not null) properties('replication_num' = '1');
-        insert into ${tbl1} values
+        drop table if exists tbl_adjust_virtual_slot_nullable_1 force;
+        drop table if exists tbl_adjust_virtual_slot_nullable_2 force;
+        create table tbl_adjust_virtual_slot_nullable_1 (c_int int not null, c_date date not null) properties('replication_num' = '1');
+        create table tbl_adjust_virtual_slot_nullable_2 (c_int int not null, c_date date not null) properties('replication_num' = '1');
+        insert into tbl_adjust_virtual_slot_nullable_1 values
             (1, '2020-01-01'),
             (1, '2020-01-02'),
             (1, '2020-01-03'),
             (2, '2021-01-01'),
             (2, '2021-01-02'),
             (2, '2021-01-03');
-        insert into ${tbl2} values
+        insert into tbl_adjust_virtual_slot_nullable_2 values
             (1, '2022-02-01'),
             (1, '2022-02-02'),
             (1, '2022-02-03');
@@ -40,8 +43,8 @@ suite("adjust_virtual_slot_nullable") {
     def querySql = """
         SELECT t1.*, t2.*
         FROM
-            ${tbl1} AS t1
-        LEFT JOIN ${tbl2} AS t2
+            tbl_adjust_virtual_slot_nullable_1 AS t1
+        LEFT JOIN tbl_adjust_virtual_slot_nullable_2 AS t2
         ON  t1.c_int = t2.c_int
         WHERE
             NOT (

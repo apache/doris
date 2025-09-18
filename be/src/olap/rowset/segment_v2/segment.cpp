@@ -106,15 +106,16 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
                       const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
                       InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
     io::FileReaderSPtr file_reader;
-    RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
+    auto st = fs->open_file(path, &file_reader, &reader_options);
+    TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
     std::shared_ptr<Segment> segment(
             new Segment(segment_id, rowset_id, std::move(tablet_schema), idx_file_info));
-    segment->_fs = fs;
-    segment->_file_reader = std::move(file_reader);
-    auto st = segment->_open(stats);
-    TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption", &st);
-    if (st.is<ErrorCode::CORRUPTION>() &&
-        reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+    if (st) {
+        segment->_fs = fs;
+        segment->_file_reader = std::move(file_reader);
+        st = segment->_open(stats);
+    } else if (st.is<ErrorCode::CORRUPTION>() &&
+               reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
         LOG(WARNING) << "bad segment file may be read from file cache, try to read remote source "
                         "file directly, file path: "
                      << path << " cache_key: " << file_cache_key_str(path);
@@ -122,9 +123,11 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
         file_cache->remove_if_cached(file_key);
 
-        RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
-        segment->_file_reader = std::move(file_reader);
-        st = segment->_open(stats);
+        st = fs->open_file(path, &file_reader, &reader_options);
+        if (st) {
+            segment->_file_reader = std::move(file_reader);
+            st = segment->_open(stats);
+        }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
             LOG(WARNING) << "failed to try to read remote source file again with cache support,"
@@ -252,12 +255,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (read_options.col_id_to_predicates.contains(column_id) &&
             can_apply_predicate_safely(column_id, *schema,
                                        read_options.target_cast_type_for_variants,
-                                       read_options.io_ctx.reader_type) &&
-            !reader->match_condition(entry.second.get())) {
-            // any condition not satisfied, return.
-            *iter = std::make_unique<EmptySegmentIterator>(*schema);
-            read_options.stats->filtered_segment_number++;
-            return Status::OK();
+                                       read_options.io_ctx.reader_type)) {
+            bool matched = true;
+            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
+            if (!matched) {
+                // any condition not satisfied, return.
+                *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
         }
     }
 
@@ -281,12 +287,15 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             DCHECK(reader != nullptr);
             if (can_apply_predicate_safely(runtime_predicate->column_id(), *schema,
                                            read_options.target_cast_type_for_variants,
-                                           read_options.io_ctx.reader_type) &&
-                !reader->match_condition(&and_predicate)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
+                                           read_options.io_ctx.reader_type)) {
+                bool matched = true;
+                RETURN_IF_ERROR(reader->match_condition(&and_predicate, &matched));
+                if (!matched) {
+                    // any condition not satisfied, return.
+                    *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                    read_options.stats->filtered_segment_number++;
+                    return Status::OK();
+                }
             }
         }
     }
@@ -312,7 +321,10 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         for (auto& it : _column_reader_cache->get_available_readers(false)) {
             const auto uid = it.first;
             const auto column_id = read_options.tablet_schema->field_index(uid);
-            pruned |= it.second->prune_predicates_by_zone_map(pruned_predicates, column_id);
+            bool tmp_pruned = false;
+            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, column_id,
+                                                                    &tmp_pruned));
+            pruned |= tmp_pruned;
         }
 
         if (pruned) {
@@ -472,7 +484,8 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
             LOG(WARNING) << "failed to write error file: " << st.to_string();
         }
         return Status::Corruption(
-                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, cache_key: ",
+                "Bad segment file {}: file_size = {}, failed to parse SegmentFooterPB, "
+                "cache_key: ",
                 _file_reader->path().native(), file_size,
                 file_cache_key_str(_file_reader->path().native()));
     }
@@ -613,15 +626,26 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // Case 1: Node not found for the given path within the variant reader.
     // If relative_path is empty, it means the original path pointed to the root
     // of the variant column itself. We should return the Variant type.
+    // If node is nullptr, it means the path is not exist in the variant sub columns.
     if (node == nullptr || relative_path.empty()) {
+        // nested subcolumn is not exist in the sparse column
         if (column.is_nested_subcolumn()) {
             return vectorized::DataTypeFactory::instance().create_data_type(column);
         }
-        return column.is_nullable()
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
-                                 column.variant_max_subcolumns_count()))
-                       : std::make_shared<vectorized::DataTypeVariant>(
-                                 column.variant_max_subcolumns_count());
+
+        // when the path is in the sparse column or exceeded the limit, return the variant type.
+        if (variant_reader->exist_in_sparse_column(relative_path) ||
+            variant_reader->is_exceeded_sparse_column_limit()) {
+            return column.is_nullable() ? vectorized::make_nullable(
+                                                  std::make_shared<vectorized::DataTypeVariant>(
+                                                          column.variant_max_subcolumns_count()))
+                                        : std::make_shared<vectorized::DataTypeVariant>(
+                                                  column.variant_max_subcolumns_count());
+        }
+        // now, path is not in this segment, return the default type from column.
+        else {
+            return vectorized::DataTypeFactory::instance().create_data_type(column);
+        }
     }
 
     bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
@@ -639,11 +663,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                              !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
-    return column.is_nullable()
-                   ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
-                             column.variant_max_subcolumns_count()))
-                   : std::make_shared<vectorized::DataTypeVariant>(
-                             column.variant_max_subcolumns_count());
+
+    // not the compaction read, return the default type from column.
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
@@ -674,7 +696,8 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
                                      std::unique_ptr<ColumnIterator>* iter) {
     if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
         return Status::InternalError(
-                "invalid nonexistent column without default value. column_uid={}, column_name={}, "
+                "invalid nonexistent column without default value. column_uid={}, "
+                "column_name={}, "
                 "column_type={}",
                 tablet_column.unique_id(), tablet_column.name(), tablet_column.type());
     }
@@ -746,7 +769,8 @@ Status Segment::get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
+                                                          col_uid);
     }
     return _column_reader_cache->get_column_reader(col_uid, column_reader, stats);
 }
@@ -760,7 +784,8 @@ Status Segment::get_column_reader(const TabletColumn& col,
     // The column is not in this segment, return nullptr
     if (!_tablet_schema->has_column_unique_id(col_uid)) {
         *column_reader = nullptr;
-        return Status::NotFound("column not found in segment, col_uid={}", col_uid);
+        return Status::Error<ErrorCode::NOT_FOUND, false>("column not found in segment, col_uid={}",
+                                                          col_uid);
     }
     if (col.has_path_info()) {
         vectorized::PathInData relative_path = col.path_info_ptr()->copy_pop_front();

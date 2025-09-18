@@ -2325,20 +2325,13 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
                                                      vectorized::MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
                                                      size_t batch_size) {
-    output_col->reserve(batch_size);
-
-    // adapt for outer join change column to nullable
-    if (output_col->is_nullable() && !input_col_ptr->is_nullable()) {
-        auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
-        col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
-        output_col = col_ptr_nullable->get_nested_column_ptr();
-    } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
+    if (output_col->is_nullable() != input_col_ptr->is_nullable()) {
         LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
                      << " select_size: " << select_size;
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
-
+    output_col->reserve(select_size);
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 
@@ -2426,8 +2419,11 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     nrows_read_limit = std::min(cast_set<uint32_t>(_row_bitmap.cardinality()), nrows_read_limit);
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",
-                                                            nrows_read_limit);
+            LOG(ERROR) << "nrows_read_limit: " << nrows_read_limit
+                       << ", _opts.topn_limit: " << _opts.topn_limit;
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "topn opt 1 execute failed: nrows_read_limit={}, _opts.topn_limit={}",
+                    nrows_read_limit, _opts.topn_limit);
         }
     })
 
@@ -2895,19 +2891,7 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, vectorized::MutableCo
         return false;
     }
 
-    // seek_schema is set when get_row_ranges_by_keys, it is null when there is no primary key range
-    // in this case, we need to read data
-    if (!_seek_schema) {
-        return false;
-    }
-    // check if the column is in the seek_schema
-    if (std::none_of(_seek_schema->columns().begin(), _seek_schema->columns().end(),
-                     [&](const Field* col) {
-                         return (col && _opts.tablet_schema->field_index(col->unique_id()) == cid);
-                     })) {
-        return false;
-    }
-    if (!_check_all_conditions_passed_inverted_index_for_column(cid, true)) {
+    if (!_check_all_conditions_passed_inverted_index_for_column(cid)) {
         return false;
     }
 
@@ -2946,6 +2930,10 @@ bool SegmentIterator::_can_opt_topn_reads() {
         }
         return false;
     });
+
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "column_ids: " << _schema->column_ids().size() << ", all_true: " << all_true;
+    })
 
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_2", {
         if (all_true) {

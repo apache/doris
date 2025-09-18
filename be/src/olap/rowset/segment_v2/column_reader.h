@@ -192,8 +192,8 @@ public:
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
-    // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
-    bool match_condition(const AndBlockColumnPredicate* col_predicates) const;
+    // set matched to true if segment zone map is absent or `cond' could be satisfied, false otherwise.
+    Status match_condition(const AndBlockColumnPredicate* col_predicates, bool* matched) const;
 
     Status next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const;
 
@@ -214,8 +214,8 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
-    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
-                                      const int column_id) const;
+    Status prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                        const int column_id, bool* pruned) const;
 
     CompressionTypePB get_compression() const { return _meta_compression; }
 

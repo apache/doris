@@ -38,6 +38,8 @@ public:
     MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv)
             : MetaReader(instance_id, txn_kv, Versionstamp::max()) {}
+    MetaReader(std::string_view instance_id, Versionstamp snapshot_version)
+            : MetaReader(instance_id, nullptr, snapshot_version) {}
     MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
             : instance_id_(instance_id),
               snapshot_version_(snapshot_version),
@@ -169,6 +171,26 @@ public:
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
                                       RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
 
+    // Get the load rowset metas for the given tablet_id.
+    TxnErrorCode get_load_rowset_metas(
+            int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+    TxnErrorCode get_load_rowset_metas(
+            Transaction* txn, int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+
+    // Get the compact rowset metas for the given tablet_id.
+    TxnErrorCode get_compact_rowset_metas(
+            int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+    TxnErrorCode get_compact_rowset_metas(
+            Transaction* txn, int64_t tablet_id,
+            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
+            bool snapshot = false);
+
     // Get the tablet meta keys.
     TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
                                  Versionstamp* versionstamp, bool snapshot = false);
@@ -223,6 +245,23 @@ public:
     // Returns TXN_OK if the partition exists, or TXN_KEY_NOT_FOUND if it does not.
     TxnErrorCode is_partition_exists(int64_t partition_id, bool snapshot = false);
     TxnErrorCode is_partition_exists(Transaction* txn, int64_t partition_id, bool snapshot = false);
+
+    // Get the snapshots.
+    TxnErrorCode get_snapshots(Transaction* txn,
+                               std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+    TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
+
+    // Whether the snapshot has references.
+    TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
+                                         bool snapshot = false);
+    TxnErrorCode has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                         bool* has_references, bool snapshot = false);
+
+    // Whether the table has no indexes.
+    TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
+                                bool snapshot = false);
+    TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,
+                                bool snapshot = false);
 
 private:
     const std::string_view instance_id_;

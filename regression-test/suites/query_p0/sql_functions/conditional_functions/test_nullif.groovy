@@ -110,7 +110,7 @@ suite("test_nullif") {
             b on a.k1 = b.k1 + 5 order by k1"""
     qt_if_nullif13 """select ifnull(b.k1, "-1") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by a.k1"""
-    qt_if_nullif14 """select ifnull(b.k6, 1001) k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
+    qt_if_nullif14 """select ifnull(b.k6, "1001") k1 from baseall a left join bigtable b on a.k1 = b.k1 + 5 
             order by k1"""
     qt_if_nullif15 """select nullif(k1, 100) k1 from baseall order by k1"""
     qt_if_nullif16 """select nullif(k6, "false") k from baseall order by k1"""

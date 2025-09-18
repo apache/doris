@@ -65,8 +65,7 @@
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
-#include "pipeline/exec/materialization_sink_operator.h"
-#include "pipeline/exec/materialization_source_operator.h"
+#include "pipeline/exec/materialization_opertor.h"
 #include "pipeline/exec/memory_scratch_sink_operator.h"
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/multi_cast_data_stream_sink.h"
@@ -208,6 +207,10 @@ void PipelineFragmentContext::cancel(const Status reason) {
         _query_ctx->set_load_error_url(error_url);
     }
 
+    if (auto first_error_msg = get_first_error_msg(); !first_error_msg.empty()) {
+        _query_ctx->set_first_error_msg(first_error_msg);
+    }
+
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -225,6 +228,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
         // We need to set the error URL at this point to ensure error information is properly
         // propagated to the client.
         stream_load_ctx->error_url = get_load_error_url();
+        stream_load_ctx->first_error_msg = get_first_error_msg();
     }
 
     for (auto& tasks : _tasks) {
@@ -442,6 +446,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                     }
                     if (request.__isset.wal_id) {
                         task_runtime_state->set_wal_id(request.wal_id);
+                    }
+                    if (request.__isset.content_length) {
+                        task_runtime_state->set_content_length(request.content_length);
                     }
 
                     task_runtime_state->set_desc_tbl(_desc_tbl);
@@ -1594,25 +1601,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::MATERIALIZATION_NODE: {
-        op.reset(new MaterializationSourceOperatorX(pool, tnode, next_operator_id(), descs));
+        op.reset(new MaterializationOperator(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
-
-        auto new_pipe = add_pipeline(cur_pipe);
-        DataSinkOperatorPtr sink(new MaterializationSinkOperatorX(
-                op->operator_id(), next_sink_operator_id(), pool, tnode));
-        std::shared_ptr<MaterializationSharedState> shared_state =
-                MaterializationSharedState::create_shared();
-        // create source/sink dependency for materialization operator
-        shared_state->create_counter_dependency(op->operator_id(), op->node_id(),
-                                                "MATERIALIZATION_COUNTER");
-        (void)shared_state->create_sink_dependency(sink->dests_id().front(), sink->node_id(),
-                                                   sink->get_name());
-        _op_id_to_shared_state.insert({op->operator_id(), {shared_state, shared_state->sink_deps}});
-
-        RETURN_IF_ERROR(new_pipe->set_sink(sink));
-        RETURN_IF_ERROR(new_pipe->sink()->init(tnode, _runtime_state.get()));
-        cur_pipe = new_pipe;
         break;
     }
     case TPlanNodeType::INTERSECT_NODE: {
@@ -1856,6 +1847,23 @@ std::string PipelineFragmentContext::get_load_error_url() {
     return "";
 }
 
+std::string PipelineFragmentContext::get_first_error_msg() {
+    if (const auto& str = _runtime_state->get_first_error_msg(); !str.empty()) {
+        return str;
+    }
+    for (auto& task_states : _task_runtime_states) {
+        for (auto& task_state : task_states) {
+            if (!task_state) {
+                continue;
+            }
+            if (const auto& str = task_state->get_first_error_msg(); !str.empty()) {
+                return str;
+            }
+        }
+    }
+    return "";
+}
+
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
     // If plan is done successfully, but _is_report_success is false,
@@ -1889,6 +1897,9 @@ Status PipelineFragmentContext::send_report(bool done) {
     std::string load_eror_url = _query_ctx->get_load_error_url().empty()
                                         ? get_load_error_url()
                                         : _query_ctx->get_load_error_url();
+    std::string first_error_msg = _query_ctx->get_first_error_msg().empty()
+                                          ? get_first_error_msg()
+                                          : _query_ctx->get_first_error_msg();
 
     ReportStatusRequest req {exec_status,
                              runtime_states,
@@ -1900,6 +1911,7 @@ Status PipelineFragmentContext::send_report(bool done) {
                              -1,
                              _runtime_state.get(),
                              load_eror_url,
+                             first_error_msg,
                              [this](const Status& reason) { cancel(reason); }};
 
     return _report_status_cb(

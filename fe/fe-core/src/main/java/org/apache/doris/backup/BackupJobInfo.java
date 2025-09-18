@@ -17,8 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -210,22 +208,6 @@ public class BackupJobInfo implements GsonPostProcessable {
         }
     }
 
-    public void removeTable(TableRef tableRef, TableType tableType) {
-        switch (tableType) {
-            case OLAP:
-                removeOlapTable(tableRef);
-                break;
-            case VIEW:
-                removeView(tableRef);
-                break;
-            case ODBC:
-                removeOdbcTable(tableRef);
-                break;
-            default:
-                break;
-        }
-    }
-
     public void removeOlapTable(TableRefInfo tableRefInfo) {
         String tblName = tableRefInfo.getTableNameInfo().getTbl();
         BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
@@ -264,58 +246,6 @@ public class BackupJobInfo implements GsonPostProcessable {
         while (iter.hasNext()) {
             BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
             if (backupOdbcTableInfo.dorisTableName.equals(tableRefInfo.getTableNameInfo().getTbl())) {
-                if (backupOdbcTableInfo.resourceName != null) {
-                    Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
-                    while (resourceIter.hasNext()) {
-                        if (resourceIter.next().name.equals(backupOdbcTableInfo.resourceName)) {
-                            resourceIter.remove();
-                        }
-                    }
-                }
-                iter.remove();
-                return;
-            }
-        }
-    }
-
-    public void removeOlapTable(TableRef tableRef) {
-        String tblName = tableRef.getName().getTbl();
-        BackupOlapTableInfo tblInfo = backupOlapTableObjects.get(tblName);
-        if (tblInfo == null) {
-            LOG.info("Ignore error: exclude table " + tblName + " does not exist in snapshot " + name);
-            return;
-        }
-        PartitionNames partitionNames = tableRef.getPartitionNames();
-        if (partitionNames == null) {
-            backupOlapTableObjects.remove(tblInfo);
-            return;
-        }
-        // check the selected partitions
-        for (String partName : partitionNames.getPartitionNames()) {
-            if (tblInfo.containsPart(partName)) {
-                tblInfo.partitions.remove(partName);
-            } else {
-                LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
-                        + " does not exist in snapshot");
-            }
-        }
-    }
-
-    public void removeView(TableRef tableRef) {
-        Iterator<BackupViewInfo> iter = newBackupObjects.views.listIterator();
-        while (iter.hasNext()) {
-            if (iter.next().name.equals(tableRef.getName().getTbl())) {
-                iter.remove();
-                return;
-            }
-        }
-    }
-
-    public void removeOdbcTable(TableRef tableRef) {
-        Iterator<BackupOdbcTableInfo> iter = newBackupObjects.odbcTables.listIterator();
-        while (iter.hasNext()) {
-            BackupOdbcTableInfo backupOdbcTableInfo = iter.next();
-            if (backupOdbcTableInfo.dorisTableName.equals(tableRef.getName().getTbl())) {
                 if (backupOdbcTableInfo.resourceName != null) {
                     Iterator<BackupOdbcResourceInfo> resourceIter = newBackupObjects.odbcResources.listIterator();
                     while (resourceIter.hasNext()) {

@@ -126,11 +126,13 @@ ParquetReader::~ParquetReader() {
     _close_internal();
 }
 
+#ifdef BE_TEST
 // for unit test
 void ParquetReader::set_file_reader(io::FileReaderSPtr file_reader) {
     _file_reader = file_reader;
     _tracing_file_reader = file_reader;
 }
+#endif
 
 void ParquetReader::_init_profile() {
     if (_profile != nullptr) {
@@ -564,6 +566,7 @@ Status ParquetReader::set_fill_columns(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -623,8 +626,10 @@ Status ParquetReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
             } else {
                 continue;
             }
@@ -1030,7 +1035,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         }
     };
 
-    if ((!_enable_filter_by_min_max) || _lazy_read_ctx.has_complex_type ||
+    if (!_enable_filter_by_min_max || _lazy_read_ctx.has_complex_type ||
         _lazy_read_ctx.conjuncts.empty()) {
         read_whole_row_group();
         return Status::OK();

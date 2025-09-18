@@ -22,9 +22,11 @@
 #include <vec/data_types/data_type_array.h>
 #include <vec/data_types/data_type_number.h>
 
+#include <cstring>
 #include <vector>
 
 #include "common/exception.h"
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 
 namespace doris::vectorized {
@@ -280,6 +282,30 @@ TEST(ColumnConstTest, replace_column_data) {
         column_const->replace_column_data(*column_data2, 0, 0);
         EXPECT_FALSE(true);
     } catch (Exception&) {
+    }
+}
+TEST(ColumnConstTest, replace_float_special_values) {
+    {
+        constexpr double d_negative_0 = -0.0;
+        constexpr double d_positive_0 = 0.0;
+        auto column_data = ColumnHelper::create_column<DataTypeFloat64>({d_negative_0});
+        auto column_const = ColumnConst::create(column_data, 3);
+        column_const->replace_float_special_values();
+        const auto data_element = column_const->get_data_column().get_data_at(0);
+        EXPECT_EQ(std::memcmp(data_element.data, &d_positive_0, 8) == 0, true);
+        EXPECT_EQ(column_const->size(), 3);
+        column_const->finalize();
+    }
+    {
+        constexpr double d_signal_nan = std::numeric_limits<double>::signaling_NaN();
+        constexpr double d_quiet_nan = std::numeric_limits<double>::quiet_NaN();
+        auto column_data = ColumnHelper::create_column<DataTypeFloat64>({d_signal_nan});
+        auto column_const = ColumnConst::create(column_data, 3);
+        column_const->replace_float_special_values();
+        const auto data_element = column_const->get_data_column().get_data_at(0);
+        EXPECT_EQ(std::memcmp(data_element.data, &d_quiet_nan, 8) == 0, true);
+        EXPECT_EQ(column_const->size(), 3);
+        column_const->finalize();
     }
 }
 } // namespace doris::vectorized

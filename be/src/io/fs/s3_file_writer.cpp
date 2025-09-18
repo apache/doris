@@ -40,6 +40,7 @@
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/s3_util.h"
+#include "util/stopwatch.hpp"
 
 namespace doris::io {
 #include "common/compile_check_begin.h"
@@ -440,8 +441,9 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 }
 
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
-    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
-              << " size=" << _bytes_appended;
+    MonotonicStopWatch timer;
+    timer.start();
+
     if (state() == State::CLOSED) {
         DCHECK(state() != State::CLOSED)
                 << "state=" << (int)state() << " path=" << _obj_storage_path_opts.path.native();
@@ -457,9 +459,12 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     }
     TEST_SYNC_POINT_RETURN_WITH_VOID("S3FileWriter::_put_object", this, &buf);
     auto resp = client->put_object(_obj_storage_path_opts, buf.get_string_view_data());
+    timer.stop();
+
     if (resp.status.code != ErrorCode::OK) {
-        LOG_WARNING("failed to put object, put object failed because {}, file path {}",
-                    resp.status.msg, _obj_storage_path_opts.path.native());
+        LOG_WARNING("failed to put object, put object failed because {}, file path {}, time={}ms",
+                    resp.status.msg, _obj_storage_path_opts.path.native(),
+                    timer.elapsed_time_milliseconds());
         buf.set_status({resp.status.code, std::move(resp.status.msg)});
         return;
     }
@@ -471,6 +476,9 @@ void S3FileWriter::_put_object(UploadFileBuffer& buf) {
         return;
     }
 
+    LOG(INFO) << "put_object " << _obj_storage_path_opts.path.native()
+              << " size=" << _bytes_appended << " time=" << timer.elapsed_time_milliseconds()
+              << "ms";
     s3_file_created_total << 1;
 }
 

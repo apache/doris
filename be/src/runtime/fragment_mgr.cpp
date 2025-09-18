@@ -470,6 +470,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     if (!req.load_error_url.empty()) {
         params.__set_tracking_url(req.load_error_url);
     }
+    if (!req.first_error_msg.empty()) {
+        params.__set_first_error_msg(req.first_error_msg);
+    }
     for (auto* rs : req.runtime_states) {
         if (rs->wal_id() > 0) {
             params.__set_txn_id(rs->wal_id());
@@ -591,11 +594,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 }
 
 static void empty_function(RuntimeState*, Status*) {}
-
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       const QuerySource query_source) {
-    return Status::InternalError("Non-pipeline is disabled!");
-}
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const QuerySource query_source,
@@ -775,11 +773,6 @@ Status FragmentMgr::_get_or_create_query_ctx(const TPipelineFragmentParams& para
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
-                                       QuerySource query_source, const FinishCallback& cb) {
-    return Status::InternalError("Non-pipeline is disabled!");
-}
-
 std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
@@ -829,7 +822,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const TPipelineFragmentParamsList& parent) {
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
-    // sometimes TExecPlanFragmentParams debug string is too long and glog
+    // sometimes TPipelineFragmentParams debug string is too long and glog
     // will truncate the log line, so print query options seperately for debuggin purpose
     VLOG_ROW << "Query: " << print_id(params.query_id) << "query options is "
              << apache::thrift::ThriftDebugString(params.query_options).c_str();
@@ -1159,7 +1152,7 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
 void FragmentMgr::debug(std::stringstream& ss) {}
 /*
  * 1. resolve opaqued_query_plan to thrift structure
- * 2. build TExecPlanFragmentParams
+ * 2. build TPipelineFragmentParams
  */
 Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                                                 const TQueryPlanInfo& t_query_plan_info,

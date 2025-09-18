@@ -55,7 +55,6 @@ class PipelineFragmentContext;
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
-class TExecPlanFragmentParams;
 class PExecPlanFragmentStartRequest;
 class PMergeFilterRequest;
 class RuntimeProfile;
@@ -120,16 +119,11 @@ public:
     void stop();
 
     // execute one plan fragment
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
-
-    // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const QuerySource query_type,
-                              const FinishCallback& cb);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb, const TPipelineFragmentParamsList& parent);

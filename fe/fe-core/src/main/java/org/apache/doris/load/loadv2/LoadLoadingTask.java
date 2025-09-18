@@ -209,6 +209,7 @@ public class LoadLoadingTask extends LoadTask {
                 attachment = new BrokerLoadingTaskAttachment(signature,
                         curCoordinator.getLoadCounters(),
                         curCoordinator.getTrackingUrl(),
+                        curCoordinator.getFirstErrorMsg(),
                         TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
                         ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()
                                 .stream().limit(Config.max_error_tablet_of_broker_load).collect(Collectors.toList())),

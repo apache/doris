@@ -22,20 +22,8 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     def delta_time = 1000
     def alter_res = "null"
     def useTime = 0
-    def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
-        for(int t = delta_time; t <= OpTimeout; t += delta_time){
-            alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
-            alter_res = alter_res.toString()
-            if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
-                logger.info(table_name + " latest alter job finished, detail: " + alter_res)
-                break
-            }
-            useTime = t
-            sleep(delta_time)
-        }
-        assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
-    }
+
+    sql "set enable_add_index_for_new_data = true"
 
     def wait_for_build_index_on_partition_finish = { table_name, OpTimeout ->
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -130,7 +118,8 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
 
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_col_change_finish(indexTbName1, timeout)
+
     if (!isCloudMode()) {
         sql "build index idx_desc on ${indexTbName1}"
         wait_for_build_index_on_partition_finish(indexTbName1, timeout)
@@ -197,7 +186,7 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
 
     // drop index
     sql "drop index idx_desc on ${indexTbName1}"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_build_index_finish(indexTbName1, timeout)
     // query rows where description match 'desc' without index
     select_result = sql "select * from ${indexTbName1} where description match 'desc' order by id"
     assertEquals(select_result.size(), 4)
@@ -235,10 +224,11 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
     assertEquals(select_result[2][0], 5)
     assertEquals(select_result[2][1], "name5")
     assertEquals(select_result[2][2], "desc world")
-    
+
     // add index on column description
     sql "create index idx_desc on ${indexTbName1}(description) USING INVERTED PROPERTIES(\"parser\"=\"standard\");"
-    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    wait_for_last_col_change_finish(indexTbName1, timeout)
+
     if (!isCloudMode()) {
         sql "build index idx_desc on ${indexTbName1}"
         wait_for_build_index_on_partition_finish(indexTbName1, timeout)

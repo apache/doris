@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StructField;
@@ -310,63 +309,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
-        catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
-        return false;
-    }
-
-    @Override
-    public boolean createTableImpl(CreateTableStmt stmt) throws UserException {
-        try {
-            return executionAuthenticator.execute(() -> performCreateTable(stmt));
-        } catch (Exception e) {
-            throw new DdlException(
-                "Failed to create table: " + stmt.getTableName() + ", error message is:" + e.getMessage(), e);
-        }
-    }
-
-    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
-        String dbName = stmt.getDbName();
-        ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
-        if (db == null) {
-            throw new UserException("Failed to get database: '" + dbName + "' in catalog: " + dorisCatalog.getName());
-        }
-        String tableName = stmt.getTableName();
-        // 1. first, check if table exist in remote
-        if (tableExist(db.getRemoteName(), tableName)) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tableName);
-                return true;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-        }
-        // 2. second, check fi table exist in local.
-        // This is because case sensibility issue, eg:
-        // 1. lower_case_table_name = 1
-        // 2. create table tbl1;
-        // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
-        //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
-        //    tbl1
-        ExternalTable dorisTable = db.getTableNullable(tableName);
-        if (dorisTable != null) {
-            if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tableName);
-                return true;
-            } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
-            }
-        }
-        List<Column> columns = stmt.getColumns();
-        List<StructField> collect = columns.stream()
-                .map(col -> new StructField(col.getName(), col.getType(), col.getComment(), col.isAllowNull()))
-                .collect(Collectors.toList());
-        StructType structType = new StructType(new ArrayList<>(collect));
-        Type visit =
-                DorisTypeVisitor.visit(structType, new DorisTypeToIcebergType(structType));
-        Schema schema = new Schema(visit.asNestedType().asStructType().fields());
-        Map<String, String> properties = stmt.getProperties();
-        properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(stmt.getPartitionDesc(), schema);
         catalog.createTable(getTableIdentifier(dbName, tableName), schema, partitionSpec, properties);
         return false;
     }

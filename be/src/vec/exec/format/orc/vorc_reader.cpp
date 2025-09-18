@@ -994,6 +994,7 @@ Status OrcReader::set_fill_columns(
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
+    // visit_slot for lazy mat.
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -1053,8 +1054,10 @@ Status OrcReader::set_fill_columns(
             DCHECK(topn_pred->children().size() > 0);
             visit_slot(topn_pred->children()[0].get());
 
-            if (topn_pred->has_value()) {
-                expr = topn_pred->get_binary_expr();
+            VExprSPtr binary_expr;
+            if (topn_pred->get_binary_expr(binary_expr)) {
+                // for min-max filter.
+                expr = binary_expr;
             } else {
                 continue;
             }
@@ -1780,13 +1783,15 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         ColumnPtr& doris_value_column = doris_map.get_values_ptr();
         std::string key_col_name = col_name + ".key";
         std::string value_col_name = col_name + ".value";
+
         RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 key_col_name, doris_key_column, doris_key_type, root_node->get_key_node(),
 
                 orc_key_type, orc_map->keys.get(), element_size));
-        return _orc_column_to_doris_column<false>(
+        RETURN_IF_ERROR(_orc_column_to_doris_column<false>(
                 value_col_name, doris_value_column, doris_value_type, root_node->get_value_node(),
-                orc_value_type, orc_map->elements.get(), element_size);
+                orc_value_type, orc_map->elements.get(), element_size));
+        return doris_map.deduplicate_keys();
     }
     case PrimitiveType::TYPE_STRUCT: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {

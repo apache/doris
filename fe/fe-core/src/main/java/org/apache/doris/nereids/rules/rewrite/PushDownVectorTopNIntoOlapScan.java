@@ -56,14 +56,14 @@ public class PushDownVectorTopNIntoOlapScan implements RewriteRuleFactory {
                     LogicalProject<LogicalOlapScan> project = topN.child();
                     LogicalOlapScan scan = project.child();
                     return pushDown(topN, project, scan, Optional.empty());
-                }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
+                }).toRule(RuleType.PUSH_DOWN_VECTOR_TOPN_INTO_OLAP_SCAN),
                 logicalTopN(logicalProject(logicalFilter(logicalOlapScan())))
                         .when(t -> t.getOrderKeys().size() == 1).then(topN -> {
                             LogicalProject<LogicalFilter<LogicalOlapScan>> project = topN.child();
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return pushDown(topN, project, scan, Optional.of(filter));
-                        }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN)
+                        }).toRule(RuleType.PUSH_DOWN_VECTOR_TOPN_INTO_OLAP_SCAN)
         );
     }
 

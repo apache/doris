@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -30,9 +29,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
@@ -196,13 +195,7 @@ public interface CatalogIf<T extends DatabaseIf> {
      * return true if table exists,
      * return false otherwise
      */
-    boolean createTable(CreateTableCommand command) throws UserException;
-
-    /**
-     * @return if org.apache.doris.analysis.CreateTableStmt.ifNotExists is true, return true if table exists,
-     * return false otherwise
-     */
-    boolean createTable(CreateTableStmt stmt) throws UserException;
+    boolean createTable(CreateTableInfo createTableInfo) throws UserException;
 
     void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
             boolean mustTemporary, boolean force) throws DdlException;

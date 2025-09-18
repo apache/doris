@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -1306,5 +1307,21 @@ public class DateTimeExtractAndTransform {
         int daysToAdd = (dayOfWeek - date.getDayOfWeek() + 7) % 7;
         daysToAdd = daysToAdd == 0 ? 7 : daysToAdd;
         return date.plusDays(daysToAdd);
+    }
+
+    /**
+     * date transform function sec_to_time
+     */
+    @ExecFunction(name = "sec_to_time")
+    public static Expression secToTime(IntegerLiteral sec) {
+        return new TimeV2Literal((double) sec.getValue() * 1000000, 0);
+    }
+
+    /**
+     * date transform function sec_to_time
+     */
+    @ExecFunction(name = "sec_to_time")
+    public static Expression secToTime(DoubleLiteral sec) {
+        return new TimeV2Literal(sec.getValue() * 1000000);
     }
 }

@@ -20,6 +20,7 @@ suite("physical_agg_regulator_request_deriver") {
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
+    set be_number_for_test=1;
     """
     multi_sql """
     analyze table t1025_skew5000 with sample rows 7000 with sync;

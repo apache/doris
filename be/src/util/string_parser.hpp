@@ -150,7 +150,7 @@ inline auto skip_one_slash = skip_qualified_char<1, is_slash_ascii>;
 inline auto skip_one_non_alnum = skip_qualified_char<1, is_non_alnum>;
 
 inline bool is_delimiter(char c) {
-    return c == ' ' || c == 'T';
+    return c == ' ' || c == 'T' || c == ':';
 }
 inline auto consume_one_delimiter = skip_qualified_char<1, is_delimiter>;
 

@@ -55,6 +55,7 @@ Status AnnIndexColumnWriter::init() {
     const auto& properties = _index_meta->properties();
     const std::string index_type = get_or_default(properties, INDEX_TYPE, "hnsw");
     const std::string metric_type = get_or_default(properties, METRIC_TYPE, "l2_distance");
+    const std::string quantizer = get_or_default(properties, QUANTIZER, "flat");
     FaissBuildParameter build_parameter;
     std::shared_ptr<FaissVectorIndex> faiss_index = std::make_shared<FaissVectorIndex>();
     build_parameter.index_type = FaissBuildParameter::string_to_index_type(index_type);
@@ -62,15 +63,17 @@ Status AnnIndexColumnWriter::init() {
     build_parameter.max_degree = std::stoi(get_or_default(properties, MAX_DEGREE, "32"));
     build_parameter.metric_type = FaissBuildParameter::string_to_metric_type(metric_type);
     build_parameter.ef_construction = std::stoi(get_or_default(properties, EF_CONSTRUCTION, "40"));
+    build_parameter.quantizer = FaissBuildParameter::string_to_quantizer(quantizer);
 
     faiss_index->build(build_parameter);
 
     _vector_index = faiss_index;
+
     LOG_INFO(
             "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
-            "ef_construction {}",
+            "ef_construction {}, quantizer {}",
             index_type, build_parameter.dim, metric_type, build_parameter.max_degree,
-            build_parameter.ef_construction);
+            build_parameter.ef_construction, quantizer);
     return Status::OK();
 }
 
@@ -99,7 +102,10 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     }
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
-    RETURN_IF_ERROR(_vector_index->add(cast_set<vectorized::UInt32>(num_rows), p));
+    // Train the index if needed
+    // Faiss index will do nothing if index does not need train.
+    _vector_index->train(num_rows, p);
+    RETURN_IF_ERROR(_vector_index->add(num_rows, p));
 
     return Status::OK();
 }

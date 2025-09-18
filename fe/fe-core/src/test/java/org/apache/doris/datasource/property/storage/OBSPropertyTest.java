@@ -22,6 +22,8 @@ import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -135,6 +137,19 @@ public class OBSPropertyTest {
                 () -> StorageProperties.createPrimary(origProps));
         origProps.remove("obs.secret_key");
         Assertions.assertDoesNotThrow(() -> StorageProperties.createPrimary(origProps));
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.obs.support", "true");
+        props.put("obs.endpoint", "obs.cn-north-4.myhuaweicloud.com");
+        OBSProperties obsStorageProperties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
+        props.put("obs.access_key", "myAccessKey");
+        props.put("obs.secret_key", "mySecretKey");
+        obsStorageProperties = (OBSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals(StaticCredentialsProvider.class, obsStorageProperties.getAwsCredentialsProvider().getClass());
     }
 
     @Test

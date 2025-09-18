@@ -75,8 +75,10 @@ WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from
             converted_columns[i] = block.get_by_position(element_result).column;
         }
 
-        block.get_by_position(result).column = ColumnMap::create(
-                converted_columns[0], converted_columns[1], from_col_map->get_offsets_ptr());
+        auto map_column = ColumnMap::create(converted_columns[0], converted_columns[1],
+                                            from_col_map->get_offsets_ptr());
+        static_cast<void>(assert_cast<ColumnMap&>(*map_column).deduplicate_keys());
+        block.get_by_position(result).column = std::move(map_column);
         return Status::OK();
     };
 }

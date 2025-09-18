@@ -21,6 +21,7 @@
 
 #include <chrono>
 
+#include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -391,6 +392,13 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     auto skip = [now, compaction_type](CloudTablet* t) {
+        auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(ExecEnv::GetInstance()->cluster_info());
+        if (config::enable_standby_passive_compaction && cloud_cluster_info->is_in_standby()) {
+            if (t->fetch_add_approximate_num_rowsets(0) < config::max_tablet_version_num * config::standby_compaction_version_ratio) {
+                return true;
+            }
+        }
+
         int32_t max_version_config = t->max_version_config();
         if (compaction_type == CompactionType::BASE_COMPACTION) {
             bool is_recent_failure = now - t->last_base_compaction_failure_time() < config::min_compaction_failure_interval_ms;

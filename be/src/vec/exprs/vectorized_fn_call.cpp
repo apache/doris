@@ -42,6 +42,7 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
@@ -145,7 +146,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     if (_function == nullptr) {
         return Status::InternalError("Could not find function {}, arg {} return {} ",
-                                     _fn.name.function_name, get_child_names(),
+                                     _fn.name.function_name, get_child_type_names(),
                                      _data_type->get_name());
     }
     VExpr::register_function_context(state, context);
@@ -345,7 +346,7 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     |----------------
     |               |
     |               |
-    SlotRef         ArrayLiteral
+    SlotRef         ArrayLiteral/Cast(String as Array<FLOAT>)
 */
 
 void VectorizedFnCall::prepare_ann_range_search(
@@ -425,44 +426,44 @@ void VectorizedFnCall::prepare_ann_range_search(
         range_search_runtime.metric_type = segment_v2::string_to_metric(metric_name);
     }
 
-    UInt16 idx_of_slot_ref = 0;
-    UInt16 idx_of_array_literal = 0;
+    // Identify the slot ref child and the constant query array child (ArrayLiteral or CAST to array)
+    Int32 idx_of_slot_ref = -1;
+    Int32 idx_of_array_expr = -1;
     for (UInt16 i = 0; i < function_call->get_num_children(); ++i) {
         auto child = function_call->get_child(i);
-        if (std::dynamic_pointer_cast<VSlotRef>(child) != nullptr) {
+        if (idx_of_slot_ref == -1 && std::dynamic_pointer_cast<VSlotRef>(child) != nullptr) {
             idx_of_slot_ref = i;
-        } else if (std::dynamic_pointer_cast<VArrayLiteral>(child) != nullptr) {
-            idx_of_array_literal = i;
+            continue;
+        }
+        // Accept either ArrayLiteral or Cast-to-array constant
+        if (idx_of_array_expr == -1 &&
+            (std::dynamic_pointer_cast<VArrayLiteral>(child) != nullptr ||
+             std::dynamic_pointer_cast<VCastExpr>(child) != nullptr)) {
+            idx_of_array_expr = i;
         }
     }
 
-    std::shared_ptr<VSlotRef> slot_ref =
-            std::dynamic_pointer_cast<VSlotRef>(function_call->get_child(idx_of_slot_ref));
-    std::shared_ptr<VArrayLiteral> array_literal = std::dynamic_pointer_cast<VArrayLiteral>(
-            function_call->get_child(idx_of_array_literal));
-
-    if (slot_ref == nullptr || array_literal == nullptr) {
+    if (idx_of_slot_ref == -1 || idx_of_array_expr == -1) {
         suitable_for_ann_index = false;
-        // slot ref or array literal is null.
+        // slot ref or array literal/cast is missing.
         return;
     }
 
+    auto slot_ref = std::dynamic_pointer_cast<VSlotRef>(
+            function_call->get_child(static_cast<UInt16>(idx_of_slot_ref)));
     range_search_runtime.src_col_idx = slot_ref->column_id();
     range_search_runtime.dst_col_idx = vir_slot_ref == nullptr ? -1 : vir_slot_ref->column_id();
-    auto col_const = array_literal->get_column_ptr();
-    auto col_array = col_const->convert_to_full_column_if_const();
-    const ColumnArray* array_col = assert_cast<const ColumnArray*>(col_array.get());
-    DCHECK(array_col->size() == 1);
-    size_t dim = array_col->get_offsets()[0];
-    range_search_runtime.dim = dim;
-    range_search_runtime.query_value = std::make_unique<float[]>(dim);
 
-    const ColumnNullable* cn = assert_cast<const ColumnNullable*>(array_col->get_data_ptr().get());
-    const ColumnFloat32* cf32 =
-            assert_cast<const ColumnFloat32*>(cn->get_nested_column_ptr().get());
-    for (size_t i = 0; i < dim; ++i) {
-        range_search_runtime.query_value[i] = cf32->get_data()[i];
+    // Materialize the constant array expression and validate its shape and types
+    std::shared_ptr<ColumnPtrWrapper> column_wrapper;
+    auto array_expr = function_call->get_child(static_cast<UInt16>(idx_of_array_expr));
+    auto extract_result = extract_query_vector(array_expr);
+    if (!extract_result.has_value()) {
+        suitable_for_ann_index = false;
+        return;
     }
+    range_search_runtime.query_value = extract_result.value();
+    range_search_runtime.dim = range_search_runtime.query_value->size();
     range_search_runtime.is_ann_range_search = true;
     range_search_runtime.user_params = user_params;
     VLOG_DEBUG << fmt::format("Ann range search params: {}", range_search_runtime.to_string());
@@ -511,6 +512,14 @@ Status VectorizedFnCall::evaluate_ann_range_search(
     if (ann_index_reader->get_metric_type() != range_search_runtime.metric_type) {
         // Metric type not match, can not execute range search by index.
         return Status::OK();
+    }
+
+    // Check dimension if available (>0)
+    const size_t index_dim = ann_index_reader->get_dimension();
+    if (index_dim > 0 && index_dim != range_search_runtime.dim) {
+        return Status::InvalidArgument(
+                "Ann range search query dimension {} does not match index dimension {}",
+                range_search_runtime.dim, index_dim);
     }
 
     AnnRangeSearchParams params = range_search_runtime.to_range_search_params();

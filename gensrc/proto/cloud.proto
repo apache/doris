@@ -768,6 +768,8 @@ enum SnapshotStatus {
     SNAPSHOT_NORMAL = 1;
     // This snapshot was aborted due to an error.
     SNAPSHOT_ABORTED = 2;
+    // This snapshot was recycled.
+    SNAPSHOT_RECYCLED = 3;
 }
 
 // A cluster snapshot.
@@ -1912,6 +1914,7 @@ message BeginSnapshotResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string snapshot_id = 2;
     optional string image_url = 3;
+    optional ObjectStoreInfoPB obj_info = 4;
 }
 
 message CommitSnapshotRequest {
@@ -1966,6 +1969,16 @@ message ListSnapshotRequest {
 message ListSnapshotResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated SnapshotInfoPB snapshots = 2;
+}
+
+message DropSnapshotRequest {
+    optional string cloud_unique_id = 1;
+    optional string snapshot_id = 2;  // The snapshot to drop
+    optional string request_ip = 3;
+}
+
+message DropSnapshotResponse {
+    optional MetaServiceResponseStatus status = 1;
 }
 
 message CloneInstanceRequest {
@@ -2076,6 +2089,7 @@ service MetaService {
     rpc begin_snapshot(BeginSnapshotRequest) returns (BeginSnapshotResponse);
     rpc commit_snapshot(CommitSnapshotRequest) returns (CommitSnapshotResponse);
     rpc abort_snapshot(AbortSnapshotRequest) returns (AbortSnapshotResponse);
+    rpc drop_snapshot(DropSnapshotRequest) returns (DropSnapshotResponse);
     rpc list_snapshot(ListSnapshotRequest) returns (ListSnapshotResponse);
     rpc clone_instance(CloneInstanceRequest) returns (CloneInstanceResponse);
 };

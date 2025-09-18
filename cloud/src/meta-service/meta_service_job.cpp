@@ -1622,6 +1622,20 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     new_tablet_meta.SerializeToString(&new_tablet_val);
     txn->put(new_tablet_key, new_tablet_val);
 
+    if (is_versioned_write) {
+        std::string versioned_new_tablet_key =
+                versioned::meta_tablet_key({instance_id, new_tablet_id});
+        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
+                                     std::move(new_tablet_meta))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
+                              hex(versioned_new_tablet_key));
+            return;
+        }
+        LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
+                  << " key=" << hex(versioned_new_tablet_key);
+    }
+
     // process mow table, check lock
     if (new_tablet_meta.enable_unique_key_merge_on_write()) {
         bool success = check_and_remove_delete_bitmap_update_lock(
@@ -1636,20 +1650,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         txn->remove(pending_key);
         LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
                   << " tablet_id=" << new_tablet_id << ", job_id=" << schema_change.id();
-    }
-
-    if (is_versioned_write) {
-        std::string versioned_new_tablet_key =
-                versioned::meta_tablet_key({instance_id, new_tablet_id});
-        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
-                                     std::move(new_tablet_meta))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
-                              hex(versioned_new_tablet_key));
-            return;
-        }
-        LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
-                  << " key=" << hex(versioned_new_tablet_key);
     }
 
     //==========================================================================
@@ -1706,6 +1706,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         index_size_remove_rowsets += rs.index_disk_size();
         segment_size_remove_rowsets += rs.data_disk_size();
 
+        int64_t start_version = rs.start_version(), end_version = rs.end_version();
         auto recycle_key = recycle_rowset_key({instance_id, new_tablet_id, rs.rowset_id_v2()});
         RecycleRowsetPB recycle_rowset;
         recycle_rowset.set_creation_time(now);
@@ -1717,8 +1718,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
         }
-        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id
-                           << " key=" << hex(recycle_key);
+        INSTANCE_LOG(INFO) << "put recycle rowset, new_tablet_id=" << new_tablet_id << " version=["
+                           << start_version << "-" << end_version << "] key=" << hex(recycle_key);
     };
 
     if (!is_versioned_read) {
@@ -1929,7 +1930,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     need_commit = true;
 
-    if (!schema_change_log.recycle_rowsets().empty() && is_versioned_write) {
+    if (is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;

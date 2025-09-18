@@ -364,6 +364,17 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
+#ifndef ENABLE_HDFS_STORAGE_VAULT
+    code = MetaServiceCode::INVALID_ARGUMENT;
+    msg = fmt::format(
+            "HDFS is disabled (via the ENABLE_HDFS_STORAGE_VAULT build option), "
+            "but HDFS storage vaults were detected: {}",
+            hdfs_param.name());
+    LOG(ERROR) << "HDFS is disabled (via the ENABLE_HDFS_STORAGE_VAULT build option), "
+               << "but HDFS storage vaults were detected: " << hdfs_param.name();
+    return -1;
+#endif
+
     if (!hdfs_param.has_hdfs_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("vault_name={} passed invalid argument", hdfs_param.name());
@@ -2117,7 +2128,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
             LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance normal json=" << proto_to_json(*instance);
+                      << "set instance snapshot property json=" << proto_to_json(*instance);
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;

@@ -24,7 +24,7 @@ show_create_table_and_views_nereids_table	CREATE TABLE `show_create_table_and_vi
 3	1
 
 -- !show --
-show_create_table_and_views_nereids_view	CREATE VIEW `show_create_table_and_views_nereids_view` AS SELECT `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`user_id` AS `user_id`, `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`cost` AS `cost` FROM `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`\n        WHERE `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`good_id` = 2;	utf8mb4	utf8mb4_0900_bin
+show_create_table_and_views_nereids_view	CREATE VIEW `show_create_table_and_views_nereids_view`\n(user_id,cost)\n AS SELECT `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`user_id` AS `user_id`, `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`cost` AS `cost` FROM `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`\n        WHERE `internal`.`show_create_table_and_views_nereids_db`.`show_create_table_and_views_nereids_table`.`good_id` = 2;	utf8mb4	utf8mb4_0900_bin
 
 -- !select --
 1	47

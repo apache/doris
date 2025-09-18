@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -230,9 +231,8 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2,
-                                                               TYPE_DATETIMEV2>(idx, step_row,
-                                                                                is_null);
+                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
+                                idx, step_row, is_null);
                     }
                     dest_offsets.push_back(offset);
                 }

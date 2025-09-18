@@ -30,10 +30,12 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
-import org.apache.doris.datasource.paimon.PaimonVendedCredentialsProvider;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -133,6 +135,10 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
+    // Store PropertiesMap, including vended credentials or static credentials
+    // get them in doInitialize() to ensure internal consistency of ScanNode
+    private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
+    private Map<String, String> backendStorageProperties;
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -151,6 +157,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
         // Todo: Get the current schema id of the table, instead of using -1.
         ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
+                catalog.getCatalogProperty().getMetastoreProperties(),
+                catalog.getCatalogProperty().getStoragePropertiesMap(),
+                source.getPaimonTable()
+        );
+        backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
     }
 
     @VisibleForTesting
@@ -215,14 +228,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setPaimonPredicate(PaimonUtil.encodeObjectToString(predicates));
         // The hadoop conf should be same with
         // PaimonExternalCatalog.createCatalog()#getConfiguration()
-        fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getBackendStorageProperties());
+        fileDesc.setHadoopConf(backendStorageProperties);
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
         if (optDeletionFile.isPresent()) {
             DeletionFile deletionFile = optDeletionFile.get();
             TPaimonDeletionFileDesc tDeletionFile = new TPaimonDeletionFileDesc();
             // convert the deletion file uri to make sure FileReader can read it in be
-            LocationPath locationPath = LocationPath.of(deletionFile.path(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+            LocationPath locationPath = LocationPath.of(deletionFile.path(), storagePropertiesMap);
             String path = locationPath.toStorageLocation().toString();
             tDeletionFile.setPath(path);
             tDeletionFile.setOffset(deletionFile.offset());
@@ -311,8 +323,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
                     RawFile file = rawFiles.get(i);
-                    LocationPath locationPath = LocationPath.of(file.path(),
-                            source.getCatalog().getCatalogProperty().getStoragePropertiesMap());
+                    LocationPath locationPath = LocationPath.of(file.path(), storagePropertiesMap);
                     try {
                         List<Split> dorisSplits = FileSplitter.splitFile(
                                 locationPath,
@@ -438,12 +449,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
-        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
-        return PaimonVendedCredentialsProvider.getBackendLocationProperties(
-                catalog.getCatalogProperty().getMetastoreProperties(),
-                catalog.getCatalogProperty().getStoragePropertiesMap(),
-                source.getPaimonTable()
-        );
+        return backendStorageProperties;
     }
 
     @Override

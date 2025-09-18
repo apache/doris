@@ -28,14 +28,17 @@ suite("test_paimon_deletion_vector_oss", "p0,external,doris,external_docker,exte
         String catalog_name = "test_paimon_deletion_vector_oss"
         String aliYunAk = context.config.otherConfigs.get("aliYunAk")
         String aliYunSk = context.config.otherConfigs.get("aliYunSk")
+        String aliYunEndpoint = context.config.otherConfigs.get("aliYunEndpoint")
+        String bucket = context.config.otherConfigs.get("aliYunBucket")
+
         sql """drop catalog if exists ${catalog_name}"""
         sql """create catalog if not exists ${catalog_name} properties (
             "type" = "paimon",
             "paimon.catalog.type"="filesystem",
-            "warehouse" = "oss://doris-regression-bj/regression/paimon1",
+            "warehouse" = "oss://${bucket}/regression/paimon1",
             "oss.access_key"="${aliYunAk}",
             "oss.secret_key"="${aliYunSk}",
-            "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
+            "oss.endpoint"="${aliYunEndpoint}"
         );"""
 
         sql """use `${catalog_name}`.`db1`"""
