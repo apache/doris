@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -538,6 +539,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             builder.setMaxExpr(null)
                     .setMaxValue(Double.POSITIVE_INFINITY);
         }
+        if (colStats.hotValues != null) {
+            Map<Literal, Float> newHotValues = new HashMap<>();
+            for (Literal hot : colStats.hotValues.keySet()) {
+                org.apache.doris.nereids.trees.expressions.literal.StringLiteral newHot =
+                        new org.apache.doris.nereids.trees.expressions.literal.StringLiteral(hot.getStringValue());
+                newHotValues.put(newHot, colStats.hotValues.get(hot));
+            }
+            builder.setHotValues(newHotValues);
+        }
         return builder.build();
     }
 
@@ -563,11 +573,25 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         literalMap.put(newMinExpr.get(), (StringLiteral) colStats.minExpr);
         literalMap.put(newMaxExpr.get(), (StringLiteral) colStats.maxExpr);
 
+        Map<Literal, Float> newHotValues = new HashMap<>();
+        if (!colStats.hotValues.isEmpty()) {
+            for (Literal oneHot : colStats.hotValues.keySet()) {
+                try {
+                    DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());
+                    newHotValues.put(oneHotDate,
+                                colStats.hotValues.get(oneHot));
+                } catch (Exception e) {
+                    return Optional.empty();
+                }
+            }
+        }
+
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         return Optional.of(builder.setMinValue(newMinExpr.get().getDoubleValueAsDateTime())
                 .setMinExpr(newMinExpr.get())
                 .setMaxValue(newMaxExpr.get().getDoubleValueAsDateTime())
                 .setMaxExpr(newMaxExpr.get())
+                .setHotValues(newHotValues.isEmpty() ? null : newHotValues)
                 .build());
     }
 

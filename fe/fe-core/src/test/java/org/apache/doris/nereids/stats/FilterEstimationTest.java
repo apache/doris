@@ -1364,6 +1364,21 @@ class FilterEstimationTest {
     }
 
     @Test
+    public void testStringRangeColToLiteralWithHotValue() {
+        double rowCont = 1000;
+        Pair<Expression, ArrayList<SlotReference>> pair = StatsTestUtil.instance.createExpr("ia >= '2025-09-01'");
+        Expression expr = pair.first;
+        ArrayList<SlotReference> slots = pair.second;
+        ColumnStatistic iaStats = StatsTestUtil.instance.createColumnStatistic("ia", 10, rowCont,
+                "2023-09-01", "2023-09-08", 0, new String[]{"2023-09-08"});
+        StatisticsBuilder statsBuilder = new StatisticsBuilder();
+        statsBuilder.putColumnStatistics(slots.get(0), iaStats).setRowCount(rowCont);
+        Statistics stats = new FilterEstimation().estimate(expr, statsBuilder.build());
+        Assertions.assertEquals(0, stats.getRowCount(), 0.1);
+        Assertions.assertNull(stats.findColumnStatistics(slots.get(0)));
+    }
+
+    @Test
     public void testStringRangeColToDateLiteral() {
         SlotReference a = new SlotReference("a", new VarcharType(25));
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(100)
