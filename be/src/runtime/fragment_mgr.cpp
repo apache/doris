@@ -1396,6 +1396,38 @@ Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatis
             print_id(query_id), query_stats);
 }
 
+Status FragmentMgr::transmit_rec_cte_block(
+        const TUniqueId& query_id, const TUniqueId& instance_id, int node_id,
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        return q_ctx->send_block_to_cte_scan(instance_id, node_id, pblocks, eos);
+    } else {
+        return Status::EndOfFile(
+                "Transmit rec cte block failed: Query context (query-id: {}) not found, maybe "
+                "finished",
+                print_id(query_id));
+    }
+}
+
+Status FragmentMgr::reset_fragment(const TUniqueId& query_id, int fragment) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+        if (!fragment_ctx) {
+            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                    print_id(query_id), fragment);
+        }
+        return fragment_ctx->reset(_thread_pool.get());
+    } else {
+        return Status::NotFound(
+                "Transmit rec cte block failed: Query context (query-id: {}) not found, maybe "
+                "finished",
+                print_id(query_id));
+    }
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris

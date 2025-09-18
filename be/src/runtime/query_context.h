@@ -32,6 +32,7 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
@@ -48,6 +49,7 @@ namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
+class RecCTEScanLocalState;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -293,6 +295,13 @@ public:
     void set_first_error_msg(std::string error_msg);
     std::string get_first_error_msg();
 
+    Status send_block_to_cte_scan(const TUniqueId& instance_id, int node_id,
+                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
+                                  bool eos);
+    void registe_cte_scan(const TUniqueId& instance_id, int node_id,
+                          pipeline::RecCTEScanLocalState* scan);
+    void deregiste_cte_scan(const TUniqueId& instance_id, int node_id);
+
 private:
     friend class QueryTaskController;
 
@@ -370,6 +379,10 @@ private:
     std::mutex _error_url_lock;
     std::string _load_error_url;
     std::string _first_error_msg;
+
+    // instance id + node id -> cte scan
+    std::map<std::pair<TUniqueId, int>, pipeline::RecCTEScanLocalState*> _cte_scan;
+    std::mutex _cte_scan_lock;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
