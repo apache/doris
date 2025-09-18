@@ -44,7 +44,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;

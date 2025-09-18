@@ -40,9 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
@@ -233,12 +231,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
      *
      * @param repoName    The name of the repository to alter.
      * @param newProps    The new properties to apply to the repository.
-     * @param strictCheck If true, only allows altering S3 or Azure repositories and validates properties accordingly.
-     *                    TODO: Investigate why only S3 and Azure repositories are supported for alter operation
      * @throws DdlException if the repository does not exist, fails to apply properties, or cannot connect
      * to the updated repository.
      */
-    public void alterRepository(String repoName, Map<String, String> newProps, boolean strictCheck)
+    public void alterRepository(String repoName, Map<String, String> newProps)
             throws DdlException {
         tryLock();
         try {
@@ -247,7 +243,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 throw new DdlException("Repository does not exist");
             }
             // Merge new properties with the existing repository's properties
-            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
+            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
             // Create new remote file system with merged properties
             RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
             // Create new Repository instance with updated file system
@@ -274,34 +270,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     /**
      * Merges new user-provided properties into the existing repository's configuration.
-     * In strict mode, only supports S3 or Azure repositories and applies internal S3 merge logic.
      *
      * @param repo        The existing repository.
      * @param newProps    New user-specified properties.
-     * @param strictCheck Whether to enforce S3/Azure-only and validate the new properties.
      * @return A complete set of merged properties.
-     * @throws DdlException if the merge fails or the repository type is unsupported.
      */
-    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps, boolean strictCheck)
-            throws DdlException {
-        if (strictCheck) {
-            if (!(repo.getRemoteFileSystem() instanceof S3FileSystem
-                    || repo.getRemoteFileSystem() instanceof AzureFileSystem)) {
-                throw new DdlException("Only support altering S3 or Azure repository");
-            }
-            // Let the repository validate and enrich the new S3/Azure properties
-            Map<String, String> propsCopy = new HashMap<>(newProps);
-            Status status = repo.alterRepositoryS3Properties(propsCopy);
-            if (!status.ok()) {
-                throw new DdlException("Failed to merge S3 properties: " + status.getErrMsg());
-            }
-            return propsCopy;
-        } else {
-            // General case: just override old props with new ones
-            Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
-            combined.putAll(newProps);
-            return combined;
-        }
+    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps) {
+        // General case: just override old props with new ones
+        Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+        combined.putAll(newProps);
+        return combined;
     }
 
     /**
