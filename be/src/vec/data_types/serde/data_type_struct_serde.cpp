@@ -119,7 +119,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     bool key_added = false;
     int idx = 0;
     char quote_char = 0;
-
+    bool escaped = false;
     auto elem_size = elem_serdes_ptrs.size();
     DCHECK_EQ(elem_size, elem_names.size());
     int field_pos = 0;
@@ -134,8 +134,11 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_json(IColumn& column, Slic
                 quote_char = 0;
                 has_quote = !has_quote;
             }
-        } else if (c == '\\' && idx + 1 < slice_size) { //escaped
-            ++idx;
+        } else if (escaped) {
+            escaped = false;
+        } else if (c == options.escape_char && idx + 1 < slice_size &&
+                   DataTypeSerDe::should_escape_sequence(options.escape_char, slice[idx + 1])) {
+            escaped = true;
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {
@@ -582,9 +585,9 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     }
     str = str.substring(1, str.size - 2); // remove '{' '}'
 
-    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(str, [&](char c) {
-        return c == options.map_key_delim || c == options.collection_delim;
-    });
+    auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
+            str, options.escape_char,
+            [&](char c) { return c == options.map_key_delim || c == options.collection_delim; });
 
     const auto elem_size = elem_serdes_ptrs.size();
 

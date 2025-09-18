@@ -116,9 +116,15 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_json(IColumn& column, Slice
     size_t slice_size = slice.size;
     // pre add total slice can reduce lasted element check.
     char quote_char = 0;
+    bool escaped = false;
     for (int idx = 0; idx < slice_size; ++idx) {
         char c = slice[idx];
-        if (c == '"' || c == '\'') {
+        if (escaped) {
+            escaped = false;
+        } else if (c == options.escape_char && idx + 1 < slice_size &&
+                   DataTypeSerDe::should_escape_sequence(options.escape_char, slice[idx + 1])) {
+            escaped = true;
+        } else if (c == '"' || c == '\'') {
             if (!has_quote) {
                 quote_char = c;
                 has_quote = !has_quote;
@@ -486,7 +492,7 @@ Status DataTypeArraySerDe::_from_string(StringRef& str, IColumn& column,
     str = str.substring(1, str.size - 2); // remove '[' and ']'
 
     auto split_result = ComplexTypeDeserializeUtil::split_by_delimiter(
-            str, [&](char c) { return c == options.collection_delim; });
+            str, options.escape_char, [&](char c) { return c == options.collection_delim; });
 
     for (auto& e : split_result) {
         RETURN_IF_ERROR(ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
