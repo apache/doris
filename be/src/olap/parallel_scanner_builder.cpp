@@ -191,7 +191,8 @@ Status ParallelScannerBuilder::_load() {
                     [esc = enable_segment_cache, rowset, &bmtx, p = std::move(prom), this] {
                         SegmentCacheHandle sch;
                         auto task_st = SegmentLoader::instance()->load_segments(
-                                std::dynamic_pointer_cast<BetaRowset>(rowset), &sch, esc, false);
+                                std::dynamic_pointer_cast<BetaRowset>(rowset), &sch, esc, false,
+                                &_builder_stats);
                         Defer defer([p, &task_st] { p->set_value(task_st); });
                         if (!task_st.ok()) return;
 
