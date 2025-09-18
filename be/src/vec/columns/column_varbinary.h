@@ -159,8 +159,6 @@ public:
         return _data[row].size() + sizeof(uint32_t);
     }
 
-    ColumnPtr convert_to_string_column() const;
-
 private:
     Container _data;
     Arena _arena;
