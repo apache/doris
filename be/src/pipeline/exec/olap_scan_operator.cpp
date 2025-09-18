@@ -27,6 +27,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_hotspot.h"
 #include "cloud/config.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "olap/parallel_scanner_builder.h"
 #include "olap/rowset/segment_v2/ann_index/ann_topn_runtime.h"
 #include "olap/storage_engine.h"
@@ -87,6 +88,7 @@ Status OlapScanLocalState::_init_profile() {
     // Rows read from storage.
     // Include the rows read from doris page cache.
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
+
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -506,6 +508,15 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             auto* olap_scanner = assert_cast<vectorized::OlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->init(state(), _conjuncts));
         }
+
+        const OlapReaderStatistics* stats = scanner_builder.builder_stats();
+        io::FileCacheProfileReporter cache_profile(_segment_profile.get());
+        cache_profile.update(&stats->file_cache_stats);
+
+        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                stats->file_cache_stats.bytes_read_from_local);
+        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                stats->file_cache_stats.bytes_read_from_remote);
 
         return Status::OK();
     }
