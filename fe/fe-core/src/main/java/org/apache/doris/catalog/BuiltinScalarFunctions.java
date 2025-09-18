@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Acosh;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AddTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesDecrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AesEncrypt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AppendTrailingCharIfAbsent;
@@ -459,6 +460,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Strcmp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubBitmap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubReplace;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SubTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SubstringIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tan;
@@ -532,7 +534,8 @@ import java.util.List;
 /**
  * Builtin scalar functions.
  * <p>
- * Note: Please ensure that this class only has some lists and no procedural code.
+ * Note: Please ensure that this class only has some lists and no procedural
+ * code.
  * It helps to be clear and concise.
  */
 public class BuiltinScalarFunctions implements FunctionHelper {
@@ -540,6 +543,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Abs.class, "abs"),
             scalar(Acos.class, "acos"),
             scalar(Acosh.class, "acosh"),
+            scalar(AddTime.class, "add_time"),
             scalar(AesDecrypt.class, "aes_decrypt"),
             scalar(AesEncrypt.class, "aes_encrypt"),
             scalar(AppendTrailingCharIfAbsent.class, "append_trailing_char_if_absent"),
@@ -966,6 +970,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StrToMap.class, "str_to_map"),
             scalar(SubBitmap.class, "sub_bitmap"),
             scalar(SubReplace.class, "sub_replace"),
+            scalar(SubTime.class, "sub_time"),
             scalar(Substring.class, "substr", "substring"),
             scalar(SubstringIndex.class, "substring_index"),
             scalar(Tan.class, "tan"),
