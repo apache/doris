@@ -15,12 +15,12 @@ INSERT INTO iceberg_procedure_db.test_fast_forward VALUES
 ALTER TABLE iceberg_procedure_db.test_fast_forward
 CREATE BRANCH feature_branch;
 
-INSERT INTO iceberg_catalog.test_db.test_fast_forward VALUES
+INSERT INTO iceberg_procedure_db.test_fast_forward VALUES
     (2, 'record2', 200);
 ALTER TABLE iceberg_procedure_db.test_fast_forward
 CREATE TAG feature_tag;
 
-INSERT INTO iceberg_catalog.test_db.test_fast_forward VALUES
+INSERT INTO iceberg_procedure_db.test_fast_forward VALUES
     (3, 'record3', 300);
 
 -- Cherrypick Snapshot
