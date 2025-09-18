@@ -245,8 +245,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.jobInfo = jobInfo;
         this.allowLoad = allowLoad;
         this.replicaAlloc = replicaAlloc;
-        this.state = RestoreJobState.PENDING;
-        this.showState = RestoreJobState.PENDING;
+        setState(RestoreJobState.PENDING);
         this.metaVersion = metaVersion;
         this.reserveReplica = reserveReplica;
         this.reserveColocate = reserveColocate;
@@ -291,6 +290,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
     public RestoreJobState getState() {
         return state;
+    }
+
+    private void setState(RestoreJobState state) {
+        this.state = state;
+        this.showState = state;
     }
 
     public int getMetaVersion() {
@@ -1028,7 +1032,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // No log here, PENDING state restore job will redo this method
-        state = RestoreJobState.CREATING;
+        setState(RestoreJobState.CREATING);
     }
 
     protected void doCreateReplicas() {
@@ -1051,7 +1055,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         // No log here, PENDING state restore job will redo this method
-        state = RestoreJobState.CREATING;
+        setState(RestoreJobState.CREATING);
         createReplicasTimeStamp = System.currentTimeMillis();
         batchTaskPerTable.clear();
     }
@@ -1170,7 +1174,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         metaPreparedTime = System.currentTimeMillis();
-        state = RestoreJobState.SNAPSHOTING;
+        setState(RestoreJobState.SNAPSHOTING);
         // No log here, PENDING state restore job will redo this method
     }
 
@@ -1735,7 +1739,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     protected void waitingAllSnapshotsFinished() {
         if (unfinishedSignatureToId.isEmpty()) {
             snapshotFinishedTime = System.currentTimeMillis();
-            state = RestoreJobState.DOWNLOAD;
+            setState(RestoreJobState.DOWNLOAD);
 
             env.getEditLog().logRestoreJob(this);
             for (ColocatePersistInfo info : colocatePersistInfos) {
@@ -1858,7 +1862,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.DOWNLOADING;
+        setState(RestoreJobState.DOWNLOADING);
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
@@ -1983,7 +1987,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.DOWNLOADING;
+        setState(RestoreJobState.DOWNLOADING);
 
         // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
@@ -2043,7 +2047,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private void waitingAllDownloadFinished() {
         if (unfinishedSignatureToId.isEmpty()) {
             downloadFinishedTime = System.currentTimeMillis();
-            state = RestoreJobState.COMMIT;
+            setState(RestoreJobState.COMMIT);
 
             // backupMeta is useless now
             backupMeta = null;
@@ -2075,7 +2079,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         AgentTaskExecutor.submit(batchTask);
 
-        state = RestoreJobState.COMMITTING;
+        setState(RestoreJobState.COMMITTING);
 
         // No log here
         LOG.info("finished to send move dir tasks. num: {}. {}", batchTask.getTaskNum(), this);
@@ -2389,7 +2393,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             RestoreJobState curState = state;
             finishedTime = System.currentTimeMillis();
-            state = RestoreJobState.CANCELLED;
+            setState(RestoreJobState.CANCELLED);
             // log
             env.getEditLog().logRestoreJob(this);
             for (ColocatePersistInfo info : colocatePersistInfos) {

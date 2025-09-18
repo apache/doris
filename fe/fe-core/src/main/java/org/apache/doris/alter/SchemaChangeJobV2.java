@@ -419,7 +419,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         createShadowIndexReplica();
 
         this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
 
         // write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
@@ -559,7 +559,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
         AgentTaskExecutor.submit(schemaChangeBatchTask);
 
-        this.jobState = JobState.RUNNING;
+        setJobState(JobState.RUNNING);
 
         // DO NOT write edit log here, tasks will be sent again if FE restart or master changed.
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
@@ -816,7 +816,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         this.finishedTimeMs = System.currentTimeMillis();
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL when cancel, table id: {}, job id: {}", tableId, jobId);
-        jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
         onCancel();
@@ -910,7 +910,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         this.watershedTxnId = replayedJob.watershedTxnId;
-        jobState = JobState.PENDING;
+        setJobState(JobState.PENDING);
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
     }
 
@@ -929,7 +929,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
-        this.jobState = JobState.WAITING_TXN;
+        setJobState(JobState.WAITING_TXN);
         this.watershedTxnId = replayedJob.watershedTxnId;
         LOG.info("replay waiting txn schema change job: {} table id: {}", jobId, tableId);
     }
@@ -969,7 +969,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         cancelInternal();
         // try best to drop shadow index
         onCancel();
-        this.jobState = JobState.CANCELLED;
+        setJobState(JobState.CANCELLED);
         this.finishedTimeMs = replayedJob.finishedTimeMs;
         this.errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled schema change job: {}", jobId);
