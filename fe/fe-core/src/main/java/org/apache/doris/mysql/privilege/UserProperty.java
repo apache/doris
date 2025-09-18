@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -27,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Joiner;
@@ -211,7 +211,7 @@ public class UserProperty {
             String key = entry.first;
             String value = entry.second;
 
-            String[] keyArr = key.split("\\" + SetUserPropertyVar.DOT_SEPARATOR);
+            String[] keyArr = key.split("\\" + SetUserPropertyVarOp.DOT_SEPARATOR);
             if (keyArr[0].equalsIgnoreCase(PROP_MAX_USER_CONNECTIONS)) {
                 // set property "max_user_connections" = "1000"
                 if (keyArr.length != 1) {

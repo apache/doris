@@ -163,7 +163,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
-                               List<StorageProperties> storagePropertiesList) {
+            List<StorageProperties> storagePropertiesList) {
         Map<String, String> fileIOProperties = Maps.newHashMap();
         Configuration conf = new Configuration();
         toFileIOProperties(storagePropertiesList, fileIOProperties, conf);

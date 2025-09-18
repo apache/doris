@@ -256,58 +256,6 @@ public class NereidsLoadScanProvider {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
-        HashMap<String, Type> colToType = new HashMap<>();
-        // check default value and auto-increment column
-        for (Column column : tbl.getBaseSchema()) {
-            if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    && !partialUpdateInputColumns.contains(column.getName())) {
-                continue;
-            }
-            String columnName = column.getName();
-            colToType.put(columnName, column.getType());
-            Expression expression = null;
-            if (column.getGeneratedColumnInfo() != null) {
-                // the generated column will be handled by bindSink
-            } else {
-                if (columnExprMap.get(columnName) != null) {
-                    expression = columnExprMap.get(columnName);
-                } else {
-                    // other column with default value will be handled by bindSink
-                }
-            }
-            if (expression != null) {
-                // check hll_hash
-                if (column.getDataType() == PrimitiveType.HLL) {
-                    if (!(expression instanceof UnboundFunction)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
-                    }
-                    UnboundFunction function = (UnboundFunction) expression;
-                    String functionName = function.getName();
-                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
-                            && !functionName.equalsIgnoreCase("hll_empty")
-                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
-                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
-                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
-                                + columnName + "=hll_empty()");
-                    }
-                }
-
-                if (fileGroup.isNegative() && column.getAggregationType() != null
-                        && column.getAggregationType() == AggregateType.SUM) {
-                    expression = new Multiply(expression, new IntegerLiteral(-1));
-                }
-
-                // check Bitmap Compatibility and check QuantileState Compatibility need be checked after binding
-                // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
-                // and if input string is not a valid json string, return null. this need be handled after binding
-                expression = ExpressionUtils.replace(expression, replaceMap);
-                replaceMap.put(new UnboundSlot(columnName), expression);
-                context.exprMap.put(column.getName(), expression);
-            }
-        }
-
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = fileGroup.getColumnToHadoopFunction();
         // validate hadoop functions
         if (columnToHadoopFunction != null) {
@@ -333,7 +281,72 @@ public class NereidsLoadScanProvider {
             }
         }
 
-        // create scan SlotReferences and transform hadoop functions
+        HashMap<String, Type> colToType = new HashMap<>();
+        // check default value and auto-increment column
+        for (Column column : tbl.getBaseSchema()) {
+            if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                    && !partialUpdateInputColumns.contains(column.getName())) {
+                continue;
+            }
+            String columnName = column.getName();
+            colToType.put(columnName, column.getType());
+            Expression expression = null;
+            if (column.getGeneratedColumnInfo() != null) {
+                // the generated column will be handled by bindSink
+                continue;
+            }
+
+            if (columnExprMap.get(columnName) != null) {
+                expression = columnExprMap.get(columnName);
+                expression = transformHadoopFunctionExpr(tbl, columnName, expression);
+            } else {
+                // If NEGATIVE keyword is specified and column aggregate type is SUM, create an
+                // unbound slot
+                // This allows subsequent negative value processing (multiply by -1) for SUM
+                // type columns
+                if (fileGroup.isNegative() && column.getAggregationType() != null
+                        && column.getAggregationType() == AggregateType.SUM) {
+                    expression = new UnboundSlot(columnName);
+                }
+                // other column with default value will be handled by bindSink
+            }
+
+            if (expression != null) {
+                // check hll_hash
+                if (column.getDataType() == PrimitiveType.HLL) {
+                    if (!(expression instanceof UnboundFunction)) {
+                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                    }
+                    UnboundFunction function = (UnboundFunction) expression;
+                    String functionName = function.getName();
+                    if (!functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)
+                            && !functionName.equalsIgnoreCase("hll_empty")
+                            && !functionName.equalsIgnoreCase(FunctionSet.HLL_FROM_BASE64)) {
+                        throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
+                                + columnName + "=" + FunctionSet.HLL_HASH + "(xxx) or "
+                                + columnName + "=" + FunctionSet.HLL_FROM_BASE64 + "(xxx) or "
+                                + columnName + "=hll_empty()");
+                    }
+                }
+
+                // If NEGATIVE keyword is specified and column aggregate type is SUM, multiply expression by -1
+                // This implements negative value import functionality, converting additive values to subtractive values
+                if (fileGroup.isNegative() && column.getAggregationType() != null
+                        && column.getAggregationType() == AggregateType.SUM) {
+                    expression = new Multiply(expression, new IntegerLiteral(-1));
+                }
+
+                // check Bitmap Compatibility and check QuantileState Compatibility need be checked after binding
+                // for jsonb type, use jsonb_parse_xxx to parse src string to jsonb.
+                // and if input string is not a valid json string, return null. this need be handled after binding
+                // expression = ExpressionUtils.replace(expression, replaceMap);
+                // replaceMap.put(new UnboundSlot(columnName), expression);
+                context.exprMap.put(column.getName(), expression);
+            }
+        }
+
+        // create scan SlotReferences
         boolean hasColumnFromTable = false;
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (NereidsImportColumnDesc importColumnDesc : copiedColumnExprs) {
@@ -350,9 +363,8 @@ public class NereidsLoadScanProvider {
                 realColName = tblColumn.getName();
             }
             if (importColumnDesc.getExpr() != null) {
-                if (tblColumn.getGeneratedColumnInfo() == null) {
-                    Expression expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
-                    context.exprMap.put(realColName, expr);
+                if (tblColumn.getGeneratedColumnInfo() == null && !context.exprMap.containsKey(realColName)) {
+                    context.exprMap.put(realColName, importColumnDesc.getExpr());
                 }
             } else {
                 Column slotColumn;

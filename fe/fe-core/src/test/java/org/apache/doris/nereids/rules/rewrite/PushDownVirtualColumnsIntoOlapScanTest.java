@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFilter;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Grouping;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.L2Distance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
@@ -830,6 +831,62 @@ public class PushDownVirtualColumnsIntoOlapScanTest implements MemoPatternMatchS
             // Expected for lambda expressions or other complex scenarios
             // The important thing is that type checking works correctly
         }
+    }
+
+    @Test
+    public void testSkipGroupingFunctionsInFilter() {
+        // Ensure expressions containing grouping() are completely skipped
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+
+        Grouping grouping1 = new Grouping(x);
+        Grouping grouping2 = new Grouping(x);
+        // even if repeated, should not extract
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(grouping1, grouping2)), scan);
+        PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
+                .matches(logicalOlapScan().when(o -> o.getVirtualColumns().isEmpty()));
+    }
+
+    @Test
+    public void testSkipGroupingFunctionsInProject() {
+        // Ensure grouping() in project is not extracted or altered by CSE
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        SlotReference x = (SlotReference) scan.getOutput().get(0);
+
+        Grouping grouping1 = new Grouping(x);
+        Grouping grouping2 = new Grouping(x);
+
+        LogicalFilter<LogicalOlapScan> filter = new LogicalFilter<>(ImmutableSet.of(), scan);
+        List<NamedExpression> projects = ImmutableList.of(
+                new Alias(grouping1, "g1"),
+                new Alias(grouping2, "g2"),
+                new Alias(x, "x")
+        );
+        LogicalProject<LogicalFilter<LogicalOlapScan>> project = new LogicalProject<>(projects, filter);
+
+        Plan result = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushDownVirtualColumnsIntoOlapScan())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> resProject = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(LogicalFilter.class, resProject.child());
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) resProject.child();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resFilter.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resFilter.child();
+        Assertions.assertTrue(resScan.getVirtualColumns().isEmpty(),
+                "Grouping in project must not trigger virtual column extraction");
+
+        // Ensure grouping aliases remain present
+        List<String> aliasNames = resProject.getProjects().stream().map(ne -> {
+            if (ne instanceof Alias) {
+                return ((Alias) ne).getName();
+            }
+            return "";
+        }).collect(Collectors.toList());
+        Assertions.assertTrue(aliasNames.contains("g1") && aliasNames.contains("g2"));
     }
 
     @Test

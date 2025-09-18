@@ -246,7 +246,7 @@ public:
 
     void enable_get_versionstamp() override;
 
-    TxnErrorCode get_versionstamp(std::string* versionstamp) override;
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
 
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
@@ -277,7 +277,7 @@ private:
     size_t get_bytes_ {0};
 
     bool versionstamp_enabled_ {false};
-    std::string versionstamp_result_;
+    Versionstamp versionstamp_result_;
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
