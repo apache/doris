@@ -853,8 +853,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
-                    query_ctx->query_id(), params, query_ctx, _exec_env, cb,
-                    [this](const ReportStatusRequest& req, auto&& ctx) {
+                    query_ctx->query_id(), params,
+                    parent.__isset.need_notify_close ? parent.need_notify_close : false, query_ctx,
+                    _exec_env, cb, [this](const ReportStatusRequest& req, auto&& ctx) {
                         return this->trigger_pipeline_context_report(req, std::move(ctx));
                     });
     {
@@ -1394,6 +1395,38 @@ Status FragmentMgr::get_query_statistics(const TUniqueId& query_id, TQueryStatis
 
     return ExecEnv::GetInstance()->runtime_query_statistics_mgr()->get_query_statistics(
             print_id(query_id), query_stats);
+}
+
+Status FragmentMgr::transmit_rec_cte_block(
+        const TUniqueId& query_id, const TUniqueId& instance_id, int node_id,
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        return q_ctx->send_block_to_cte_scan(instance_id, node_id, pblocks, eos);
+    } else {
+        return Status::EndOfFile(
+                "Transmit rec cte block failed: Query context (query-id: {}) not found, maybe "
+                "finished",
+                print_id(query_id));
+    }
+}
+
+Status FragmentMgr::reset_fragment(const TUniqueId& query_id, int fragment, bool close) {
+    if (auto q_ctx = get_query_ctx(query_id)) {
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+        if (!fragment_ctx) {
+            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                    print_id(query_id), fragment);
+        }
+        return fragment_ctx->reset(_thread_pool.get(), close);
+    } else {
+        return Status::NotFound(
+                "Transmit rec cte block failed: Query context (query-id: {}) not found, maybe "
+                "finished",
+                print_id(query_id));
+    }
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

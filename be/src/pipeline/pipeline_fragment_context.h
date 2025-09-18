@@ -61,7 +61,8 @@ public:
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(TUniqueId query_id, const TPipelineFragmentParams& request,
-                            std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
+                            bool need_notify_close, std::shared_ptr<QueryContext> query_ctx,
+                            ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
                             report_status_callback report_status_cb);
 
@@ -125,7 +126,13 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
+    Status reset(ThreadPool* thread_pool, bool close);
+
 private:
+    void _release_resource();
+
+    Status _build_and_prepare_full_pipeline(ThreadPool* thread_pool);
+
     Status _build_pipelines(ObjectPool* pool, const DescriptorTbl& descs, OperatorPtr* root,
                             PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
@@ -203,7 +210,7 @@ private:
     RuntimeProfile::Counter* _build_tasks_timer = nullptr;
 
     std::function<void(RuntimeState*, Status*)> _call_back;
-    bool _is_fragment_instance_closed = false;
+    std::atomic_bool _is_fragment_instance_closed = false;
 
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
@@ -323,6 +330,8 @@ private:
 
     TPipelineFragmentParams _params;
     int32_t _parallel_instances = 0;
+
+    bool _need_notify_close = false;
 };
 } // namespace pipeline
 } // namespace doris

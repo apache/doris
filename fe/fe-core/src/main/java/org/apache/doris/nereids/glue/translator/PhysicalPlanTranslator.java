@@ -1077,9 +1077,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalRecursiveCteScan(PhysicalRecursiveCteScan recursiveCteScan,
             PlanTranslatorContext context) {
-        TableIf table = recursiveCteScan.getTable();
         List<Slot> slots = ImmutableList.copyOf(recursiveCteScan.getOutput());
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, null, context);
 
         RecursiveCteScanNode scanNode = new RecursiveCteScanNode(context.nextPlanNodeId(), tupleDescriptor);
         scanNode.setNereidsId(recursiveCteScan.getId());
