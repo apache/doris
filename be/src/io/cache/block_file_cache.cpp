@@ -1908,9 +1908,7 @@ void BlockFileCache::run_background_monitor() {
         if (config::file_cache_query_limit_bytes != 0 &&
             config::file_cache_query_limit_bytes != _max_query_cache_size) {
             LOG(INFO) << "file_cache_query_limit_bytes(" << config::file_cache_query_limit_bytes
-                      << ") has changed, set it to max_query_cache_size, original "
-                         "max_query_cache_size("
-                      << _max_query_cache_size << ")";
+                      << ") has changed, original(" << _max_query_cache_size << ")";
             _max_query_cache_size = config::file_cache_query_limit_bytes;
         }
     }
