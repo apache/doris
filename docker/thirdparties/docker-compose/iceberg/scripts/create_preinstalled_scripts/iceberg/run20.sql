@@ -58,6 +58,19 @@ INSERT INTO iceberg_procedure_db.test_rollback VALUES
 INSERT INTO iceberg_procedure_db.test_rollback VALUES
     (3, 'v1.2', TIMESTAMP '2024-01-03 12:00:00');
 
+CREATE TABLE iceberg_procedure_db.test_rollback_timestamp (
+    id BIGINT,
+    version STRING,
+    timestamp TIMESTAMP
+) USING ICEBERG;
+
+INSERT INTO iceberg_procedure_db.test_rollback_timestamp VALUES
+    (1, 'v1.0', TIMESTAMP '2025-01-01 10:00:00');
+INSERT INTO iceberg_procedure_db.test_rollback_timestamp VALUES
+    (2, 'v1.1', TIMESTAMP '2025-01-02 11:00:00');
+INSERT INTO iceberg_procedure_db.test_rollback_timestamp VALUES
+    (3, 'v1.2', TIMESTAMP '2025-01-03 12:00:00');
+
 -- Set Current Snapshot
 CREATE TABLE iceberg_procedure_db.test_current_snapshot (
     id BIGINT,
