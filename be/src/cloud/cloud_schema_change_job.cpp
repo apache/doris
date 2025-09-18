@@ -19,6 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -487,12 +488,22 @@ Status CloudSchemaChangeJob::_process_delete_bitmap(int64_t alter_version,
     RETURN_IF_ERROR(_cloud_storage_engine.register_compaction_stop_token(_new_tablet, initiator));
     TabletMetaSharedPtr tmp_meta = std::make_shared<TabletMeta>(*(_new_tablet->tablet_meta()));
     tmp_meta->delete_bitmap().delete_bitmap.clear();
-    tmp_meta->clear_rowsets();
+    // Keep only version [0-1] rowset, other rowsets will be added in _output_rowsets
+    auto& rs_metas = tmp_meta->all_mutable_rs_metas();
+    rs_metas.erase(std::remove_if(rs_metas.begin(), rs_metas.end(),
+                                  [](const RowsetMetaSharedPtr& rs_meta) {
+                                      return !(rs_meta->version().first == 0 &&
+                                               rs_meta->version().second == 1);
+                                  }),
+                   rs_metas.end());
+
     std::shared_ptr<CloudTablet> tmp_tablet =
             std::make_shared<CloudTablet>(_cloud_storage_engine, tmp_meta);
     {
         std::unique_lock wlock(tmp_tablet->get_header_lock());
         tmp_tablet->add_rowsets(_output_rowsets, true, wlock);
+        // Set alter version to let the tmp_tablet can fill hole rowset greater than alter_version
+        tmp_tablet->set_alter_version(alter_version);
     }
 
     // step 1, process incremental rowset without delete bitmap update lock
