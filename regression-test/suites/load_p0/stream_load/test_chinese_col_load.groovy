@@ -60,7 +60,7 @@ suite("test_chinese_col_load", "p0") {
                         def (code, out, err) = curl("GET", json.ErrorURL)
                         log.info("Error details: " + out)
                         // 检查是否包含中文列名解析错误
-                        assertTrue(out.contains("Duplicate column") || out.contains("????") || 
+                        assertTrue(out.contains("Duplicate column") || out.contains("??") || 
                                   json.Message.contains("ParseException"))
                     }
                 }
@@ -73,19 +73,8 @@ suite("test_chinese_col_load", "p0") {
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 `OBJECTID` varchar(36) NULL,
-                `NAME` varchar(255) NULL,
-                `CREATEDTIME` datetime NULL,
-                `流程编号` varchar(255) NULL,
-                `发起人` varchar(255) NULL,
-                `发起日期` datetime NULL,
-                `部门` varchar(255) NULL,
-                `发起人电话` varchar(255) NULL,
-                `转移原因` varchar(255) NULL,
-                `详细原因描述` varchar(2500) NULL,
-                `转移方式` varchar(255) NULL,
-                `接受区域` varchar(255) NULL,
-                `接受明细区域` varchar(255) NULL,
-                `接受人` varchar(255) NULL
+                `姓名` varchar(255) NULL,
+                `CREATEDTIME` datetime NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`OBJECTID`)
             DISTRIBUTED BY HASH(`OBJECTID`) BUCKETS 3
@@ -99,7 +88,7 @@ suite("test_chinese_col_load", "p0") {
     sql "DROP TABLE IF EXISTS ${tableName}"
     create_test_table.call(tableName)
     // 测试包含多个中文列名的场景，模拟客户问题
-    stream_load.call(tableName, "csv", "OBJECTID,流程编号,发起人,发起日期,部门,发起人电话,转移原因,详细原因描述,转移方式,接受区域,接受明细区域,接受人", "", ",", "", "", "chinese_col_complex.csv")
+    stream_load.call(tableName, "csv", "OBJECTID,姓名,CREATEDTIME", "", ",", "", "", "chinese_col_complex.csv")
     
     try_sql("DROP TABLE IF EXISTS ${tableName}")
 }

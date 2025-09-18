@@ -121,7 +121,7 @@ public class LoadAction extends RestBaseController {
     public Object streamLoad(HttpServletRequest request,
             HttpServletResponse response,
             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        LOG.info("streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
+        LOG.info("Refrain streamload action, db: {}, tbl: {}, headers: {}", db, table, getAllHeaders(request));
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
         if (groupCommitStr != null) {
@@ -701,66 +701,14 @@ public class LoadAction extends RestBaseController {
     private String getAllHeaders(HttpServletRequest request) {
         StringBuilder headers = new StringBuilder();
         Enumeration<String> headerNames = request.getHeaderNames();
+        LOG.info("Refrain FE Stream Load Columns Header Debug");
         while (headerNames.hasMoreElements()) {
             String headerName = headerNames.nextElement();
             String headerValue = request.getHeader(headerName);
-            // 专门调试columns头部的中文字符问题
-            if ("columns".equals(headerName)) {
-                LOG.info("=== FE Stream Load Columns Header Debug ===");
-                LOG.info("Columns header value: [{}]", headerValue);
-                if (headerValue != null) {
-                    // 检查是否包含问号字符
-                    int questionMarkCount = 0;
-                    for (char c : headerValue.toCharArray()) {
-                        if (c == '?') {
-                            questionMarkCount++;
-                        }
-                    }
-                    LOG.info("Question mark count in columns header: {}", questionMarkCount);
-
-                    // 打印字节内容
-                    try {
-                        byte[] bytes = headerValue.getBytes("UTF-8");
-                        StringBuilder hexString = new StringBuilder();
-                        for (byte b : bytes) {
-                            hexString.append(String.format("%02x ", b & 0xFF));
-                        }
-                        LOG.info("Columns header UTF-8 bytes: [{}]", hexString.toString().trim());
-                    } catch (Exception e) {
-                        LOG.warn("Failed to get UTF-8 bytes for columns header", e);
-                    }
-
-                    // 额外打印URL解码后的值，便于对比（针对客户端对header进行%编码的情况）
-                    try {
-                        String urlDecoded = java.net.URLDecoder.decode(headerValue, "UTF-8");
-                        LOG.info("Columns header URL-decoded value: [{}]", urlDecoded);
-                        byte[] decBytes = urlDecoded.getBytes("UTF-8");
-                        StringBuilder decHex = new StringBuilder();
-                        for (byte b : decBytes) {
-                            decHex.append(String.format("%02x ", b & 0xFF));
-                        }
-                        LOG.info("Columns header URL-decoded UTF-8 bytes: [{}]", decHex.toString().trim());
-                    } catch (IllegalArgumentException ie) {
-                        // 非%编码内容会抛出异常，忽略即可
-                        LOG.info("Columns header not URL-encoded or decode failed: {}", ie.getMessage());
-                    } catch (Exception e) {
-                        LOG.warn("Failed to URL-decode columns header", e);
-                    }
-
-                    if (questionMarkCount > 0) {
-                        LOG.warn("DIAGNOSTIC: FE received columns header with {} question marks", questionMarkCount);
-                        LOG.warn("This indicates the HTTP client sent corrupted Chinese characters");
-                    }
-                }
-                LOG.info("=== End FE Debug ===");
-            }
-
+            LOG.info("Refrain Columns header value: [{} : {}]", headerName, headerValue);
             headers.append(headerName).append(":").append(headerValue).append(", ");
         }
-        // 移除末尾多余的逗号和空格，修复Trailing whitespace found错误
-        if (headers.length() >= 2) {
-            headers.setLength(headers.length() - 2);
-        }
+        LOG.info("Refrain End FE Debug");
         return headers.toString();
     }
 
