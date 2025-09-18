@@ -855,6 +855,9 @@ DECLARE_Int32(txn_shard_size);
 // Whether to continue to start be when load tablet from header failed.
 DECLARE_Bool(ignore_load_tablet_failure);
 
+// Default row count threshold for tablet switching when load_to_single_tablet is false
+DECLARE_mInt64(single_tablet_load_rows_threshold);
+
 // Whether to continue to start be when load tablet from header failed.
 DECLARE_mBool(ignore_rowset_stale_unconsistent_delete);
 

@@ -38,10 +38,24 @@ public:
     // FIND_TABLET_EVERY_SINK is used for random distribution info when load_to_single_tablet set to true,
     // which indicates that we should only compute tablet index in the corresponding partition once for the
     // whole time in olap table sink
-    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
+    // FIND_TABLET_ROW_BASED is used for random distribution info when tablet_switch_row_threshold is set,
+    // which indicates that we should switch tablet based on row count threshold
+    enum FindTabletMode {
+        FIND_TABLET_EVERY_ROW,
+        FIND_TABLET_EVERY_BATCH,
+        FIND_TABLET_EVERY_SINK,
+        FIND_TABLET_ROW_BASED
+    };
 
     OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode)
             : _vpartition(vpartition), _find_tablet_mode(mode), _filter_bitmap(1024) {};
+
+    OlapTabletFinder(VOlapTablePartitionParam* vpartition, FindTabletMode mode,
+                     int64_t tablet_switch_row_threshold)
+            : _vpartition(vpartition),
+              _find_tablet_mode(mode),
+              _tablet_switch_row_threshold(tablet_switch_row_threshold),
+              _filter_bitmap(1024) {};
 
     Status find_tablets(RuntimeState* state, vectorized::Block* block, int rows,
                         std::vector<VOlapTablePartition*>& partitions,
@@ -69,11 +83,18 @@ private:
     VOlapTablePartitionParam* _vpartition = nullptr;
     FindTabletMode _find_tablet_mode;
     std::map<VOlapTablePartition*, int64_t> _partition_to_tablet_map;
+    std::map<VOlapTablePartition*, int64_t> _partition_row_counts;
     vectorized::flat_hash_set<int64_t> _partition_ids;
 
     int64_t _num_filtered_rows = 0;
     int64_t _num_immutable_partition_filtered_rows = 0;
+    int64_t _tablet_switch_row_threshold = 10000000L; // default 10M rows
     Bitmap _filter_bitmap;
+
+    void _find_tablets_with_row_based_switching(vectorized::Block* block,
+                                                const std::vector<uint32_t>& qualified_rows,
+                                                const std::vector<VOlapTablePartition*>& partitions,
+                                                std::vector<uint32_t>& tablet_index);
 };
 
 } // namespace doris::vectorized

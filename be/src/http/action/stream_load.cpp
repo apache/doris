@@ -576,6 +576,20 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
     }
 
+    if (!http_req->header(HTTP_TABLET_SWITCH_ROW_THRESHOLD).empty()) {
+        try {
+            int64_t threshold = std::stoll(http_req->header(HTTP_TABLET_SWITCH_ROW_THRESHOLD));
+            if (threshold <= 0) {
+                return Status::InvalidArgument("Invalid 'tablet_switch_row_threshold': {}",
+                                               threshold);
+            }
+            request.__set_tablet_switch_row_threshold(threshold);
+        } catch (const std::exception&) {
+            return Status::InvalidArgument("Invalid 'tablet_switch_row_threshold': {}",
+                                           http_req->header(HTTP_TABLET_SWITCH_ROW_THRESHOLD));
+        }
+    }
+
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }
@@ -792,11 +806,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.pipeline_params.__set_content_length(content_length);
+        if (ctx->put_result.__isset.params) {
+            ctx->put_result.params.__set_content_length(content_length);
+        } else {
+            ctx->put_result.pipeline_params.__set_content_length(content_length);
+        }
     }
 
-    VLOG_NOTICE << "params is "
-                << apache::thrift::ThriftDebugString(ctx->put_result.pipeline_params);
+    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

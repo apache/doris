@@ -1127,6 +1127,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         return (boolean) jobProperties.get(LoadCommand.LOAD_TO_SINGLE_TABLET);
     }
 
+    public long getTabletSwitchRowThreshold() {
+        Object threshold = jobProperties.get(LoadCommand.TABLET_SWITCH_ROW_THRESHOLD);
+        if (threshold != null) {
+            return (long) threshold;
+        }
+        // Return default value if not set (will use BE config)
+        return 0L; // 0 means use BE default config
+    }
+
     // Return true if this job is finished for a long time
     public boolean isExpired(long currentTimeMs) {
         if (!isCompleted()) {

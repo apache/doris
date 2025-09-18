@@ -830,6 +830,10 @@ DEFINE_Int32(txn_shard_size, "1024");
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_Bool(ignore_load_tablet_failure, "true");
 
+// Default row count threshold for tablet switching when load_to_single_tablet is false
+// Default 10M rows = 10 * 1000 * 1000 rows
+DEFINE_mInt64(single_tablet_load_rows_threshold, "10000000");
+
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_mBool(ignore_rowset_stale_unconsistent_delete, "false");
 
