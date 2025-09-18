@@ -164,8 +164,6 @@ public:
 private:
     Container _data;
     Arena _arena;
-    // used in convert_to_string_column, maybe need a better way to deal with it
-    mutable ColumnPtr _converted_string_column;
 };
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
