@@ -34,6 +34,7 @@
 #include <thread>
 #include <vector>
 
+#include "cloud/balance_warm_up_cache_mgr.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "cpp/sync_point.h"
@@ -45,6 +46,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "olap/storage_policy.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
@@ -146,6 +148,146 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
         align_left -= config::file_cache_each_block_size;
     }
     return std::make_pair(align_left, align_size);
+}
+
+namespace {
+// Helper functions for remote read operations
+
+// Extract actual file path from S3 URL format
+std::string extract_actual_path(const std::string& file_path) {
+    if (!file_path.starts_with("s3://")) {
+        return file_path; // Not an S3 URL, return as is
+    }
+
+    // Find '/' after "s3://" to locate bucket end
+    size_t bucket_end = file_path.find('/', 5);
+    if (bucket_end == std::string::npos || bucket_end + 1 >= file_path.length()) {
+        LOG_WARNING("Invalid S3 path format - missing path after bucket")
+                .tag("file_path", file_path);
+        return "";
+    }
+
+    return file_path.substr(bucket_end + 1); // Remove "s3://bucket/"
+}
+
+// Get peer connection info from tablet_id
+std::pair<std::string, int> get_peer_connection_info(const std::string& file_path) {
+    std::string host = "";
+    int port = 0;
+
+    // Extract actual path from S3 URL format: s3://bucket/path -> path
+    std::string actual_path = extract_actual_path(file_path);
+    if (actual_path.empty()) {
+        return {host, port};
+    }
+
+    // Try to get tablet_id from actual path and lookup tablet info
+    if (auto tablet_id = StorageResource::parse_tablet_id_from_path(actual_path)) {
+        if (auto tablet_info =
+                    cloud::BalanceWarmUpCacheMgr::instance().get_tablet_info(*tablet_id)) {
+            host = tablet_info->host;
+            port = tablet_info->brpc_port;
+        } else {
+            LOG_WARNING("get peer connection info not found")
+                    .tag("tablet_id", *tablet_id)
+                    .tag("file_path", file_path)
+                    .tag("actual_path", actual_path);
+        }
+    } else {
+        LOG_WARNING("parse tablet id from path failed")
+                .tag("tablet_id", "null")
+                .tag("file_path", file_path)
+                .tag("actual_path", actual_path);
+    }
+
+    DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
+        host = dp->param<std::string>("host", "127.0.0.1");
+        port = dp->param("port", 9060);
+        LOG_WARNING("debug point PeerFileCacheReader::_fetch_from_peer_cache_blocks")
+                .tag("host", host)
+                .tag("port", port);
+    });
+
+    return {host, port};
+}
+
+// Execute peer read with fallback to S3
+Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
+                         size_t& size, std::unique_ptr<char[]>& buffer,
+                         const std::string& file_path, bool is_doris_table, ReadStatistics& stats,
+                         const IOContext* io_ctx) {
+    SCOPED_RAW_TIMER(&stats.remote_read_timer);
+
+    auto [host, port] = get_peer_connection_info(file_path);
+    VLOG_DEBUG << "PeerFileCacheReader read from peer, host=" << host << ", port=" << port
+               << ", file_path=" << file_path;
+
+    if (host.empty() || port == 0) {
+        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
+                                  << ", host=" << host << ", port=" << port
+                                  << ", file_path=" << file_path;
+        return Status::InternalError("host or port is empty");
+    }
+    peer_read_counter << 1;
+    PeerFileCacheReader peer_reader(file_path, is_doris_table, host, port);
+    auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
+                                       io_ctx);
+    if (!st.ok()) {
+        LOG_WARNING("PeerFileCacheReader read from peer failed")
+                .tag("host", host)
+                .tag("port", port)
+                .tag("error", st.msg());
+    }
+    return st;
+}
+
+// Execute S3 read
+Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
+                       ReadStatistics& stats, const IOContext* io_ctx,
+                       FileReaderSPtr remote_file_reader) {
+    s3_read_counter << 1;
+    SCOPED_RAW_TIMER(&stats.remote_read_timer);
+    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+}
+
+} // anonymous namespace
+
+Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockSPtr>& empty_blocks,
+                                                    size_t empty_start, size_t& size,
+                                                    std::unique_ptr<char[]>& buffer,
+                                                    ReadStatistics& stats,
+                                                    const IOContext* io_ctx) {
+    DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.change_type", {
+        // Determine read type from debug point or default to S3
+        std::string read_type = "s3";
+        read_type = dp->param<std::string>("type", "s3");
+        LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
+                .tag("path", path().native())
+                .tag("off", empty_start)
+                .tag("size", size)
+                .tag("type", read_type);
+        // Execute appropriate read strategy
+        if (read_type == "s3") {
+            return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
+        } else {
+            return execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
+                                     _is_doris_table, stats, io_ctx);
+        }
+    });
+
+    // first try peer read, if peer failed, fallback to S3
+    // peer timeout is 5 seconds
+    // TODO(dx): here peer and s3 reader need to get data in parallel, and take the one that is correct and returns first
+    auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
+                                _is_doris_table, stats, io_ctx);
+    if (!st.ok()) {
+        // Fallback to S3
+        s3_read_counter << 1;
+        buffer.reset(new char[size]);
+        SCOPED_RAW_TIMER(&stats.remote_read_timer);
+        return _remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
+    }
+    return st;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -293,42 +435,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         size_t size = empty_end - empty_start + 1;
         std::unique_ptr<char[]> buffer(new char[size]);
 
-        std::string type = "s3";
-        DBUG_EXECUTE_IF("CachedRemoteFileReader.read_at_impl.change_type", {
-            type = dp->param<std::string>("type", "s3");
-            LOG_WARNING("CachedRemoteFileReader.read_at_impl.change_type")
-                    .tag("path", path().native())
-                    .tag("off", offset)
-                    .tag("size", size)
-                    .tag("type", type);
-        });
-
-        if (type == "s3") {
-            // Default fallback to S3
-            s3_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            RETURN_IF_ERROR(_remote_file_reader->read_at(empty_start, Slice(buffer.get(), size),
-                                                         &size, io_ctx));
-        } else {
-            // Direct peer read
-            peer_read_counter << 1;
-            SCOPED_RAW_TIMER(&stats.remote_read_timer);
-            {
-                // TODO(dx): retrieve real host/port from peer selection logic
-                std::string host = "127.0.0.1";
-                int port = 9060;
-                DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
-                    host = dp->param<std::string>("host", "127.0.0.1");
-                    port = dp->param("port", 9060);
-                    LOG_WARNING("debug point PeerFileCacheReader::_fetch_from_peer_cache_blocks")
-                            .tag("host", host)
-                            .tag("port", port);
-                });
-                PeerFileCacheReader peer_reader(path(), _is_doris_table, host, port);
-                RETURN_IF_ERROR(peer_reader.fetch_blocks(empty_blocks, empty_start,
-                                                         Slice(buffer.get(), size), &size, io_ctx));
-            }
-        }
+        // Determine read type and execute remote read
+        RETURN_IF_ERROR(
+                _execute_remote_read(empty_blocks, empty_start, size, buffer, stats, io_ctx));
 
         for (auto& block : empty_blocks) {
             if (block->state() == FileBlock::State::SKIP_CACHE) {
