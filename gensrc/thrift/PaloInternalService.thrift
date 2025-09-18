@@ -659,6 +659,12 @@ struct TRuntimeFilterInfo {
   2: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
 }
 
+struct TRecCTEMgr {
+    1: optional i32 global_cte_node_number
+    2: optional list<Types.TNetworkAddress> mgr_addrs
+    3: optional list<Types.TUniqueId> fragment_instance_ids_to_reset
+}
+
 struct TPipelineFragmentParamsList {
   1: optional list<TPipelineFragmentParams> params_list;
   2: optional Descriptors.TDescriptorTable desc_tbl;
@@ -676,4 +682,5 @@ struct TPipelineFragmentParamsList {
   12: optional list<i32> topn_filter_source_node_ids
   13: optional Types.TNetworkAddress runtime_filter_merge_addr
   14: optional TRuntimeFilterInfo runtime_filter_info
+  15: optional list<TRecCTEMgr> rec_cte_mgrs
 }

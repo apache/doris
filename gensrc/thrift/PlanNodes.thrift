@@ -60,7 +60,9 @@ enum TPlanNodeType {
   TEST_EXTERNAL_SCAN_NODE = 31,
   PARTITION_SORT_NODE = 32,
   GROUP_COMMIT_SCAN_NODE = 33,
-  MATERIALIZATION_NODE = 34
+  MATERIALIZATION_NODE = 34,
+  REC_CTE_NODE = 35,
+  REC_CTE_SCAN_NODE = 36
 }
 
 struct TKeyRange {
@@ -690,6 +692,21 @@ struct TBrokerScanNode {
 struct TFileScanNode {
     1: optional Types.TTupleId tuple_id
     2: optional string table_name
+}
+
+struct TRecCTETarget {
+    1: optional Types.TNetworkAddress addr
+    2: optional Types.TUniqueId fragment_instance_id
+    3: optional i32 node_id
+}
+
+struct TRecCTENode {
+    1: optional list<TRecCTETarget> targets
+    2: optional bool is_union_all
+}
+
+struct TRecCTEScanNode {
+    1: optional i32 source_instance_number
 }
 
 struct TEsScanNode {
