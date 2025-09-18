@@ -3284,6 +3284,17 @@ public class Env {
         }
     }
 
+    public boolean invalidCacheForCloud() {
+        if (Config.isCloudMode()) {
+            // the cloud mode will not update table version when use recover partition,
+            // so we should invalidate all cache to avoid bugs
+            getSqlCacheManager().invalidateAll();
+            getSortedPartitionsCacheManager().invalidateAll();
+            return true;
+        }
+        return false;
+    }
+
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
         if (removedFrontends.size() == 0) {
             return;
@@ -6844,6 +6855,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -6951,6 +6963,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
+                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
             } finally {
                 table.writeUnlock();
             }
@@ -7030,6 +7043,8 @@ public class Env {
                 LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
+
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
