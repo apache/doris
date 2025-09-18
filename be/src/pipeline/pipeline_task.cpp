@@ -30,6 +30,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "pipeline/dependency.h"
+#include "pipeline/exec/exchange_source_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/exec/scan_operator.h"
 #include "pipeline/pipeline.h"
@@ -553,10 +554,6 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
-            if (_eos) {
-                RETURN_IF_ERROR(close(Status::OK(), false));
-            }
-
             DBUG_EXECUTE_IF("PipelineTask::execute.sink_eos_sleep", {
                 auto required_pipeline_id =
                         DebugPoints::instance()->get_debug_param_or_default<int32_t>(
@@ -594,6 +591,22 @@ Status PipelineTask::execute(bool* done) {
             });
             RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
+
+            if (_eos) {
+                if (_sink->need_rerun(_state)) {
+                    if (auto* source = dynamic_cast<ExchangeSourceOperatorX*>(_root);
+                        source != nullptr) {
+                        RETURN_IF_ERROR(source->reset(_state));
+                        _eos = false;
+                    } else {
+                        return Status::InternalError(
+                                "Only ExchangeSourceOperatorX can be rerun, real is {}",
+                                _root->get_name());
+                    }
+                } else {
+                    RETURN_IF_ERROR(close(Status::OK(), false));
+                }
+            }
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 set_wake_up_early();
@@ -857,7 +870,9 @@ Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* d
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    if (auto f = _fragment_context.lock(); f) {
+        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    }
     return Status::OK();
 }
 
