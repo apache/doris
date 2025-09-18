@@ -24,8 +24,8 @@ suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,extern
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
 
-        sql """drop catalog if exists mysql_all_type_test """
-        sql """create catalog if not exists mysql_all_type_test properties(
+        sql """drop catalog if exists mysql_varbinary_udf_catalog """
+        sql """create catalog if not exists mysql_varbinary_udf_catalog properties(
             "type"="jdbc",
             "user"="root",
             "password"="123456",
@@ -34,7 +34,7 @@ suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,extern
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        sql """use mysql_all_type_test.test_varbinary_db"""
+        sql """use mysql_varbinary_udf_catalog.test_varbinary_db"""
         qt_desc_varbinary_type """desc test_varbinary_udf;"""
         qt_select_varbinary_type """select * from test_varbinary_udf order by id;"""
 
@@ -54,8 +54,8 @@ suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,extern
             "type"="JAVA_UDF"
         ); """
 
-        qt_select_varbinary_type4 """select id, varbinary_c, udf_test_varbinary(varbinary_c) as col_varbinary_reversed from mysql_all_type_test.test_varbinary_db.test_varbinary_udf order by id;"""
+        qt_select_varbinary_type4 """select id, varbinary_c, udf_test_varbinary(varbinary_c) as col_varbinary_reversed from mysql_varbinary_udf_catalog.test_varbinary_db.test_varbinary_udf order by id;"""
 
-        sql """drop catalog if exists mysql_all_type_test """
+        sql """drop catalog if exists mysql_varbinary_udf_catalog """
     }
 }
