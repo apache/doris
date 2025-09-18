@@ -88,6 +88,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -176,6 +179,9 @@ static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out
         *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
         VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
     }
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
+    }
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in,
@@ -246,6 +252,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
@@ -304,6 +313,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
     out->set_source_rowset_id(in.source_rowset_id());
     out->set_source_tablet_id(in.source_tablet_id());
+    if (in.has_visible_ts_ms()) {
+        out->set_visible_ts_ms(in.visible_ts_ms());
+    }
 }
 
 TabletSchemaCloudPB doris_tablet_schema_to_cloud(const TabletSchemaPB& in) {

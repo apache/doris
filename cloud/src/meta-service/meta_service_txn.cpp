@@ -1158,6 +1158,10 @@ void commit_txn_immediately(
         std::vector<std::pair<std::string, std::string>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         rowsets.reserve(tmp_rowsets_meta.size());
+
+        int64_t rowsets_visible_ts_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+
         for (auto& [_, i] : tmp_rowsets_meta) {
             int64_t tablet_id = i.tablet_id();
             int64_t table_id = tablet_ids[tablet_id].table_id();
@@ -1179,6 +1183,7 @@ void commit_txn_immediately(
             int64_t new_version = new_versions[ver_key];
             i.set_start_version(new_version);
             i.set_end_version(new_version);
+            i.set_visible_ts_ms(rowsets_visible_ts_ms);
 
             std::string key = meta_rowset_key({instance_id, tablet_id, i.end_version()});
             std::string val;
@@ -2327,6 +2332,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             continue;
         }
 
+        int64_t rowsets_visible_ts_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+
         std::vector<std::pair<std::string, std::string>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
         for (const auto& sub_txn_info : sub_txn_infos) {
@@ -2360,6 +2368,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
                 }
                 i.set_start_version(new_version);
                 i.set_end_version(new_version);
+                i.set_visible_ts_ms(rowsets_visible_ts_ms);
                 LOG(INFO) << "xxx update rowset version, txn_id=" << txn_id
                           << ", sub_txn_id=" << sub_txn_id << ", table_id=" << table_id
                           << ", partition_id=" << partition_id << ", tablet_id=" << tablet_id

@@ -194,4 +194,7 @@ std::vector<std::string> Rowset::get_index_file_names() {
     return file_names;
 }
 
+std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() const {
+    return _rowset_meta->visible_timestamp();
+}
 } // namespace doris

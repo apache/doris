@@ -148,6 +148,7 @@ struct CacheContext {
             cache_type = FileCacheType::NORMAL;
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
+        is_warmup = io_context->is_warmup;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
@@ -159,6 +160,7 @@ struct CacheContext {
     int64_t expiration_time {0};
     bool is_cold_data {false};
     ReadStatistics* stats;
+    bool is_warmup {false};
 };
 
 template <class Lock>
