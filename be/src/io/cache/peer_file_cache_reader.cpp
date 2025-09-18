@@ -41,7 +41,7 @@ namespace doris::io {
 // read from peer
 
 bvar::Adder<uint64_t> peer_cache_reader_failed_counter("peer_cache_reader", "failed_counter");
-bvar::Adder<uint64_t> peer_cache_reader_succ_counter("peer_cache_reader", "succ__counter");
+bvar::Adder<uint64_t> peer_cache_reader_succ_counter("peer_cache_reader", "succ_counter");
 bvar::LatencyRecorder peer_bytes_per_read("peer_cache_reader", "bytes_per_read"); // also QPS
 bvar::Adder<uint64_t> peer_cache_reader_total("peer_cache_reader", "total_num");
 bvar::Adder<uint64_t> peer_cache_being_read("peer_cache_reader", "file_being_read");
@@ -123,7 +123,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }};
 
     brpc::Controller cntl;
-    cntl.set_timeout_ms(10000);
+    cntl.set_timeout_ms(5000);
     PFetchPeerDataResponse resp;
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);

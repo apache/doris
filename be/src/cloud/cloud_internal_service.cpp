@@ -30,10 +30,10 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "util/debug_points.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "util/async_io.h"
+#include "util/debug_points.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"

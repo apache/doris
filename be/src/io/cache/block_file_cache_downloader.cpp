@@ -313,9 +313,16 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
 
 void FileCacheBlockDownloader::download_blocks(DownloadTask& task) {
     switch (task.task_message.index()) {
-    case 0:
-        download_file_cache_block(std::get<0>(task.task_message));
+    case 0: {
+        bool should_balance_task = true;
+        DBUG_EXECUTE_IF("FileCacheBlockDownloader.download_blocks.balance_task",
+                        { should_balance_task = false; });
+        if (should_balance_task) {
+            download_file_cache_block(std::get<0>(task.task_message));
+        }
+
         break;
+    }
     case 1:
         download_segment_file(std::get<1>(task.task_message));
         break;

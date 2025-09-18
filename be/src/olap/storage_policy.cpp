@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
 
@@ -196,6 +197,83 @@ std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64
     default:
         exit_at_unknown_path_version(fs->id(), path_version);
     }
+}
+
+// TODO(dx), fix this, it is a tricky function. Pass the upper layer's tablet ID to the io layer instead of using this tricky method
+
+// Tricky, It is used to parse tablet_id from remote segment path, and it is used in tablet manager to parse tablet_id from remote segment path.
+// Static function to parse tablet_id from remote segment path
+std::optional<int64_t> StorageResource::parse_tablet_id_from_path(const std::string& path) {
+    // Expected path formats:
+    // Version 0: data/{tablet_id}/{rowset_id}_{seg_id}.dat (1 slash after removing data/)
+    // Version 1: data/{shard}/{tablet_id}/{rowset_id}/{seg_id}.dat (3 slashes after removing data/)
+
+    if (path.empty()) {
+        return std::nullopt;
+    }
+
+    // Remove DATA_PREFIX prefix if present
+    std::string_view path_view = path;
+    if (path_view.starts_with(DATA_PREFIX)) {
+        path_view = path_view.substr(strlen(DATA_PREFIX.c_str()));
+        if (path_view.starts_with("/")) {
+            path_view = path_view.substr(1);
+        }
+    }
+
+    // Count slashes in the remaining path
+    size_t slash_count = 0;
+    for (char c : path_view) {
+        if (c == '/') {
+            slash_count++;
+        }
+    }
+
+    // Split path by '/'
+    std::vector<std::string_view> parts;
+    size_t start = 0;
+    size_t pos = 0;
+    while ((pos = path_view.find('/', start)) != std::string_view::npos) {
+        if (pos > start) {
+            parts.push_back(path_view.substr(start, pos - start));
+        }
+        start = pos + 1;
+    }
+    if (start < path_view.length()) {
+        parts.push_back(path_view.substr(start));
+    }
+
+    if (parts.empty()) {
+        return std::nullopt;
+    }
+
+    // Determine path version based on slash count and extract tablet_id
+    // Version 0: {tablet_id}/{rowset_id}_{seg_id}.dat (1 slash)
+    // Version 1: {shard}/{tablet_id}/{rowset_id}/{seg_id}.dat (3 slashes)
+
+    if (slash_count == 1) {
+        // Version 0 format: parts[0] should be tablet_id
+        if (parts.size() >= 1) {
+            try {
+                int64_t tablet_id = std::stoll(std::string(parts[0]));
+                return tablet_id;
+            } catch (const std::exception&) {
+                // Not a valid number
+            }
+        }
+    } else if (slash_count == 3) {
+        // Version 1 format: parts[1] should be tablet_id (parts[0] is shard)
+        if (parts.size() >= 2) {
+            try {
+                int64_t tablet_id = std::stoll(std::string(parts[1]));
+                return tablet_id;
+            } catch (const std::exception&) {
+                // Not a valid number
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 std::string StorageResource::remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id,
