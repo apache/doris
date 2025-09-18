@@ -4165,8 +4165,8 @@ public class Env {
         }
     }
 
-    public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        getInternalCatalog().replayCreateTable(dbName, table);
+    public void replayCreateTable(String dbName, long dbId, Table table) throws MetaNotFoundException {
+        getInternalCatalog().replayCreateTable(dbName, dbId, table);
     }
 
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema)
