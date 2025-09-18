@@ -76,6 +76,7 @@ public:
     virtual Status close() { return Status::OK(); }
 
     Status read_by_rows(const std::list<int64_t>& row_ids) {
+        _read_by_rows = true;
         _row_ids = row_ids;
         return _set_read_one_line_impl();
     }
