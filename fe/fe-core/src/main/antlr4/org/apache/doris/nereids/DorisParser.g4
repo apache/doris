@@ -1647,13 +1647,10 @@ functionNameIdentifier
     | LEFT
     | LIKE
     | PASSWORD
-    | POSITION
     | REGEXP
     | RIGHT
     | SCHEMA
     | SESSION_USER
-    | SUBSTR
-    | SUBSTRING
     | TRIM
     | USER
     ;
@@ -2162,6 +2159,8 @@ nonReserved
     | STREAMING
     | STRING
     | STRUCT
+    | SUBSTR
+    | SUBSTRING
     | SUM
     | TABLES
     | TAG
