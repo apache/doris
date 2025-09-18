@@ -409,6 +409,7 @@ struct TQueryOptions {
   174: optional i64 merge_read_slice_size = 8388608;
 
   175: optional bool enable_fuzzy_blockable_task = false;
+  176: optional i32 cte_max_recursion_depth;
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
@@ -652,6 +653,7 @@ struct TPipelineFragmentParams {
   // Used by 2.1
   44: optional list<i32> topn_filter_source_node_ids
   45: optional map<string, TAIResource> ai_resources
+  46: optional bool need_notify_close
 
   // For cloud
   1000: optional bool is_mow_table;

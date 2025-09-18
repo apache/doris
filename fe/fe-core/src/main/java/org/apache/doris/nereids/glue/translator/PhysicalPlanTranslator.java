@@ -1459,7 +1459,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         PlanNode planNode = inputFragment.getPlanRoot();
         // the three nodes don't support conjuncts, need create a SelectNode to filter data
-        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
+        if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode
+                || planNode instanceof RecursiveCteNode) {
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
             selectNode.setNereidsId(filter.getId());
             context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), selectNode.getId());
@@ -2114,7 +2115,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment inputFragment = project.child(0).accept(this, context);
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         // this means already have project on this node, filter need execute after project, so need a new node
-        if (CollectionUtils.isNotEmpty(inputPlanNode.getProjectList())) {
+        if (CollectionUtils.isNotEmpty(inputPlanNode.getProjectList()) || inputPlanNode instanceof RecursiveCteNode) {
             SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), inputPlanNode);
             selectNode.setNereidsId(project.getId());
             context.getNereidsIdToPlanNodeIdMap().put(project.getId(), selectNode.getId());
@@ -2256,8 +2257,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (inputPlanNode instanceof OlapScanNode) {
                 ((OlapScanNode) inputPlanNode).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             }
-            updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
-                    requiredByProjectSlotIdSet, context);
+            if (!(inputPlanNode instanceof RecursiveCteScanNode)) {
+                updateScanSlotsMaterialization((ScanNode) inputPlanNode, requiredSlotIdSet,
+                        requiredByProjectSlotIdSet, context);
+            }
         } else {
             if (project.child() instanceof PhysicalDeferMaterializeTopN) {
                 inputFragment.setOutputExprs(allProjectionExprs);
@@ -2340,6 +2343,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             recursiveCteNode.setColocate(true);
         }
 
+        recursiveCteFragment.updateDataPartition(DataPartition.UNPARTITIONED);
+        recursiveCteFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         return recursiveCteFragment;
     }
 

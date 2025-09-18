@@ -216,43 +216,7 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan visitLogicalRecursiveCte(LogicalRecursiveCte recursiveCte, PruneContext context) {
-        // LogicalRecursiveCte is basically like LogicalUnion, so just do same as LogicalUnion
-        if (!recursiveCte.isUnionAll()) {
-            return skipPruneThisAndFirstLevelChildren(recursiveCte);
-        }
-        LogicalRecursiveCte prunedOutputRecursiveCte = pruneRecursiveCteOutput(recursiveCte, context);
-        // start prune children of recursiveCte
-        List<Slot> originOutput = recursiveCte.getOutput();
-        Set<Slot> prunedOutput = prunedOutputRecursiveCte.getOutputSet();
-        List<Integer> prunedOutputIndexes = IntStream.range(0, originOutput.size())
-                .filter(index -> prunedOutput.contains(originOutput.get(index)))
-                .boxed()
-                .collect(ImmutableList.toImmutableList());
-
-        ImmutableList.Builder<Plan> prunedChildren = ImmutableList.builder();
-        ImmutableList.Builder<List<SlotReference>> prunedChildrenOutputs = ImmutableList.builder();
-        for (int i = 0; i < prunedOutputRecursiveCte.arity(); i++) {
-            List<SlotReference> regularChildOutputs = prunedOutputRecursiveCte.getRegularChildOutput(i);
-
-            RoaringBitmap prunedChildOutputExprIds = new RoaringBitmap();
-            Builder<SlotReference> prunedChildOutputBuilder
-                    = ImmutableList.builderWithExpectedSize(regularChildOutputs.size());
-            for (Integer index : prunedOutputIndexes) {
-                SlotReference slot = regularChildOutputs.get(index);
-                prunedChildOutputBuilder.add(slot);
-                prunedChildOutputExprIds.add(slot.getExprId().asInt());
-            }
-
-            List<SlotReference> prunedChildOutput = prunedChildOutputBuilder.build();
-            Plan prunedChild = doPruneChild(
-                    prunedOutputRecursiveCte, prunedOutputRecursiveCte.child(i), prunedChildOutputExprIds,
-                    prunedChildOutput, true
-            );
-            prunedChildrenOutputs.add(prunedChildOutput);
-            prunedChildren.add(prunedChild);
-        }
-        return prunedOutputRecursiveCte.withChildrenAndTheirOutputs(prunedChildren.build(),
-                prunedChildrenOutputs.build());
+        return skipPruneThisAndFirstLevelChildren(recursiveCte);
     }
 
     // union can not prune children by the common logic, we must override visit method to write special code.

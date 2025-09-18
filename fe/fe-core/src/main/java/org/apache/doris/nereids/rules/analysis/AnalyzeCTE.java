@@ -173,7 +173,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         }
         List<Slot> recursiveChildOutputs = analyzedRecursiveChild.getOutput();
         for (int i = 0; i < recursiveChildOutputs.size(); ++i) {
-            if (recursiveChildOutputs.get(i).getDataType() != anchorChildOutputTypes.get(i)) {
+            if (!recursiveChildOutputs.get(i).getDataType().equals(anchorChildOutputTypes.get(i))) {
                 throw new AnalysisException(String.format("recursive child's %d column's datatype in select list %s "
                                 + "is different from anchor child's output datatype %s, please add cast manually "
                                 + "to get expect datatype",
