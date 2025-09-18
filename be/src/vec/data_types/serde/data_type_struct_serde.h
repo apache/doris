@@ -113,6 +113,8 @@ public:
 
     DataTypeSerDeSPtrs get_nested_serdes() const override { return elem_serdes_ptrs; }
 
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const override;
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, bool return_object_data_as_binary,

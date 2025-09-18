@@ -1749,6 +1749,9 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static int lower_case_table_names = 0;
 
+    /**
+     * Used to limit the length of table name.
+     */
     @ConfField(mutable = true, masterOnly = true)
     public static int table_name_length_limit = 64;
 
@@ -1757,6 +1760,12 @@ public class Config extends ConfigBase {
             "Used to limit the length of column comment; "
                     + "If the existing column comment is too long, it will be truncated when displayed."})
     public static int column_comment_length_limit = -1;
+
+    @ConfField(mutable = true, description = {
+            "内部表的默认压缩类型。支持的值有: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD, SNAPPY, NONE。",
+            "Default compression type for internal tables. Supported values: LZ4, LZ4F, LZ4HC, ZLIB, ZSTD,"
+            + " SNAPPY, NONE."})
+    public static String default_compression_type = "LZ4F";
 
     /*
      * The job scheduling interval of the schema change handler.
@@ -3023,13 +3032,6 @@ public class Config extends ConfigBase {
     public static String inverted_index_storage_format = "V2";
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "是否为新分区启用倒排索引 V2 存储格式。启用后，新创建的分区将使用 V2 格式，而不管表的原始格式如何。",
-            "Enable V2 storage format for inverted indexes in new partitions. When enabled, newly created partitions "
-                    + "will use V2 format regardless of the table's original format."
-    })
-    public static boolean enable_new_partition_inverted_index_v2_format = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = {
             "是否在unique表mow上开启delete语句写delete predicate。若开启，会提升delete语句的性能，"
                     + "但delete后进行部分列更新可能会出现部分数据错误的情况。若关闭，会降低delete语句的性能来保证正确性。",
             "Enable the 'delete predicate' for DELETE statements. If enabled, it will enhance the performance of "
@@ -3605,4 +3607,21 @@ public class Config extends ConfigBase {
         "The encryption algorithm used for data, default is AES256, may be set to empty later for KMS to decide"
     })
     public static String doris_tde_algorithm = "PLAINTEXT";
+
+    @ConfField(mutable = true, description = {
+        "数据质量错误时，第一行错误信息的最大长度，默认 256 字节",
+        "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"
+    })
+    public static int first_error_msg_max_length = 256;
+
+    @ConfField
+    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
+    @ConfField
+    public static int cloud_snapshot_handler_interval_second = 3600;
+    @ConfField(mutable = true)
+    public static long cloud_snapshot_timeout_seconds = 600;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_max_reversed_num = 35;
+    @ConfField(mutable = true)
+    public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 }

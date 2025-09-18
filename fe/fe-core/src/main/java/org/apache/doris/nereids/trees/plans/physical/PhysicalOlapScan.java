@@ -225,13 +225,20 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             rfV2 = runtimeFiltersV2.toString();
         }
 
-        String operativeCol = "";
-        if (!operativeSlots.isEmpty()) {
-            operativeCol = " operativeSlots(" + operativeSlots + ")";
-        }
-        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + operativeCol + "]"
+        // String operativeCol = "";
+        // if (!operativeSlots.isEmpty()) {
+        //     operativeCol = " operativeSlots(" + operativeSlots + ")";
+        // }
+        // String vir = "";
+        // if (!virtualColumns.isEmpty()) {
+        //     vir = " vir(" + virtualColumns + ")";
+        // }
+        return Utils.toSqlString("PhysicalOlapScan[" + table.getName() + index + partitions + "]"
                 + getGroupIdWithPrefix(),
-                "stats", statistics, "JRFs", jrfBuilder,
+                "stats", statistics,
+                "operativeSlots", operativeSlots,
+                "virtualColumns", virtualColumns,
+                "JRFs", jrfBuilder,
                 "RFV2", rfV2);
     }
 

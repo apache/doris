@@ -41,8 +41,8 @@ blob	text	Yes	true	\N	NONE
 json	text	Yes	true	\N	NONE
 set	char(23)	Yes	true	\N	NONE
 bit	text	Yes	true	\N	NONE
-binary	text	Yes	true	\N	NONE
-varbinary	text	Yes	true	\N	NONE
+binary	varbinary(12)	Yes	true	\N	NONE
+varbinary	varbinary(12)	Yes	true	\N	NONE
 enum	char(6)	Yes	true	\N	NONE
 
 -- !tvf_null_all_types_null --
@@ -93,8 +93,8 @@ blob	text	Yes	true	\N	NONE
 json	text	Yes	true	\N	NONE
 set	char(23)	Yes	true	\N	NONE
 bit	text	Yes	true	\N	NONE
-binary	text	Yes	true	\N	NONE
-varbinary	text	Yes	true	\N	NONE
+binary	varbinary(12)	Yes	true	\N	NONE
+varbinary	varbinary(12)	Yes	true	\N	NONE
 enum	char(6)	Yes	true	\N	NONE
 
 -- !tvf_null_all_types_non_null --

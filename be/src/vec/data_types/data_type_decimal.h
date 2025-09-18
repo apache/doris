@@ -231,7 +231,11 @@ public:
     std::string to_string(const FieldType& value) const;
     using SerDeType = DataTypeDecimalSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<SerDeType>(precision, scale, nesting_level);
+        if constexpr (T == TYPE_DECIMALV2) {
+            return std::make_shared<SerDeType>(precision, get_format_scale(), nesting_level);
+        } else {
+            return std::make_shared<SerDeType>(precision, scale, nesting_level);
+        }
     };
 
     /// Decimal specific

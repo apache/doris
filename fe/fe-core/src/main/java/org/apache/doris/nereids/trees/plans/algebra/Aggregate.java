@@ -167,4 +167,17 @@ public interface Aggregate<CHILD_TYPE extends Plan> extends UnaryPlan<CHILD_TYPE
                 && !getGroupByExpressions().isEmpty()
                 && !(new HashSet<>(getGroupByExpressions()).containsAll(distinctArguments));
     }
+
+    /**
+     * hasSkewHint
+     * @return true if there is at least one skew hint
+     */
+    default boolean hasSkewHint() {
+        for (AggregateFunction aggFunc : getAggregateFunctions()) {
+            if (aggFunc.isSkew()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

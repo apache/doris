@@ -125,6 +125,9 @@ protected:
     int64_t _local_read_bytes_total {};
     int64_t _remote_read_bytes_total {};
 
+    int64_t _input_rowsets_cached_data_size {0};
+    int64_t _input_rowsets_cached_index_size {0};
+
     Merger::Statistics _stats;
 
     RowsetSharedPtr _output_rowset;
@@ -236,6 +239,8 @@ protected:
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
 
+    Status set_storage_resource_from_input_rowsets(RowsetWriterContext& ctx);
+
     Status execute_compact_impl(int64_t permits);
 
     Status build_basic_info();
@@ -245,6 +250,8 @@ private:
     int64_t get_compaction_permits();
 
     void update_compaction_level();
+
+    bool should_cache_compaction_output();
 };
 
 } // namespace doris

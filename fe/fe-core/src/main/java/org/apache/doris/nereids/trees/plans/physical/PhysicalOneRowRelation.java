@@ -174,6 +174,19 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
                 if (expr instanceof Literal) {
                     LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                     columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+                    if (output.getDataType().toCatalogDataType().isVarbinaryType()) {
+                        // The FE (computeResultInFe) can currently only build a ResultSet<List<List<String>>>.
+                        // If we materialize a VARBINARY literal via legacyExpr.getStringValueForQuery():
+                        //   1) We first wrap the raw bytes in a Java String.
+                        //   2) Later StmtExecutor.sendTextResultRow re-encodes that String as UTF-8 when
+                        //      writing the MySQL wire protocol. This may expand bytes (e.g. 0xAB becomes
+                        //      two bytes 0xC2 0xAB), so the client observes a different value than the BE path.
+                        // The BE execution path is correct because it sends the raw bytes already serialized
+                        // for the MySQL protocol without a lossy String round-trip.
+                        // Todo: Refactor ResultSet (supports per-cell byte[])
+                        // so we can VARBINARY safely and remove this early return.
+                        return Optional.empty();
+                    }
                     data.add(legacyExpr.getStringValueForQuery(
                             cascadesContext.getStatementContext().getFormatOptions()));
                 } else {

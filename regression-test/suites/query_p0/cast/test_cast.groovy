@@ -133,16 +133,16 @@ suite('test_cast', "arrow_flight_sql") {
 
     test {
         sql "select * from ${tbl} where case when k0 = 101 then '12' else 0 end"
+        result([[101]])
+    }
+
+    test {
+        sql "select * from ${tbl} where case when k0 = 101 then false else 0 end"
         result([])
     }
 
     test {
-        sql "select * from ${tbl} where case when k0 = 101 then 'false' else 0 end"
-        result([])
-    }
-
-    test {
-        sql "select * from ${tbl} where case when k0 = 101 then 'true' else 1 end"
+        sql "select * from ${tbl} where case when k0 = 101 then true else 1 end"
         result([[101]])
     }
 
@@ -221,5 +221,25 @@ suite('test_cast', "arrow_flight_sql") {
         select
             cast(cast(170141183460469231731687303715884105728.0 as float) as largeint) v1, cast(cast(170141183460469231731687303715884105727.0 as float) as largeint) v2,
             cast(cast(-170141183460469231731687303715884105728.0 as float) as largeint) v3, cast(cast(-170141183460469231731687303715884105729.0 as float) as largeint) v4;
+    """
+
+    qt_int_array_to_smallint_array """
+        select cast([32768, 1, 7777777] as array<smallint>);
+    """
+
+    qt_int_array_to_decimal_array2 """
+        select cast([32768, 1, 7777777] as array<decimal(6, 1)>);
+    """
+
+    qt_map_to_map1 """
+        select cast(map(1, 10) as map<int, int>);
+    """
+
+    qt_map_to_map2 """
+        select cast(map(123456789011, 10) as map<int, int>);
+    """
+
+    qt_map_to_map3 """
+        select cast(map(123456789011, 123456789011) as map<int, int>);
     """
 }

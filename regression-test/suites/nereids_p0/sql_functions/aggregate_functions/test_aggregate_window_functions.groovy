@@ -518,5 +518,9 @@ suite("test_aggregate_window_functions") {
     order_qt_agg_window_window_funnel """
         select user_id, window_funnel(3600, "fixed", event_timestamp, event_name = '登录', event_name = '访问', event_name = '下单', event_name = '付款') over(partition by user_id) from test_aggregate_window_functions;
     """
+    test {
+        sql """select user_id, window_funnel(-1, "fixed", event_timestamp, event_name = '登录', event_name = '访问', event_name = '下单', event_name = '付款') over(partition by user_id) from test_aggregate_window_functions;"""
+        exception "the sliding time window must be a positive integer"
+    }
 
 }

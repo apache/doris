@@ -68,6 +68,7 @@ public class InsertTask extends AbstractTask {
             new Column("TrackingUrl", ScalarType.createStringType()),
             new Column("LoadStatistic", ScalarType.createStringType()),
             new Column("User", ScalarType.createStringType()),
+            new Column("FirstErrorMsg", ScalarType.createStringType()),
             new Column("Offset", ScalarType.createStringType()),
             new Column("OtherMsg", ScalarType.createStringType()));
 
@@ -97,6 +98,8 @@ public class InsertTask extends AbstractTask {
     private FailMsg failMsg;
     @Getter
     private String trackingUrl;
+    @Getter
+    private String firstErrorMsg;
 
     @Getter
     @Setter
@@ -274,6 +277,8 @@ public class InsertTask extends AbstractTask {
         } else {
             trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
         }
+        trow.addToColumnValue(new TCell().setStringVal(firstErrorMsg == null ? "" : firstErrorMsg));
+        trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(""));
         return trow;
     }

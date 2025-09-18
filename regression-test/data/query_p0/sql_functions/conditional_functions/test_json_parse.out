@@ -53,3 +53,27 @@ null
 8	123
 9	[1,2,3]
 
+-- !parse_from_table_value3 --
+1	{}
+2	{}
+3	{}
+4	{}
+5	{}
+6	{}
+7	{}
+8	{}
+8	{}
+9	{}
+
+-- !parse_from_table_value4 --
+1	{"name":"Alice2","age":32}
+2	{"name":"Bob","age":25}
+3	{"name":"Jack","age":28}
+4	{"name":"Jim","age":33}
+5	\N
+6	\N
+7	[1,2,3]
+8	{"key":"value"}
+8	{"key2":"value2"}
+9	{"key":"value"}
+

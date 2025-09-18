@@ -53,6 +53,7 @@ statementBase
     | supportedDmlStatement             #supportedDmlStatementAlias
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
+    | supportedOptimizeStatement        #supportedOptimizeStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
@@ -293,6 +294,13 @@ supportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                            #alterUser
+    ;
+
+supportedOptimizeStatement
+    : OPTIMIZE TABLE tableName=multipartIdentifier
+        (partitionSpec)?
+        (WHERE booleanExpression)?
+        properties=propertyClause                                                       #optimizeTable
     ;
 
 supportedDropStatement
@@ -596,6 +604,11 @@ supportedAdminStatement
     | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetEncryptionRootKey
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
+    | ADMIN BACKUP CLUSTER SNAPSHOT propertyClause?                                 #adminBackupClusterSnapshot
+    | ADMIN SET CLUSTER SNAPSHOT propertyClause?                                    #adminSetClusterSnapshot
+    | ADMIN SHOW CLUSTER SNAPSHOT PROPERTIES                                        #adminShowClusterSnapshotProperties
+    | ADMIN SHOW FULL? CLUSTER SNAPSHOT                                             #adminShowClusterSnapshot
+    | ADMIN DROP CLUSTER SNAPSHOT WHERE (key=identifier) EQ (value=STRING_LITERAL)  #adminDropClusterSnapshot
     ;
 
 supportedRecoverStatement
@@ -961,6 +974,7 @@ identityOrFunction
 
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
+        (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (partitionSpec)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
@@ -976,6 +990,7 @@ dataDesc
         (sequenceColumn=sequenceColClause)?
         (propertyClause)?
     | ((WITH)? mergeType)? DATA FROM TABLE sourceTableName=identifier
+        (negative=NEGATIVE)?
         INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?
@@ -1689,6 +1704,7 @@ constant
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | BINARY? STRING_LITERAL                                                                   #stringLiteral
+    | VARBINARY_LITERAL                                                                        #varbinaryLiteral
     | LEFT_BRACKET (items+=constant)? (COMMA items+=constant)* RIGHT_BRACKET                   #arrayLiteral
     | LEFT_BRACE (items+=constant COLON items+=constant)?
        (COMMA items+=constant COLON items+=constant)* RIGHT_BRACE                              #mapLiteral
@@ -1763,6 +1779,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=VARBINARY
     | type=VARIANT
     | type=ALL
     ;
@@ -2059,6 +2076,7 @@ nonReserved
     | OFFSET
     | ONLY
     | OPEN
+    | OPTIMIZE
     | OPTIMIZED
     | PARAMETER
     | PARSED
@@ -2171,6 +2189,7 @@ nonReserved
     | UP
     | USER
     | VALUE
+    | VARBINARY
     | VARCHAR
     | VARIABLE
     | VARIABLES
