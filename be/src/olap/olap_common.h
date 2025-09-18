@@ -419,6 +419,14 @@ struct OlapReaderStatistics {
 
     int64_t segment_create_column_readers_timer_ns = 0;
     int64_t segment_load_index_timer_ns = 0;
+
+    int64_t variant_scan_sparse_column_timer_ns = 0;
+    int64_t variant_scan_sparse_column_bytes = 0;
+    int64_t variant_fill_path_from_sparse_column_timer_ns = 0;
+    int64_t variant_subtree_default_iter_count = 0;
+    int64_t variant_subtree_leaf_iter_count = 0;
+    int64_t variant_subtree_hierarchical_iter_count = 0;
+    int64_t variant_subtree_sparse_iter_count = 0;
 };
 
 using ColumnId = uint32_t;
