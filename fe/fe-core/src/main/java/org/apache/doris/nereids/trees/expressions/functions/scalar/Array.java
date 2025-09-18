@@ -93,8 +93,8 @@ public class Array extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURES;
         }
-        Optional<DataType> commonDataType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
-                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()));
+        Optional<DataType> commonDataType = TypeCoercionUtils.findWiderCommonTypeByVariable(
+                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()), true);
         if (commonDataType.isPresent()) {
             return ImmutableList.of(
                     FunctionSignature.ret(ArrayType.of(commonDataType.get())).varArgs(commonDataType.get()));

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -103,7 +104,7 @@ public class CacheAnalyzer {
     private final Set<String> allViewStmtSet;
     private String allViewExpandStmtListStr;
     private Planner planner;
-    private List<ScanTable> scanTables = Lists.newArrayList();
+    private List<Pair<ScanTable, TableIf>> scanTables = Lists.newArrayList();
 
     public Cache getCache() {
         return cache;
@@ -253,6 +254,12 @@ public class CacheAnalyzer {
 
         if (now == 0) {
             now = nowtime();
+
+            // the cloud meta service maybe has different time with fe, so we should make sure
+            // now >= latestPartitionTime, and let regression test become stable
+            for (CacheTable cacheTable : tblTimeList) {
+                now = Math.max(now, cacheTable.latestPartitionTime);
+            }
         }
 
         if (enableSqlCache()
@@ -269,12 +276,16 @@ public class CacheAnalyzer {
             PUniqueId existsMd5 = null;
             if (planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = (NereidsPlanner) planner;
-                Optional<SqlCacheContext> sqlCacheContext = nereidsPlanner
+                Optional<SqlCacheContext> sqlCacheContextOpt = nereidsPlanner
                         .getCascadesContext()
                         .getStatementContext()
                         .getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    existsMd5 = sqlCacheContext.get().getOrComputeCacheKeyMd5();
+                if (sqlCacheContextOpt.isPresent()) {
+                    SqlCacheContext sqlCacheContext = sqlCacheContextOpt.get();
+                    if (!sqlCacheContext.supportSqlCache()) {
+                        return CacheMode.NoNeed;
+                    }
+                    existsMd5 = sqlCacheContext.getOrComputeCacheKeyMd5(context.getSessionVariable());
                 }
             }
 
@@ -331,7 +342,7 @@ public class CacheAnalyzer {
         }
     }
 
-    public InternalService.PFetchCacheResult getCacheData() throws UserException {
+    public InternalService.PFetchCacheResult getCacheData(boolean getResult) throws UserException {
         try {
             if (parsedStmt instanceof LogicalPlanAdapter) {
                 cacheMode = innerCheckCacheModeForNereids(0);
@@ -347,6 +358,9 @@ public class CacheAnalyzer {
             return null;
         }
         if (cacheMode == CacheMode.None) {
+            return null;
+        }
+        if (!getResult) {
             return null;
         }
         Status status = new Status();
@@ -437,7 +451,7 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(
                 new FullTableName(catalog.getName(), database.getFullName(), olapTable.getName()));
-        scanTables.add(scanTable);
+        scanTables.add(Pair.of(scanTable, olapTable));
 
         Collection<Long> partitionIds = node.getSelectedPartitionIds();
         try {
@@ -468,7 +482,7 @@ public class CacheAnalyzer {
         CatalogIf catalog = database.getCatalog();
         ScanTable scanTable = new ScanTable(new FullTableName(
                 catalog.getName(), database.getFullName(), tableIf.getName()));
-        scanTables.add(scanTable);
+        scanTables.add(Pair.of(scanTable, tableIf));
         return cacheTable;
     }
 
@@ -493,7 +507,7 @@ public class CacheAnalyzer {
         cache.updateCache();
     }
 
-    public List<ScanTable> getScanTables() {
+    public List<Pair<ScanTable, TableIf>> getScanTables() {
         return scanTables;
     }
 

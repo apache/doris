@@ -273,6 +273,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonQuote;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSearch;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
@@ -310,8 +311,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapValues;
@@ -1508,6 +1511,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(jsonSet, context);
     }
 
+    default R visitJsonRemove(JsonRemove jsonRemove, C context) {
+        return visitScalarFunction(jsonRemove, context);
+    }
+
     default R visitJsonQuote(JsonQuote jsonQuote, C context) {
         return visitScalarFunction(jsonQuote, context);
     }
@@ -2452,6 +2459,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitMapContainsValue(MapContainsValue mapContainsValue, C context) {
         return visitScalarFunction(mapContainsValue, context);
+    }
+
+    default R visitMapContainsEntry(MapContainsEntry mapContainsEntry, C context) {
+        return visitScalarFunction(mapContainsEntry, context);
+    }
+
+    default R visitMapEntries(MapEntries mapEntries, C context) {
+        return visitScalarFunction(mapEntries, context);
     }
 
     default R visitMapKeys(MapKeys mapKeys, C context) {

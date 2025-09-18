@@ -86,7 +86,6 @@ using std::vector;
 
 namespace doris {
 using namespace ErrorCode;
-
 namespace {
 #include "common/compile_check_begin.h"
 
@@ -1617,9 +1616,8 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     // We presume that the data involved in cumulative compaction is sufficiently 'hot'
     // and should always be retained in the cache.
     // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
-    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
-                           (config::enable_file_cache_keep_base_compaction_output &&
-                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
+
+    ctx.write_file_cache = should_cache_compaction_output();
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     ctx.approximate_bytes_to_write = _input_rowsets_total_size;
 
@@ -1672,6 +1670,43 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
         }
     }
     return count;
+}
+
+bool CloudCompactionMixin::should_cache_compaction_output() {
+    if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
+        return true;
+    }
+
+    if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
+        double input_rowsets_hit_cache_ratio = 0.0;
+
+        int64_t _input_rowsets_cached_size =
+                _input_rowsets_cached_data_size + _input_rowsets_cached_index_size;
+        if (_input_rowsets_total_size > 0) {
+            input_rowsets_hit_cache_ratio =
+                    double(_input_rowsets_cached_size) / double(_input_rowsets_total_size);
+        }
+
+        LOG(INFO) << "CloudBaseCompaction should_cache_compaction_output"
+                  << ", tablet_id=" << _tablet->tablet_id()
+                  << ", input_rowsets_hit_cache_ratio=" << input_rowsets_hit_cache_ratio
+                  << ", _input_rowsets_cached_size=" << _input_rowsets_cached_size
+                  << ", _input_rowsets_total_size=" << _input_rowsets_total_size
+                  << ", enable_file_cache_keep_base_compaction_output="
+                  << config::enable_file_cache_keep_base_compaction_output
+                  << ", file_cache_keep_base_compaction_output_min_hit_ratio="
+                  << config::file_cache_keep_base_compaction_output_min_hit_ratio;
+
+        if (config::enable_file_cache_keep_base_compaction_output) {
+            return true;
+        }
+
+        if (input_rowsets_hit_cache_ratio >
+            config::file_cache_keep_base_compaction_output_min_hit_ratio) {
+            return true;
+        }
+    }
+    return false;
 }
 
 #include "common/compile_check_end.h"

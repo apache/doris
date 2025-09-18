@@ -27,6 +27,7 @@
 #include <rapidjson/stringbuffer.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <shared_mutex>
 #include <unordered_map>
@@ -460,7 +461,9 @@ void CloudTablet::delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete,
     }
     std::vector<RowsetMetaSharedPtr> rs_metas;
     rs_metas.reserve(to_delete.size());
+    int64_t now = ::time(nullptr);
     for (auto&& rs : to_delete) {
+        rs->rowset_meta()->set_stale_at(now);
         rs_metas.push_back(rs->rowset_meta());
         _stale_rs_version_map[rs->version()] = rs;
     }

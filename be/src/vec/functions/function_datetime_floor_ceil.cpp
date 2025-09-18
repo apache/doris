@@ -449,37 +449,35 @@ private:
             if constexpr (Flag::Unit == YEAR) {
                 diff = ts_arg.year();
                 part = (ts_arg.month() - 1) | (ts_arg.day() - 1) | ts_arg.hour() | ts_arg.minute() |
-                       ts_arg.second();
+                       ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == QUARTER) {
                 // only ceil cannot be optimized then reach here.
                 diff = ts_arg.year() * 4 + ts_arg.quarter() - 1;
                 part = (ts_arg.month() - 1) % 3 | (ts_arg.day() - 1) | ts_arg.hour() |
-                       ts_arg.minute() | ts_arg.second();
+                       ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == MONTH) {
                 diff = ts_arg.year() * 12 + ts_arg.month() - 1;
-                part = (ts_arg.day() - 1) | ts_arg.hour() | ts_arg.minute() | ts_arg.second();
+                part = (ts_arg.day() - 1) | ts_arg.hour() | ts_arg.minute() | ts_arg.second() |
+                       ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == DAY) {
                 diff = ts_arg.daynr();
-                part = ts_arg.hour() | ts_arg.minute() | ts_arg.second();
+                part = ts_arg.hour() | ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == HOUR) {
                 diff = ts_arg.daynr() * 24 + ts_arg.hour();
-                part = ts_arg.minute() | ts_arg.second();
+                part = ts_arg.minute() | ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == MINUTE) {
                 diff = ts_arg.daynr() * 24L * 60 + ts_arg.hour() * 60 + ts_arg.minute();
-                part = ts_arg.second();
+                part = ts_arg.second() | ts_arg.microsecond();
             }
             if constexpr (Flag::Unit == SECOND) {
                 diff = ts_arg.daynr() * 24L * 60 * 60 + ts_arg.hour() * 60L * 60 +
                        ts_arg.minute() * 60L + ts_arg.second();
-                part = false;
-                if constexpr (std::is_same_v<DateValueType, DateV2Value<DateTimeV2ValueType>>) {
-                    part = ts_arg.microsecond();
-                }
+                part = ts_arg.microsecond();
             }
 
             if constexpr (Flag::Type == CEIL) {
@@ -487,7 +485,7 @@ private:
                     diff++;
                 }
             }
-            TimeInterval interval(Flag::Unit, diff, true);
+            TimeInterval interval(Flag::Unit, diff, false);
             return ts_res.template date_set_interval<Flag::Unit>(interval);
         }
     }

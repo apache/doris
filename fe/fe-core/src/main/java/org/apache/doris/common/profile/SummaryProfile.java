@@ -546,36 +546,36 @@ public class SummaryProfile {
         this.parseSqlFinishTime = parseSqlFinishTime;
     }
 
-    public void setNereidsLockTableFinishTime() {
-        this.nereidsLockTableFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsLockTableFinishTime(long lockTableFinishTime) {
+        this.nereidsLockTableFinishTime = lockTableFinishTime;
     }
 
-    public void setNereidsCollectTablePartitionFinishTime() {
-        this.nereidsCollectTablePartitionFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsCollectTablePartitionFinishTime(long collectTablePartitionFinishTime) {
+        this.nereidsCollectTablePartitionFinishTime = collectTablePartitionFinishTime;
     }
 
     public void addCollectTablePartitionTime(long elapsed) {
         nereidsCollectTablePartitionTime += elapsed;
     }
 
-    public void setNereidsAnalysisTime() {
-        this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsAnalysisTime(long analysisFinishTime) {
+        this.nereidsAnalysisFinishTime = analysisFinishTime;
     }
 
-    public void setNereidsRewriteTime() {
-        this.nereidsRewriteFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsRewriteTime(long rewriteFinishTime) {
+        this.nereidsRewriteFinishTime = rewriteFinishTime;
     }
 
-    public void setNereidsPreRewriteByMvFinishTime() {
-        this.nereidsPreRewriteByMvFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsOptimizeTime(long optimizeFinishTime) {
+        this.nereidsOptimizeFinishTime = optimizeFinishTime;
     }
 
-    public void setNereidsOptimizeTime() {
-        this.nereidsOptimizeFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsPreRewriteByMvFinishTime(long nereidsPreRewriteByMvFinishTime) {
+        this.nereidsPreRewriteByMvFinishTime = nereidsPreRewriteByMvFinishTime;
     }
 
-    public void setNereidsTranslateTime() {
-        this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsTranslateTime(long translateFinishTime) {
+        this.nereidsTranslateFinishTime = translateFinishTime;
     }
 
     public void setNereidsGarbageCollectionTime(long nereidsGarbageCollectionTime) {
@@ -586,8 +586,8 @@ public class SummaryProfile {
         this.nereidsBeFoldConstTime += beFoldConstTimeOnce;
     }
 
-    public void setNereidsDistributeTime() {
-        this.nereidsDistributeFinishTime = TimeUtils.getStartTimeMs();
+    public void setNereidsDistributeTime(long distributeFinishTime) {
+        this.nereidsDistributeFinishTime = distributeFinishTime;
     }
 
     public void setQueryBeginTime(long queryBeginTime) {
@@ -630,18 +630,18 @@ public class SummaryProfile {
         this.createScanRangeFinishTime = TimeUtils.getStartTimeMs();
     }
 
-    public void setQueryPlanFinishTime() {
+    public void setQueryPlanFinishTime(long planFinishTime) {
         if (queryPlanFinishTime == -1) {
-            this.queryPlanFinishTime = TimeUtils.getStartTimeMs();
+            this.queryPlanFinishTime = planFinishTime;
         }
     }
 
-    public void setQueryScheduleFinishTime() {
-        this.queryScheduleFinishTime = TimeUtils.getStartTimeMs();
+    public void setQueryScheduleFinishTime(long scheduleFinishTime) {
+        this.queryScheduleFinishTime = scheduleFinishTime;
     }
 
-    public void setQueryFetchResultFinishTime() {
-        this.queryFetchResultFinishTime = TimeUtils.getStartTimeMs();
+    public void setQueryFetchResultFinishTime(long fetchResultFinishTime) {
+        this.queryFetchResultFinishTime = fetchResultFinishTime;
     }
 
     public void setTempStartTime() {

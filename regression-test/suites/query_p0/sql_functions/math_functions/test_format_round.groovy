@@ -59,7 +59,12 @@ suite("test_format_round", "p0") {
 
     test {
         sql """select format_round(1234567.8910, -1) """
-        exception "it can not be less than 0"
+        exception "it should be in range [0, 1024]"
+    }
+
+    test {
+        sql """select format_round(1234567.8910, 1025) """
+        exception "it should be in range [0, 1024]"
     }
 
     order_qt_format_round_14 """ SELECT format_round(9876.54321, 0) AS result; """

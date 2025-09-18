@@ -125,6 +125,7 @@ public:
     }
 
     std::string get_load_error_url();
+    std::string get_first_error_msg();
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
