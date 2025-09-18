@@ -164,6 +164,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public void setJobState(JobState jobState) {
         this.jobState = jobState;
+        this.showJobState = jobState;
     }
 
     public JobType getType() {

@@ -2975,10 +2975,6 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
-        // set Job state then add job
-        schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
-        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
-        this.addAlterJobV2(schemaChangeJob);
 
         if (alterIndexes != null) {
             if (!isReplay) {
@@ -3049,6 +3045,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
             }
         }
+
+        // add job after edit log
+        // set Job state then add job
+        schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
+        schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
+        this.addAlterJobV2(schemaChangeJob);
     }
 
     public void replayModifyTableLightSchemaChange(TableAddOrDropColumnsInfo info)

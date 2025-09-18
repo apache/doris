@@ -51,6 +51,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
@@ -94,7 +95,7 @@ import java.util.stream.Collectors;
  * This is for replacing the old SchemaChangeJob
  * https://github.com/apache/doris/issues/1429
  */
-public class SchemaChangeJobV2 extends AlterJobV2 {
+public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJobV2.class);
 
     // partition id -> (shadow index id -> (shadow tablet id -> origin tablet id))
@@ -1084,6 +1085,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        showJobState = jobState;
     }
 
     @Override

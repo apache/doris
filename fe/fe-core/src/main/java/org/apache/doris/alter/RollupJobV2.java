@@ -903,6 +903,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
 
+        showJobState = jobState;
         if (jobState != JobState.PENDING) {
             return;
         }

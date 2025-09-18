@@ -2723,6 +2723,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
         isForceReplace = Boolean.parseBoolean(properties.get(PROP_FORCE_REPLACE));
+        showState = state;
     }
 
     @Override
