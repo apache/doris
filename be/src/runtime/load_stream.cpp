@@ -696,9 +696,9 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
 
         if (all_closed) {
             for (auto& closing_id : _closing_stream_ids) {
-                brpc::StreamClose(closing_id);
-                _closing_stream_ids.clear();
+                brpc::StreamClose(closing_id);             
             }
+            _closing_stream_ids.clear();
         }
     } break;
     case PStreamHeader::GET_SCHEMA: {
