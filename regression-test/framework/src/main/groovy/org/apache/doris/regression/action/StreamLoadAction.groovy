@@ -37,6 +37,10 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.impl.client.CloseableHttpClient
 import org.apache.http.impl.client.HttpClients
 import org.apache.http.util.EntityUtils
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager
+import org.apache.http.config.ConnectionConfig
+import java.nio.charset.StandardCharsets
+import java.nio.charset.CodingErrorAction
 import org.junit.Assert
 import java.io.InputStream
 import java.io.IOException
