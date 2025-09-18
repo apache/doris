@@ -55,10 +55,10 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
     protected void registerIcebergArguments() {
         // Register required arguments for branch and to
         namedArguments.registerRequiredArgument(BRANCH,
-                "Name of the target branch to fast-forward to",
+                "Name of the  branch to fast-forward to",
                 ArgumentParsers.nonEmptyString(BRANCH));
         namedArguments.registerRequiredArgument(TO,
-                "Target snapshot  to fast-forward to",
+                "Target branch  to fast-forward to",
                 ArgumentParsers.nonEmptyString(TO));
     }
 
@@ -74,13 +74,13 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         String sourceBranch = namedArguments.getString(BRANCH);
-        String toSnapshot = namedArguments.getString(TO);
+        String desBranch = namedArguments.getString(TO);
 
         if (sourceBranch == null || sourceBranch.trim().isEmpty()) {
             throw new UserException("branch parameter is required for fast_forward operation");
         }
 
-        if (toSnapshot == null) {
+        if (desBranch == null) {
             throw new UserException("to parameter is required for fast_forward operation");
         }
 
@@ -88,7 +88,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
             Long snapshotBefore =
                     icebergTable.snapshot(sourceBranch) != null ? icebergTable.snapshot(sourceBranch).snapshotId()
                             : null;
-            icebergTable.manageSnapshots().fastForwardBranch(sourceBranch, toSnapshot).commit();
+            icebergTable.manageSnapshots().fastForwardBranch(sourceBranch, desBranch).commit();
             long snapshotAfter = icebergTable.snapshot(sourceBranch).snapshotId();
             // invalid iceberg catalog table cache.
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
@@ -100,7 +100,7 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
 
         } catch (Exception e) {
             throw new UserException(
-                    "Failed to fast-forward branch " + sourceBranch + " to snapshot " + toSnapshot + ": "
+                    "Failed to fast-forward branch " + sourceBranch + " to snapshot " + desBranch + ": "
                             + e.getMessage(), e);
         }
     }
