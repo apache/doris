@@ -22,6 +22,8 @@ import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -201,6 +203,19 @@ public class OSSPropertiesTest {
         origProps.put("paimon.rest.dlf.access-key-id", "XXXXXX");
         origProps.put("paimon.catalog.type", "rest");
         Assertions.assertEquals(1, StorageProperties.createAll(origProps).size());
+    }
+
+    @Test
+    public void testAwsCredentialsProvider() throws Exception {
+        Map<String, String> ossProps = new HashMap<>();
+        ossProps.put("fs.oss.support", "true");
+        ossProps.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        OSSProperties ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
+        ossProps.put("oss.access_key", "myAccessKey");
+        ossProps.put("oss.secret_key", "mySecretKey");
+        ossStorageProperties = (OSSProperties) StorageProperties.createPrimary(ossProps);
+        Assertions.assertEquals(StaticCredentialsProvider.class, ossStorageProperties.getAwsCredentialsProvider().getClass());
     }
 
 }

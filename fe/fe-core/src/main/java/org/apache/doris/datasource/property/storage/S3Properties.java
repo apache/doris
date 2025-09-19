@@ -289,6 +289,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
                     }).build();
         }
         // For anonymous access (no credentials required)
+        //fixme: should return AwsCredentialsProviderChain
         if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
             return AnonymousCredentialsProvider.create();
         }
