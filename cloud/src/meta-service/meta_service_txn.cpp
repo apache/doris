@@ -610,12 +610,14 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
               << " routine load new progress: " << new_progress_info.ShortDebugString();
 }
 
-void put_streaming_job_meta(MetaServiceCode& code, std::string& msg, const std::string& instance_id,
-                            const CommitTxnRequest* request, Transaction* txn, int64_t db_id) {
+void update_streaming_job_meta(MetaServiceCode& code, std::string& msg,
+                               const std::string& instance_id, const CommitTxnRequest* request,
+                               Transaction* txn, int64_t db_id) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     if (!request->has_commit_attachment()) {
-        ss << "failed to get commit attachment from req, db_id=" << db_id << " txn_id=" << txn_id;
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "missing commit attachment, db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
@@ -1706,7 +1708,12 @@ void MetaServiceImpl::commit_txn_immediately(
 
         if (txn_info.load_job_source_type() ==
             LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB) {
-            put_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            update_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update_streaming_job_meta failed, txn_id=" << txn_id
+                             << " code=" << code << " msg=" << msg;
+                return;
+            }
         }
 
         LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
@@ -2104,7 +2111,12 @@ void MetaServiceImpl::commit_txn_eventually(
 
         if (txn_info.load_job_source_type() ==
             LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB) {
-            put_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            update_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update_streaming_job_meta failed, txn_id=" << txn_id
+                             << " code=" << code << " msg=" << msg;
+                return;
+            }
         }
 
         // save versions for partition

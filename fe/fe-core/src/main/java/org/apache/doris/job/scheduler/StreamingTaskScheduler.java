@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertTask;
 
@@ -74,38 +73,38 @@ public class StreamingTaskScheduler extends MasterDaemon {
     private void scheduleTasks(List<StreamingInsertTask> tasks) {
         for (StreamingInsertTask task : tasks) {
             threadPool.execute(() -> {
-                try {
-                    scheduleOneTask(task);
-                } catch (Exception e) {
-                    log.error("Failed to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId(), e);
-                }
+                scheduleOneTask(task);
             });
         }
     }
 
-    private void scheduleOneTask(StreamingInsertTask task) throws JobException {
+    private void scheduleOneTask(StreamingInsertTask task) {
         StreamingInsertJob job = (StreamingInsertJob) Env.getCurrentEnv().getJobManager().getJob(task.getJobId());
         if (job == null) {
             log.warn("Job not found, job id: {}", task.getJobId());
             return;
         }
+
+        // reject invalid task
         if (!job.needScheduleTask()) {
             log.info("do not need to schedule invalid task, task id: {}, job id: {}",
                         task.getTaskId(), task.getJobId());
             return;
         }
+        // reject task if no more data to consume
         if (!job.hasMoreDataToConsume()) {
-            scheduleTaskWithDelay(task, 500);
-            return;
-        }
-        if (job.getLastScheduleTaskTimestamp() != -1 && job.needDelayScheduleTask()) {
             scheduleTaskWithDelay(task, 500);
             return;
         }
         log.info("prepare to schedule task, task id: {}, job id: {}", task.getTaskId(), task.getJobId());
         job.setLastScheduleTaskTimestamp(System.currentTimeMillis());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().addRunningTask(task);
-        task.execute();
+
+        try {
+            task.execute();
+        } catch (Exception e) {
+            log.error("Failed to execute task, task id: {}, job id: {}", task.getTaskId(), task.getJobId(), e);
+        }
     }
 
     private void scheduleTaskWithDelay(StreamingInsertTask task, long delayMs) {
