@@ -246,6 +246,7 @@ public:
 
         switch (next_char) {
         case '"':  /* \" */
+        case '\'': /* \' */
         case '\\': /* \\ */
         case 'n':  /* \n */
         case 't':  /* \t */
