@@ -37,7 +37,7 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
-    RETURN_IF_ERROR(_shared_column_cache->seek_to_ordinal(ord));
+    RETURN_IF_ERROR(_sparse_column_cache->seek_to_ordinal(ord));
     for (auto& entry : _src_subcolumns_for_sparse) {
         RETURN_IF_ERROR(entry->data.iterator->seek_to_ordinal(ord));
     }
@@ -45,7 +45,7 @@ Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
 }
 
 Status SparseColumnMergeIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_shared_column_cache->init(opts));
+    RETURN_IF_ERROR(_sparse_column_cache->init(opts));
     for (auto& entry : _src_subcolumns_for_sparse) {
         entry->data.serde = entry->data.type->get_serde();
         RETURN_IF_ERROR(entry->data.iterator->init(opts));
@@ -113,7 +113,8 @@ void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
             assert_cast<vectorized::ColumnString&>(column_map.get_values());
     auto& dst_sparse_column_offsets = column_map.get_offsets();
 
-    const auto& src_column_map = assert_cast<const vectorized::ColumnMap&>(*_sparse_column);
+    const auto& src_column_map =
+            assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->sparse_column);
     const auto& src_sparse_column_paths =
             assert_cast<const vectorized::ColumnString&>(*src_column_map.get_keys_ptr());
     const auto& src_sparse_column_values =
@@ -122,7 +123,7 @@ void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
     DCHECK_EQ(src_sparse_column_paths.size(), src_sparse_column_values.size());
     // Src object column contains some paths in serialized sparse column in specified range.
     // Iterate over this range and insert all required paths into serialized sparse column or subcolumns.
-    for (size_t row = 0; row != _sparse_column->size(); ++row) {
+    for (size_t row = 0; row != _sparse_column_cache->sparse_column->size(); ++row) {
         // Use separate index to iterate over sorted sorted_src_subcolumn_for_sparse_column.
         size_t sorted_src_subcolumn_for_sparse_column_idx = 0;
         size_t sorted_src_subcolumn_for_sparse_column_size = _src_subcolumns_for_sparse.size();

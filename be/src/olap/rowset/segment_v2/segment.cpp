@@ -723,7 +723,7 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(
         const TabletColumn& tablet_column, std::unique_ptr<ColumnIterator>* iter,
         const StorageReadOptions* opt,
-        std::unordered_map<ColumnId, PathToSharedColumnCacheUPtr>* column_cache) {
+        std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>* variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
@@ -745,18 +745,19 @@ Status Segment::new_column_iterator(
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // use _column_reader_cache to get variant subcolumn(path column) reader
-        PathToSharedColumnCacheUPtr* column_cache_ptr = nullptr;
-        if (column_cache && column_cache->find(unique_id) == column_cache->end()) {
-            column_cache->emplace(
+        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr;
+        if (variant_sparse_column_cache && variant_sparse_column_cache->contains(unique_id)) {
+            variant_sparse_column_cache->emplace(
                     unique_id,
-                    std::make_unique<std::unordered_map<std::string, SharedColumnCacheSPtr>>());
-            column_cache_ptr = &(*column_cache)[unique_id];
-        } else if (column_cache) {
-            column_cache_ptr = &(*column_cache)[unique_id];
+                    std::make_unique<std::unordered_map<std::string, SparseColumnCacheSPtr>>());
+            sparse_column_cache_ptr = &(*variant_sparse_column_cache)[unique_id];
+        } else if (variant_sparse_column_cache) {
+            sparse_column_cache_ptr = &(*variant_sparse_column_cache)[unique_id];
         }
         RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
                                 ->new_iterator(iter, &tablet_column, opt,
-                                               _column_reader_cache.get(), column_cache_ptr));
+                                               _column_reader_cache.get(),
+                                               sparse_column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }

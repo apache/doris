@@ -58,10 +58,10 @@ namespace doris::segment_v2 {
 class SparseColumnMergeIterator : public BaseSparseColumnProcessor {
 public:
     SparseColumnMergeIterator(const TabletSchema::PathsSetInfo& path_set_info,
-                              SharedColumnCacheSPtr shared_column_cache,
+                              SparseColumnCacheSPtr sparse_column_cache,
                               SubstreamReaderTree&& src_subcolumns_for_sparse,
-                              const StorageReadOptions* opts, const TabletColumn& col)
-            : BaseSparseColumnProcessor(std::move(shared_column_cache), opts, col),
+                              const StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts),
               _src_subcolumn_map(path_set_info.sub_path_set),
               _src_subcolumns_for_sparse(src_subcolumns_for_sparse) {}
     Status init(const ColumnIteratorOptions& opts) override;
@@ -74,7 +74,7 @@ public:
             return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
         }));
         // then read sparse column
-        return _process_batch([&]() { return _shared_column_cache->next_batch(n, has_null); }, *n,
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
                               dst);
     }
 
@@ -86,7 +86,7 @@ public:
             return entry->data.iterator->read_by_rowids(rowids, count, entry->data.column);
         }));
         // then read sparse column
-        return _process_batch([&]() { return _shared_column_cache->read_by_rowids(rowids, count); },
+        return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
                               count, dst);
     }
 

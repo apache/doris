@@ -31,6 +31,7 @@
 #include "olap/iterators.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/stream_reader.h"
+#include "olap/rowset/segment_v2/variant/variant_column_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
@@ -57,9 +58,7 @@ namespace doris::segment_v2 {
 class BaseSparseColumnProcessor : public ColumnIterator {
 protected:
     const StorageReadOptions* _read_opts;
-    SharedColumnCacheSPtr _shared_column_cache;
-    const TabletColumn& _col;
-    vectorized::MutableColumnPtr _sparse_column;
+    SparseColumnCacheSPtr _sparse_column_cache;
     // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
@@ -69,17 +68,17 @@ protected:
                                                      size_t num_rows) = 0;
 
 public:
-    BaseSparseColumnProcessor(SharedColumnCacheSPtr shared_column_cache,
-                              const StorageReadOptions* opts, const TabletColumn& col)
-            : _read_opts(opts), _shared_column_cache(std::move(shared_column_cache)), _col(col) {}
+    BaseSparseColumnProcessor(SparseColumnCacheSPtr sparse_column_cache,
+                              const StorageReadOptions* opts)
+            : _read_opts(opts), _sparse_column_cache(std::move(sparse_column_cache)) {}
 
     // Common initialization for all processors
     Status init(const ColumnIteratorOptions& opts) override {
-        return _shared_column_cache->init(opts);
+        return _sparse_column_cache->init(opts);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override {
-        return _shared_column_cache->seek_to_ordinal(ord);
+        return _sparse_column_cache->seek_to_ordinal(ord);
     }
 
     ordinal_t get_current_ordinal() const override {
@@ -98,11 +97,10 @@ public:
                     _read_opts->stats->uncompressed_bytes_read - before_size;
         }
 
-        _sparse_column = _shared_column_cache->_column->assume_mutable();
-
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
         const auto& offsets =
-                assert_cast<const vectorized::ColumnMap&>(*_sparse_column).get_offsets();
+                assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->sparse_column)
+                        .get_offsets();
         if (offsets.back() == offsets[-1]) {
             // no sparse column in this batch
             _process_data_without_sparse_column(dst, nrows);
@@ -117,20 +115,20 @@ public:
 // Implementation for path extraction processor
 class SparseColumnExtractIterator : public BaseSparseColumnProcessor {
 public:
-    SparseColumnExtractIterator(std::string_view path, SharedColumnCacheSPtr shared_column_cache,
-                                const StorageReadOptions* opts, const TabletColumn& col)
-            : BaseSparseColumnProcessor(std::move(shared_column_cache), opts, col), _path(path) {}
+    SparseColumnExtractIterator(std::string_view path, SparseColumnCacheSPtr sparse_column_cache,
+                                const StorageReadOptions* opts)
+            : BaseSparseColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
 
     // Batch processing using template method
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
-        return _process_batch([&]() { return _shared_column_cache->next_batch(n, has_null); }, *n,
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
                               dst);
     }
 
     // RowID-based read using template method
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           vectorized::MutableColumnPtr& dst) override {
-        return _process_batch([&]() { return _shared_column_cache->read_by_rowids(rowids, count); },
+        return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
                               count, dst);
     }
 
@@ -159,8 +157,9 @@ private:
                 nullable_column ? &nullable_column->get_null_map_data() : nullptr;
         vectorized::ColumnVariant::fill_path_column_from_sparse_data(
                 *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
-                _sparse_column->get_ptr(), 0, _sparse_column->size());
-        var.incr_num_rows(_sparse_column->size());
+                _sparse_column_cache->sparse_column->get_ptr(), 0,
+                _sparse_column_cache->sparse_column->size());
+        var.incr_num_rows(_sparse_column_cache->sparse_column->size());
         var.get_sparse_column()->assume_mutable()->resize(var.rows());
         ENABLE_CHECK_CONSISTENCY(&var);
     }
