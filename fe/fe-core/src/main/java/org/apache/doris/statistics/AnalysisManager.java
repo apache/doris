@@ -18,7 +18,6 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeProperties;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -674,25 +673,22 @@ public class AnalysisManager implements Writable {
         TableStatsMeta tableStats = findTableStatsStatus(dropStatsCommand.getTblId());
         Set<String> cols = dropStatsCommand.getColumnNames();
         PartitionNamesInfo partitionNamesInfo = dropStatsCommand.getOpPartitionNamesInfo();
-        PartitionNames partitionNames = null;
-        if (partitionNamesInfo != null) {
-            partitionNames = new PartitionNames(partitionNamesInfo.isTemp(), partitionNamesInfo.getPartitionNames());
-        }
         long catalogId = dropStatsCommand.getCatalogId();
         long dbId = dropStatsCommand.getDbId();
         long tblId = dropStatsCommand.getTblId();
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tblId);
         // Remove tableMetaStats if drop whole table stats.
-        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNames == null
-                || partitionNames.isStar() || partitionNames.getPartitionNames() == null)) {
+        if ((cols == null || cols.isEmpty()) && (!table.isPartitionedTable() || partitionNamesInfo == null
+                || partitionNamesInfo.isStar() || partitionNamesInfo.getPartitionNames() == null)) {
             removeTableStats(tblId);
             Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(tblId));
         }
-        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNames);
+        invalidateLocalStats(catalogId, dbId, tblId, cols, tableStats, partitionNamesInfo);
         // Drop stats ddl is master only operation.
         Set<String> partitions = null;
-        if (partitionNames != null && !partitionNames.isStar() && partitionNames.getPartitionNames() != null) {
-            partitions = new HashSet<>(partitionNames.getPartitionNames());
+        if (partitionNamesInfo != null && !partitionNamesInfo.isStar()
+                && partitionNamesInfo.getPartitionNames() != null) {
+            partitions = new HashSet<>(partitionNamesInfo.getPartitionNames());
         }
         invalidateRemoteStats(catalogId, dbId, tblId, cols, partitions, false);
         StatisticsRepository.dropStatistics(catalogId, dbId, tblId, cols, partitions);
@@ -702,7 +698,7 @@ public class AnalysisManager implements Writable {
         Env.getCurrentEnv().getStatisticsCleaner().clear();
     }
 
-    public void dropStats(TableIf table, PartitionNames partitionNames) {
+    public void dropStats(TableIf table, PartitionNamesInfo partitionNames) {
         try {
             long catalogId = table.getDatabase().getCatalog().getId();
             long dbId = table.getDatabase().getId();
@@ -719,11 +715,11 @@ public class AnalysisManager implements Writable {
         private final long tableId;
         private final Set<String> columns;
         private final TableStatsMeta tableStats;
-        private final PartitionNames partitionNames;
+        private final PartitionNamesInfo partitionNames;
         private final boolean isMaster;
 
         public DropStatsTask(long catalogId, long dbId, long tableId, Set<String> columns,
-                             TableStatsMeta tableStats, PartitionNames partitionNames, boolean isMaster) {
+                             TableStatsMeta tableStats, PartitionNamesInfo partitionNames, boolean isMaster) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
@@ -756,7 +752,7 @@ public class AnalysisManager implements Writable {
     }
 
     public void submitAsyncDropStatsTask(long catalogId, long dbId, long tableId,
-            PartitionNames partitionNames, boolean isMaster) {
+            PartitionNamesInfo partitionNames, boolean isMaster) {
         try {
             dropStatsExecutors.submit(new DropStatsTask(catalogId, dbId, tableId, null,
                     findTableStatsStatus(tableId), partitionNames, isMaster));
@@ -787,7 +783,7 @@ public class AnalysisManager implements Writable {
     }
 
     public void invalidateLocalStats(long catalogId, long dbId, long tableId, Set<String> columns,
-                                     TableStatsMeta tableStats, PartitionNames partitionNames) {
+                                     TableStatsMeta tableStats, PartitionNamesInfo partitionNames) {
         TableIf table = StatisticsUtil.findTable(catalogId, dbId, tableId);
         StatisticsCache statsCache = Env.getCurrentEnv().getStatisticsCache();
         if (columns == null || columns.isEmpty()) {

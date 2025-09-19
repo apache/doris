@@ -258,6 +258,8 @@ DECLARE_Int32(tablet_publish_txn_max_thread);
 DECLARE_Int32(publish_version_task_timeout_s);
 // the count of thread to calc delete bitmap
 DECLARE_Int32(calc_delete_bitmap_max_thread);
+// the num of threads to calc delete bitmap when building rowset
+DECLARE_Int32(calc_delete_bitmap_for_load_max_thread);
 // the count of thread to calc delete bitmap worker, only used for cloud
 DECLARE_Int32(calc_delete_bitmap_worker_count);
 // the count of thread to calc tablet delete bitmap task, only used for cloud
@@ -1645,6 +1647,10 @@ DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);
 
 DECLARE_mBool(enable_wal_tde);
+
+DECLARE_mBool(print_stack_when_cache_miss);
+
+DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
 #ifdef BE_TEST
 // test s3

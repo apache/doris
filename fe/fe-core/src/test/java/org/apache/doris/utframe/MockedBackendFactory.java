@@ -35,8 +35,6 @@ import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
-import org.apache.doris.thrift.TCancelPlanFragmentParams;
-import org.apache.doris.thrift.TCancelPlanFragmentResult;
 import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TCheckWarmUpCacheAsyncResponse;
@@ -45,11 +43,6 @@ import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDictionaryStatusList;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TDropTabletReq;
-import org.apache.doris.thrift.TExecPlanFragmentParams;
-import org.apache.doris.thrift.TExecPlanFragmentResult;
-import org.apache.doris.thrift.TExportState;
-import org.apache.doris.thrift.TExportStatusResult;
-import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusRequest;
 import org.apache.doris.thrift.TGetRealtimeExecStatusResponse;
@@ -81,7 +74,6 @@ import org.apache.doris.thrift.TSyncLoadForTabletsResponse;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWarmUpCacheAsyncRequest;
 import org.apache.doris.thrift.TWarmUpCacheAsyncResponse;
 import org.apache.doris.thrift.TWarmUpTabletsRequest;
@@ -356,16 +348,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TExecPlanFragmentResult execPlanFragment(TExecPlanFragmentParams params) throws TException {
-            return null;
-        }
-
-        @Override
-        public TCancelPlanFragmentResult cancelPlanFragment(TCancelPlanFragmentParams params) throws TException {
-            return null;
-        }
-
-        @Override
         public TAgentResult submitTasks(List<TAgentTaskRequest> tasks) throws TException {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
@@ -394,21 +376,6 @@ public class MockedBackendFactory {
         @Override
         public TPublishTopicResult publishTopicInfo(TPublishTopicRequest request) throws TException {
             return new TPublishTopicResult(new TStatus(TStatusCode.OK));
-        }
-
-        @Override
-        public TStatus submitExportTask(TExportTaskRequest request) throws TException {
-            return new TStatus(TStatusCode.OK);
-        }
-
-        @Override
-        public TExportStatusResult getExportStatus(TUniqueId taskId) throws TException {
-            return new TExportStatusResult(new TStatus(TStatusCode.OK), TExportState.FINISHED);
-        }
-
-        @Override
-        public TStatus eraseExportTask(TUniqueId taskId) throws TException {
-            return new TStatus(TStatusCode.OK);
         }
 
         @Override

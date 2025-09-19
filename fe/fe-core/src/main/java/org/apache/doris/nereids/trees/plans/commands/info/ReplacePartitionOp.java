@@ -130,8 +130,7 @@ public class ReplacePartitionOp extends AlterTableOp {
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new ReplacePartitionClause(partitionNames.translateToLegacyPartitionNames(),
-                tempPartitionNames.translateToLegacyPartitionNames(),
+        return new ReplacePartitionClause(partitionNames, tempPartitionNames,
                 forceDropOldPartition, properties, isStrictRange, useTempPartitionName);
     }
 

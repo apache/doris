@@ -116,6 +116,21 @@ Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& colum
     return Status::OK();
 }
 
+void DataTypeSerDe::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    const auto size = column.size();
+    column_to.reserve(size);
+    VectorBufferWriter write_buffer(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        to_string(column, i, write_buffer);
+        write_buffer.commit();
+    }
+}
+
+void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_string_batch not implement.", get_name());
+}
+
 const std::string DataTypeSerDe::NULL_IN_COMPLEX_TYPE = "null";
 const std::string DataTypeSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE = "\\N";
 

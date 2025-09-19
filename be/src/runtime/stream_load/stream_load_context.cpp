@@ -119,6 +119,10 @@ std::string StreamLoadContext::to_json() const {
         writer.Key("ErrorURL");
         writer.String(error_url.c_str());
     }
+    if (!first_error_msg.empty()) {
+        writer.Key("FirstErrorMsg");
+        writer.String(first_error_msg.c_str());
+    }
     writer.EndObject();
     return s.GetString();
 }
@@ -288,6 +292,15 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         ss << ", Comment: " << comment_value.GetString();
     }
 
+    if (document.HasMember("FirstErrorMsg")) {
+        const rapidjson::Value& first_error_msg = document["FirstErrorMsg"];
+        stream_load_item.__set_first_error_msg(first_error_msg.GetString());
+        ss << ", FirstErrorMsg: " << first_error_msg.GetString();
+    } else {
+        stream_load_item.__set_first_error_msg("N/A");
+        ss << ", FirstErrorMsg: N/A";
+    }
+
     VLOG(1) << "parse json from rocksdb. " << ss.str();
 }
 
@@ -357,10 +370,8 @@ std::string StreamLoadContext::brief(bool detail) const {
 }
 
 bool StreamLoadContext::is_mow_table() const {
-    return (put_result.__isset.params && put_result.params.__isset.is_mow_table &&
-            put_result.params.is_mow_table) ||
-           (put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.is_mow_table &&
-            put_result.pipeline_params.is_mow_table);
+    return put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.is_mow_table &&
+           put_result.pipeline_params.is_mow_table;
 }
 
 #include "common/compile_check_end.h"

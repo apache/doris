@@ -304,7 +304,7 @@ public class ComputeSignatureHelper {
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
             Optional<DataType> dataType;
             if (GlobalVariable.enableNewTypeCoercionBehavior) {
-                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false);
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
             } else {
                 dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
             }

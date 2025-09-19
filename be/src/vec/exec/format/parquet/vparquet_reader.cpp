@@ -424,7 +424,7 @@ bool ParquetReader::_check_slot_can_push_down(const VExprSPtr& expr) {
         return false;
     }
 
-    const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+    const auto* slot_ref = assert_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in parquet file.
     if (!_table_info_node_ptr->children_column_exists(slot_ref->expr_name())) {
         return false;
@@ -1020,7 +1020,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         return Status::EndOfFile("stop");
     }
 
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         candidate_row_ranges = _read_line_mode_row_ranges[row_group_index.row_group_id];
         return Status::OK();
     }
@@ -1178,16 +1178,16 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
 Status ParquetReader::_process_row_group_filter(
         const RowGroupReader::RowGroupIndex& row_group_index, const tparquet::RowGroup& row_group,
         bool* filter_group) {
-    if (_read_line_mode_mode) {
+    if (_read_by_rows) {
         auto group_start = row_group_index.first_row;
         auto group_end = row_group_index.last_row;
 
-        while (!_read_lines.empty()) {
-            auto v = _read_lines.front();
+        while (!_row_ids.empty()) {
+            auto v = _row_ids.front();
             if (v >= group_start && v < group_end) {
                 _read_line_mode_row_ranges[row_group_index.row_group_id].emplace_back(
                         RowRange {v - group_start, v - group_start + 1});
-                _read_lines.pop_front();
+                _row_ids.pop_front();
             } else {
                 break;
             }

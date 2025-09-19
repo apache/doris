@@ -280,6 +280,8 @@ public:
 
     std::string get_error_log_file_path();
 
+    std::string get_first_error_msg() const { return _first_error_msg; }
+
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
     // If we need to stop the processing, set stop_processing to true
@@ -422,6 +424,20 @@ public:
     }
 
     bool enable_page_cache() const;
+
+    bool enable_prefer_cached_rowset() const {
+        return _query_options.__isset.enable_prefer_cached_rowset &&
+               _query_options.enable_prefer_cached_rowset;
+    }
+
+    int64_t query_freshness_tolerance_ms() const {
+        return _query_options.query_freshness_tolerance_ms;
+    }
+
+    bool enable_query_freshness_tolerance() const {
+        return _query_options.__isset.query_freshness_tolerance_ms &&
+               _query_options.query_freshness_tolerance_ms > 0;
+    }
 
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
@@ -768,6 +784,7 @@ private:
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
+    std::string _first_error_msg = "";
     mutable std::mutex _tablet_infos_mutex;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;

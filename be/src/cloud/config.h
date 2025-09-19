@@ -119,6 +119,9 @@ DECLARE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb);
 DECLARE_Int32(sync_delete_bitmap_task_max_thread);
 DECLARE_mBool(enable_delete_bitmap_store_v2_check_correctness);
 
+DECLARE_mBool(enable_batch_get_delete_bitmap);
+DECLARE_mInt64(get_delete_bitmap_bytes_threshold);
+
 // Skip writing empty rowset metadata to meta service
 DECLARE_mBool(skip_writing_empty_rowset_metadata);
 

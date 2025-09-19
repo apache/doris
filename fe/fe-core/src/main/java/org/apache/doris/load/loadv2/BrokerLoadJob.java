@@ -44,7 +44,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
@@ -487,6 +487,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 increaseCounter(UNSELECTED_ROWS, attachment.getCounter(UNSELECTED_ROWS)));
         if (attachment.getTrackingUrl() != null) {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
+        }
+        if (attachment.getFirstErrorMsg() != null) {
+            loadingStatus.setFirstErrorMsg(attachment.getFirstErrorMsg());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
         errorTabletInfos.addAll(attachment.getErrorTabletInfos().stream().limit(Config.max_error_tablet_of_broker_load)

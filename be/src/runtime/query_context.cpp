@@ -314,6 +314,16 @@ std::string QueryContext::get_load_error_url() {
     return _load_error_url;
 }
 
+void QueryContext::set_first_error_msg(std::string error_msg) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _first_error_msg = error_msg;
+}
+
+std::string QueryContext::get_first_error_msg() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _first_error_msg;
+}
+
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
     std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
     {

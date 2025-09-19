@@ -534,7 +534,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         uint32_t microsecond = 999999; // target scale is 4, so the microsecond will be rounded up
         DateV2Value<DateTimeV2ValueType> datetime_v2;
         datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
-        std::string date = datetime_v2.debug_string();
+        std::string date = datetime_v2.to_string();
 
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
         Block block;
@@ -549,11 +549,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // date
     {
-        VecDateTimeValue data_time_value;
+        VecDateTimeValue date_time_value;
+        date_time_value.set_type(TIME_DATE);
         const char* date = "20210407";
-        data_time_value.from_date_str(date, strlen(date));
+        date_time_value.from_date_str(date, strlen(date));
         __int64_t dt;
-        memcpy(&dt, &data_time_value, sizeof(__int64_t));
+        memcpy(&dt, &date_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
         Block block;
         int ret = -1;
@@ -587,6 +588,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
                 create_texpr_node_from((*ctn.column)[0], TYPE_DATEV2, 0, 0), true);
         EXPECT_EQ("2021-04-07", node->value());
     }
+    config::allow_zero_date = true;
     {
         DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "00000000";
@@ -597,7 +599,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
     }
     {
         DateV2Value<DateTimeV2ValueType> data_time_value;
@@ -609,7 +611,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), false);
+        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
     }
     // jsonb
     {
@@ -740,4 +742,5 @@ TEST(TEST_VEXPR, LITERALTEST) {
             EXPECT_EQ("1.23456789", node->value());
         }
     }
+    config::allow_zero_date = false;
 }

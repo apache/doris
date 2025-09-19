@@ -40,7 +40,7 @@ public:
     Status get_block_from_queue(std::unique_ptr<vectorized::Block>* block,
                                 int* child_idx = nullptr);
 
-    void push_block(std::unique_ptr<vectorized::Block> block, int child_idx = 0);
+    Status push_block(std::unique_ptr<vectorized::Block> block, int child_idx = 0);
 
     std::unique_ptr<vectorized::Block> get_free_block(int child_idx = 0);
 
@@ -78,6 +78,8 @@ public:
         _max_blocks_in_sub_queue = 1;
         clear_free_blocks();
     }
+
+    void terminate();
 
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;

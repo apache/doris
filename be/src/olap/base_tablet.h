@@ -50,6 +50,28 @@ struct TabletWithVersion {
     int64_t version;
 };
 
+struct CaptureRsReaderOptions {
+    // Used by local mode only.
+    // If true, allows skipping missing versions during rowset capture.
+    // This can be useful when some versions are temporarily unavailable.
+    bool skip_missing_version {false};
+
+    // ======== only take effect in cloud mode ========
+
+    // Enable preference for cached/warmed-up rowsets when building version paths.
+    // When enabled, the capture process will prioritize already cached rowsets
+    // to avoid cold data reads and improve query performance.
+    bool enable_prefer_cached_rowset {false};
+
+    // Query freshness tolerance in milliseconds.
+    // Defines the time window for considering data as "fresh enough".
+    // Rowsets that became visible within this time range can be skipped if not warmed up,
+    // but older rowsets (before current_time - query_freshness_tolerance_ms) that are
+    // not warmed up will trigger fallback to normal capture.
+    // Set to -1 to disable freshness tolerance checking.
+    int64_t query_freshness_tolerance_ms {-1};
+};
+
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
@@ -113,7 +135,7 @@ public:
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) = 0;
+                                      const CaptureRsReaderOptions& opts) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
@@ -297,6 +319,11 @@ public:
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
+        traverse_rowsets_unlocked(visitor, include_stale);
+    }
+
+    void traverse_rowsets_unlocked(std::function<void(const RowsetSharedPtr&)> visitor,
+                                   bool include_stale = false) {
         for (auto& [v, rs] : _rs_version_map) {
             visitor(rs);
         }
