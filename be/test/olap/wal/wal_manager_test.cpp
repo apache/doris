@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -67,6 +68,7 @@ class WalManagerTest : public testing::Test {
 public:
     WalManagerTest() : _runtime_state(TQueryGlobals()), _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
+        _runtime_state.set_be_exec_version(BeExecVersionManager::get_newest_version());
         init();
         _profile = _runtime_state.runtime_profile();
         WARN_IF_ERROR(_runtime_state.init(_unique_id, _query_options, _query_globals, _env),
