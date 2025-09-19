@@ -1234,7 +1234,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
-    // We don't actually need to parse the rowset meta
     doris::RowsetMetaCloudPB rs_meta;
     rs_meta.ParseFromString(tmp_rowset_val);
     if (rs_meta.txn_id() <= 0) {
@@ -1249,9 +1248,22 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     INSTANCE_LOG(INFO) << "remove tmp rowset meta, tablet_id=" << tablet_id
                        << " tmp_rowset_key=" << hex(tmp_rowset_key);
 
+    using namespace std::chrono;
+    auto rowset_visible_time =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    rs_meta.set_visible_ts_ms(rowset_visible_time);
+    std::string rowset_val;
+    if (!rs_meta.SerializeToString(&rowset_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        SS << "failed to serialize rowset meta, tablet_id=" << tablet_id
+           << " rowset_id=" << rowset_id;
+        msg = ss.str();
+        return;
+    }
+
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
-    txn->put(rowset_key, tmp_rowset_val);
+    txn->put(rowset_key, rowset_val);
     if (is_versioned_write) {
         std::string meta_rowset_compact_key =
                 versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
@@ -1867,9 +1879,31 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                                           : cast_as<ErrCategory::READ>(err);
             return;
         }
+
+        RowsetMetaCloudPB tmp_rowset_meta;
+        if (!tmp_rowset_meta.ParseFromString(tmp_rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            SS << "malformed tmp rowset meta, unable to deserialize, tablet_id=" << new_tablet_id
+               << " key=" << hex(tmp_rowset_key);
+            msg = ss.str();
+            return;
+        }
+        using namespace std::chrono;
+        auto rowset_visible_time =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        tmp_rowset_meta.set_visible_ts_ms(rowset_visible_time);
+        std::string rowset_val;
+        if (!tmp_rowset_meta.SerializeToString(&rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            SS << "failed to serialize rowset meta, tablet_id=" << new_tablet_id
+               << " rowset_id=" << tmp_rowset_meta.rowset_id_v2();
+            msg = ss.str();
+            return;
+        }
+
         auto rowset_key = meta_rowset_key(
                 {instance_id, new_tablet_id, schema_change.output_versions().at(i)});
-        txn->put(rowset_key, tmp_rowset_val);
+        txn->put(rowset_key, rowset_val);
         txn->remove(tmp_rowset_key);
         if (is_versioned_write) {
             doris::RowsetMetaCloudPB rs_meta;

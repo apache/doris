@@ -148,6 +148,8 @@ message RowsetMetaPB {
     optional SchemaDictKeyList schema_dict_key_list = 1008; // align to cloud rowset
 
     optional SplitSchemaPB __split_schema = 1009;  // A special field, DO NOT change it.
+
+    optional int64 visible_ts_ms = 1010;
 }
 
 message SchemaDictKeyList {
@@ -243,6 +245,8 @@ message RowsetMetaCloudPB {
     repeated InvertedIndexFileInfo inverted_index_file_info = 107;
 
     optional SplitSchemaPB __split_schema = 108;  // A special field, DO NOT change it.
+
+    optional int64 visible_ts_ms = 109;
 }
 
 message SegmentStatisticsPB {
