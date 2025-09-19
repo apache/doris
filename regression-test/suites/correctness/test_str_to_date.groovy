@@ -60,6 +60,12 @@ suite("test_str_to_date") {
         SELECT STR_TO_DATE('无效日期', 'yyyy-MM-dd');
     """
 
+    qt_const_test6 """
+        SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');
+    """
+
+    testFoldConst("SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');");
+
     qt_short_1 " select STR_TO_DATE('2023', '%Y') "
     qt_short_2 " select STR_TO_DATE(null, '%Y') "
     qt_short_3 " select STR_TO_DATE('2023', null) "

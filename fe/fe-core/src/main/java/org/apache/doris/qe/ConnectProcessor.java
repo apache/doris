@@ -346,6 +346,10 @@ public abstract class ConnectProcessor {
                 if (i != stmts.size() - 1 && connectType.equals(ConnectType.MYSQL)) {
                     executor.setMoreStmtExists(true);
                 }
+                if (MetricRepo.isInit) {
+                    MetricRepo.HISTO_PLAN_PARSE_DURATION.update(
+                            executor.getProfile().getSummaryProfile().getParseSqlTimeMs());
+                }
                 ctx.setExecutor(executor);
 
                 if (cacheKeyType != null) {
@@ -428,6 +432,12 @@ public abstract class ConnectProcessor {
             }
             Env env = ctx.getEnv();
             Optional<LogicalSqlCache> sqlCachePlanOpt = env.getSqlCacheManager().tryParseSql(ctx, cacheSqlKey);
+            if (MetricRepo.isInit) {
+                if (sqlCachePlanOpt.isPresent()) {
+                    MetricRepo.COUNTER_SQL_CACHE_HIT.increase(1L);
+                }
+                MetricRepo.COUNTER_SQL_SQL_CACHE_TOTAL_SEARCH_TIMES.increase(1L);
+            }
             if (sqlCachePlanOpt.isPresent()) {
                 LogicalSqlCache logicalSqlCache = sqlCachePlanOpt.get();
                 LogicalPlan parsedPlan = logicalSqlCache;

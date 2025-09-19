@@ -799,10 +799,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is "
+                << apache::thrift::ThriftDebugString(ctx->put_result.pipeline_params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {

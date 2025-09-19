@@ -470,3 +470,87 @@
 -- !three_param_91 --
 2024-01-01T00:00
 
+-- !second_ceil_ms_test_1 --
+2001-01-01T12:00:01
+
+-- !second_ceil_ms_test_2 --
+2001-01-01T12:00:20
+
+-- !second_ceil_ms_test_3 --
+2001-01-01T12:00:01
+
+-- !second_ceil_ms_test_4 --
+2001-01-01T12:00:20
+
+-- !minute_ceil_ms_test_1 --
+2001-01-01T12:01
+
+-- !minute_ceil_ms_test_2 --
+2001-01-01T12:20
+
+-- !minute_ceil_ms_test_3 --
+2001-01-01T12:01
+
+-- !minute_ceil_ms_test_4 --
+2001-01-01T12:20
+
+-- !hour_ceil_ms_test_1 --
+2001-01-01T13:00
+
+-- !hour_ceil_ms_test_2 --
+2001-01-02T00:00
+
+-- !hour_ceil_ms_test_3 --
+2001-01-01T13:00
+
+-- !hour_ceil_ms_test_4 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_1 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_2 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_3 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_4 --
+2001-01-02T00:00
+
+-- !month_ceil_ms_test_1 --
+2001-02-01T00:00
+
+-- !month_ceil_ms_test_2 --
+2001-02-01T00:00
+
+-- !month_ceil_ms_test_3 --
+2001-01-04T00:00
+
+-- !month_ceil_ms_test_4 --
+2001-01-04T00:00
+
+-- !quarter_ceil_ms_test_1 --
+2001-04-01T00:00
+
+-- !quarter_ceil_ms_test_2 --
+2001-04-01T00:00
+
+-- !quarter_ceil_ms_test_3 --
+2001-01-04T00:00
+
+-- !quarter_ceil_ms_test_4 --
+2001-01-04T00:00
+
+-- !year_ceil_ms_test_1 --
+2002-01-01T00:00
+
+-- !year_ceil_ms_test_2 --
+2011-01-01T00:00
+
+-- !year_ceil_ms_test_3 --
+2002-01-01T00:00
+
+-- !year_ceil_ms_test_4 --
+2010-01-01T00:00
+

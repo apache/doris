@@ -213,4 +213,74 @@ suite("test_date_floor_ceil") {
     qt_three_param_89 """ select quarter_ceil('0001-01-01 00:00:00', 1, '0001-01-01 00:00:00'); """
     qt_three_param_90 """ select quarter_floor('2023-06-30 23:59:59', 2, '2022-01-01 00:00:00'); """
     qt_three_param_91 """ select quarter_ceil('2023-07-01 00:00:01', 2, '2022-01-01 00:00:00'); """
+
+    qt_second_ceil_ms_test_1"""SELECT SECOND_CEIL('2001-01-01 12:00:00.000001');"""
+    qt_second_ceil_ms_test_2"""SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', 20);"""
+    qt_second_ceil_ms_test_3"""SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');"""
+    qt_second_ceil_ms_test_4"""SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', 20, '1970-01-01');"""
+
+    qt_minute_ceil_ms_test_1"""SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001');"""
+    qt_minute_ceil_ms_test_2"""SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', 20);"""
+    qt_minute_ceil_ms_test_3"""SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');"""
+    qt_minute_ceil_ms_test_4"""SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', 20, '1970-01-01');"""
+
+    qt_hour_ceil_ms_test_1"""SELECT HOUR_CEIL('2001-01-01 12:00:00.000001');"""
+    qt_hour_ceil_ms_test_2"""SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', 12);"""
+    qt_hour_ceil_ms_test_3"""SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');"""
+    qt_hour_ceil_ms_test_4"""SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', 12, '1970-01-01');"""
+
+    qt_day_ceil_ms_test_1"""SELECT DAY_CEIL('2001-01-01 0:00:00.000001');"""
+    qt_day_ceil_ms_test_2"""SELECT DAY_CEIL('2001-01-01 0:00:00.000001', 1);"""
+    qt_day_ceil_ms_test_3"""SELECT DAY_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');"""
+    qt_day_ceil_ms_test_4"""SELECT DAY_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');"""
+
+    qt_month_ceil_ms_test_1"""SELECT MONTH_CEIL('2001-01-01 0:00:00.000001');"""
+    qt_month_ceil_ms_test_2"""SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', 1);"""
+    qt_month_ceil_ms_test_3"""SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');"""
+    qt_month_ceil_ms_test_4"""SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');"""
+
+    qt_quarter_ceil_ms_test_1"""SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001');"""
+    qt_quarter_ceil_ms_test_2"""SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', 1);"""
+    qt_quarter_ceil_ms_test_3"""SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');"""
+    qt_quarter_ceil_ms_test_4"""SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');"""
+
+    qt_year_ceil_ms_test_1"""SELECT YEAR_CEIL('2001-01-01 0:00:00.000001');"""
+    qt_year_ceil_ms_test_2"""SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10);"""
+    qt_year_ceil_ms_test_3"""SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', '1970-01-01');"""
+    qt_year_ceil_ms_test_4"""SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10, '1970-01-01');"""
+
+    testFoldConst("SELECT SECOND_CEIL('2001-01-01 12:00:00.000001');");
+    testFoldConst("SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', 20);");
+    testFoldConst("SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');");
+    testFoldConst("SELECT SECOND_CEIL('2001-01-01 12:00:00.000001', 20, '1970-01-01');");
+    
+    testFoldConst("SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001');");
+    testFoldConst("SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', 20);");
+    testFoldConst("SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');");
+    testFoldConst("SELECT MINUTE_CEIL('2001-01-01 12:00:00.000001', 20, '1970-01-01');");
+    
+    testFoldConst("SELECT HOUR_CEIL('2001-01-01 12:00:00.000001');");
+    testFoldConst("SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', 12);");
+    testFoldConst("SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', '1970-01-01');");
+    testFoldConst("SELECT HOUR_CEIL('2001-01-01 12:00:00.000001', 12, '1970-01-01');");
+    
+    testFoldConst("SELECT DAY_CEIL('2001-01-01 0:00:00.000001');");
+    testFoldConst("SELECT DAY_CEIL('2001-01-01 0:00:00.000001', 1);");
+    testFoldConst("SELECT DAY_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');");
+    testFoldConst("SELECT DAY_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');");
+    
+    testFoldConst("SELECT MONTH_CEIL('2001-01-01 0:00:00.000001');");
+    testFoldConst("SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', 1);");
+    testFoldConst("SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');");
+    testFoldConst("SELECT MONTH_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');");
+    
+    testFoldConst("SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001');");
+    testFoldConst("SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', 1);");
+    testFoldConst("SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', '1145-01-04');");
+    testFoldConst("SELECT QUARTER_CEIL('2001-01-01 0:00:00.000001', 1, '1145-01-04');");
+    
+    testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001');");
+    testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10);");
+    testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', '1970-01-01');");
+    testFoldConst("SELECT YEAR_CEIL('2001-01-01 0:00:00.000001', 10, '1970-01-01');");
 }
