@@ -83,7 +83,6 @@ struct SparseColumnCache {
     ordinal_t offset = 0;              // Current offset position for sequential reads
     std::unique_ptr<rowid_t[]> rowids; // Cached row IDs for random access reads
     size_t length = 0;                 // Length of cached data
-    bool has_null = false;
 
     SparseColumnCache() = default;
     SparseColumnCache(ColumnIteratorUPtr _column_iterator, vectorized::MutableColumnPtr _column)
@@ -111,7 +110,6 @@ struct SparseColumnCache {
     Status next_batch(size_t* _n, bool* _has_null) {
         if (length != 0) {
             DCHECK(state == State::SEEKED_NEXT_BATCHED);
-            *_has_null = has_null;
             *_n = length;
             return Status::OK();
         }
@@ -119,7 +117,6 @@ struct SparseColumnCache {
         DCHECK(state == State::SEEKED_NEXT_BATCHED);
         RETURN_IF_ERROR(sparse_column_iterator->next_batch(_n, sparse_column, _has_null));
         length = *_n;
-        has_null = *_has_null;
         return Status::OK();
     }
 
@@ -139,7 +136,6 @@ struct SparseColumnCache {
         state = _state;
         offset = 0;
         length = 0;
-        has_null = false;
         sparse_column->clear();
         rowids.reset();
     }
