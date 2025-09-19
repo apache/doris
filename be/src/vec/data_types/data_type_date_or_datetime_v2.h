@@ -78,15 +78,9 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATEV2>::template to_string_batch_impl<
-                DataTypeDateV2>(column, column_to);
-    }
 
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt32& num) const;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(UInt32 int_val) const;
 
     MutableColumnPtr create_column() const override;
@@ -127,15 +121,8 @@ public:
     std::string do_get_name() const override { return "DateTimeV2"; }
 
     bool equals(const IDataType& rhs) const override;
-    std::string to_string(const IColumn& column, size_t row_num) const override;
-    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
-        DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<
-                DataTypeDateTimeV2>(column, column_to);
-    }
-
-    size_t number_length() const;
-    void push_number(ColumnString::Chars& chars, const UInt64& num) const;
-    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    /// TODO: remove this in the future
+    using IDataType::to_string;
     std::string to_string(UInt64 int_val) const;
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

@@ -236,5 +236,13 @@ Status DataTypeBitMapSerDe::from_string(StringRef& str, IColumn& column,
     auto slice = str.to_slice();
     return deserialize_one_cell_from_json(column, slice, options);
 }
+
+void DataTypeBitMapSerDe::to_string(const IColumn& column, size_t row_num,
+                                    BufferWritable& bw) const {
+    const auto& data = assert_cast<const ColumnBitmap&>(column).get_element(row_num);
+    auto str = data.to_string();
+    bw.write(str.c_str(), str.size());
+}
+
 } // namespace vectorized
 } // namespace doris
