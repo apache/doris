@@ -398,6 +398,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     };
 
     // 10. check sparse extract reader
+    PathToSparseColumnCacheUPtr sparse_column_cache =
+            std::make_unique<std::unordered_map<std::string, SparseColumnCacheSPtr>>();
+    stats.bytes_read = 0;
     for (int i = 3; i < 10; ++i) {
         std::string key = ".key" + std::to_string(i);
         TabletColumn subcolumn_in_sparse;
@@ -411,26 +414,16 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
         ColumnIteratorUPtr it;
         st = variant_column_reader->new_iterator(&it, &subcolumn_in_sparse, &storage_read_opts,
-                                                 &column_reader_cache);
+                                                 &column_reader_cache, &sparse_column_cache);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it.get()) != nullptr);
         st = it->init(column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
 
+        int64_t before_bytes_read = stats.bytes_read;
         read_to_column_object(it);
-        {
-            // read with opt
-            auto* iter = assert_cast<SparseColumnExtractIterator*>(it.get());
-            StorageReadOptions storage_read_opts1;
-            storage_read_opts1.stats = &stats;
-            storage_read_opts1.io_ctx.reader_type = ReaderType::READER_QUERY;
-            iter->_read_opts = &storage_read_opts1;
-            bool has_null = false;
-            st = iter->next_batch(&nrows, new_column_object, &has_null);
-            EXPECT_TRUE(st.ok()) << st.msg();
-            EXPECT_TRUE(stats.bytes_read > 0);
-            st = iter->next_batch(&nrows, new_column_object, &has_null);
-            EXPECT_TRUE(st.ok()) << st.msg();
+        if (before_bytes_read != 0) {
+            EXPECT_EQ(stats.bytes_read, before_bytes_read);
         }
 
         for (int row = 0; row < 1000; ++row) {
