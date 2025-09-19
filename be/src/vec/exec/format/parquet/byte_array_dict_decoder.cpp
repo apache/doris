@@ -29,7 +29,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
-Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
+Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                                       size_t num_values) {
     _dict = std::move(dict);
     if (_dict == nullptr) {

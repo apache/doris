@@ -20,6 +20,7 @@ suite("agg_strategy") {
     sql "set enable_parallel_result_sink=false"
     sql "set global enable_auto_analyze=false"
     sql "set runtime_filter_mode=OFF"
+    sql "set be_number_for_test=1;"
 
     for (int i = 0; i < 2; i++) {
         if (i == 0) {

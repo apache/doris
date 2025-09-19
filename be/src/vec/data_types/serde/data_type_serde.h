@@ -26,6 +26,7 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "util/jsonb_document.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -353,6 +354,15 @@ public:
                                     get_name());
     }
 
+    // if jsonb is invalid, return nullptr
+    // if josnb is null json , return nullptr
+    // else return jsonb_value
+    static JsonbValue* handle_jsonb_value(const StringRef& val);
+
+    virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                        const ColumnString& from_column,
+                                                        CastParameters& castParms) const;
+
     Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
                                           CastParameters& castParms) const;
     // Protobuf serializer and deserializer
@@ -440,6 +450,25 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
                                   format_name, column, status.ToString());
     }
     return Status::OK();
+}
+
+inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
+    JsonbDocument* doc = nullptr;
+    if (val.size == 0) {
+        return nullptr;
+    }
+    auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+    if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+        return nullptr;
+    }
+    JsonbValue* value = doc->getValue();
+    if (UNLIKELY(!value)) {
+        return nullptr;
+    }
+    if (value->isNull()) {
+        return nullptr;
+    }
+    return value;
 }
 
 DataTypeSerDeSPtrs create_data_type_serdes(

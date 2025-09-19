@@ -355,6 +355,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 

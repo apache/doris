@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute;
 
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -80,7 +81,7 @@ public class DistributePlanner {
 
     /** plan */
     public FragmentIdMapping<DistributedPlan> plan() {
-        updateProfileIfPresent(SummaryProfile::setQueryPlanFinishTime);
+        updateProfileIfPresent(profile -> profile.setQueryPlanFinishTime(TimeUtils.getStartTimeMs()));
         try {
             BackendDistributedPlanWorkerManager workerManager = new BackendDistributedPlanWorkerManager(
                             statementContext.getConnectContext(), notNeedBackend, isLoadJob);

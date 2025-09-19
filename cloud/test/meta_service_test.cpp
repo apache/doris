@@ -100,7 +100,8 @@ std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr) {
     auto rs = mock_resource_mgr ? std::make_shared<MockResourceManager>(txn_kv)
                                 : std::make_shared<ResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -122,7 +123,8 @@ std::unique_ptr<MetaServiceProxy> get_fdb_meta_service() {
     }
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl);
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot);
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
@@ -2865,8 +2867,9 @@ TEST(MetaServiceTest, CheckTxnConflictWithAbortLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     const int64_t db_id = 666;
     const int64_t table_id = 777;
@@ -2961,8 +2964,9 @@ TEST(MetaServiceTest, CleanTxnLabelTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     // clean txn label by db_id and label
     {
@@ -3414,8 +3418,9 @@ TEST(MetaServiceTest, GetTxnTest) {
 
     auto rs = std::make_shared<MockResourceManager>(txn_kv);
     auto rl = std::make_shared<RateLimiter>();
-    auto meta_service =
-            std::make_unique<MetaServiceProxy>(std::make_unique<MetaServiceImpl>(txn_kv, rs, rl));
+    auto snapshot = std::make_shared<SnapshotManager>(txn_kv);
+    auto meta_service = std::make_unique<MetaServiceProxy>(
+            std::make_unique<MetaServiceImpl>(txn_kv, rs, rl, snapshot));
 
     {
         int64_t txn_id = -1;
@@ -11827,6 +11832,45 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::CLUSTER_NOT_FOUND);
     }
+}
+
+TEST(MetaServiceTest, CreateTabletIdempotentAndHandlingError) {
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
+    size_t case_num = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("meta_service_test:get_meta_tablet_key_error", [&case_num](auto&& args) {
+        if (++case_num == 3) {
+            auto* code = try_any_cast<TxnErrorCode*>(args[0]);
+            *code = TxnErrorCode::TXN_INVALID_DATA;
+        }
+    });
+    sp->enable_processing();
+
+    auto meta_service = get_meta_service();
+    brpc::Controller cntl;
+    CreateTabletsRequest req;
+    CreateTabletsResponse res;
+    int64_t table_id = 100;
+    int64_t index_id = 200;
+    int64_t partition_id = 300;
+    int64_t tablet_id = 400;
+    req.set_db_id(1); // default db_id
+    add_tablet(req, table_id, index_id, partition_id, tablet_id);
+    // normal create
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // idempotent
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    // error handling
+    meta_service->create_tablets(&cntl, &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::KV_TXN_GET_ERR);
 }
 
 } // namespace doris::cloud

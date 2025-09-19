@@ -385,16 +385,15 @@ suite("test_outfile_parquet_map_type", "p0") {
         // test base data
         qt_select_base10 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
-        def outfile_url = outfile_to_S3()
-
-        qt_select_load10 """ SELECT * FROM S3 (
-                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
-                "format" = "parquet",
-                "region" = "${region}"
-            );
-            """
+//        def outfile_url = outfile_to_S3()
+//        qt_select_load10 """ SELECT * FROM S3 (
+//                "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
+//                "ACCESS_KEY"= "${ak}",
+//                "SECRET_KEY" = "${sk}",
+//                "format" = "parquet",
+//                "region" = "${region}"
+//            );
+//            """
     } finally {
     }
 

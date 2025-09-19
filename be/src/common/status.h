@@ -300,7 +300,7 @@ namespace ErrorCode {
     E(INVALID_TABLET_STATE, -7211, false);                   \
     E(ROWSETS_EXPIRED, -7311, false);                        \
     E(CGROUP_ERROR, -7411, false);                           \
-    E(FATAL_ERROR, -7412, false);
+    E(FATAL_ERROR, -7412, true);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;

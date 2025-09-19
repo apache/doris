@@ -258,7 +258,7 @@ public:
                get_null_map_column().is_exclusive();
     }
 
-    bool only_null() const override { return size() == 1 && is_null_at(0); }
+    bool only_null() const override;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }
@@ -304,39 +304,11 @@ public:
         }
     }
 
+    void replace_float_special_values() override { _nested_column->replace_float_special_values(); }
+
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         _nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
-    }
-
-    double get_ratio_of_default_rows(double sample_ratio) const override {
-        if (sample_ratio <= 0.0 || sample_ratio > 1.0) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid sample_ratio {}",
-                                   sample_ratio);
-        }
-        static constexpr auto MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH = 1000;
-        size_t num_rows = size();
-        size_t num_sampled_rows = std::min(
-                static_cast<size_t>(static_cast<double>(num_rows) * sample_ratio), num_rows);
-        size_t num_checked_rows = 0;
-        size_t res = 0;
-        if (num_sampled_rows == num_rows || num_rows <= MAX_NUMBER_OF_ROWS_FOR_FULL_SEARCH) {
-            for (size_t i = 0; i < num_rows; ++i) {
-                res += is_null_at(i);
-            }
-            num_checked_rows = num_rows;
-        } else if (num_sampled_rows != 0) {
-            for (size_t i = 0; i < num_rows; ++i) {
-                if (num_checked_rows * num_rows <= i * num_sampled_rows) {
-                    res += is_null_at(i);
-                    ++num_checked_rows;
-                }
-            }
-        }
-        if (num_checked_rows == 0) {
-            return 0.0;
-        }
-        return static_cast<double>(res) / static_cast<double>(num_checked_rows);
     }
 
     void convert_dict_codes_if_necessary() override {

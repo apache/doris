@@ -42,6 +42,11 @@ WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 WalWriter::~WalWriter() {}
 
 Status determine_wal_fs(int64_t db_id, int64_t tb_id, io::FileSystemSPtr& fs) {
+    if (!config::enable_wal_tde) {
+        fs = io::global_local_filesystem();
+        return Status::OK();
+    }
+
 #ifndef BE_TEST
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
     TGetTableTDEInfoRequest req;

@@ -437,6 +437,13 @@ std::string system_meta_service_encryption_key_info_key();
 namespace versioned {
 
 // clang-format off
+std::string version_key_prefix(std::string_view instance_id);
+std::string index_key_prefix(std::string_view instance_id);
+std::string stats_key_prefix(std::string_view instance_id);
+std::string meta_key_prefix(std::string_view instance_id);
+std::string data_key_prefix(std::string_view instance_id);
+std::string log_key_prefix(std::string_view instance_id);
+
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
 
@@ -448,6 +455,7 @@ static inline std::string partition_index_key(const PartitionIndexKeyInfo& in) {
 
 void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::string* out);
 static inline std::string partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in) { std::string s; partition_inverted_index_key(in, &s); return s; }
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id, int64_t* partition_id);
 
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out);
 static inline std::string tablet_index_key(const TabletIndexKeyInfo& in) { std::string s; tablet_index_key(in, &s); return s; }

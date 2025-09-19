@@ -95,6 +95,11 @@ struct JsonbCast {
             return CastToBool::from_decimal(vectorized::Decimal256 {val}, to, precision, scale,
                                             params);
         }
+        case JsonbType::T_String: {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            StringRef str_ref {blob->getBlob(), blob->getBlobLen()};
+            return CastToBool::from_string(str_ref, to, params);
+        }
         default: {
             return false;
         }
@@ -166,6 +171,11 @@ struct JsonbCast {
             return CastToInt::from_decimal(vectorized::Decimal256 {val}, precision, scale, to,
                                            params);
         }
+        case JsonbType::T_String: {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            StringRef str_ref {blob->getBlob(), blob->getBlobLen()};
+            return CastToInt::from_string(str_ref, to, params);
+        }
         default: {
             return false;
         }
@@ -228,6 +238,11 @@ struct JsonbCast {
             auto val = jsonb_value->unpack<JsonbDecimal256>()->val();
             UInt32 scale = jsonb_value->unpack<JsonbDecimal256>()->scale;
             return CastToFloat::from_decimal(vectorized::Decimal256 {val}, scale, to, params);
+        }
+        case JsonbType::T_String: {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            StringRef str_ref {blob->getBlob(), blob->getBlobLen()};
+            return CastToFloat::from_string(str_ref, to, params);
         }
         default: {
             return false;
@@ -299,6 +314,11 @@ struct JsonbCast {
             UInt32 from_scale = jsonb_value->unpack<JsonbDecimal256>()->scale;
             return CastToDecimal::from_decimalv3(val, from_precision, from_scale, to, to_precision,
                                                  to_scale, params);
+        }
+        case JsonbType::T_String: {
+            const auto* blob = jsonb_value->unpack<JsonbBinaryVal>();
+            StringRef str_ref {blob->getBlob(), blob->getBlobLen()};
+            return CastToDecimal::from_string(str_ref, to, to_precision, to_scale, params);
         }
         default: {
             return false;
