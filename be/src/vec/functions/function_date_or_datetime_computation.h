@@ -1721,9 +1721,55 @@ public:
                     std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};      \
         }                                                                                          \
     };
+struct AddTimeImpl {
+    static constexpr auto name = "add_time";
+};
 
-ADD_TIME_FUNCTION(AddTimeImpl, add_time);
-ADD_TIME_FUNCTION(SubTimeImpl, sub_time);
+struct SubTimeImpl {
+    static constexpr auto name = "sub_time";
+};
+
+template <PrimitiveType PType, typename Impl>
+struct TimeComputeImpl {
+    static constexpr auto name = Impl::name;
+    static constexpr PrimitiveType ReturnType = PType;
+    static constexpr PrimitiveType ArgType1 = PType;
+    static constexpr PrimitiveType ArgType2 = TYPE_TIMEV2;
+    using ColumnType1 = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using ColumnType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::ColumnType;
+    using InputType1 = typename PrimitiveTypeTraits<PType>::DataType::FieldType;
+    using InputType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType::FieldType;
+    using ReturnNativeType = InputType1;
+    using ReturnDataType = typename PrimitiveTypeTraits<PType>::DataType;
+    ReturnNativeType execute(const InputType1& arg1, const InputType2& arg2) {
+        if constexpr (PType == TYPE_DATETIMEV2) {
+            DateV2Value<DateTimeV2ValueType> dtv1 =
+                    binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
+            auto tv2 = static_cast<TimeValue::TimeType>(arg2);
+            bool neg = std::string_view(name) == "sub_time";
+            TimeInterval interval(TimeUnit::MICROSECOND, tv2, neg);
+            bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
+            if (!out_range) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "datetime value is out of range in function {}", name);
+            }
+            return binary_cast<DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(dtv1);
+        } else if constexpr (PType == TYPE_TIMEV2) {
+            auto tv1 = static_cast<TimeValue::TimeType>(arg1);
+            auto tv2 = static_cast<TimeValue::TimeType>(arg2);
+            bool neg = std::string_view(name) == "sub_time";
+            double res = TimeValue::limit_with_bound(neg ? tv1 - tv2 : tv1 + tv2);
+            return res;
+        } else {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "not support type for function {}", name);
+        }
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
+    }
+};
 
 template <typename Transform>
 class FunctionAddTime : public IFunction {
