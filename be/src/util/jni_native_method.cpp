@@ -19,6 +19,8 @@
 
 #include <stdlib.h>
 
+#include <vector>
+
 #include "jni.h"
 #include "vec/columns/column_string.h"
 
@@ -26,7 +28,7 @@ namespace doris {
 
 jlong JavaNativeMethods::resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr,
                                             jint length) {
-    auto column = reinterpret_cast<vectorized::ColumnString::Chars*>(columnAddr);
+    auto* column = reinterpret_cast<vectorized::ColumnString::Chars*>(columnAddr);
     column->resize(length);
     return reinterpret_cast<jlong>(column->data());
 }
@@ -37,6 +39,83 @@ jlong JavaNativeMethods::memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes) {
 
 void JavaNativeMethods::memoryFree(JNIEnv* env, jclass clazz, jlong address) {
     free(reinterpret_cast<void*>(address));
+}
+
+jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintArray sizes) {
+    if (sizes == nullptr) {
+        return env->NewLongArray(0);
+    }
+    jsize n = env->GetArrayLength(sizes);
+    if (n <= 0) {
+        return env->NewLongArray(0);
+    }
+
+    jint* elems = env->GetIntArrayElements(sizes, nullptr);
+    if (elems == nullptr) {
+        return nullptr; // OOM
+    }
+
+    jlongArray result = env->NewLongArray(n);
+    if (result == nullptr) {
+        env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
+        return nullptr;
+    }
+
+    std::vector<void*> allocated;
+    allocated.reserve(n);
+
+    bool failed = false;
+    for (jsize i = 0; i < n; ++i) {
+        jint sz = elems[i];
+        if (sz <= 0) {
+            allocated.push_back(nullptr);
+            continue;
+        }
+        void* p = malloc(static_cast<size_t>(sz));
+        if (p == nullptr) {
+            failed = true;
+            break;
+        }
+        allocated.push_back(p);
+    }
+
+    if (failed) {
+        for (void* p : allocated) {
+            if (p != nullptr) {
+                free(p);
+            }
+        }
+        env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
+        return nullptr;
+    }
+
+    std::vector<jlong> addrs(n);
+    for (jsize i = 0; i < n; ++i) {
+        addrs[i] = reinterpret_cast<jlong>(allocated[i]);
+    }
+    env->SetLongArrayRegion(result, 0, n, addrs.data());
+    env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
+    return result;
+}
+
+void JavaNativeMethods::memoryFreeBatch(JNIEnv* env, jclass clazz, jlongArray addrs) {
+    if (addrs == nullptr) {
+        return;
+    }
+    jsize n = env->GetArrayLength(addrs);
+    if (n <= 0) {
+        return;
+    }
+    jlong* elems = env->GetLongArrayElements(addrs, nullptr);
+    if (elems == nullptr) {
+        return;
+    }
+    for (jsize i = 0; i < n; ++i) {
+        if (elems[i] != 0) {
+            free(reinterpret_cast<void*>(elems[i]));
+        }
+    }
+    env->ReleaseLongArrayElements(addrs, elems, JNI_ABORT);
 }
 
 } // namespace doris

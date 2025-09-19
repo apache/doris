@@ -597,6 +597,10 @@ Status JniUtil::Init() {
     std::string memory_alloc_sign = "(J)J";
     std::string memory_free_name = "memoryTrackerFree";
     std::string memory_free_sign = "(J)V";
+    std::string memory_alloc_batch_name = "memoryTrackerMallocBatch";
+    std::string memory_alloc_batch_sign = "([I)[J";
+    std::string memory_free_batch_name = "memoryTrackerFreeBatch";
+    std::string memory_free_batch_sign = "([J)V";
     static JNINativeMethod java_native_methods[] = {
             {const_cast<char*>(resize_column_name.c_str()),
              const_cast<char*>(resize_column_sign.c_str()),
@@ -605,6 +609,12 @@ Status JniUtil::Init() {
              const_cast<char*>(memory_alloc_sign.c_str()), (void*)&JavaNativeMethods::memoryMalloc},
             {const_cast<char*>(memory_free_name.c_str()),
              const_cast<char*>(memory_free_sign.c_str()), (void*)&JavaNativeMethods::memoryFree},
+            {const_cast<char*>(memory_alloc_batch_name.c_str()),
+             const_cast<char*>(memory_alloc_batch_sign.c_str()),
+             (void*)&JavaNativeMethods::memoryMallocBatch},
+            {const_cast<char*>(memory_free_batch_name.c_str()),
+             const_cast<char*>(memory_free_batch_sign.c_str()),
+             (void*)&JavaNativeMethods::memoryFreeBatch},
     };
 
     int res = env->RegisterNatives(jni_native_method_exc_cl_, java_native_methods,
