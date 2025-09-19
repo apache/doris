@@ -37,7 +37,7 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
-    RETURN_IF_ERROR(_sparse_column_reader->seek_to_ordinal(ord));
+    RETURN_IF_ERROR(_shared_column_cache->seek_to_ordinal(ord));
     for (auto& entry : _src_subcolumns_for_sparse) {
         RETURN_IF_ERROR(entry->data.iterator->seek_to_ordinal(ord));
     }
@@ -45,7 +45,7 @@ Status SparseColumnMergeIterator::seek_to_ordinal(ordinal_t ord) {
 }
 
 Status SparseColumnMergeIterator::init(const ColumnIteratorOptions& opts) {
-    RETURN_IF_ERROR(_sparse_column_reader->init(opts));
+    RETURN_IF_ERROR(_shared_column_cache->init(opts));
     for (auto& entry : _src_subcolumns_for_sparse) {
         entry->data.serde = entry->data.type->get_serde();
         RETURN_IF_ERROR(entry->data.iterator->init(opts));
