@@ -24,8 +24,6 @@ suite ("agg_table_mv") {
 
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS orders_agg; """
-    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
-    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
 
     sql """
         CREATE TABLE `orders_agg` (

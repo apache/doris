@@ -273,7 +273,7 @@ suite("agg_sync_mv") {
 
     qt_select_stddev_pop """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync41 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync41 as select id as g1, stddev_pop(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync41 as select id as g1, stddev_pop(kint) as yy1 from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, stddev_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync40", "mv_sync41"])
     qt_select_stddev_pop_mv """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
 
