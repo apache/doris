@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
@@ -38,7 +37,6 @@ import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -68,7 +66,6 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 
 /*
@@ -200,38 +197,6 @@ public class Repository implements Writable, GsonPostProcessable {
 
     public static Repository read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), Repository.class);
-    }
-
-    //todo why only support alter S3 properties
-    public Status alterRepositoryS3Properties(Map<String, String> properties) {
-        if (this.fileSystem instanceof S3FileSystem) {
-            Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
-            oldProperties.remove(S3Properties.ACCESS_KEY);
-            oldProperties.remove(S3Properties.SECRET_KEY);
-            oldProperties.remove(S3Properties.SESSION_TOKEN);
-            oldProperties.remove(S3Properties.Env.ACCESS_KEY);
-            oldProperties.remove(S3Properties.Env.SECRET_KEY);
-            oldProperties.remove(S3Properties.Env.TOKEN);
-            for (Map.Entry<String, String> entry : properties.entrySet()) {
-                if (Objects.equals(entry.getKey(), S3Properties.ACCESS_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.ACCESS_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.ACCESS_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SECRET_KEY)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.SECRET_KEY)) {
-                    oldProperties.putIfAbsent(S3Properties.SECRET_KEY, entry.getValue());
-                }
-                if (Objects.equals(entry.getKey(), S3Properties.SESSION_TOKEN)
-                        || Objects.equals(entry.getKey(), S3Properties.Env.TOKEN)) {
-                    oldProperties.putIfAbsent(S3Properties.SESSION_TOKEN, entry.getValue());
-                }
-            }
-            properties.clear();
-            properties.putAll(oldProperties);
-            return Status.OK;
-        } else {
-            return new Status(ErrCode.COMMON_ERROR, "Only support alter s3 repository");
-        }
     }
 
     @Override

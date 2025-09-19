@@ -873,6 +873,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         idToPartition.remove(partitionId);
         idToRecycleTime.remove(partitionId);
 
+        if (!Env.getCurrentEnv().invalidCacheForCloud()) {
+            long version = table.getNextVersion();
+            table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
+        }
+
         // log
         RecoverInfo recoverInfo = new RecoverInfo(dbId, table.getId(), partitionId, "",
                                                     table.getName(), "", partitionName, newPartitionName);
@@ -884,6 +889,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId,
                                                     String newPartitionName) throws DdlException {
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
+        Env currentEnv = Env.getCurrentEnv();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
             RecyclePartitionInfo recyclePartitionInfo = entry.getValue();
@@ -916,6 +922,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
+
+            if (!currentEnv.invalidCacheForCloud()) {
+                long version = table.getNextVersion();
+                table.updateVisibleVersionAndTime(version, System.currentTimeMillis());
+            }
 
             LOG.info("replay recover partition[{}]", partitionId);
             break;

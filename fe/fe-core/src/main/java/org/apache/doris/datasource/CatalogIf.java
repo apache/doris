@@ -18,7 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -34,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -204,8 +204,8 @@ public interface CatalogIf<T extends DatabaseIf> {
         throw new UnsupportedOperationException("Not support rename table operation");
     }
 
-    void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql)
+    void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                       String rawTruncateSql)
             throws DdlException;
 
     // Convert from remote database name to local database name, overridden by subclass if necessary

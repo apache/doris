@@ -1156,7 +1156,7 @@ Status OrcReader::set_fill_columns(
         _row_reader_options.setEnableLazyDecoding(true);
 
         //orc reader should not use the tiny stripe optimization when reading by row id.
-        if (!_read_line_mode_mode) {
+        if (!_read_by_rows) {
             uint64_t number_of_stripes = _reader->getNumberOfStripes();
             auto all_stripes_needed = _reader->getNeedReadStripes(_row_reader_options);
 
@@ -1927,7 +1927,7 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    RETURN_IF_ERROR(_get_next_block_impl(block, read_rows, eof));
     if (*eof) {
         COUNTER_UPDATE(_orc_profile.selected_row_group_count,
                        _reader_metrics.SelectedRowGroupCount);
@@ -1946,7 +1946,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     return Status::OK();
 }
 
-Status OrcReader::get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
+Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eof) {
     if (_io_ctx && _io_ctx->should_stop) {
         *eof = true;
         *read_rows = 0;

@@ -18,7 +18,7 @@
 package org.apache.doris.cloud.storage;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.constants.AzureProperties;
+import org.apache.doris.datasource.property.storage.AzureProperties;
 
 import com.azure.core.credential.AccessToken;
 import com.azure.core.credential.TokenCredential;

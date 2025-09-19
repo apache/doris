@@ -144,7 +144,7 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                            tuple_desc->slots().size());
     p_reader->set_row_id_column_iterator(iterator_pair);
     p_reader->set_file_reader(reader);
-    static_cast<void>(p_reader->set_read_lines_mode(read_lines));
+    static_cast<void>(p_reader->read_by_rows(read_lines));
 
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);

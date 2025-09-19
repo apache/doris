@@ -59,7 +59,7 @@ public abstract class GreatestLeast extends ScalarFunction
         List<DataType> forFindCommon = partitioned.get(false).stream()
                 .map(ExpressionTrait::getDataType)
                 .collect(Collectors.toList());
-        Optional<DataType> commonType = TypeCoercionUtils.findWiderCommonTypeByVariable(forFindCommon, false);
+        Optional<DataType> commonType = TypeCoercionUtils.findWiderCommonTypeByVariable(forFindCommon, false, false);
         if (!commonType.isPresent()) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
@@ -69,7 +69,7 @@ public abstract class GreatestLeast extends ScalarFunction
                         ((Literal) stringLiteral).getStringValue(), commonType.get());
                 if (!option.isPresent()) {
                     commonType = TypeCoercionUtils.findWiderTypeForTwo(
-                            commonType.get(), stringLiteral.getDataType(), false);
+                            commonType.get(), stringLiteral.getDataType(), false, false);
                     if (!commonType.isPresent()) {
                         SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
                     } else {

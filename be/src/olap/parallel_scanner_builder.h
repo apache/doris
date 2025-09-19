@@ -66,6 +66,8 @@ public:
 
     void set_optimize_index_scan_parallelism(bool v) { _optimize_index_scan_parallelism = v; }
 
+    const OlapReaderStatistics* builder_stats() const { return &_builder_stats; }
+
 private:
     Status _load();
 
@@ -96,6 +98,7 @@ private:
     bool _optimize_index_scan_parallelism {false};
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
+    OlapReaderStatistics _builder_stats;
     RuntimeState* _state;
     int64_t _limit;
     bool _is_dup_mow_key;

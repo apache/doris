@@ -116,6 +116,7 @@ Status VariantColumnReader::_create_hierarchical_reader(ColumnIteratorUPtr* read
                                                         const SubcolumnColumnMetaInfo::Node* root,
                                                         ColumnReaderCache* column_reader_cache,
                                                         OlapReaderStatistics* stats) {
+    stats->variant_subtree_hierarchical_iter_count++;
     // Node contains column with children columns or has correspoding sparse columns
     // Create reader with hirachical data.
     std::unique_ptr<SubstreamIterator> sparse_iter;
@@ -378,7 +379,9 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
         DCHECK(opt);
         // Sparse column exists or reached sparse size limit, read sparse column
         *iterator = std::make_unique<SparseColumnExtractIterator>(
-                relative_path.get_path(), std::move(inner_iter), nullptr, *target_col);
+                relative_path.get_path(), std::move(inner_iter),
+                const_cast<StorageReadOptions*>(opt), *target_col);
+        opt->stats->variant_subtree_sparse_iter_count++;
         return Status::OK();
     }
 
@@ -392,6 +395,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
             RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
                     col_uid, leaf_node->path, &leaf_column_reader, opt->stats, leaf_node));
             RETURN_IF_ERROR(leaf_column_reader->new_iterator(iterator, nullptr));
+            opt->stats->variant_subtree_leaf_iter_count++;
         } else {
             RETURN_IF_ERROR(_create_hierarchical_reader(iterator, col_uid, relative_path, node,
                                                         root, column_reader_cache, opt->stats));
@@ -399,6 +403,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
     } else {
         // Sparse column not exists and not reached stats limit, then the target path is not exist, get a default iterator
         RETURN_IF_ERROR(Segment::new_default_iterator(*target_col, iterator));
+        opt->stats->variant_subtree_default_iter_count++;
     }
     return Status::OK();
 }

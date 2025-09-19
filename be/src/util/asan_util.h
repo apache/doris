@@ -22,17 +22,20 @@
 class AsanPoisonGuard {
 #ifdef ADDRESS_SANITIZER
 public:
-    // Poison the memory region to prevent accidental access
-    // during the lifetime of this object.
+    // Poison the memory region to prevent accidental access during the lifetime of this object.
     AsanPoisonGuard(const void* start, size_t len) : start(start), len(len) {
-        ASAN_POISON_MEMORY_REGION(start, len);
+        //FIXME: now it may cause some false-positive, need to find a way to fix it. maybe ASAN_UNPOISON_MEMORY_REGION
+        // didn't clean the same memory as ASAN_POISON_MEMORY_REGION
+        // ASAN_POISON_MEMORY_REGION(start, len);
     }
     // Unpoison the memory region when this object goes out of scope.
-    ~AsanPoisonGuard() { ASAN_UNPOISON_MEMORY_REGION(start, len); }
+    ~AsanPoisonGuard() {
+        // ASAN_UNPOISON_MEMORY_REGION(start, len);
+    }
 
 private:
-    const void* start;
-    size_t len;
+    const void* start [[maybe_unused]];
+    size_t len [[maybe_unused]];
 #else
 public:
     // No-op for platforms without ASAN_DEFINE_REGION_MACROS

@@ -1033,7 +1033,9 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     GlobalVariable.ENABLE_NEW_TYPE_COERCION_BEHAVIOR,
                     String.valueOf(false));
-
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_SQL_CACHE,
+                    String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
