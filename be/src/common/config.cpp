@@ -1598,6 +1598,8 @@ DEFINE_mBool(print_stack_when_cache_miss, "false");
 
 DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
+DEFINE_mInt64(rowid_conversion_max_bytes, "-1");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
