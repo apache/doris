@@ -29,6 +29,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
@@ -163,6 +164,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::TIMEV2;
     case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
         return PGenericType::FIXEDLENGTHOBJECT;
+    case doris::PrimitiveType::TYPE_VARBINARY:
+        return PGenericType::VARBINARY;
     default:
         break;
     }
