@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.fs.SchemaTypeMapper;
 
 import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
@@ -30,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -146,19 +148,66 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @throws RuntimeException if no supported storage type is found
      */
     public static StorageProperties createPrimary(Map<String, String> origProps) {
-        for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
-            StorageProperties p = func.apply(origProps);
-            if (p != null) {
-                p.initNormalizeAndCheckProps();
-                p.initializeHadoopStorageConfig();
-                return p;
+        StorageProperties p = createPrimaryInternal(origProps);
+        if (p == null) {
+            for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
+                p = func.apply(origProps);
+                if (p != null) {
+                    break;
+                }
             }
+        }
+        if (p != null) {
+            p.initNormalizeAndCheckProps();
+            p.initializeHadoopStorageConfig();
+            return p;
         }
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
+    private static StorageProperties createPrimaryInternal(Map<String, String> origProps) {
+        String provider = origProps.get(FS_PROVIDER_KEY);
+        if (provider == null) {
+            return null;
+        }
+
+        try {
+            Type type = Type.valueOf(provider.trim().toUpperCase());
+            switch (type) {
+                case HDFS:
+                    return new HdfsProperties(origProps);
+                case OSS_HDFS:
+                    return new OSSHdfsProperties(origProps);
+                case S3:
+                    return new S3Properties(origProps);
+                case OSS:
+                    return new OSSProperties(origProps);
+                case OBS:
+                    return new OBSProperties(origProps);
+                case COS:
+                    return new COSProperties(origProps);
+                case GCS:
+                    return new GCSProperties(origProps);
+                case AZURE:
+                    return new AzureProperties(origProps);
+                case MINIO:
+                    return new MinioProperties(origProps);
+                case BROKER:
+                    return new BrokerProperties(origProps);
+                case LOCAL:
+                    return new LocalProperties(origProps);
+                default:
+                    return null;
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =
             Arrays.asList(
+                    props -> (isFsSupport(props, FS_HDFS_SUPPORT)
+                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null,
                     props -> ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
                             || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
                             || OSSHdfsProperties.guessIsMe(props)) ? new OSSHdfsProperties(props) : null,
@@ -179,9 +228,7 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null,
-                    props -> (isFsSupport(props, FS_HDFS_SUPPORT)
-                            || HdfsProperties.guessIsMe(props)) ? new HdfsProperties(props) : null
+                            || LocalProperties.guessIsMe(props)) ? new LocalProperties(props) : null
             );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
