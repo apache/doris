@@ -222,7 +222,7 @@ std::string txn_key_prefix(std::string_view instance_id) {
 
 void txn_label_key(const TxnLabelKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                 // 0x01 "txn" ${instance_id}
-    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_index"
+    encode_bytes(TXN_KEY_INFIX_LABEL, out); // "txn_label"
     encode_int64(std::get<1>(in), out);     // db_id
     encode_bytes(std::get<2>(in), out);     // label
 }
@@ -643,6 +643,36 @@ void partition_inverted_index_key(const PartitionInvertedIndexKeyInfo& in, std::
     encode_int64(std::get<3>(in), out);                    // partition_id
 }
 
+int decode_partition_inverted_index_key(std::string_view* in, int64_t* db_id, int64_t* table_id,
+                                        int64_t* partition_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_VERSIONED_KEY_SPACE03) {
+        return -1;
+    }
+
+    in->remove_prefix(1);
+
+    // 0x03 "index" ${instance_id} "partition_inverted" ${db_id} ${table_id} ${partition}
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 6) {
+        return -1;
+    } else if (auto* ptr = std::get_if<std::string>(&std::get<0>(out[2]));
+               ptr == nullptr || *ptr != PARTITION_INVERTED_INDEX_KEY_INFIX) {
+        return -1;
+    }
+
+    auto* db_id_ptr = std::get_if<int64_t>(&std::get<0>(out[3]));
+    auto* table_id_ptr = std::get_if<int64_t>(&std::get<0>(out[4]));
+    auto* partition_id_ptr = std::get_if<int64_t>(&std::get<0>(out[5]));
+    if (db_id_ptr == nullptr || table_id_ptr == nullptr || partition_id_ptr == nullptr) {
+        return -1;
+    }
+
+    *db_id = *db_id_ptr;
+    *table_id = *table_id_ptr;
+    *partition_id = *partition_id_ptr;
+    return 0;
+}
+
 void tablet_index_key(const TabletIndexKeyInfo& in, std::string* out) {
     out->push_back(CLOUD_VERSIONED_KEY_SPACE03);
     encode_bytes(INDEX_KEY_PREFIX, out);       // "index"
@@ -791,6 +821,16 @@ void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out
     encode_bytes(SNAPSHOT_REFERENCE_KEY_INFIX, out); // "reference"
     encode_versionstamp(std::get<1>(in), out);       // timestamp
     encode_bytes(std::get<2>(in), out);              // ref_instance_id
+}
+
+std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, &out);          // "snapshot"
+    encode_bytes(instance_id, &out);                  // instance_id
+    encode_bytes(SNAPSHOT_REFERENCE_KEY_INFIX, &out); // "reference"
+    encode_versionstamp(timestamp, &out);             // timestamp
+    return out;
 }
 
 //==============================================================================

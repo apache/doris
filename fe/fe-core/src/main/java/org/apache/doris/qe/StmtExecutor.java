@@ -22,8 +22,6 @@ import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
@@ -52,7 +50,6 @@ import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -596,7 +593,8 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (context.getSessionVariable().enableProfile) {
+        // short circuit query should not dump changed session var since it will impact the performance.
+        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -734,7 +732,7 @@ public class StmtExecutor {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
             handleQueryWithRetry(queryId);
         }
     }
@@ -916,6 +914,12 @@ public class StmtExecutor {
             return false;
         }
 
+        // If the query is short circuit, we should not update the profile,
+        // which will impact the performance of the short circuit query.
+        if (statementContext.isShortCircuitQuery()) {
+            return false;
+        }
+
         LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
         if (plan instanceof InsertIntoTableCommand) {
@@ -963,12 +967,6 @@ public class StmtExecutor {
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
                 forward.afterForwardToMaster(context);
-            }
-        } else if (parsedStmt instanceof SetStmt) {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            setStmt.modifySetVarsForExecute();
-            for (SetVar var : setStmt.getSetVars()) {
-                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
             }
         }
     }
@@ -1087,39 +1085,12 @@ public class StmtExecutor {
      * Handle the SelectStmt via Cache.
      */
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
-        InternalService.PFetchCacheResult cacheResult = null;
-        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
-                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
-        try {
-            cacheResult = cacheAnalyzer.getCacheData();
-            if (cacheResult == null) {
-                if (ConnectContext.get() != null
-                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
-            }
-        } finally {
-            if (wantToParseSqlForSqlCache) {
-                String originStmt = parsedStmt.getOrigStmt().originStmt;
-                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
-                if (cacheResult != null) {
-                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
-                }
-            }
-        }
-
-        Queriable queryStmt = (Queriable) parsedStmt;
-        boolean isSendFields = false;
-        if (cacheResult != null) {
-            isCached = true;
-            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
-                return;
-            }
-        }
-        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
+        // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
+        // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
+        // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
+        cacheAnalyzer.getCacheData(false);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1238,7 +1209,7 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -1335,7 +1306,7 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
         } catch (QueryTimeoutException e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads

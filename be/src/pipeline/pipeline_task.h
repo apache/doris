@@ -74,7 +74,9 @@ public:
 
     PipelineTask& set_thread_id(int thread_id) {
         _thread_id = thread_id;
-        COUNTER_UPDATE(_core_change_times, 1);
+        if (thread_id != _thread_id) {
+            COUNTER_UPDATE(_core_change_times, 1);
+        }
         return *this;
     }
 

@@ -659,5 +659,18 @@ Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& col
     return _from_string<true>(str, column, options);
 }
 
+void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
+                                    BufferWritable& bw) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(", ", 2);
+        }
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
+    }
+    bw.write("}", 1);
+}
+
 } // namespace vectorized
 } // namespace doris

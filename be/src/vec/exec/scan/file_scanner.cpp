@@ -965,9 +965,6 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
-        // JNI reader can only push down column value range
-        bool push_down_predicates =
-                !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -984,6 +981,8 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
+        // JNI reader can only push down column value range
+        bool push_down_predicates = !_is_load && format_type != TFileFormatType::FORMAT_JNI;
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
@@ -1403,7 +1402,7 @@ Status FileScanner::_generate_truncate_columns(bool need_to_get_parsed_schema) {
         if (!status.ok() && status.code() != TStatusCode::NOT_IMPLEMENTED_ERROR) {
             return status;
         }
-        DCHECK(source_file_col_names.size() == source_file_col_types.size());
+        DCHECK_EQ(source_file_col_names.size(), source_file_col_types.size());
         for (int i = 0; i < source_file_col_names.size(); ++i) {
             _source_file_col_name_types[to_lower(source_file_col_names[i])] =
                     source_file_col_types[i];
@@ -1458,7 +1457,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                                     const_cast<cctz::time_zone*>(&_state->timezone_obj()),
                                     _io_ctx.get(), _state, file_meta_cache_ptr, false);
 
-                    RETURN_IF_ERROR(parquet_reader->set_read_lines_mode(row_ids));
+                    RETURN_IF_ERROR(parquet_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(
                             _init_parquet_reader(std::move(parquet_reader), file_meta_cache_ptr));
                     break;
@@ -1469,7 +1468,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                                     _profile, _state, *_params, range, 1, _state->timezone(),
                                     _io_ctx.get(), file_meta_cache_ptr, false);
 
-                    RETURN_IF_ERROR(orc_reader->set_read_lines_mode(row_ids));
+                    RETURN_IF_ERROR(orc_reader->read_by_rows(row_ids));
                     RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
                     break;
                 }

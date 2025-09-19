@@ -53,7 +53,15 @@ suite("test_paimon_dlf_catalog", "p2,external,paimon,external_remote,external_re
         qt_c1 """ select * from tb_simple order by id """
         sql """set force_jni_scanner=true"""
         qt_c2 """ select * from tb_simple order by id """
-
+        // 3.1 new features
+        // batch incremental
+        sql """SELECT * FROM tb_simple @incr('startTimestamp'='876488912')"""
+        // time travel
+        sql """SELECT * FROM tb_simple FOR VERSION AS OF 1;"""
+        // branch/tag
+        // TODO(zgx): add branch/tag
+        // system table
+        sql """SELECT * FROM tb_simple\$snapshots;"""
     } finally {
         sql """set force_jni_scanner=false"""
     }

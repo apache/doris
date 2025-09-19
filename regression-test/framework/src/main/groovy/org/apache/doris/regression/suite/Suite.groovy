@@ -22,7 +22,6 @@ import com.amazonaws.auth.BasicAWSCredentials
 import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
-
 import com.google.common.base.Strings
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
@@ -34,8 +33,6 @@ import com.google.gson.Gson
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
-
-import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
@@ -43,6 +40,7 @@ import org.apache.doris.regression.action.FlightRecordAction
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.action.WaitForAction
+import org.apache.doris.regression.util.GlobalLock
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
@@ -59,6 +57,7 @@ import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
 import org.apache.hadoop.fs.FileSystem
+import org.awaitility.Awaitility
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
@@ -943,11 +942,14 @@ class Suite implements GroovyInterceptable {
         return randomBoolean ? "true" : "false"
     }
 
-    void expectExceptionLike(Closure userFunction, String errMsg = null) {
+    void expectExceptionLike(Closure userFunction, String errMsg = null, String errMsg2 = null) {
         try {
             userFunction()
         } catch (Exception e) {
             if (!Strings.isNullOrEmpty(errMsg) && !e.getMessage().contains(errMsg)) {
+                throw e
+            }
+            if (!Strings.isNullOrEmpty(errMsg2) && !e.getMessage().contains(errMsg2)) {
                 throw e
             }
         }
@@ -1850,6 +1852,11 @@ class Suite implements GroovyInterceptable {
             logger.info("partition status is not expected")
         }
         Assert.assertEquals(expectedStatus, status)
+
+        // in cloud mode, the partition maybe update visible time after a few hundred milliseconds,
+        // so we should sleep 1 seconds to let sql cache use the new partition's data
+        JdbcUtils.executeToList(context.getConn(), "sync")
+        sleep(1000)
     }
 
     void waitingMTMVTaskFinished(String jobName) {
@@ -2051,7 +2058,7 @@ class Suite implements GroovyInterceptable {
             logger.info("frontends ${frontends}")
             boolean matched = false
             String expcetedFE = "${host}:${port}"
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 logger.info("checking fe ${frontend}, expectedFe ${expcetedFE}")
                 if (frontend.equals(expcetedFE)) {
                     matched = true;
@@ -2066,7 +2073,7 @@ class Suite implements GroovyInterceptable {
         awaitUntil(60, 0.1) {
             def frontends = getFrontendIpEditlogPort()
             boolean matched = false
-            for (frontend: frontends) {
+            for (def frontend : frontends) {
                 if (frontend == "$host:$port") {
                     matched = true
                 }
@@ -2620,7 +2627,7 @@ class Suite implements GroovyInterceptable {
 
     def token = context.config.metaServiceToken
     def instance_id = context.config.multiClusterInstance
-    def get_be_metric = { ip, port, field ->
+    def get_be_metric = { ip, port, field, type="" ->
         def metric_api = { request_body, check_func ->
             httpTest {
                 endpoint ip + ":" + port
@@ -2641,8 +2648,9 @@ class Suite implements GroovyInterceptable {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
-                for (item : json) {
-                    if (item.tags.metric == field) {
+                for (def item : json) {
+                    if (item.tags.metric == field && (type.isEmpty() || type == item.tags.type)) {
+                        log.info("get be metric resp: ${item}".toString())
                         ret = item.value
                     }
                 }
@@ -2949,14 +2957,14 @@ class Suite implements GroovyInterceptable {
 
     def checkProfile = { addrSet, fragNum ->
         List<List<Object>> profileRes = sql " show query profile '/' "
-        for (row : profileRes) {
+        for (def row : profileRes) {
             //println row
         }
 
         for (int i = 0; i < fragNum; ++i) {
             String exec_sql = "show query profile '/" + profileRes[0][0] + "/" + i.toString() + "'"
             List<List<Object>> result = sql exec_sql
-            for (row : result) {
+            for (def row : result) {
                 println row
             }
 
@@ -2966,11 +2974,13 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def checkProfileNew = { addrSet  ->
+    def checkProfileNew = { fe, addrSet, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/rest/v1/query_profile"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
@@ -2979,65 +2989,66 @@ class Suite implements GroovyInterceptable {
 
         query_profile_api.call() {
             respCode, body ->
-                log.info("query profile resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.msg.equalsIgnoreCase("success"))
-                log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+                log.info("lw query profile resp json : ${json}".toString())
                 log.info("lw query profile resp: ${json.data.rows[0]['Profile ID']}".toString())
-                checkProfileNew1.call(addrSet, json.data.rows[0]['Profile ID'])
+                checkProfileByQueryId.call(fe, addrSet, json.data.rows[0]['Profile ID'], shouldContain)
         }
     }
 
-    def checkProfileNew1 = {addrSet, query_id  ->
+    def checkProfileByQueryId = { fe, addrSet, query_id, shouldContain = true ->
+        //def fe = cluster.getAllFrontends().get(0)
+        def feEndPoint = fe.host + ":" + fe.httpPort
         def query_profile_api = { check_func ->
             httpTest {
                 op "get"
-                endpoint context.config.feHttpAddress
+                endpoint feEndPoint
                 uri "/api/profile?query_id=${query_id}"
                 check check_func
                 basicAuthorization "${context.config.feCloudHttpUser}","${context.config.feCloudHttpPassword}"
             }
         }
 
-        query_profile_api.call() {
-            respCode, body ->
-                //log.info("query profile resp: ${body} ${respCode}".toString())
-                def json = parseJson(body)
-                assertTrue(json.msg.equalsIgnoreCase("success"))
-                //log.info("lw query profile resp: ${json.data.rows[0]}".toString())
+        query_profile_api.call() { respCode, body ->
+            def json = parseJson(body)
+            assertTrue(json.msg.equalsIgnoreCase("success"))
 
-                def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
-                if (instanceLineMatcher.find()) {
-                    // 提取出IP等信息的部分
-                    def instancesStr = instanceLineMatcher.group(1).trim()
+            def instanceLineMatcher = json =~ /Instances\s+Num\s+Per\s+BE:\s*(.*)/
+            if (instanceLineMatcher.find()) {
+                // Extract the instance string section
+                def instancesStr = instanceLineMatcher.group(1).trim()
+                def instanceEntries = instancesStr.split(/\s*,\s*/)
+                def result = []
 
-                    // 拆分各个实例，实例格式类似 "10.16.10.11:9713:4"
-                    def instanceEntries = instancesStr.split(/\s*,\s*/)
-
-                    // 定义存储解析结果的列表
-                    def result = []
-
-                    // 每个实例使用正则表达式解析IP和端口（忽略最后一个数字）
-                    instanceEntries.each { entry ->
-                        def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
-                        if(matcher.matches()){
-                            def ip = matcher.group(1)
-                            def port = matcher.group(2)
-                            //result << [ip: ip, port: port]
-                            //result << [ip:port]
-                            result.add(ip+":"+port)
-                        }
+                // Parse each instance entry (format like "10.1.1.1:9000:4") and extract IP:port
+                instanceEntries.each { entry ->
+                    def matcher = entry =~ /(\d{1,3}(?:\.\d{1,3}){3}):(\d+):\d+/
+                    if (matcher.matches()) {
+                        def ip = matcher.group(1)
+                        def port = matcher.group(2)
+                        result.add(ip + ":" + port)
                     }
- 
-                    // 输出解析结果
-                    println "提取的IP和端口："
-                    result.each { println it }
-                    addrSet.each { println it }
-                    //result.each { assertTrue(addrSet.contains(it)) }
-                    assertTrue(addrSet.containsAll(result))
-                } else {
-                    println "未找到实例信息。"
                 }
+
+                if (shouldContain) {
+                    // All items in result should exist in addrSet
+                    assertTrue(addrSet.containsAll(result),
+                        "Check failed: Some result addresses are missing in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Missing: ${result.findAll { !addrSet.contains(it) }}")
+                } else {
+                    // No item in result should exist in addrSet
+                    assertTrue(addrSet.intersect(result).isEmpty(),
+                        "Check failed: Some result addresses unexpectedly exist in addrSet.\n" +
+                        "addrSet: ${addrSet}\n" +
+                        "result: ${result}\n" +
+                        "Overlap: ${addrSet.intersect(result)}")
+                }
+            } else {
+                log.info("Instance info not found in profile")
+            }
         }
     }
 
@@ -3343,6 +3354,32 @@ class Suite implements GroovyInterceptable {
         if (sleepSeconds > 0) {
             logger.info("test sleeps ${sleepSeconds} to satisfy ${caseSpanConstraint}")
             Thread.sleep(sleepSeconds * 1000)
+        }
+    }
+
+    void retryUntilHasSqlCache(String sql) {
+        for (int i = 0; i < 120; ++i) {
+            try {
+                this.sql(sql)
+                def (r, _) = JdbcUtils.executeToList(context.getConn(), "explain physical plan " + sql)
+                def explainString = r.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
+                if (explainString.contains("PhysicalSqlCache")) {
+                    return
+                }
+                sleep(1000)
+            } catch (Throwable t) {
+                logger.warn(t.toString(), t)
+            }
+        }
+        throw new IllegalStateException("no sql cache: " + sql)
+    }
+
+    static <T> T withGlobalLock(String lockName, Closure<T> action) {
+        GlobalLock.lock(lockName)
+        try {
+            return action()
+        } finally {
+            GlobalLock.unlock(lockName)
         }
     }
 }

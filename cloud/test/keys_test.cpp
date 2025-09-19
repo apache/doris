@@ -24,8 +24,6 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
-#include <random>
-#include <variant>
 #include <vector>
 
 #include "common/util.h"
@@ -1247,6 +1245,14 @@ TEST(KeysTest, VersionedPartitionInvertedIndexKeyTest) {
         EXPECT_EQ(db_id, decoded_db_id);
         EXPECT_EQ(table_id, decoded_table_id);
         EXPECT_EQ(partition_id, decoded_partition_id);
+
+        key_sv = encoded_partition_inverted_index_key;
+        EXPECT_EQ(decode_partition_inverted_index_key(&key_sv, &decoded_db_id, &decoded_table_id,
+                                                      &decoded_partition_id),
+                  0);
+        EXPECT_EQ(db_id, decoded_db_id);
+        EXPECT_EQ(table_id, decoded_table_id);
+        EXPECT_EQ(partition_id, decoded_partition_id);
     }
 }
 
@@ -1830,6 +1836,30 @@ TEST(KeysTest, VersionedSnapshotReferenceKeyTest) {
         EXPECT_EQ(timestamp.version(), decoded_timestamp.version());
         EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
         EXPECT_EQ(ref_instance_id, decoded_ref_instance_id);
+    }
+
+    {
+        std::string encoded_snapshot_reference_key =
+                snapshot_reference_key_prefix(instance_id, timestamp);
+
+        std::string decoded_snapshot_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_reference_prefix;
+        Versionstamp decoded_timestamp;
+
+        std::string_view key_sv(encoded_snapshot_reference_key);
+        remove_versioned_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_snapshot_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_reference_prefix), 0);
+        ASSERT_EQ(decode_versionstamp(&key_sv, &decoded_timestamp), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("snapshot", decoded_snapshot_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("reference", decoded_reference_prefix);
+        EXPECT_EQ(timestamp.version(), decoded_timestamp.version());
+        EXPECT_EQ(timestamp.order(), decoded_timestamp.order());
     }
 }
 

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "pipeline/dependency.h"
+#include "pipeline/exec/materialization_opertor.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_number.h"
@@ -58,24 +59,6 @@ protected:
     int64_t _backend_id2;
 };
 
-TEST_F(MaterializationSharedStateTest, TestCreateSourceDependency) {
-    // Test creating source dependencies
-    int test_op_id = 100;
-    int test_node_id = 200;
-    std::string test_name = "TEST";
-
-    auto* dep = _shared_state->create_source_dependency(test_op_id, test_node_id, test_name);
-
-    // Verify the dependency was created correctly
-    ASSERT_NE(dep, nullptr);
-    EXPECT_EQ(dep->id(), test_op_id);
-    EXPECT_EQ(dep->name(), test_name + "_DEPENDENCY");
-
-    // Verify it was added to source_deps
-    EXPECT_EQ(_shared_state->source_deps.size(), 1);
-    EXPECT_EQ(_shared_state->source_deps[0].get(), dep);
-}
-
 TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
     // Create test columns for rowids
     vectorized::Columns columns;
@@ -96,7 +79,7 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
 
     // Verify block_order_results
     EXPECT_EQ(_shared_state->block_order_results.size(), columns.size());
-    EXPECT_EQ(_shared_state->last_block, true);
+    EXPECT_EQ(_shared_state->eos, true);
 }
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
@@ -132,16 +115,15 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value"});
 
-        auto callback1 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
-        callback1->response_.reset(new PMultiGetResponseV2());
-        auto serialized_block = callback1->response_->add_blocks()->mutable_block();
+        PMultiGetResponseV2 response_;
+        auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
-        _shared_state->rpc_struct_map[_backend_id1].callback = callback1;
+        _shared_state->rpc_struct_map[_backend_id1].response = std::move(response_);
         // init the response blocks
         _shared_state->response_blocks[0] = resp_block1.clone_empty();
     }
@@ -155,17 +137,15 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value"});
 
-        auto callback2 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
-        callback2->response_.reset(new PMultiGetResponseV2());
-        auto serialized_block = callback2->response_->add_blocks()->mutable_block();
-
+        PMultiGetResponseV2 response_;
+        auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
-        _shared_state->rpc_struct_map[_backend_id2].callback = callback2;
+        _shared_state->rpc_struct_map[_backend_id2].response = std::move(response_);
     }
 
     // 3. Setup block order results to control merge order
@@ -175,7 +155,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
 
     // 4. Test merging responses
     vectorized::Block result_block;
-    Status st = _shared_state->merge_multi_response(&result_block);
+    Status st = _shared_state->merge_multi_response();
+    _shared_state->get_block(&result_block);
     EXPECT_TRUE(st.ok());
 
     // 5. Verify merged result
@@ -234,16 +215,15 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value1"});
 
-        auto callback1 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
-        callback1->response_.reset(new PMultiGetResponseV2());
-        auto serialized_block = callback1->response_->add_blocks()->mutable_block();
+        PMultiGetResponseV2 response_;
+        auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
-        _shared_state->rpc_struct_map[_backend_id1].callback = callback1;
+        _shared_state->rpc_struct_map[_backend_id1].response = std::move(response_);
         _shared_state->response_blocks[0] = resp_block1.clone_empty();
     }
 
@@ -256,16 +236,15 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value1"});
 
-        auto callback2 = std::make_shared<doris::DummyBrpcCallback<PMultiGetResponseV2>>();
-        callback2->response_.reset(new PMultiGetResponseV2());
-        auto serialized_block = callback2->response_->add_blocks()->mutable_block();
+        PMultiGetResponseV2 response_;
+        auto serialized_block = response_.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
                                        CompressionTypePB::LZ4);
         EXPECT_TRUE(s.ok());
 
-        _shared_state->rpc_struct_map[_backend_id2].callback = callback2;
+        _shared_state->rpc_struct_map[_backend_id2].response = std::move(response_);
     }
 
     // Add second block responses for second rowid
@@ -277,9 +256,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block1.insert(
                 {make_nullable(std::move(resp_value_col1)), make_nullable(_int_type), "value2"});
 
-        auto serialized_block = _shared_state->rpc_struct_map[_backend_id1]
-                                        .callback->response_->add_blocks()
-                                        ->mutable_block();
+        auto serialized_block =
+                _shared_state->rpc_struct_map[_backend_id1].response.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block1.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
@@ -296,9 +274,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
         resp_block2.insert(
                 {make_nullable(std::move(resp_value_col2)), make_nullable(_int_type), "value2"});
 
-        auto serialized_block = _shared_state->rpc_struct_map[_backend_id2]
-                                        .callback->response_->add_blocks()
-                                        ->mutable_block();
+        auto serialized_block =
+                _shared_state->rpc_struct_map[_backend_id2].response.add_blocks()->mutable_block();
         size_t uncompressed_size = 0;
         size_t compressed_size = 0;
         auto s = resp_block2.serialize(0, serialized_block, &uncompressed_size, &compressed_size,
@@ -314,8 +291,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
 
     // 4. Test merging responses
     vectorized::Block result_block;
-    Status st = _shared_state->merge_multi_response(&result_block);
+    Status st = _shared_state->merge_multi_response();
     EXPECT_TRUE(st.ok());
+    _shared_state->get_block(&result_block);
 
     // 5. Verify merged result
     EXPECT_EQ(result_block.columns(), 4); // Should have two rowid columns and two value columns

@@ -85,7 +85,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "format" = "${format}",
                     "provider" = "${getS3Provider()}",
                     "column_separator"="|",
-                    "read_json_by_line"="true") order by c1 limit 10; """
+                    "read_json_by_line"="true") where c1 is not null order by c1 limit 10; """
 
             sql """
             insert into ${table_name} select * from s3(
@@ -103,7 +103,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "provider" = "${getS3Provider()}",
-                    "read_json_by_line"="true") order by k1 limit 10; """
+                    "read_json_by_line"="true") where k1 is not null order by k1 limit 10; """
 
             sql """
             insert into ${table_name} select * from s3(

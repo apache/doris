@@ -119,6 +119,9 @@ DECLARE_mInt64(delete_bitmap_store_v2_max_bytes_in_fdb);
 DECLARE_Int32(sync_delete_bitmap_task_max_thread);
 DECLARE_mBool(enable_delete_bitmap_store_v2_check_correctness);
 
+DECLARE_mBool(enable_batch_get_delete_bitmap);
+DECLARE_mInt64(get_delete_bitmap_bytes_threshold);
+
 // Skip writing empty rowset metadata to meta service
 DECLARE_mBool(skip_writing_empty_rowset_metadata);
 
@@ -159,6 +162,10 @@ DECLARE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms);
 DECLARE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms);
 
 DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
+
+DECLARE_mBool(enable_standby_passive_compaction);
+
+DECLARE_mDouble(standby_compaction_version_ratio);
 
 #include "common/compile_check_end.h"
 } // namespace doris::config
