@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
@@ -35,12 +36,14 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -379,10 +382,19 @@ public class MTMVTask extends AbstractTask {
     }
 
     private String getDummyStmt(Set<String> refreshPartitionNames) {
+        String mvName = mtmv.getName();
+        DatabaseIf database = mtmv.getDatabase();
+        if (database != null) {
+            mvName = database.getFullName() + "." + mvName;
+            CatalogIf catalog = database.getCatalog();
+            if (catalog != null) {
+                mvName = catalog.getName() + mvName;
+            }
+        }
         return String.format(
                 "Asynchronous materialized view refresh task, mvName: %s,"
                         + "taskId: %s, partitions refreshed by this insert overwrite: %s",
-                mtmv.getName(), super.getTaskId(), refreshPartitionNames);
+                mvName, super.getTaskId(), refreshPartitionNames);
     }
 
     @Override
@@ -393,6 +405,9 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         after();
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_FAILED_NUM.increase(1L);
+        }
         return true;
     }
 
@@ -406,6 +421,11 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         after();
+        if (MetricRepo.isInit) {
+            MetricRepo.HISTO_ASYNC_MATERIALIZED_VIEW_TASK_DURATION.update(
+                    super.getFinishTimeMs() - super.getStartTimeMs());
+            MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SUCCESS_NUM.increase(1L);
+        }
         return true;
     }
 

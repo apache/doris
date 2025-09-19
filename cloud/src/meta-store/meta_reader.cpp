@@ -958,6 +958,35 @@ TxnErrorCode MetaReader::get_snapshots(
     return get_snapshots(txn.get(), snapshots);
 }
 
+TxnErrorCode MetaReader::has_snapshot_references(Versionstamp snapshot_version,
+                                                 bool* has_references, bool snapshot) {
+    DCHECK(txn_kv_) << "TxnKv must be set before calling";
+    if (!txn_kv_) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    return has_snapshot_references(txn.get(), snapshot_version, has_references, snapshot);
+}
+
+TxnErrorCode MetaReader::has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
+                                                 bool* has_references, bool snapshot) {
+    std::string snapshot_ref_key_start =
+            versioned::snapshot_reference_key_prefix(instance_id_, snapshot_version);
+    std::string snapshot_ref_key_end = snapshot_ref_key_start + '\xFF';
+
+    std::unique_ptr<RangeGetIterator> it;
+    TxnErrorCode err = txn->get(snapshot_ref_key_start, snapshot_ref_key_end, &it, snapshot, 1);
+    if (err != TxnErrorCode::TXN_OK) {
+        return err;
+    }
+    *has_references = it->has_next();
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode MetaReader::get_load_rowset_metas(
         int64_t tablet_id, std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
         bool snapshot) {

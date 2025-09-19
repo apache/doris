@@ -81,6 +81,8 @@ public final class GlobalVariable {
 
     public static final String ENABLE_ANSI_QUERY_ORGANIZATION_BEHAVIOR
             = "enable_ansi_query_organization_behavior";
+    public static final String ENABLE_NEW_TYPE_COERCION_BEHAVIOR
+            = "enable_new_type_coercion_behavior";
 
     @VariableMgr.VarAttr(name = VARIABLE_VERSION, flag = VariableMgr.INVISIBLE
             | VariableMgr.READ_ONLY | VariableMgr.GLOBAL)
@@ -218,6 +220,24 @@ public final class GlobalVariable {
                             + " uses the behavior of Doris's historical versions, where order by by default only"
                             + " applies to the last operand of the set operation."})
     public static boolean enable_ansi_query_organization_behavior = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_NEW_TYPE_COERCION_BEHAVIOR, flag = VariableMgr.GLOBAL,
+            description = {
+                    "控制隐式类型转换的行为，当设置为 true 时，使用新的行为。新行为更为合理。类型优先级从高到低为时间相关类型 > "
+                            + "数值类型 > 复杂类型 / JSON 类型 / IP 类型 > 字符串类型 > VARIANT 类型。当两个或多个不同类型的表达式"
+                            + "进行比较时，强制类型转换优先向高优先级类型转换。转换时尽可能保留精度，如："
+                            + "当转换为时间相关类型时，当无法确定精度时，优先使用6位精度的 DATETIME 类型。"
+                            + "当转换为数值类型时，当无法确定精度时，优先使用 DECIMAL 类型。",
+                    "Controls the behavior of implicit type conversion. When set to true, the new behavior is used,"
+                            + " which is more reasonable. The type priority, from highest to lowest, is: time-related"
+                            + " types > numeric types > complex types / JSON types / IP types > string types"
+                            + " > VARIANT types. When comparing two or more expressions of different types, "
+                            + "type coercion preferentially converts values toward the type with higher priority. "
+                            + "Precision is preserved as much as possible during conversion. For example, "
+                            + "when converting to a time-related type and precision cannot be determined, "
+                            + "the DATETIME type with 6-digit precision is preferred. When converting to"
+                            + " a numeric type and precision cannot be determined, the DECIMAL type is preferred."})
+    public static boolean enableNewTypeCoercionBehavior = true;
 
     // Don't allow creating instance.
     private GlobalVariable() {

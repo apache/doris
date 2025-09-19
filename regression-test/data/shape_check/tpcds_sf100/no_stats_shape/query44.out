@@ -24,7 +24,7 @@ PhysicalResultSink
 ----------------------------------PhysicalQuickSort[LOCAL_SORT]
 ------------------------------------PhysicalPartitionTopN
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 ------------------------------------------PhysicalProject
 --------------------------------------------hashAgg[GLOBAL]
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -50,7 +50,7 @@ PhysicalResultSink
 ----------------------------------PhysicalQuickSort[LOCAL_SORT]
 ------------------------------------PhysicalPartitionTopN
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 ------------------------------------------PhysicalProject
 --------------------------------------------hashAgg[GLOBAL]
 ----------------------------------------------PhysicalDistribute[DistributionSpecHash]

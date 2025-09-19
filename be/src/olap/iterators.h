@@ -96,7 +96,7 @@ public:
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
-    int block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
+    uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool enable_unique_key_merge_on_write = false;
@@ -188,9 +188,6 @@ public:
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;
-
-    // Only used by UT. Whether lazy-materialization-read is used by this iterator or not.
-    virtual bool is_lazy_materialization_read() const { return false; }
 
     // Return the data id such as segment id, used for keep the insert order when do
     // merge sort in priority queue
