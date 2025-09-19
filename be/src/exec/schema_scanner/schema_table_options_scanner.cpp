@@ -97,7 +97,6 @@ Status SchemaTableOptionsScanner::get_onedb_info_from_fe(int64_t dbId) {
                                                           request, &result));
     RETURN_IF_ERROR(fill_db_partitions(result));
     return Status::OK();
-
 }
 
 Status SchemaTableOptionsScanner::fill_db_partitions(TFetchSchemaTableDataResult& result) {
@@ -132,7 +131,6 @@ Status SchemaTableOptionsScanner::fill_db_partitions(TFetchSchemaTableDataResult
     }
     return Status::OK();
 }
-
 
 bool SchemaTableOptionsScanner::check_and_mark_eos(bool* eos) const {
     if (_row_idx == _total_rows) {
