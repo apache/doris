@@ -147,6 +147,24 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    private void readLock() {
+        lock.readLock().lock();
+    }
+
+    private void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        if (lock.writeLock().isHeldByCurrentThread()) {
+            lock.writeLock().unlock();
+        }
+    }
+
     private UnboundTVFRelation getCurrentTvf() {
         if (baseCommand == null) {
             ConnectContext ctx = InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName());
@@ -229,11 +247,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    // When consumer to EOF, delay schedule task appropriately can avoid too many small transactions.
-    public boolean needDelayScheduleTask() {
-        return System.currentTimeMillis() - lastScheduleTaskTimestamp > jobProperties.getMaxIntervalSecond() * 1000;
-    }
-
     public boolean hasMoreDataToConsume() {
         return offsetProvider.hasMoreDataToConsume();
     }
@@ -268,7 +281,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 this.failureReason = new FailureReason(task.getErrMsg());
             }
         } finally {
-            lock.writeLock().unlock();
+            writeUnlock();
         }
         updateJobStatus(JobStatus.PAUSED);
     }
@@ -282,7 +295,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             //todo: maybe fetch from txn attachment?
             offsetProvider.updateOffset(task.getRunningOffset());
         } finally {
-            lock.writeLock().unlock();
+            writeUnlock();
         }
     }
 
@@ -392,7 +405,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Override
     public void beforeCommitted(TransactionState txnState) throws TransactionException {
         boolean shouldReleaseLock = false;
-        lock.writeLock().lock();
+        writeLock();
         try {
             ArrayList<Long> taskIds = new ArrayList<>();
             taskIds.add(runningStreamTask.getTaskId());
@@ -410,14 +423,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         runningStreamTask.getRunningOffset().toJson()));
         } finally {
             if (shouldReleaseLock) {
-                lock.writeLock().unlock();
+                writeUnlock();
             }
         }
     }
 
     @Override
     public void beforeAborted(TransactionState txnState) throws TransactionException {
-
     }
 
     @Override

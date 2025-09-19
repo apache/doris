@@ -49,6 +49,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
             case PENDING:
                 streamingInsertJob.createStreamingInsertTask();
                 streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
+                streamingInsertJob.setAutoResumeCount(0);
                 break;
             case RUNNING:
                 streamingInsertJob.fetchMeta();
@@ -79,8 +80,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
                 if (autoResumeCount < Long.MAX_VALUE) {
                     streamingInsertJob.setAutoResumeCount(autoResumeCount + 1);
                 }
-                streamingInsertJob.createStreamingInsertTask();
-                streamingInsertJob.updateJobStatus(JobStatus.RUNNING);
+                streamingInsertJob.updateJobStatus(JobStatus.PENDING);
                 return;
             }
         }
