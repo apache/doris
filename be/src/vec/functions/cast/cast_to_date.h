@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <type_traits>
 
@@ -357,7 +358,7 @@ public:
                         // need carry on
                         if (rounded_microseconds >= TimeValue::ONE_SECOND_MICROSECONDS) {
                             DCHECK(rounded_microseconds == TimeValue::ONE_SECOND_MICROSECONDS);
-                            time = ((int)time / TimeValue::ONE_SECOND_MICROSECONDS + 1) *
+                            time = ((int64_t)time / TimeValue::ONE_SECOND_MICROSECONDS + 1) *
                                    TimeValue::ONE_SECOND_MICROSECONDS;
 
                             if (!TimeValue::valid(time)) {
