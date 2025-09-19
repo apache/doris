@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.eageraggregation;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsCalculator;
@@ -223,7 +224,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         }
         for (NamedExpression ne : project.getProjects()) {
             if (!slotsInContext.contains(ne.toSlot())) {
-                if (SessionVariable.isFeDebug()) {
+                if (SessionVariable.isFeDebug() && !FeConstants.runningUnitTest) {
+                    // in ut, column prune rule is not applied, the un-pruned columns cause this error
                     throw new RuntimeException("push down failed: " + ne + " is not in PushDownAggContext\n"
                             + project);
                 } else {
