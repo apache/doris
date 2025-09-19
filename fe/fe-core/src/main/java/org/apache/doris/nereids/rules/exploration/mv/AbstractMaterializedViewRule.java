@@ -134,8 +134,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (queryStructInfos.isEmpty()) {
                 continue;
             }
-            statementContext.addMaterializedViewRewriteDuration(
-                    statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
+            long elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
+            statementContext.addMaterializedViewRewriteDuration(elapsed);
+            SummaryProfile profile = SummaryProfile.getSummaryProfile(cascadesContext.getConnectContext());
+            if (profile != null) {
+                profile.addNereidsMvRewriteTime(elapsed);
+            }
             for (StructInfo queryStructInfo : queryStructInfos) {
                 statementContext.getMaterializedViewStopwatch().reset().start();
                 if (statementContext.getMaterializedViewRewriteDuration()
@@ -157,8 +161,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     context.recordFailReason(queryStructInfo,
                             "Materialized view rule exec fail", exception::toString);
                 } finally {
-                    statementContext.addMaterializedViewRewriteDuration(
-                            statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS));
+                    elapsed = statementContext.getMaterializedViewStopwatch().elapsed(TimeUnit.MILLISECONDS);
+                    statementContext.addMaterializedViewRewriteDuration(elapsed);
+                    if (profile != null) {
+                        profile.addNereidsMvRewriteTime(elapsed);
+                    }
                 }
             }
         }
