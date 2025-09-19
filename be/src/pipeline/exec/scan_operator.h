@@ -420,6 +420,8 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
     const int _parallel_tasks = 0;
+
+    std::shared_ptr<vectorized::TaskHandle> _task_handle;
 };
 
 } // namespace doris::pipeline

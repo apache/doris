@@ -389,6 +389,8 @@ protected:
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
 
+    std::shared_ptr<vectorized::TaskHandle> _task_handle;
+
 private:
     Status _normalize_conjuncts();
     Status _normalize_predicate(const VExprSPtr& conjunct_expr_root, VExprContext* context,
