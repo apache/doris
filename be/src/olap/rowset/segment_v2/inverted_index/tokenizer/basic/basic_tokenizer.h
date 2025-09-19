@@ -17,21 +17,34 @@
 
 #pragma once
 
-#include "icu_common.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
-namespace doris::segment_v2 {
+using namespace lucene::analysis;
 
-class ICUTokenizerConfig {
+namespace doris::segment_v2::inverted_index {
+
+class BasicTokenizer : public DorisTokenizer {
 public:
-    ICUTokenizerConfig() = default;
-    virtual ~ICUTokenizerConfig() = default;
+    BasicTokenizer() = default;
+    BasicTokenizer(bool own_reader);
+    ~BasicTokenizer() override = default;
 
-    virtual void initialize(const std::string& dictPath) = 0;
-    virtual icu::BreakIterator* get_break_iterator(int32_t script) = 0;
-    virtual bool combine_cj() = 0;
+    void initialize(const std::string& extra_chars = "");
 
-    static const int32_t EMOJI_SEQUENCE_STATUS = 299;
+    Token* next(Token* token) override;
+    void reset() override;
+
+private:
+    template <bool HasExtraChars>
+    void cut();
+
+    int32_t _buffer_index = 0;
+    int32_t _data_len = 0;
+    std::string _buffer;
+    std::vector<std::string_view> _tokens_text;
+
+    std::array<bool, 128> _extra_char_set {};
+    bool _has_extra_chars = false;
 };
-using ICUTokenizerConfigPtr = std::shared_ptr<ICUTokenizerConfig>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

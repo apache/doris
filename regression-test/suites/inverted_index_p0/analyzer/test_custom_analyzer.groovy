@@ -63,8 +63,26 @@ suite("test_custom_analyzer", "p0") {
         CREATE INVERTED INDEX ANALYZER IF NOT EXISTS keyword_lowercase
         PROPERTIES
         (
-        "tokenizer" = "keyword",
-        "token_filter" = "asciifolding, lowercase"
+            "tokenizer" = "keyword",
+            "token_filter" = "asciifolding, lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS basic_analyzer
+        PROPERTIES
+        (
+            "tokenizer" = "basic",
+            "token_filter" = "lowercase"
+        );
+    """
+
+    sql """
+        CREATE INVERTED INDEX ANALYZER IF NOT EXISTS icu_analyzer
+        PROPERTIES
+        (
+            "tokenizer" = "icu",
+            "token_filter" = "lowercase"
         );
     """
 
@@ -80,6 +98,8 @@ suite("test_custom_analyzer", "p0") {
     qt_tokenize_sql """ select tokenize("β-carbon nitride", '"analyzer"="lowercase_delimited"'); """
     qt_tokenize_sql """ select tokenize("ǁŨǁe language", '"analyzer"="lowercase_delimited"'); """
     qt_tokenize_sql """ select tokenize("1080º Avalanche", '"analyzer"="lowercase_delimited"'); """
+    qt_tokenize_sql """ select tokenize("GET /images/hm_bg.jpg HTTP/1.0", '"analyzer"="basic_analyzer"'); """
+    qt_tokenize_sql """ select tokenize("让我们说「Hello」そして世界とつながろう！", '"analyzer"="icu_analyzer"'); """
      
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     sql """
@@ -138,8 +158,6 @@ suite("test_custom_analyzer", "p0") {
             logger.info("used by index")
         }
     }
-
-
 
     try {
         sql "DROP TABLE IF EXISTS test_custom_analyzer_3"
