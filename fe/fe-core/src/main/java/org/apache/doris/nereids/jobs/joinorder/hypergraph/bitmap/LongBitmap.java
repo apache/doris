@@ -34,6 +34,10 @@ public class LongBitmap {
         return (bitmap1 | bitmap2) == bitmap2;
     }
 
+    public static boolean isTrueSubset(long bitmap1, long bitmap2) {
+        return (bitmap1 | bitmap2) == bitmap2 && bitmap1 != bitmap2;
+    }
+
     public static long newBitmap(int... values) {
         long bitmap = 0;
         for (int v : values) {

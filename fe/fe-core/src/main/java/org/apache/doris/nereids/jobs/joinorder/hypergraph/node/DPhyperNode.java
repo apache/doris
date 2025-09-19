@@ -17,34 +17,25 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.node;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.memo.Group;
 
 import com.google.common.base.Preconditions;
-
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * HyperGraph Node.
  */
 public class DPhyperNode extends AbstractNode {
-
     private final Group group;
 
-    public DPhyperNode(int index, Group group, List<Edge> edges) {
-        super(group.getLogicalExpression().getPlan(), index, edges);
+    public DPhyperNode(int index, Group group) {
+        super(group.getLogicalExpression().getPlan(), index);
         Preconditions.checkArgument(group != null,
                 "DPhyper requires Group is not null");
         this.group = group;
     }
 
-    public DPhyperNode(int index, Group group) {
-        this(index, group, new ArrayList<>());
-    }
-
     public DPhyperNode withGroup(Group group) {
-        return new DPhyperNode(index, group, getEdges());
+        return new DPhyperNode(index, group);
     }
 
     public Group getGroup() {

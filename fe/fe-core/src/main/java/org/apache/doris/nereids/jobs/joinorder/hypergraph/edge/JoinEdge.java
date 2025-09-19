@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.edge;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -25,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.base.Preconditions;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
@@ -40,13 +43,25 @@ public class JoinEdge extends Edge {
     private final Set<Slot> leftInputSlots;
     private final Set<Slot> rightInputSlots;
 
+    // record all left subtree nodes bellow the original operator.
+    private final long leftSubtreeNodes;
+
+    // record all right subtree nodes bellow the original operator.
+    private final long rightSubtreeNodes;
+
+    private List<Pair<Long, Long>> conflictRules;
+
     public JoinEdge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
-            BitSet leftChildEdges, BitSet rightChildEdges, long subTreeNodes,
+            BitSet leftChildEdges, BitSet rightChildEdges, long leftSubtreeNodes, long rightSubtreeNodes,
             long leftRequireNodes, long rightRequireNodes, Set<Slot> leftInputSlots, Set<Slot> rightInputSlots) {
-        super(index, leftChildEdges, rightChildEdges, subTreeNodes, leftRequireNodes, rightRequireNodes);
+        super(index, leftChildEdges, rightChildEdges, LongBitmap.newBitmapUnion(leftSubtreeNodes, rightSubtreeNodes),
+                leftRequireNodes, rightRequireNodes);
         this.join = join;
+        this.leftSubtreeNodes = leftSubtreeNodes;
+        this.rightSubtreeNodes = rightSubtreeNodes;
         this.leftInputSlots = leftInputSlots;
         this.rightInputSlots = rightInputSlots;
+        this.conflictRules = new ArrayList<>();
     }
 
     /**
@@ -55,7 +70,8 @@ public class JoinEdge extends Edge {
     public JoinEdge swap() {
         JoinEdge swapEdge = new
                 JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
-                getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes(),
+                getLeftChildEdges(), getRightSubtreeNodes(), getLeftSubtreeNodes(),
+                getRightRequiredNodes(), getLeftRequiredNodes(),
                 this.rightInputSlots, this.leftInputSlots);
         swapEdge.addLeftRejectEdges(getLeftRejectEdge());
         swapEdge.addRightRejectEdges(getRightRejectEdge());
@@ -66,9 +82,18 @@ public class JoinEdge extends Edge {
         return join.getJoinType();
     }
 
+    public long getLeftSubtreeNodes() {
+        return leftSubtreeNodes;
+    }
+
+    public long getRightSubtreeNodes() {
+        return rightSubtreeNodes;
+    }
+
     public JoinEdge withJoinTypeAndCleanCR(JoinType joinType) {
         return new JoinEdge(join.withJoinType(joinType), getIndex(), getLeftChildEdges(), getRightChildEdges(),
-                getSubTreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes(), leftInputSlots, rightInputSlots);
+                getLeftSubtreeNodes(), getRightSubtreeNodes(), getLeftRequiredNodes(), getRightRequiredNodes(),
+                leftInputSlots, rightInputSlots);
     }
 
     public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
@@ -124,5 +149,13 @@ public class JoinEdge extends Edge {
 
     public Set<Slot> getRightInputSlots() {
         return rightInputSlots;
+    }
+
+    public void setConflictRules(List<Pair<Long, Long>> conflictRules) {
+        this.conflictRules = conflictRules;
+    }
+
+    public List<Pair<Long, Long>> getConflictRules() {
+        return conflictRules;
     }
 }

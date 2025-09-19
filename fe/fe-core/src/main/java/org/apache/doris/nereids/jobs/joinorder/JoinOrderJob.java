@@ -60,6 +60,8 @@ public class JoinOrderJob extends Job {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
+    //自底向上记录每个hyper node是否经过了outer join，然后在addjoin中对inner join多个and条件拆分时做判断，引用的node必须只经过了inner或cross join时才能拆分
+    //能拆分的就拆分，拆分不了的，就和外连接一样原地保留
     private Group optimizePlan(Group group) {
         if (HyperGraph.isValidJoin(group.getLogicalExpression().getPlan())) {
             return optimizeJoin(group);
@@ -73,7 +75,7 @@ public class JoinOrderJob extends Job {
     }
 
     private Group optimizeJoin(Group group) {
-        HyperGraph.Builder builder = HyperGraph.builderForDPhyper(group);
+        HyperGraph.Builder builder = HyperGraph.builderForDPhyper(group, context.getCascadesContext());
         for (AbstractNode node : builder.getNodes()) {
             DPhyperNode dPhyperNode = (DPhyperNode) node;
             builder.updateNode(node.getIndex(), optimizePlan(dPhyperNode.getGroup()));
@@ -83,8 +85,8 @@ public class JoinOrderJob extends Job {
         if (this.context.getCascadesContext().getConnectContext() != null) {
             limit = this.context.getCascadesContext().getConnectContext().getSessionVariable().dphyperLimit;
         }
-        PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
-                group.getLogicalProperties().getOutputSet());
+        limit = 20;
+        PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph);
         if (!tryEnumerateJoin(hyperGraph, planReceiver, limit)) {
             return group;
         }

@@ -100,7 +100,7 @@ public class OptimizeGroupExpressionJob extends Job {
             return Collections.emptyList();
         } else if (isDpHyp) {
             return getRuleSet().getDPHypReorderRules();
-        } else if (isLeftZigZagTree) {
+        } else if (false) {
             return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
