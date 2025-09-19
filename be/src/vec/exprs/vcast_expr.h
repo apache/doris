@@ -94,7 +94,7 @@ private:
 
     //Try_cast always returns nullable,
     // but we also need the information of whether the return value of the original cast is nullable.
-    const bool _original_cast_return_is_nullable = false;
+    bool _original_cast_return_is_nullable = false;
 };
 
 } // namespace doris::vectorized
