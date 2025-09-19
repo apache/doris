@@ -108,8 +108,10 @@ public:
                   bool enable_lazy_mat = true);
 
     ~ParquetReader() override;
+#ifdef BE_TEST
     // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
+#endif
 
     Status init_reader(
             const std::vector<std::string>& all_column_names,
@@ -126,8 +128,6 @@ public:
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     Status close() override;
-
-    RowRange get_whole_range() { return _whole_range; }
 
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
@@ -146,6 +146,7 @@ public:
 
     const tparquet::FileMetaData* get_meta_data() const { return _t_metadata; }
 
+    // Partition columns will not be materialized in parquet files. So we should fill it with missing columns.
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
@@ -210,6 +211,7 @@ private:
     void _init_file_description();
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
+    // At the beginning of reading next row group, index should be loaded and used to filter data efficiently.
     Status _process_page_index(const tparquet::RowGroup& row_group,
                                const RowGroupReader::RowGroupIndex& row_group_index,
                                std::vector<RowRange>& candidate_row_ranges);
@@ -242,7 +244,6 @@ private:
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_other_children_is_literal(const VExprSPtr& expr);
 
-private:
     RuntimeProfile* _profile = nullptr;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -283,6 +284,7 @@ private:
     std::vector<std::string> _read_file_columns;
 
     RowRange _whole_range = RowRange(0, 0);
+    // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
 

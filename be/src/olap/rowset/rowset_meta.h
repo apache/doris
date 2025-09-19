@@ -21,6 +21,9 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,6 +66,8 @@ public:
     // Otherwise, return the remote file system corresponding to rowset's resource id.
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
     MOCK_FUNCTION io::FileSystemSPtr fs();
+
+    io::FileSystemSPtr physical_fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
@@ -211,6 +216,15 @@ public:
         return _rowset_meta_pb.set_creation_time(creation_time);
     }
 
+    int64_t stale_at() const {
+        int64_t stale_time = _stale_at_s.load();
+        return stale_time > 0 ? stale_time : _rowset_meta_pb.creation_time();
+    }
+
+    bool has_stale_at() const { return _stale_at_s.load() > 0; }
+
+    void set_stale_at(int64_t stale_at) { _stale_at_s.store(stale_at); }
+
     int64_t partition_id() const { return _rowset_meta_pb.partition_id(); }
 
     void set_partition_id(int64_t partition_id) {
@@ -355,6 +369,22 @@ public:
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
 
+    // for cloud only
+    bool has_visible_ts_ms() const { return _rowset_meta_pb.has_visible_ts_ms(); }
+    int64_t visible_ts_ms() const { return _rowset_meta_pb.visible_ts_ms(); }
+    std::chrono::time_point<std::chrono::system_clock> visible_timestamp() const {
+        using namespace std::chrono;
+        if (has_visible_ts_ms()) {
+            return time_point<system_clock>(milliseconds(visible_ts_ms()));
+        }
+        return system_clock::from_time_t(newest_write_timestamp());
+    }
+#ifdef BE_TEST
+    void set_visible_ts_ms(int64_t visible_ts_ms) {
+        _rowset_meta_pb.set_visible_ts_ms(visible_ts_ms);
+    }
+#endif
+
     void set_tablet_schema(const TabletSchemaSPtr& tablet_schema);
     void set_tablet_schema(const TabletSchemaPB& tablet_schema);
 
@@ -413,6 +443,7 @@ private:
     StorageResource _storage_resource;
     bool _is_removed_from_rowset_meta = false;
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
+    std::atomic<int64_t> _stale_at_s {0};
 };
 
 #include "common/compile_check_end.h"

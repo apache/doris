@@ -129,7 +129,8 @@ public:
         }
     }
 
-    void close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+    // return true if all streams are closed, otherwise return false
+    bool close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablet_ids);
 
     // callbacks called by brpc
@@ -177,6 +178,7 @@ private:
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
+    std::vector<int64_t> _closing_stream_ids;
     bool _is_incremental = false;
 };
 

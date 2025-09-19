@@ -249,7 +249,11 @@ public:
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-
+#ifdef BE_TEST
+    void set_enable_unique_key_merge_on_write(bool value) {
+        _enable_unique_key_merge_on_write = value;
+    }
+#endif
     // TODO(Drogon): thread safety
     const BinlogConfig& binlog_config() const { return _binlog_config; }
     void set_binlog_config(BinlogConfig binlog_config) {
@@ -601,6 +605,8 @@ public:
     std::set<std::string> get_rowset_cache_version();
 
     DeleteBitmap agg_cache_snapshot();
+
+    void set_tablet_id(int64_t tablet_id);
 
 private:
     DeleteBitmap::Version _get_rowset_cache_version(const BitmapKey& bmk) const;

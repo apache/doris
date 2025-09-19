@@ -82,7 +82,15 @@ struct UnaryFunctionPlainAlwayNullable {
     using Type = DataTypeFloat64;
     static constexpr auto name = Name::name;
 
-    static constexpr bool is_invalid_input(Float64 x) { return Name::is_invalid_input(x); }
+    static constexpr bool is_invalid_input(Float64 x) {
+        // for some functions like acos
+        // input nan should return nan instead of null
+        // nan is not invalid input for these functions
+        if (std::isnan(x)) {
+            return false;
+        }
+        return Name::is_invalid_input(x);
+    }
 
     template <typename T, typename U>
     static void execute(const T* src, U* dst) {

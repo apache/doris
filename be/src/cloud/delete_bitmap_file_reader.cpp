@@ -34,7 +34,7 @@ DeleteBitmapFileReader::~DeleteBitmapFileReader() = default;
 
 Status DeleteBitmapFileReader::init() {
 #ifdef BE_TEST
-    _path = "./log/" + _rowset_id + "_delete_bitmap.dat";
+    _path = "./log/" + _rowset_id + "_delete_bitmap.db";
     bool exists = false;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
     if (!exists) {

@@ -17,9 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
@@ -42,9 +40,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
@@ -235,12 +231,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
      *
      * @param repoName    The name of the repository to alter.
      * @param newProps    The new properties to apply to the repository.
-     * @param strictCheck If true, only allows altering S3 or Azure repositories and validates properties accordingly.
-     *                    TODO: Investigate why only S3 and Azure repositories are supported for alter operation
      * @throws DdlException if the repository does not exist, fails to apply properties, or cannot connect
      * to the updated repository.
      */
-    public void alterRepository(String repoName, Map<String, String> newProps, boolean strictCheck)
+    public void alterRepository(String repoName, Map<String, String> newProps)
             throws DdlException {
         tryLock();
         try {
@@ -249,7 +243,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 throw new DdlException("Repository does not exist");
             }
             // Merge new properties with the existing repository's properties
-            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps, strictCheck);
+            Map<String, String> mergedProps = mergeProperties(oldRepo, newProps);
             // Create new remote file system with merged properties
             RemoteFileSystem fileSystem = FileSystemFactory.get(StorageProperties.createPrimary(mergedProps));
             // Create new Repository instance with updated file system
@@ -276,34 +270,16 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     /**
      * Merges new user-provided properties into the existing repository's configuration.
-     * In strict mode, only supports S3 or Azure repositories and applies internal S3 merge logic.
      *
      * @param repo        The existing repository.
      * @param newProps    New user-specified properties.
-     * @param strictCheck Whether to enforce S3/Azure-only and validate the new properties.
      * @return A complete set of merged properties.
-     * @throws DdlException if the merge fails or the repository type is unsupported.
      */
-    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps, boolean strictCheck)
-            throws DdlException {
-        if (strictCheck) {
-            if (!(repo.getRemoteFileSystem() instanceof S3FileSystem
-                    || repo.getRemoteFileSystem() instanceof AzureFileSystem)) {
-                throw new DdlException("Only support altering S3 or Azure repository");
-            }
-            // Let the repository validate and enrich the new S3/Azure properties
-            Map<String, String> propsCopy = new HashMap<>(newProps);
-            Status status = repo.alterRepositoryS3Properties(propsCopy);
-            if (!status.ok()) {
-                throw new DdlException("Failed to merge S3 properties: " + status.getErrMsg());
-            }
-            return propsCopy;
-        } else {
-            // General case: just override old props with new ones
-            Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
-            combined.putAll(newProps);
-            return combined;
-        }
+    private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps) {
+        // General case: just override old props with new ones
+        Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+        combined.putAll(newProps);
+        return combined;
     }
 
     /**
@@ -475,11 +451,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             db.readUnlock();
         }
 
-        List<TableRef> tblRefs = Lists.newArrayList();
+        List<TableRefInfo> tableRefInfoList = Lists.newArrayList();
         if (!tableRefInfos.isEmpty() && !command.isExclude()) {
-            for (TableRefInfo tableRefInfo : tableRefInfos) {
-                tblRefs.add(tableRefInfo.translateToLegacyTableRef());
-            }
+            tableRefInfoList.addAll(tableRefInfos);
         } else {
             for (String tableName : tableNames) {
                 TableRefInfo tableRefInfo = new TableRefInfo(new TableNameInfo(db.getFullName(), tableName),
@@ -490,22 +464,22 @@ public class BackupHandler extends MasterDaemon implements Writable {
                         null,
                         null,
                         new ArrayList<>());
-                tblRefs.add(tableRefInfo.translateToLegacyTableRef());
+                tableRefInfoList.add(tableRefInfo);
             }
         }
 
         // Check if backup objects are valid
         // This is just a pre-check to avoid most of invalid backup requests.
         // Also calculate the signature for incremental backup check.
-        List<TableRef> tblRefsNotSupport = Lists.newArrayList();
-        for (TableRef tableRef : tblRefs) {
-            String tblName = tableRef.getName().getTbl();
+        List<TableRefInfo> tblRefInfosNotSupport = Lists.newArrayList();
+        for (TableRefInfo tableRef : tableRefInfoList) {
+            String tblName = tableRef.getTableNameInfo().getTbl();
             Table tbl = db.getTableOrDdlException(tblName);
 
             // filter the table types which are not supported by local backup.
             if (repository == null && tbl.getType() != TableType.OLAP
                     && tbl.getType() != TableType.VIEW && tbl.getType() != TableType.MATERIALIZED_VIEW) {
-                tblRefsNotSupport.add(tableRef);
+                tblRefInfosNotSupport.add(tableRef);
                 continue;
             }
 
@@ -518,7 +492,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             tblName, tbl.getType().toString());
-                    tblRefsNotSupport.add(tableRef);
+                    tblRefInfosNotSupport.add(tableRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_NOT_OLAP_TABLE, tblName);
@@ -526,11 +500,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
 
             if (tbl.isTemporary()) {
-                if (Config.ignore_backup_not_support_table_type || tblRefs.size() > 1) {
+                if (Config.ignore_backup_not_support_table_type || tableRefInfoList.size() > 1) {
                     LOG.warn("Table '{}' is a temporary table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             Util.getTempTableDisplayName(tblName));
-                    tblRefsNotSupport.add(tableRef);
+                    tblRefInfosNotSupport.add(tableRef);
                     continue;
                 } else {
                     ErrorReport.reportDdlException("Table " + Util.getTempTableDisplayName(tblName)
@@ -546,11 +520,12 @@ public class BackupHandler extends MasterDaemon implements Writable {
                             "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
-                PartitionNames partitionNames = tableRef.getPartitionNames();
+                PartitionNamesInfo partitionNames = tableRef.getPartitionNamesInfo();
                 if (partitionNames != null) {
                     if (!Config.ignore_backup_tmp_partitions && partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                "Do not support backup temp partitions in table " + tableRef.getName());
+                                "Do not support backup temp partitions in table "
+                                    + tableRef.getTableNameInfo().getTbl());
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -566,7 +541,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             }
         }
 
-        tblRefs.removeAll(tblRefsNotSupport);
+        tableRefInfoList.removeAll(tblRefInfosNotSupport);
 
         // Check if label already be used
         long repoId = Repository.KEEP_ON_LOCAL_REPO_ID;
@@ -591,7 +566,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Create a backup job
         BackupJob backupJob = new BackupJob(command.getLabel(), db.getId(),
                 ClusterNamespace.getNameFromFullName(db.getFullName()),
-                tblRefs, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
+                tableRefInfoList, command.getTimeoutMs(), command.getContent(), env, repoId, commitSeq);
         // write log
         env.getEditLog().logBackupJob(backupJob);
 
@@ -825,29 +800,6 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
         // only retain restore partitions
         tblInfo.retainPartitions(partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames());
-    }
-
-    public void checkAndFilterRestoreOlapTableExistInSnapshot(Map<String, BackupOlapTableInfo> backupOlapTableInfoMap,
-                                                              TableRef tableRef) throws DdlException {
-        String tblName = tableRef.getName().getTbl();
-        BackupOlapTableInfo tblInfo = backupOlapTableInfoMap.get(tblName);
-        PartitionNames partitionNames = tableRef.getPartitionNames();
-        if (partitionNames != null) {
-            if (partitionNames.isTemp()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Do not support restoring temporary partitions in table " + tblName);
-            }
-            // check the selected partitions
-            for (String partName : partitionNames.getPartitionNames()) {
-                if (!tblInfo.containsPart(partName)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Partition " + partName + " of table " + tblName
-                                    + " does not exist in snapshot");
-                }
-            }
-        }
-        // only retain restore partitions
-        tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
     }
 
     public void cancel(CancelBackupCommand command) throws DdlException {

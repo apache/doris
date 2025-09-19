@@ -149,7 +149,6 @@ TEST_F(ParquetReaderTest, normal) {
     RuntimeState runtime_state((TQueryGlobals()));
     runtime_state.set_desc_tbl(desc_tbl);
 
-    std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
     static_cast<void>(p_reader->init_reader(column_names, nullptr, {}, nullptr, nullptr, nullptr,
                                             nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>

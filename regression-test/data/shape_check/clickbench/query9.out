@@ -7,7 +7,6 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
---------------hashAgg[GLOBAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[hits]
+--------------PhysicalProject
+----------------PhysicalOlapScan[hits]
 

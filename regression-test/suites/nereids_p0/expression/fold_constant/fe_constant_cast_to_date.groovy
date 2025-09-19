@@ -182,4 +182,6 @@ suite("fe_constant_cast_to_date") {
     qt_date45("""select cast("123" as date)""")
     qt_date46("""select cast(1000 as date)""")
     qt_date47("""select cast(-123.123 as date)""")
+
+    qt_date48("""select cast("2020-12-12:12:12:12" as date)""")
 }

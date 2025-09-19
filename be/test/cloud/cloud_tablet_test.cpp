@@ -135,7 +135,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestAddDuplicateRowsetWarmupState) {
 TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupNonExistent) {
     auto non_existent_id = _engine.next_rowset_id();
 
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(non_existent_id, Status::OK());
+    WarmUpState result =
+            _tablet->complete_rowset_segment_warmup(non_existent_id, Status::OK(), 1, 0);
     EXPECT_EQ(result, WarmUpState::NONE);
 }
 
@@ -151,12 +152,12 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupPartial) {
 
     // Complete one segment, should still be in TRIGGERED_BY_JOB state
     WarmUpState result1 =
-            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK());
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
     EXPECT_EQ(result1, WarmUpState::TRIGGERED_BY_JOB);
 
     // Complete second segment, should still be in TRIGGERED_BY_JOB state
     WarmUpState result2 =
-            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK());
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
     EXPECT_EQ(result2, WarmUpState::TRIGGERED_BY_JOB);
 
     // Verify current state is still TRIGGERED_BY_JOB
@@ -176,12 +177,67 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupFull) {
 
     // Complete first segment
     WarmUpState result1 =
-            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK());
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
     EXPECT_EQ(result1, WarmUpState::TRIGGERED_BY_SYNC_ROWSET);
 
     // Complete second segment, should transition to DONE state
     WarmUpState result2 =
-            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK());
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
+    EXPECT_EQ(result2, WarmUpState::DONE);
+
+    // Verify final state is DONE
+    WarmUpState final_state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    EXPECT_EQ(final_state, WarmUpState::DONE);
+}
+
+// Test complete_rowset_segment_warmup with inverted index file, partial completion
+TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIndexPartial) {
+    auto rowset = create_rowset(Version(6, 6), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // Add rowset warmup state
+    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                       WarmUpState::TRIGGERED_BY_JOB);
+    EXPECT_TRUE(add_result);
+
+    _tablet->update_rowset_warmup_state_inverted_idx_num(rowset->rowset_id(), 1);
+    _tablet->update_rowset_warmup_state_inverted_idx_num(rowset->rowset_id(), 1);
+
+    // Complete one segment file
+    WarmUpState result1 =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
+    EXPECT_EQ(result1, WarmUpState::TRIGGERED_BY_JOB);
+
+    // Complete inverted index file, should still be in TRIGGERED_BY_JOB state
+    WarmUpState result2 =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 0, 1);
+    EXPECT_EQ(result2, WarmUpState::TRIGGERED_BY_JOB);
+
+    // Verify current state is still TRIGGERED_BY_JOB
+    WarmUpState current_state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    EXPECT_EQ(current_state, WarmUpState::TRIGGERED_BY_JOB);
+}
+
+// Test complete_rowset_segment_warmup with inverted index file, full completion
+TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithInvertedIndexFull) {
+    auto rowset = create_rowset(Version(6, 6), 1);
+    ASSERT_NE(rowset, nullptr);
+
+    // Add rowset warmup state
+    bool add_result = _tablet->add_rowset_warmup_state(*(rowset->rowset_meta()),
+                                                       WarmUpState::TRIGGERED_BY_JOB);
+    EXPECT_TRUE(add_result);
+
+    _tablet->update_rowset_warmup_state_inverted_idx_num(rowset->rowset_id(), 1);
+
+    // Complete segment file
+    WarmUpState result1 =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
+    EXPECT_EQ(result1, WarmUpState::TRIGGERED_BY_JOB);
+
+    // Complete inverted index file
+    WarmUpState result2 =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 0, 1);
     EXPECT_EQ(result2, WarmUpState::DONE);
 
     // Verify final state is DONE
@@ -201,7 +257,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestCompleteRowsetSegmentWarmupWithError) {
 
     // Complete with error status, should still transition to DONE when all segments complete
     Status error_status = Status::InternalError("Test error");
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), error_status);
+    WarmUpState result =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), error_status, 1, 0);
     EXPECT_EQ(result, WarmUpState::DONE);
 
     // Verify final state is DONE even with error
@@ -235,13 +292,13 @@ TEST_F(CloudTabletWarmUpStateTest, TestMultipleRowsetsWarmupState) {
               WarmUpState::TRIGGERED_BY_JOB);
 
     // Complete rowset1 (2 segments)
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::TRIGGERED_BY_JOB);
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::DONE);
 
     // Complete rowset3 (1 segment)
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset3->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset3->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::DONE);
 
     // Verify states after completion
@@ -266,7 +323,8 @@ TEST_F(CloudTabletWarmUpStateTest, TestWarmupStateWithZeroSegments) {
     EXPECT_EQ(state, WarmUpState::TRIGGERED_BY_JOB);
 
     // Any completion call should handle the edge case gracefully
-    WarmUpState result = _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK());
+    WarmUpState result =
+            _tablet->complete_rowset_segment_warmup(rowset->rowset_id(), Status::OK(), 1, 0);
     // With 0 segments, the counter should already be 0, so this should transition to DONE
     EXPECT_EQ(result, WarmUpState::DONE);
 }
@@ -285,11 +343,11 @@ TEST_F(CloudTabletWarmUpStateTest, TestConcurrentWarmupStateAccess) {
                                                  WarmUpState::TRIGGERED_BY_SYNC_ROWSET));
 
     // Interleaved completion operations
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::TRIGGERED_BY_JOB);
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset2->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset2->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::TRIGGERED_BY_SYNC_ROWSET);
-    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK()),
+    EXPECT_EQ(_tablet->complete_rowset_segment_warmup(rowset1->rowset_id(), Status::OK(), 1, 0),
               WarmUpState::TRIGGERED_BY_JOB);
 
     // Check states are maintained correctly

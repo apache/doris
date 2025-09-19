@@ -19,20 +19,20 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 
-suite('test_ingestion_load', 'p0') {
+suite('test_ingestion_load', 'p0,external') {
 
-    def testIngestLoadJob = { testTable, loadLabel, String dataFile ->
+    def testIngestLoadJob = { testTable, loadLabel, String dataFile , filesize ->
 
         sql "TRUNCATE TABLE ${testTable}"
 
         sql "CLEAN LABEL FROM ${context.dbName}"
 
-        Integer loadId = -1
-        Integer tableId = -1
-        Integer partitionId = -1
-        Integer indexId = -1
-        Integer bucketId = 0
-        Integer schemaHash = -1
+        long loadId = -1
+        long tableId = -1
+        long partitionId = -1
+        long indexId = -1
+        long bucketId = 0
+        long schemaHash = -1
 
         String reqBody =
                 """{
@@ -85,7 +85,7 @@ suite('test_ingestion_load', 'p0') {
                     "msg": "",
                     "appId": "",
                     "dppResult": "${dppResult}",
-                    "filePathToSize": "{\\"${etlResultFilePath}\\": 81758}",
+                    "filePathToSize": "{\\"${etlResultFilePath}\\": ${filesize}}",
                     "hadoopProperties": "{\\"fs.defaultFS\\":\\"${getHdfsFs()}\\",\\"hadoop.username\\":\\"${getHdfsUser()}\\",\\"hadoop.password\\":\\"${getHdfsPasswd()}\\"}"
                 }
             }"""
@@ -106,9 +106,9 @@ suite('test_ingestion_load', 'p0') {
             }
         }
 
-        max_try_milli_secs = 120000
+        def max_try_milli_secs = 120000
         while (max_try_milli_secs) {
-            result = sql "show load where label = '${loadLabel}'"
+            def result = sql "show load where label = '${loadLabel}'"
             if (result[0][2] == "FINISHED") {
                 sql "sync"
                 qt_select "select * from ${testTable} order by 1"
@@ -156,7 +156,7 @@ suite('test_ingestion_load', 'p0') {
 
         def label = "test_ingestion_load"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet',5745)
 
         tableName = 'tbl_test_spark_load_unique_mor'
 
@@ -189,7 +189,7 @@ suite('test_ingestion_load', 'p0') {
 
         label = "test_ingestion_load_unique_mor"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data.parquet',5745)
 
         tableName = 'tbl_test_spark_load_agg'
 
@@ -215,7 +215,7 @@ suite('test_ingestion_load', 'p0') {
 
         label = "test_ingestion_load_agg"
 
-        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet')
+        testIngestLoadJob.call(tableName, label, context.config.dataPath + '/load_p0/ingestion_load/data1.parquet',4057)
 
     }
 

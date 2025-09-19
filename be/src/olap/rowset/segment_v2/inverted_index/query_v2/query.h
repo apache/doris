@@ -17,36 +17,17 @@
 
 #pragma once
 
-#include <CLucene.h> // IWYU pragma: keep
-#include <CLucene/index/IndexReader.h>
-#include <CLucene/index/Term.h>
-#include <gen_cpp/PaloInternalService_types.h>
+#include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
-#include <memory>
-#include <roaring/roaring.hh>
-#include <variant>
-
-#include "common/status.h"
-#include "olap/rowset/segment_v2/inverted_index/util/term_iterator.h"
-#include "olap/rowset/segment_v2/inverted_index/util/term_position_iterator.h"
-
-namespace doris::segment_v2::idx_query_v2 {
-
-enum class QueryType { TERM_QUERY, PHRASE_QUERY, ROARING_QUERY };
-
-struct QueryInfo {
-    std::wstring field_name;
-    std::vector<std::string> terms;
-    int32_t slop = 0;
-};
-
-class Query;
-using QueryPtr = std::shared_ptr<Query>;
+namespace doris::segment_v2::inverted_index::query_v2 {
 
 class Query {
 public:
     Query() = default;
     virtual ~Query() = default;
-};
 
-} // namespace doris::segment_v2::idx_query_v2
+    virtual WeightPtr weight(bool enable_scoring) = 0;
+};
+using QueryPtr = std::shared_ptr<Query>;
+
+} // namespace doris::segment_v2::inverted_index::query_v2

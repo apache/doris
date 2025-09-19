@@ -537,18 +537,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_grouping --
-PhysicalCteAnchor ( cteId=CTEId#0 )
---PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalRepeat
-------PhysicalOlapScan[test_distinct_multi]
---PhysicalResultSink
-----hashJoin[INNER_JOIN] hashCondition=((GROUPING_ID <=> .GROUPING_ID) and (a <=> .a) and (b <=> .b) and (c <=> .c)) otherCondition=()
-------hashAgg[GLOBAL]
---------hashAgg[GLOBAL]
-----------PhysicalCteConsumer ( cteId=CTEId#0 )
-------hashAgg[GLOBAL]
---------hashAgg[GLOBAL]
-----------PhysicalCteConsumer ( cteId=CTEId#0 )
+PhysicalResultSink
+--hashAgg[GLOBAL]
+----hashAgg[LOCAL]
+------PhysicalRepeat
+--------PhysicalOlapScan[test_distinct_multi]
 
 -- !null_hash --
 1	\N	0	0.0

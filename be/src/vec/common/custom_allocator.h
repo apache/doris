@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <cstddef>
+#include <type_traits>
+
 #include "vec/common/allocator.h"
 #include "vec/common/allocator_fwd.h"
 
@@ -32,6 +35,77 @@ using DorisVector = std::vector<T, CustomStdAllocator<T>>;
 template <class Key, class T, class Compare = std::less<Key>,
           class Allocator = CustomStdAllocator<std::pair<const Key, T>>>
 using DorisMap = std::map<Key, T, Compare, Allocator>;
+
+template <typename T>
+    requires(std::is_trivial_v<T> && std::is_standard_layout_v<T>)
+struct DorisUniqueBufferDeleter : public Allocator<false> {
+    size_t count = 0;
+
+    DorisUniqueBufferDeleter() = default;
+    DorisUniqueBufferDeleter(size_t n) : count(n) {}
+
+    void operator()(T* ptr) const noexcept {
+        if (ptr) {
+            Allocator::free(ptr, count * sizeof(T));
+        }
+    }
+};
+
+template <typename T>
+    requires(std::is_trivial_v<T> && std::is_standard_layout_v<T>)
+class DorisUniqueBufferPtr {
+public:
+    using Deleter = DorisUniqueBufferDeleter<T>;
+
+    DorisUniqueBufferPtr() = default;
+    explicit DorisUniqueBufferPtr(T* ptr) = delete;
+
+    DorisUniqueBufferPtr(size_t size) {
+        DorisUniqueBufferDeleter<T> deleter(size);
+        void* buf = deleter.alloc(size * sizeof(T));
+        if (!buf) {
+            return;
+        }
+        T* arr = static_cast<T*>(buf);
+        ptr_ = std::unique_ptr<T[], DorisUniqueBufferDeleter<T>>(arr, std::move(deleter));
+    }
+
+    DorisUniqueBufferPtr(std::unique_ptr<T[], Deleter>&& uptr) : ptr_(std::move(uptr)) {}
+    DorisUniqueBufferPtr(DorisUniqueBufferPtr&& other) : ptr_(std::move(other.ptr_)) {}
+
+    DorisUniqueBufferPtr& operator=(DorisUniqueBufferPtr&& other) {
+        if (this != &other) {
+            ptr_ = std::move(other.ptr_);
+        }
+        return *this;
+    }
+
+    DorisUniqueBufferPtr(std::nullptr_t) noexcept {}
+
+    // Delete this function to avoid passing in a pointer allocated by other means(new/malloc).
+    void reset(T*) = delete;
+
+    bool operator==(std::nullptr_t) const noexcept { return ptr_ == nullptr; }
+    bool operator==(T* other) const noexcept { return ptr_.get() == other; }
+
+    void reset() noexcept { ptr_.reset(); }
+
+    auto release() noexcept { return ptr_.release(); }
+
+    T* get() const noexcept { return ptr_.get(); }
+    T& operator*() const noexcept { return *ptr_; }
+    T* operator->() const noexcept { return ptr_.get(); }
+    T& operator[](size_t i) const { return ptr_[i]; }
+
+private:
+    std::unique_ptr<T[], Deleter> ptr_;
+};
+
+template <typename T>
+    requires(std::is_trivial_v<T> && std::is_standard_layout_v<T>)
+DorisUniqueBufferPtr<T> make_unique_buffer(size_t n) {
+    return DorisUniqueBufferPtr<T>(n);
+}
 
 // NOTE: Even CustomStdAllocator 's allocate/dallocate could modify memory tracker,but it's still stateless,
 // because threadcontext owns the memtracker, not CustomStdAllocator.

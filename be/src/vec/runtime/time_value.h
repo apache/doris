@@ -42,8 +42,8 @@ public:
     constexpr static int64_t ONE_MINUTE_SECONDS = 60;
     constexpr static int64_t ONE_HOUR_SECONDS = 60 * ONE_MINUTE_SECONDS;
     constexpr static uint32_t MICROS_SCALE = 6;
-    constexpr static int64_t MAX_TIME =
-            3024000LL * ONE_SECOND_MICROSECONDS - 1; // 840:00:00 - 1ms -> 838:59:59.999999
+    constexpr static int64_t MAX_TIME = 838 * ONE_HOUR_MICROSECONDS + 59 * ONE_MINUTE_MICROSECONDS +
+                                        59 * ONE_SECOND_MICROSECONDS; // 838:59:59.000000
 
     /// TODO: Why is the time type stored as double? Can we directly use int64 and remove the time limit?
     using TimeType = typename PrimitiveTypeTraits<TYPE_TIMEV2>::CppType; // double
@@ -124,6 +124,10 @@ public:
     // Construct time based on seconds
     static TimeType from_seconds_with_limit(int32_t sec) {
         return limit_with_bound((TimeType)sec * ONE_SECOND_MICROSECONDS);
+    }
+
+    static TimeType from_double_with_limit(double sec) {
+        return limit_with_bound((TimeType)(sec * ONE_SECOND_MICROSECONDS));
     }
 
     // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html

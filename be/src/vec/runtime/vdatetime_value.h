@@ -75,14 +75,14 @@ enum TimeUnit {
 };
 
 struct TimeInterval {
-    int64_t year;
-    int64_t month;
-    int64_t day;
-    int64_t hour;
-    int64_t minute;
-    int64_t second;
-    int64_t millisecond;
-    int64_t microsecond;
+    uint64_t year;
+    uint64_t month;
+    uint64_t day;
+    uint64_t hour;
+    uint64_t minute;
+    uint64_t second;
+    uint64_t millisecond;
+    uint64_t microsecond;
     bool is_neg;
 
     TimeInterval()
@@ -96,7 +96,7 @@ struct TimeInterval {
               microsecond(0),
               is_neg(false) {}
 
-    TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param)
+    TimeInterval(TimeUnit unit, uint64_t count, bool is_neg_param)
             : year(0),
               month(0),
               day(0),
@@ -508,6 +508,7 @@ public:
     uint8_t hour() const { return _hour; }
     uint8_t minute() const { return _minute; }
     uint16_t second() const { return _second; }
+    uint8_t microsecond() const { return 0; }
 
     int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
@@ -772,9 +773,6 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    bool from_date_str_base(const char* date_str, size_t len,
-                            const cctz::time_zone* local_time_zone);
-
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;
 
@@ -926,7 +924,15 @@ public:
     // DATETIME:  format 'YYYY-MM-DD hh:mm:ss.xxxxxx'
     int32_t to_buffer(char* buffer, int scale = -1) const;
 
+    // to_string with buffer will append '\0' at the end
     char* to_string(char* to, int scale = -1) const;
+    // to_string return std::string will NOT append '\0' at the end
+    std::string to_string(int scale = -1) const {
+        std::string buf(40, 0);
+        int len = to_buffer(buf.data(), scale);
+        buf.resize(len);
+        return buf;
+    }
 
     // Return true if range or date is invalid
     static bool is_invalid(uint32_t year, uint32_t month, uint32_t day, uint8_t hour,
@@ -1438,9 +1444,6 @@ private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false);
-
-    bool from_date_str_base(const char* date_str, size_t len, int scale,
-                            const cctz::time_zone* local_time_zone, bool convert_zero);
 
     // Used to construct from int value
     int64_t standardize_timevalue(int64_t value);
