@@ -118,6 +118,7 @@ public abstract class AbstractTask implements Task {
     @Override
     public boolean onSuccess() throws JobException {
         if (TaskStatus.CANCELED.equals(status)) {
+            setFinishTimeMs(System.currentTimeMillis());
             return false;
         }
         status = TaskStatus.SUCCESS;
@@ -186,6 +187,7 @@ public abstract class AbstractTask implements Task {
             onSuccess();
         } catch (Exception e) {
             if (TaskStatus.CANCELED.equals(status)) {
+                setFinishTimeMs(System.currentTimeMillis());
                 return;
             }
             this.errMsg = e.getMessage();
