@@ -19,7 +19,7 @@
 
 #include "icu_common.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class ICUTokenizerConfig {
 public:
@@ -34,4 +34,4 @@ public:
 };
 using ICUTokenizerConfigPtr = std::shared_ptr<ICUTokenizerConfig>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

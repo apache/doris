@@ -17,20 +17,34 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/token_stream.h"
+#include "basic_tokenizer.h"
+#include "common/exception.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class DorisTokenFilter : public TokenFilter, public DorisTokenStream {
+class BasicTokenizerFactory : public TokenizerFactory {
 public:
-    DorisTokenFilter(TokenStreamPtr in) : TokenFilter(nullptr), _in(std::move(in)) {}
-    ~DorisTokenFilter() override = default;
+    BasicTokenizerFactory() = default;
+    ~BasicTokenizerFactory() override = default;
 
-    void reset() override { _in->reset(); }
+    void initialize(const Settings& settings) override {
+        int32_t mode = settings.get_int("mode", static_cast<int32_t>(BasicTokenizerMode::L1));
+        if (mode < 1 || mode > 2) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid mode for basic tokenizer: {}",
+                            mode);
+        }
+        _mode = static_cast<BasicTokenizerMode>(mode);
+    }
 
-protected:
-    TokenStreamPtr _in;
+    TokenizerPtr create() override {
+        auto tokenzier = std::make_shared<BasicTokenizer>();
+        tokenzier->initialize(_mode);
+        return tokenzier;
+    }
+
+private:
+    BasicTokenizerMode _mode = BasicTokenizerMode::L1;
 };
-using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;
 
 } // namespace doris::segment_v2::inverted_index
