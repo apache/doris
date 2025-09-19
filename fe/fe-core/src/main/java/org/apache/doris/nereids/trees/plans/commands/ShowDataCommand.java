@@ -653,8 +653,8 @@ public class ShowDataCommand extends ShowCommand {
                 dbInfo.add(String.valueOf(db.getId()));
                 dbInfo.add(dbName);
                 Pair<Long, Long> usedSize = ((Database) db).getUsedDataSize();
-                dbInfo.add(String.valueOf(usedSize.first));
-                dbInfo.add(String.valueOf(usedSize.second));
+                dbInfo.add(DebugUtil.printByteWithUnit(usedSize.first));
+                dbInfo.add(DebugUtil.printByteWithUnit(usedSize.second));
                 totalSize += usedSize.first;
                 totalRemoteSize += usedSize.second;
             } finally {
@@ -662,8 +662,8 @@ public class ShowDataCommand extends ShowCommand {
             }
 
             Pair<Long, Long> recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L));
-            dbInfo.add(String.valueOf(recycleSize.first));
-            dbInfo.add(String.valueOf(recycleSize.second));
+            dbInfo.add(DebugUtil.printByteWithUnit(recycleSize.first));
+            dbInfo.add(DebugUtil.printByteWithUnit(recycleSize.second));
             totalRecycleSize += recycleSize.first;
             totalRecycleRemoteSize += recycleSize.second;
             dbToRecycleSize.remove(db.getId());
@@ -677,8 +677,8 @@ public class ShowDataCommand extends ShowCommand {
             dbInfo.add("NULL");
             dbInfo.add("0");
             dbInfo.add("0");
-            dbInfo.add(String.valueOf(entry.getValue().first));
-            dbInfo.add(String.valueOf(entry.getValue().second));
+            dbInfo.add(DebugUtil.printByteWithUnit(entry.getValue().first));
+            dbInfo.add(DebugUtil.printByteWithUnit(entry.getValue().second));
             totalRecycleSize += entry.getValue().first;
             totalRecycleRemoteSize += entry.getValue().second;
             totalRows.add(dbInfo);
@@ -688,10 +688,10 @@ public class ShowDataCommand extends ShowCommand {
         List<String> dbInfo = new ArrayList<>();
         dbInfo.add("Total");
         dbInfo.add("NULL");
-        dbInfo.add(String.valueOf(totalSize));
-        dbInfo.add(String.valueOf(totalRemoteSize));
-        dbInfo.add(String.valueOf(totalRecycleSize));
-        dbInfo.add(String.valueOf(totalRecycleRemoteSize));
+        dbInfo.add(DebugUtil.printByteWithUnit(totalSize));
+        dbInfo.add(DebugUtil.printByteWithUnit(totalRemoteSize));
+        dbInfo.add(DebugUtil.printByteWithUnit(totalRecycleSize));
+        dbInfo.add(DebugUtil.printByteWithUnit(totalRecycleRemoteSize));
         totalRows.add(dbInfo);
     }
 
