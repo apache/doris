@@ -64,7 +64,7 @@ suite("test_cast") {
 
     test {
         sql "select * from ${tbl} where case when k0 = 101 then '12' else 0 end"
-        result([[101]])
+        result([])
     }
 
     test {

@@ -71,7 +71,7 @@ public class Nvl extends ScalarFunction
         Optional<DataType> commonType;
         try {
             commonType = TypeCoercionUtils.findWiderTypeForTwoByVariable(
-                    getArgumentType(0), getArgumentType(1), false);
+                    getArgumentType(0), getArgumentType(1), false, true);
         } catch (Exception e) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;
