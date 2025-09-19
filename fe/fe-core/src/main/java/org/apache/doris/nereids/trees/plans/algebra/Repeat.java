@@ -92,13 +92,13 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     static VirtualSlotReference generateVirtualGroupingIdSlot() {
         return new VirtualSlotReference(COL_GROUPING_ID, BigIntType.INSTANCE, Optional.empty(),
-                GroupingSetShapes::computeVirtualGroupingIdValue);
+                GroupingSetShapes::computeVirtualGroupingIdValue, false);
     }
 
     static VirtualSlotReference generateVirtualSlotByFunction(GroupingScalarFunction function) {
         return new VirtualSlotReference(
                 generateVirtualSlotName(function), function.getDataType(), Optional.of(function),
-                function::computeVirtualSlotValue);
+                function::computeVirtualSlotValue, false);
     }
 
     /**

@@ -129,7 +129,7 @@ public class JavaUdf extends ScalarFunction implements ExplicitlyCastableSignatu
 
         VirtualSlotReference[] virtualSlots = argTypes.stream()
                 .map(type -> new VirtualSlotReference(type.toString(), type, Optional.empty(),
-                        (shape) -> ImmutableList.of()))
+                        (shape) -> ImmutableList.of(), true))
                 .toArray(VirtualSlotReference[]::new);
 
         JavaUdf udf = new JavaUdf(fnName, scalar.getId(), dbName, scalar.getBinaryType(), sig,

@@ -125,7 +125,8 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
             Slot slot = slots.get(i);
             ExprId exprId = i < outputs.size() ? outputs.get(i).getExprId() : StatementScopeIdGenerator.newExprId();
             newOutputs.add(
-                    new SlotReference(exprId, slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of())
+                    new SlotReference(exprId, slot.toSql(), slot.getDataType(), slot.nullable(), ImmutableList.of(),
+                            slot.isNameFromChild())
             );
         }
         return newOutputs.build();
@@ -167,10 +168,10 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
             Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
-                newLeft = new Alias(newLeft, left.getName());
+                newLeft = new Alias(newLeft, left.getName(), left.isNameFromChild());
             }
             if (newRight instanceof Cast) {
-                newRight = new Alias(newRight, right.getName());
+                newRight = new Alias(newRight, right.getName(), right.isNameFromChild());
             }
             newLeftOutputs.add((NamedExpression) newLeft);
             newRightOutputs.add((NamedExpression) newRight);

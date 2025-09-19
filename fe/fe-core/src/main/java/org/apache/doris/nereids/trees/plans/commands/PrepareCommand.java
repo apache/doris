@@ -123,7 +123,7 @@ public class PrepareCommand extends Command {
             ResultSetMetaData md = ((Command) logicalPlan).getResultSetMetaData();
             slots = Lists.newArrayList();
             for (Column c : md.getColumns()) {
-                slots.add(new SlotReference(c.getName(), DataType.fromCatalogType(c.getType())));
+                slots.add(new SlotReference(c.getName(), DataType.fromCatalogType(c.getType()), false));
             }
         } else {
             slots = executor.planPrepareStatementSlots();
