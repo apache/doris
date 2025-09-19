@@ -264,6 +264,8 @@ public class MTMVTask extends AbstractTask {
                 completedPartitions.addAll(execPartitionNames);
                 partitionSnapshots.putAll(execPartitionSnapshots);
             }
+            LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
+                    mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
                 LOG.warn("run task failed: {}", e.getMessage());
