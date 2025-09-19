@@ -31,7 +31,7 @@
 #include "unicode/utext.h"
 #include "unicode/utf8.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 using BreakIteratorPtr = std::unique_ptr<icu::BreakIterator>;
 
@@ -45,4 +45,4 @@ struct UTextDeleter {
 
 using UTextPtr = std::unique_ptr<UText, UTextDeleter>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
