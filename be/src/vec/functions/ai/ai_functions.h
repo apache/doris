@@ -161,14 +161,14 @@ private:
                 context->state()->get_query_ctx()->get_ai_resources();
         auto it = ai_resources.find(resource_name);
         if (it == ai_resources.end()) {
-            return Status::InternalError("AI resource not found: " + resource_name);
+            return Status::InvalidArgument("AI resource not found: " + resource_name);
         }
         config = it->second;
 
         // 2. Create an adapter based on provider_type
         adapter = AIAdapterFactory::create_adapter(config.provider_type);
         if (!adapter) {
-            return Status::InternalError("Unsupported AI provider type: " + config.provider_type);
+            return Status::InvalidArgument("Unsupported AI provider type: " + config.provider_type);
         }
         adapter->init(config);
 
@@ -184,7 +184,7 @@ private:
         QueryContext* query_ctx = context->state()->get_query_ctx();
         int64_t remaining_query_time = query_ctx->get_remaining_query_time_seconds();
         if (remaining_query_time <= 0) {
-            return Status::InternalError("Query timeout exceeded before AI request");
+            return Status::TimedOut("Query timeout exceeded before AI request");
         }
 
         client->set_timeout_ms(remaining_query_time * 1000);
