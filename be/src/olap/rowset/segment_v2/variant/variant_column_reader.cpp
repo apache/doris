@@ -239,8 +239,6 @@ Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
             (*sparse_column_cache_ptr)->emplace(path, sparse_column_cache);
         }
         return sparse_column_cache;
-    } else if (!sparse_column_cache_ptr) {
-        return nullptr;
     }
     return (*sparse_column_cache_ptr)->at(path);
 }
