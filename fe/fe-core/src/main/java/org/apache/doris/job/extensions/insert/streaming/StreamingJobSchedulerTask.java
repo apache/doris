@@ -155,7 +155,7 @@ public class StreamingJobSchedulerTask extends AbstractTask {
         }
         trow.addToColumnValue(new TCell().setStringVal(""));
         trow.addToColumnValue(new TCell().setStringVal(runningTask.getRunningOffset() == null ? FeConstants.null_string
-                : runningTask.getRunningOffset().toJson()));
+                : runningTask.getRunningOffset().toString()));
         return trow;
     }
 }

@@ -35,26 +35,12 @@ public class S3Offset implements Offset {
     String fileLists;
 
     @Override
-    public void setEndOffset(String endOffset) {
-        this.endFile = endOffset;
-    }
-
-    @Override
-    public String endOffset() {
-        return endFile;
-    }
-
-    @Override
-    public String toJson() {
+    public String toSerializedJson() {
         return GsonUtils.GSON.toJson(this);
     }
 
     @Override
     public String toString() {
-        return "S3Offset: ["
-                + "startFile=" + startFile
-                + ", endFile=" + endFile
-                + ", fileLists=" + fileLists
-                + "]";
+        return "{ \"startFile\": \"" + startFile + "\", \"endFile\": \"" + endFile + "\" }";
     }
 }

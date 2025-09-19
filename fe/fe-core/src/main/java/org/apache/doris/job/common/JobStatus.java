@@ -42,5 +42,10 @@ public enum JobStatus {
     /**
      * When the task is finished, the finished state will be triggered.
      */
-    FINISHED
+    FINISHED;
+
+
+    public static boolean isRunning(JobStatus status) {
+        return PENDING.equals(status) || RUNNING.equals(status);
+    }
 }

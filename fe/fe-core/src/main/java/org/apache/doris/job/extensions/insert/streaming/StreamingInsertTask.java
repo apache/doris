@@ -163,13 +163,13 @@ public class StreamingInsertTask {
                 }
             } catch (Exception e) {
                 log.warn("execute insert task error, label is {},offset is {}", taskCommand.getLabelName(),
-                         runningOffset.toJson(), e);
+                         runningOffset.toString(), e);
                 errMsg = Util.getRootCauseMessage(e);
             }
             retry++;
         }
         log.error("streaming insert task failed, job id is {}, task id is {}, offset is {}, errMsg is {}",
-                getJobId(), getTaskId(), runningOffset.toJson(), errMsg);
+                getJobId(), getTaskId(), runningOffset.toString(), errMsg);
         throw new JobException(errMsg);
     }
 
