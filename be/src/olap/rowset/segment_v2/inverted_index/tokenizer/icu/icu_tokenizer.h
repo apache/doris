@@ -19,30 +19,31 @@
 
 #include <unicode/utext.h>
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
-#include "CLucene/analysis/icu/ICUCommon.h"
+#include "composite_break_iterator.h"
+#include "default_icu_tokenizer_config.h"
+#include "icu_common.h"
+#include "olap/rowset/segment_v2/inverted_index/tokenizer/tokenizer.h"
 
 using namespace lucene::analysis;
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
-class BasicTokenizer : public Tokenizer {
+class ICUTokenizer : public DorisTokenizer {
 public:
-    BasicTokenizer();
-    BasicTokenizer(bool lowercase, bool ownReader);
-    ~BasicTokenizer() override = default;
+    ICUTokenizer();
+    ICUTokenizer(bool ownReader);
+    ~ICUTokenizer() override = default;
 
+    void initialize(const std::string& dictPath);
     Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
-
-    void cut();
+    void reset() override;
 
 private:
-    int32_t _buffer_index = 0;
-    int32_t _data_len = 0;
-    std::string _buffer;
-    std::vector<std::string_view> _tokens_text;
+    std::string utf8Str_;
+    icu::UnicodeString buffer_;
+
+    ICUTokenizerConfigPtr config_;
+    CompositeBreakIteratorPtr breaker_;
 };
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index

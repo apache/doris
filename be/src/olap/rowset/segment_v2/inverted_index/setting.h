@@ -22,8 +22,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <memory>
-#include <regex>
+#include <boost/regex.hpp>
 #include <unordered_map>
 #include <utility>
 
@@ -77,27 +76,25 @@ public:
         return default_value;
     }
 
-    std::string get_string(const std::string& key) const {
+    std::string get_string(const std::string& key, const std::string& default_value = "") const {
         auto it = _args.find(key);
         if (it != _args.end()) {
             return it->second;
         }
-        return "";
+        return default_value;
     }
 
     std::vector<std::string> get_entry_list(const std::string& key) const {
+        static const boost::regex sep(R"((?<=\])\s*,\s*(?=\[))");
         std::vector<std::string> lists;
-        auto it = _args.find(key);
-        if (it != _args.end()) {
-            static std::regex pattern(R"(\[([^\]]+)\])");
-            std::smatch match;
-            std::sregex_iterator iter(it->second.begin(), it->second.end(), pattern);
-            std::sregex_iterator end;
-            for (; iter != end; ++iter) {
-                if (iter->size() > 1) {
-                    lists.emplace_back((*iter)[1].str());
-                }
+        boost::sregex_token_iterator it(key.begin(), key.end(), sep, -1), end;
+        for (; it != end; ++it) {
+            std::string item = boost::algorithm::trim_copy(it->str());
+            if (item.size() < 2 || item.front() != '[' || item.back() != ']') {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Each item in tokenize_on_chars must be enclosed in []");
             }
+            lists.emplace_back(item.substr(1, item.size() - 2));
         }
         return lists;
     }

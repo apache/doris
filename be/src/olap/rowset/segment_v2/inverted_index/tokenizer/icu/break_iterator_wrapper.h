@@ -25,7 +25,7 @@
 
 #include "icu_common.h"
 
-namespace doris::segment_v2 {
+namespace doris::segment_v2::inverted_index {
 
 class BreakIteratorWrapper {
 public:
@@ -51,4 +51,4 @@ private:
 };
 using BreakIteratorWrapperPtr = std::unique_ptr<BreakIteratorWrapper>;
 
-} // namespace doris::segment_v2
+} // namespace doris::segment_v2::inverted_index
