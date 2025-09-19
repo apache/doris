@@ -130,7 +130,7 @@ public class LoadLoadingTask extends LoadTask {
         this.loadId = loadId;
         List<NereidsBrokerFileGroup> brokerFileGroups = new ArrayList<>(fileGroups.size());
         for (BrokerFileGroup fileGroup : fileGroups) {
-            brokerFileGroups.add(fileGroup.toNereidsBrokerFileGroup());
+            brokerFileGroups.add(fileGroup.getNereidsBrokerFileGroup());
         }
         planner = new NereidsLoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
                 brokerFileGroups, strictMode, isPartialUpdate, partialUpdateNewKeyPolicy, timezone, timeoutS,
