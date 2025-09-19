@@ -235,7 +235,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
     /** getAssignmentCompatibleType */
     public static DataType getAssignmentCompatibleType(DataType left, DataType right) {
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(left, right, false);
+            Optional<DataType> commonType = TypeCoercionUtils.findWiderTypeForTwo(left, right, false, true);
             if (commonType.isPresent()) {
                 return commonType.get();
             }

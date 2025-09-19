@@ -1113,7 +1113,8 @@ public class TypeCoercionUtils {
      * find wider type for input
      * @return if find return wider type, if not find return Optional.empty()
      */
-    public static Optional<DataType> findWiderTypeForTwo(DataType left, DataType right, boolean overflowToDouble) {
+    public static Optional<DataType> findWiderTypeForTwo(DataType left, DataType right,
+            boolean overflowToDouble, boolean stringIsHighPriority) {
         if (left.equals(right)) {
             return Optional.of(left);
         } else if (left instanceof NullType) {
@@ -1135,14 +1136,14 @@ public class TypeCoercionUtils {
                             DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
                     FloatType.class, DoubleType.INSTANCE));
         } else if (left instanceof ComplexDataType || right instanceof ComplexDataType) {
-            return findWiderComplexTypeForTwo(left, right, overflowToDouble);
+            return findWiderComplexTypeForTwo(left, right, overflowToDouble, stringIsHighPriority);
         } else {
-            return findWiderPrimitiveTypeForTwo(left, right, overflowToDouble);
+            return findWiderPrimitiveTypeForTwo(left, right, overflowToDouble, stringIsHighPriority);
         }
     }
 
     private static Optional<DataType> findWiderComplexTypeForTwo(
-            DataType left, DataType right, boolean overflowToDouble) {
+            DataType left, DataType right, boolean overflowToDouble, boolean stringIsHighPriority) {
         if (right.isStringLikeType()) {
             return Optional.of(left);
         } else if (left.isStringLikeType()) {
@@ -1153,13 +1154,16 @@ public class TypeCoercionUtils {
             return Optional.of(right);
         } else if (left instanceof ArrayType && right instanceof ArrayType) {
             Optional<DataType> itemType = findWiderTypeForTwo(
-                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType(), overflowToDouble);
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType(),
+                    overflowToDouble, stringIsHighPriority);
             return itemType.map(ArrayType::of);
         } else if (left instanceof MapType && right instanceof MapType) {
             Optional<DataType> keyType = findWiderTypeForTwo(
-                    ((MapType) left).getKeyType(), ((MapType) right).getKeyType(), overflowToDouble);
+                    ((MapType) left).getKeyType(), ((MapType) right).getKeyType(),
+                    overflowToDouble, stringIsHighPriority);
             Optional<DataType> valueType = findWiderTypeForTwo(
-                    ((MapType) left).getValueType(), ((MapType) right).getValueType(), overflowToDouble);
+                    ((MapType) left).getValueType(), ((MapType) right).getValueType(),
+                    overflowToDouble, stringIsHighPriority);
             if (keyType.isPresent() && valueType.isPresent()) {
                 return Optional.of(MapType.of(keyType.get(), valueType.get()));
             }
@@ -1172,7 +1176,8 @@ public class TypeCoercionUtils {
             List<StructField> newFields = Lists.newArrayList();
             for (int i = 0; i < leftFields.size(); i++) {
                 Optional<DataType> newDataType = findWiderTypeForTwo(
-                        leftFields.get(i).getDataType(), rightFields.get(i).getDataType(), overflowToDouble);
+                        leftFields.get(i).getDataType(), rightFields.get(i).getDataType(),
+                        overflowToDouble, stringIsHighPriority);
                 if (newDataType.isPresent()) {
                     newFields.add(leftFields.get(i).withDataType(newDataType.get()));
                 } else {
@@ -1185,7 +1190,15 @@ public class TypeCoercionUtils {
     }
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
-            DataType leftType, DataType rightType, boolean overflowToDouble) {
+            DataType leftType, DataType rightType, boolean overflowToDouble, boolean stringIsHighPriority) {
+        if (stringIsHighPriority) {
+            if (leftType.isStringLikeType() && canCastTo(rightType, StringType.INSTANCE)) {
+                return Optional.of(StringType.INSTANCE);
+            } else if (rightType.isStringLikeType() && canCastTo(leftType, StringType.INSTANCE)) {
+                return Optional.of(StringType.INSTANCE);
+            }
+        }
+
         // we process date like type first
         if (!leftType.isDateLikeType() && rightType.isDateLikeType()) {
             DataType temp = leftType;
@@ -1291,7 +1304,7 @@ public class TypeCoercionUtils {
 
         Optional<DataType> commonType;
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false);
+            commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
         } else {
             commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
         }
@@ -1366,7 +1379,7 @@ public class TypeCoercionUtils {
                 .map(Expression::getDataType).collect(Collectors.toList());
         Optional<DataType> optionalCommonType;
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonType(waitForCoercion, false);
+            optionalCommonType = TypeCoercionUtils.findWiderCommonType(waitForCoercion, false, false);
         } else {
             optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(waitForCoercion, true);
         }
@@ -1489,7 +1502,7 @@ public class TypeCoercionUtils {
 
         Optional<DataType> optionalCommonType;
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion, false);
+            optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion, false, true);
         } else {
             optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
         }
@@ -1527,29 +1540,31 @@ public class TypeCoercionUtils {
      * find wider common type for input data types.
      * @return return a type if find one, return Optional.empty() if not find
      */
-    public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes, boolean overflowToDouble) {
+    public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes,
+            boolean overflowToDouble, boolean stringIsHighPriority) {
         return dataTypes.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
                     if (r.isPresent() && c.isPresent()) {
-                        return findWiderTypeForTwo(r.get(), c.get(), overflowToDouble);
+                        return findWiderTypeForTwo(r.get(), c.get(), overflowToDouble, stringIsHighPriority);
                     } else {
                         return Optional.empty();
                     }
                 });
     }
 
-    public static Optional<DataType> findWiderCommonTypeByVariable(List<DataType> dataTypes, boolean overflowToDouble) {
+    public static Optional<DataType> findWiderCommonTypeByVariable(List<DataType> dataTypes,
+                   boolean overflowToDouble, boolean stringIsHighPriority) {
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            return findWiderCommonType(dataTypes, overflowToDouble);
+            return findWiderCommonType(dataTypes, overflowToDouble, stringIsHighPriority);
         } else {
             return findWiderCommonTypeForCaseWhen(dataTypes);
         }
     }
 
-    public static Optional<DataType> findWiderTypeForTwoByVariable(
-            DataType left, DataType right, boolean overflowToDouble) {
+    public static Optional<DataType> findWiderTypeForTwoByVariable(DataType left, DataType right,
+                   boolean overflowToDouble, boolean stringIsHighPriority) {
         if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            return findWiderTypeForTwo(left, right, overflowToDouble);
+            return findWiderTypeForTwo(left, right, overflowToDouble, stringIsHighPriority);
         } else {
             return findWiderTypeForTwoForCaseWhen(left, right);
         }
