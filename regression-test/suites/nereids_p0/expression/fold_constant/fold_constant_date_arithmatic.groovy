@@ -30,6 +30,9 @@ suite("fold_constant_date_arithmatic") {
     testFoldConst("select substr(current_timestamp(), 1, 10);")
     testFoldConst("select substr(current_timestamp(3), 1, 10);")
 
+    testFoldConst("SELECT date_format('2020-12-01', repeat('a',129));")
+    testFoldConst("SELECT date_format('2020-12-01', repeat('a', 128));")
+ 
     testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%h');")
     testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%I');")
     testFoldConst("SELECT date_format('2020-12-01 00:00:30.01', '%l');")
