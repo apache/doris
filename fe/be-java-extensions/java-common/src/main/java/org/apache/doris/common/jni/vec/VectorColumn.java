@@ -298,15 +298,20 @@ public class VectorColumn {
     }
 
     private void freeVarbinaryData() {
+        long[] addrs = new long[appendIndex];
+        int count = 0;
         for (int i = 0; i < appendIndex; i++) {
             long entry = data + 16L * i;
             long len = OffHeap.getLong(null, entry);
-            if (len > 0) { // 0 maybe indicates null sentinel in our meta
+            if (len > 0) { // 0 indicates null or empty
                 long addr = OffHeap.getLong(null, entry + 8);
                 if (addr != 0) {
-                    OffHeap.freeMemory(addr);
+                    addrs[count++] = addr;
                 }
             }
+        }
+        if (count > 0) {
+            OffHeap.freeMemoryBatch(java.util.Arrays.copyOf(addrs, count));
         }
     }
 
@@ -1484,15 +1489,31 @@ public class VectorColumn {
             checkNullable(batch, batch.length);
         }
         reserve(appendIndex + batch.length);
-        for (byte[] v : batch) {
+        int rows = batch.length;
+        int[] sizes = new int[rows];
+        int allocCount = 0;
+        for (int i = 0; i < rows; i++) {
+            byte[] v = batch[i];
+            if (v != null && v.length > 0) {
+                sizes[allocCount++] = v.length;
+            }
+        }
+        long[] addrs = allocCount == 0 ? new long[0]
+                : OffHeap.allocateMemoryBatch(java.util.Arrays.copyOf(sizes, allocCount));
+        int cursor = 0;
+        for (int i = 0; i < rows; i++) {
+            byte[] v = batch[i];
             if (v == null) {
                 putNull(appendIndex);
-                OffHeap.putLong(null, data + 16L * appendIndex, 0L); // null length 0
-                OffHeap.putLong(null, data + 16L * appendIndex + 8, 0);
+                OffHeap.putLong(null, data + 16L * appendIndex, 0L);
+                OffHeap.putLong(null, data + 16L * appendIndex + 8, 0L);
+            } else if (v.length == 0) {
+                OffHeap.putLong(null, data + 16L * appendIndex, 0L);
+                OffHeap.putLong(null, data + 16L * appendIndex + 8, 0L);
             } else {
-                long addr = OffHeap.allocateMemory(v.length);
+                long addr = addrs[cursor++];
                 OffHeap.copyMemory(v, OffHeap.BYTE_ARRAY_OFFSET, null, addr, v.length);
-                OffHeap.putLong(null, data + 16L * appendIndex, v.length);
+                OffHeap.putLong(null, data + 16L * appendIndex, (long) v.length);
                 OffHeap.putLong(null, data + 16L * appendIndex + 8, addr);
             }
             appendIndex++;
