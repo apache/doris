@@ -425,10 +425,11 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
             storage_read_opts1.stats = &stats;
             storage_read_opts1.io_ctx.reader_type = ReaderType::READER_QUERY;
             iter->_read_opts = &storage_read_opts1;
-            st = iter->next_batch(&nrows, new_column_object, nullptr);
+            bool has_null = false;
+            st = iter->next_batch(&nrows, new_column_object, &has_null);
             EXPECT_TRUE(st.ok()) << st.msg();
             EXPECT_TRUE(stats.bytes_read > 0);
-            st = iter->next_batch(&nrows, new_column_object, nullptr);
+            st = iter->next_batch(&nrows, new_column_object, &has_null);
             EXPECT_TRUE(st.ok()) << st.msg();
         }
 
@@ -675,6 +676,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it5.get()) != nullptr);
+    EXPECT_TRUE(it5->init(column_iter_opts).ok());
 
     {
         // test SparseColumnExtractIterator seek_to_first
@@ -700,6 +702,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         MutableColumnPtr sparse_dst3 = ColumnVariant::create(3);
         size_t rs = 1000;
         bool has_null = false;
+        st = iter->seek_to_ordinal(0);
+        EXPECT_TRUE(st.ok()) << st.msg();
         st = iter->next_batch(&rs, sparse_dst3, &has_null);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(sparse_dst3->size() == row_ids1.size());
