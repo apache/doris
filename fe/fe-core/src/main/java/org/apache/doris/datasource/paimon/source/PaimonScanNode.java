@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
@@ -289,6 +290,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         long realFileSplitSize = applyCountPushdown ? Long.MAX_VALUE : getRealFileSplitSize(0);
 
         long maxExternalSplitNum = sessionVariable.getMaxExternalSplitNum();
+        Preconditions.checkState(maxExternalSplitNum > 0,
+                "max_external_split_num must be greater than 0, but got: " + maxExternalSplitNum);
         long totalRawFileSize = dataSplits.stream()
                 .mapToLong(split -> split.rawConvertible()
                         ? split.convertToRawFiles().get().stream().mapToLong(RawFile::fileSize).sum()
