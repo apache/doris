@@ -858,6 +858,8 @@ message ServiceRegistryPB {
 
         // Support FQDN
         optional string host = 7;
+        optional string role = 8;          
+        optional string role_recycler = 9; 
     }
     repeated Item items = 1;
 }

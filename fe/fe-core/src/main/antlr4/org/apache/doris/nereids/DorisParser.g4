@@ -323,6 +323,7 @@ supportedDropStatement
     ;
 
 supportedShowStatement
+    | SHOW META_SERVICES                                                            #ShowMetaServices
     : SHOW statementScope? VARIABLES wildWhere?                                     #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)

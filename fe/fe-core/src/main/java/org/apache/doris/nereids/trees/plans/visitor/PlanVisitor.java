@@ -136,6 +136,11 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
         return visit(physicalSink, context);
     }
 
+
+    public R visitShowMetaServicesCommand(ShowMetaServicesCommand showMetaServicesCommand, C context) {
+        return visitShowCommand(showMetaServicesCommand, context);
+    }
+
     // *******************************
     // Logical plans
     // *******************************
