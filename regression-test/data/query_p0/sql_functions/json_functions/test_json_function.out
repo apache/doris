@@ -187,11 +187,15 @@ true	\N
 -- !sql --
 123
 
--- !test --
-\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	\N
-{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	\N	\N
+-- !test2 --
+\N	{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	\N	$	\N	\N
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 4}}	$	$	true	true
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	$	\N	false
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 5}}	\N	$.c.d	\N	false
+{"a": 1, "b": 2, "c": {"d": 4}}	{"a": 1, "b": 2, "c": {"d": 6}}	$	$	false	false
+{"name": "John", "age": 30, "address": {"city": "New York", "country": "USA"}}	"USA"	$.address.country	$.address.country	true	true
+{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}	"reading"	$.hobbies[0]	$.hobbies[0]	true	true
+{"name": "John", "age": 30, "projects": [{"name": "Project A", "year": 2020}, {"name": "Project B", "year": 2021}]}	{"name": "Project B", "year": 2021}	$.projects[1]	$.projects[1]	true	true
 
 -- !json_contains1 --
 false
@@ -222,6 +226,11 @@ false
 ["d"]
 ["d"]
 ["d"]
+["d"]
+["d"]
+\N
+\N
+\N
 
 -- !json_remove1 --
 {"a":1,"c":3}
@@ -288,3 +297,4 @@ false
 
 -- !json_remove20 --
 true
+
