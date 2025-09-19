@@ -251,6 +251,9 @@ public class MTMVRelationManager implements MTMVHookService {
     public void refreshComplete(MTMV mtmv, MTMVRelation relation, MTMVTask task) {
         if (task.getStatus() == TaskStatus.SUCCESS) {
             Objects.requireNonNull(relation);
+            if (mtmv.isDropped) {
+                return;
+            }
             refreshMTMVCache(relation, new BaseTableInfo(mtmv));
         }
     }
