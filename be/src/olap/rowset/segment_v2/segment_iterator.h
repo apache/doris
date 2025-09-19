@@ -504,7 +504,7 @@ private:
 
     IndexQueryContextPtr _index_query_context;
 
-    std::unordered_map<ColumnId, PathToSharedColumnCacheUPtr> _column_cache;
+    std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
 };
 
 } // namespace segment_v2

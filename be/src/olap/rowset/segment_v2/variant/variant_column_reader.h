@@ -48,6 +48,117 @@ class InvertedIndexIterator;
 class InvertedIndexFileReader;
 class ColumnReaderCache;
 
+/**
+ * SparseColumnCache provides a caching layer for sparse column data access.
+ * 
+ * The "shared" aspect refers to the ability to share cached column data between
+ * multiple iterators or readers that access the same column (SPARSE_COLUMN_PATH). This reduces
+ * redundant I/O operations and memory usage when multiple consumers need the
+ * same column data.
+ * 
+ * Key features:
+ * - Caches column data after reading to avoid repeated I/O
+ * - Maintains state to track the current data validity
+ * - Supports both sequential (next_batch) and random (read_by_rowids) access patterns
+ * - Optimizes performance by reusing cached data when possible
+ * 
+ * The cache operates in different states:
+ * - INVALID: Cache is uninitialized
+ * - INITED: Iterator is initialized but no data cached
+ * - SEEKED_NEXT_BATCHED: Data cached from sequential read
+ * - READ_BY_ROWIDS: Data cached from random access read
+ */
+struct SparseColumnCache {
+    const ColumnIteratorUPtr sparse_column_iterator = nullptr;
+    vectorized::MutableColumnPtr sparse_column = nullptr;
+
+    enum class State : uint8_t {
+        INVALID = 0,
+        INITED = 1,
+        SEEKED_NEXT_BATCHED = 2,
+        READ_BY_ROWIDS = 3,
+    };
+    State state = State::INVALID;
+
+    ordinal_t offset = 0;              // Current offset position for sequential reads
+    std::unique_ptr<rowid_t[]> rowids; // Cached row IDs for random access reads
+    size_t length = 0;                 // Length of cached data
+    bool has_null = false;
+
+    SparseColumnCache() = default;
+    SparseColumnCache(ColumnIteratorUPtr _column_iterator, vectorized::MutableColumnPtr _column)
+            : sparse_column_iterator(std::move(_column_iterator)),
+              sparse_column(std::move(_column)) {}
+
+    Status init(const ColumnIteratorOptions& opts) {
+        if (state >= State::INITED) {
+            return Status::OK();
+        }
+        reset(State::INITED);
+        return sparse_column_iterator->init(opts);
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) {
+        if (state == State::SEEKED_NEXT_BATCHED && offset == ord) {
+            return Status::OK();
+        }
+        reset(State::SEEKED_NEXT_BATCHED);
+        RETURN_IF_ERROR(sparse_column_iterator->seek_to_ordinal(ord));
+        offset = ord;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* _n, bool* _has_null) {
+        if (length != 0) {
+            DCHECK(state == State::SEEKED_NEXT_BATCHED);
+            *_has_null = has_null;
+            *_n = length;
+            return Status::OK();
+        }
+        sparse_column->clear();
+        DCHECK(state == State::SEEKED_NEXT_BATCHED);
+        RETURN_IF_ERROR(sparse_column_iterator->next_batch(_n, sparse_column, _has_null));
+        length = *_n;
+        has_null = *_has_null;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* _rowids, const size_t _count) {
+        if (is_read_by_rowids(_rowids, _count)) {
+            return Status::OK();
+        }
+        reset(State::READ_BY_ROWIDS);
+        RETURN_IF_ERROR(sparse_column_iterator->read_by_rowids(_rowids, _count, sparse_column));
+        length = _count;
+        rowids = std::make_unique<rowid_t[]>(_count);
+        std::copy(_rowids, _rowids + _count, rowids.get());
+        return Status::OK();
+    }
+
+    void reset(State _state) {
+        state = _state;
+        offset = 0;
+        length = 0;
+        has_null = false;
+        sparse_column->clear();
+        rowids.reset();
+    }
+
+    bool is_read_by_rowids(const rowid_t* _rowids, const size_t _count) const {
+        if (state != State::READ_BY_ROWIDS) {
+            return false;
+        }
+        if (length != _count) {
+            return false;
+        }
+        return std::equal(_rowids, _rowids + _count, rowids.get());
+    }
+};
+
+using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+using PathToSparseColumnCacheUPtr =
+        std::unique_ptr<std::unordered_map<std::string, SparseColumnCacheSPtr>>;
+
 class VariantColumnReader : public ColumnReader {
 public:
     VariantColumnReader() = default;
@@ -60,7 +171,7 @@ public:
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
-                        PathToSharedColumnCacheUPtr* column_cache = nullptr);
+                        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -97,12 +208,11 @@ private:
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
                                               ColumnReaderCache* column_reader_cache);
-    Status _new_iterator_with_flat_leaves(ColumnIteratorUPtr* iterator, const TabletColumn& col,
-                                          const StorageReadOptions* opts,
-                                          bool exceeded_sparse_column_limit,
-                                          bool existed_in_sparse_column,
-                                          ColumnReaderCache* column_reader_cache,
-                                          PathToSharedColumnCacheUPtr* column_cache = nullptr);
+    Status _new_iterator_with_flat_leaves(
+            ColumnIteratorUPtr* iterator, const TabletColumn& col, const StorageReadOptions* opts,
+            bool exceeded_sparse_column_limit, bool existed_in_sparse_column,
+            ColumnReaderCache* column_reader_cache,
+            PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
                                        vectorized::PathInData path,
@@ -112,11 +222,11 @@ private:
                                        OlapReaderStatistics* stats);
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
-                                       SharedColumnCacheSPtr shared_column_cache,
+                                       SparseColumnCacheSPtr sparse_column_cache,
                                        ColumnReaderCache* column_reader_cache);
 
-    Result<SharedColumnCacheSPtr> _get_shared_column_cache(
-            PathToSharedColumnCacheUPtr* column_cache, const std::string& path);
+    Result<SparseColumnCacheSPtr> _get_shared_column_cache(
+            PathToSparseColumnCacheUPtr* sparse_column_cache_ptr, const std::string& path);
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;
