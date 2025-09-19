@@ -1932,7 +1932,7 @@ public:
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
-    bool deserialize(const char* src) {
+    [[nodiscard]] bool deserialize(const char* src) {
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
