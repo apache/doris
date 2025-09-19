@@ -746,7 +746,7 @@ Status Segment::new_column_iterator(
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // use _column_reader_cache to get variant subcolumn(path column) reader
         PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr;
-        if (variant_sparse_column_cache && variant_sparse_column_cache->contains(unique_id)) {
+        if (variant_sparse_column_cache && !variant_sparse_column_cache->contains(unique_id)) {
             variant_sparse_column_cache->emplace(
                     unique_id,
                     std::make_unique<std::unordered_map<std::string, SparseColumnCacheSPtr>>());
