@@ -59,7 +59,8 @@ public:
                         const StorageReadOptions* opt) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache);
+                        const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
+                        PathToSharedColumnCacheUPtr* column_cache = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -100,7 +101,8 @@ private:
                                           const StorageReadOptions* opts,
                                           bool exceeded_sparse_column_limit,
                                           bool existed_in_sparse_column,
-                                          ColumnReaderCache* column_reader_cache);
+                                          ColumnReaderCache* column_reader_cache,
+                                          PathToSharedColumnCacheUPtr* column_cache = nullptr);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
                                        vectorized::PathInData path,
@@ -110,8 +112,11 @@ private:
                                        OlapReaderStatistics* stats);
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
                                        const TabletColumn& target_col,
-                                       ColumnIteratorUPtr inner_iter,
+                                       SharedColumnCacheSPtr shared_column_cache,
                                        ColumnReaderCache* column_reader_cache);
+
+    Result<SharedColumnCacheSPtr> _get_shared_column_cache(
+            PathToSharedColumnCacheUPtr* column_cache, const std::string& path);
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;

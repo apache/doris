@@ -720,9 +720,10 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(const TabletColumn& tablet_column,
-                                    std::unique_ptr<ColumnIterator>* iter,
-                                    const StorageReadOptions* opt) {
+Status Segment::new_column_iterator(
+        const TabletColumn& tablet_column, std::unique_ptr<ColumnIterator>* iter,
+        const StorageReadOptions* opt,
+        std::unordered_map<ColumnId, PathToSharedColumnCacheUPtr>* column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
@@ -744,9 +745,18 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // use _column_reader_cache to get variant subcolumn(path column) reader
-        RETURN_IF_ERROR(
-                assert_cast<VariantColumnReader*>(reader.get())
-                        ->new_iterator(iter, &tablet_column, opt, _column_reader_cache.get()));
+        PathToSharedColumnCacheUPtr* column_cache_ptr = nullptr;
+        if (column_cache && column_cache->find(unique_id) == column_cache->end()) {
+            column_cache->emplace(
+                    unique_id,
+                    std::make_unique<std::unordered_map<std::string, SharedColumnCacheSPtr>>());
+            column_cache_ptr = &(*column_cache)[unique_id];
+        } else if (column_cache) {
+            column_cache_ptr = &(*column_cache)[unique_id];
+        }
+        RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
+                                ->new_iterator(iter, &tablet_column, opt,
+                                               _column_reader_cache.get(), column_cache_ptr));
     } else {
         RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
     }

@@ -428,7 +428,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
             st = iter->next_batch(&nrows, new_column_object, nullptr);
             EXPECT_TRUE(st.ok()) << st.msg();
             EXPECT_TRUE(stats.bytes_read > 0);
-            iter->_read_opts->io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
             st = iter->next_batch(&nrows, new_column_object, nullptr);
             EXPECT_TRUE(st.ok()) << st.msg();
         }
