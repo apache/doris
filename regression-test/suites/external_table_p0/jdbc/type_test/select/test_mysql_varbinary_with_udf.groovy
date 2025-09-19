@@ -54,7 +54,16 @@ suite("test_mysql_varbinary_with_udf", "p0,external,mysql,external_docker,extern
             "type"="JAVA_UDF"
         ); """
 
+        try_sql("DROP FUNCTION IF EXISTS udf_test_varbinary2(varbinary);")
+        sql """ CREATE FUNCTION udf_test_varbinary2(varbinary) RETURNS varbinary PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.VarBinaryTest2",
+            "always_nullable"="true",
+            "type"="JAVA_UDF"
+        ); """
+
         qt_select_varbinary_type4 """select id, varbinary_c, udf_test_varbinary(varbinary_c) as col_varbinary_reversed from mysql_varbinary_udf_catalog.test_varbinary_db.test_varbinary_udf order by id;"""
+        qt_select_varbinary_type5 """select id, varbinary_c, udf_test_varbinary2(varbinary_c) as col_varbinary_reversed from mysql_varbinary_udf_catalog.test_varbinary_db.test_varbinary_udf order by id;"""
 
         sql """drop catalog if exists mysql_varbinary_udf_catalog """
     }

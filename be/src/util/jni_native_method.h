@@ -28,11 +28,6 @@ namespace doris {
  */
 struct JavaNativeMethods {
     /**
-     * Resize string column and return the new column address.
-     */
-    static jlong resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr, jint length);
-
-    /**
      * Allocate memory, which will be tracked by memory tracker.
      */
     static jlong memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes);
