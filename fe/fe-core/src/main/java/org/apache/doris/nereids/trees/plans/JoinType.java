@@ -26,7 +26,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Map;
 
 /**
- * All job type in Nereids.
+ * All join type in Nereids.
  */
 public enum JoinType {
     INNER_JOIN,
@@ -63,7 +63,7 @@ public enum JoinType {
             .build();
 
     // TODO: the right-semi/right-anti/right-outer join is not derived in paper. We need to derive them
-
+    // TODO: add null rejecting conjunct check for assoc, l-assoc and r-assoc
     /*ASSOC:
      *        topJoin       bottomJoin
      *        /     \         /     \
@@ -77,14 +77,24 @@ public enum JoinType {
      */
     private static final Map<JoinType, ImmutableSet<JoinType>> assocJoinMatrix
             = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
-            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
-            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN, FULL_OUTER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN, FULL_OUTER_JOIN))
             .build();
 
     private static final Map<JoinType, ImmutableSet<JoinType>> lAssocJoinMatrix
             = ImmutableMap.<JoinType, ImmutableSet<JoinType>>builder()
-            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
-            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN))
+            .put(CROSS_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN))
+            .put(INNER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN))
+            .put(LEFT_SEMI_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN))
+            .put(LEFT_ANTI_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN))
+            .put(LEFT_OUTER_JOIN, ImmutableSet.of(CROSS_JOIN, INNER_JOIN, LEFT_SEMI_JOIN, LEFT_ANTI_JOIN,
+                    LEFT_OUTER_JOIN))
             .build();
 
     private static final Map<JoinType, ImmutableSet<JoinType>> rAssocJoinMatrix

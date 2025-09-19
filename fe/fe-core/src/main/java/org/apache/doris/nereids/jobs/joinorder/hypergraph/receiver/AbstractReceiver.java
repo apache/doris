@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.memo.Group;
 
@@ -25,14 +27,34 @@ import java.util.List;
 /**
  * A interface of receiver
  */
-public interface AbstractReceiver {
-    boolean emitCsgCmp(long csg, long cmp, List<JoinEdge> edges);
+public abstract class AbstractReceiver {
+    public enum EmitState {
+        SUCCESS,
+        FAIL,
+        CONTINUE,
+        NONE
+    }
 
-    void addGroup(long bitSet, Group group);
+    public abstract EmitState emitCsgCmp(long csg, long cmp, List<JoinEdge> edges);
 
-    boolean contain(long bitSet);
+    public abstract void addGroup(long bitSet, Group group);
 
-    void reset();
+    public abstract boolean contain(long bitSet);
 
-    Group getBestPlan(long bitSet);
+    public abstract void reset();
+
+    public abstract Group getBestPlan(long bitSet);
+
+    boolean checkConflictRule(long left, long right, List<JoinEdge> edges) {
+        long joinedTables = LongBitmap.or(left, right);
+        for (JoinEdge edge : edges) {
+            for (Pair<Long, Long> rule : edge.getConflictRules()) {
+                if (LongBitmap.isOverlap(joinedTables, rule.first)
+                        && !LongBitmap.isSubset(rule.second, joinedTables)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 }

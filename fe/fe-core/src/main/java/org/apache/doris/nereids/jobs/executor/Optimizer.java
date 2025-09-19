@@ -70,28 +70,29 @@ public class Optimizer {
      * This method calc the result that if use dp hyper or not
      */
     public static boolean isDpHyp(CascadesContext cascadesContext) {
-        boolean optimizeWithUnknownColStats = false;
-        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
-            if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
-                optimizeWithUnknownColStats = true;
-            }
-        }
-        // DPHyp optimize
-        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        int maxTableCount = sessionVariable.getMaxTableCountUseCascadesJoinReorder();
-        if (optimizeWithUnknownColStats) {
-            // if column stats are unknown, 10~20 table-join is optimized by cascading framework
-            maxTableCount = 2 * maxTableCount;
-        }
-        int continuousJoinNum = Memo.countMaxContinuousJoin(cascadesContext.getRewritePlan());
-        cascadesContext.getStatementContext().setMaxContinuousJoin(continuousJoinNum);
-        boolean isDpHyp = sessionVariable.enableDPHypOptimizer || continuousJoinNum > maxTableCount;
-        boolean finalEnableDpHyp = !sessionVariable.isDisableJoinReorder()
-                && !cascadesContext.isLeadingDisableJoinReorder()
-                && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
-                && isDpHyp;
-        cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
-        return finalEnableDpHyp;
+//        boolean optimizeWithUnknownColStats = false;
+//        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
+//            if (ConnectContext.get().getStatementContext().isHasUnknownColStats()) {
+//                optimizeWithUnknownColStats = true;
+//            }
+//        }
+//        // DPHyp optimize
+//        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+//        int maxTableCount = sessionVariable.getMaxTableCountUseCascadesJoinReorder();
+//        if (optimizeWithUnknownColStats) {
+//            // if column stats are unknown, 10~20 table-join is optimized by cascading framework
+//            maxTableCount = 2 * maxTableCount;
+//        }
+//        int continuousJoinNum = Memo.countMaxContinuousJoin(cascadesContext.getRewritePlan());
+//        cascadesContext.getStatementContext().setMaxContinuousJoin(continuousJoinNum);
+//        boolean isDpHyp = sessionVariable.enableDPHypOptimizer || continuousJoinNum > maxTableCount;
+//        boolean finalEnableDpHyp = !sessionVariable.isDisableJoinReorder()
+//                && !cascadesContext.isLeadingDisableJoinReorder()
+//                && continuousJoinNum <= sessionVariable.getMaxJoinNumberOfReorder()
+//                && isDpHyp;
+//        cascadesContext.getStatementContext().setDpHyp(finalEnableDpHyp);
+//        return finalEnableDpHyp;
+        return true;
     }
 
     private void dpHypOptimize() {

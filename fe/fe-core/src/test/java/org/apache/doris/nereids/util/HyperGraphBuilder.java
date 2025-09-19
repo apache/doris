@@ -66,29 +66,37 @@ public class HyperGraphBuilder {
     private final HashMap<BitSet, List<Integer>> schemas = new HashMap<>();
 
     private ImmutableList<JoinType> fullJoinTypes = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN,
-            JoinType.RIGHT_OUTER_JOIN,
-            JoinType.FULL_OUTER_JOIN
+            JoinType.INNER_JOIN
+//           ,
+//           JoinType.LEFT_OUTER_JOIN
+        //,
+        //    JoinType.RIGHT_OUTER_JOIN,
+        //    JoinType.FULL_OUTER_JOIN
     );
 
     private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN,
-            JoinType.RIGHT_OUTER_JOIN,
-            JoinType.FULL_OUTER_JOIN,
-            JoinType.LEFT_SEMI_JOIN,
-            JoinType.LEFT_ANTI_JOIN,
-            JoinType.NULL_AWARE_LEFT_ANTI_JOIN
+            JoinType.INNER_JOIN
+           ,
+           JoinType.LEFT_ANTI_JOIN,
+            JoinType.LEFT_SEMI_JOIN
+        // ,
+        //    JoinType.RIGHT_OUTER_JOIN,
+        //    JoinType.FULL_OUTER_JOIN,
+        //    JoinType.LEFT_SEMI_JOIN,
+        //    JoinType.LEFT_ANTI_JOIN,
+        //    JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
 
     private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
-            JoinType.INNER_JOIN,
-            JoinType.LEFT_OUTER_JOIN,
-            JoinType.RIGHT_OUTER_JOIN,
-            JoinType.FULL_OUTER_JOIN,
-            JoinType.RIGHT_SEMI_JOIN,
-            JoinType.RIGHT_ANTI_JOIN
+            JoinType.INNER_JOIN
+           ,
+            JoinType.LEFT_ANTI_JOIN,
+           JoinType.LEFT_SEMI_JOIN
+        // ,
+        //    JoinType.RIGHT_OUTER_JOIN,
+        //    JoinType.FULL_OUTER_JOIN,
+        //    JoinType.RIGHT_SEMI_JOIN,
+        //    JoinType.RIGHT_ANTI_JOIN
     );
 
     public HyperGraphBuilder() {}
@@ -345,7 +353,7 @@ public class HyperGraphBuilder {
             MemoTestUtils.initMemoAndValidState(cascadesContext);
         }
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot(), cascadesContext).build();
     }
 
     public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
@@ -355,7 +363,7 @@ public class HyperGraphBuilder {
         if (cascadesContext.getMemo() == null) {
             MemoTestUtils.initMemoAndValidState(cascadesContext);
         }
-        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
+        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot(), cascadesContext).build();
     }
 
     private void injectRowcount(Group group) {

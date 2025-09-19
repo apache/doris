@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
@@ -28,10 +29,12 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -41,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
@@ -71,20 +75,31 @@ public class HyperGraph {
     private final List<JoinEdge> joinEdges;
     private final List<FilterEdge> filterEdges;
     private final List<AbstractNode> nodes;
-    private final Set<Slot> finalOutputs;
+    private final List<NamedExpression> finalProjects;
 
     // Record the complex project expression for some subgraph
     // e.g. project (a + b)
     //         |-- join(t1.a = t2.b)
     private final Map<Long, List<NamedExpression>> complexProject;
 
-    HyperGraph(Set<Slot> finalOutputs, List<JoinEdge> joinEdges, List<AbstractNode> nodes, List<FilterEdge> filterEdges,
-            Map<Long, List<NamedExpression>> complexProject) {
-        this.finalOutputs = ImmutableSet.copyOf(finalOutputs);
+    private final CascadesContext ctx;
+
+    HyperGraph(List<NamedExpression> finalProjects, List<JoinEdge> joinEdges, List<AbstractNode> nodes, List<FilterEdge> filterEdges,
+            Map<Long, List<NamedExpression>> complexProject, CascadesContext ctx) {
+        this.finalProjects = ImmutableList.copyOf(finalProjects);
         this.joinEdges = ImmutableList.copyOf(joinEdges);
         this.nodes = ImmutableList.copyOf(nodes);
         this.complexProject = ImmutableMap.copyOf(complexProject);
         this.filterEdges = ImmutableList.copyOf(filterEdges);
+        this.ctx = ctx;
+    }
+
+    public CascadesContext getCtx() {
+        return ctx;
+    }
+
+    public List<NamedExpression> getFinalProjects() {
+        return finalProjects;
     }
 
     public List<JoinEdge> getJoinEdges() {
@@ -158,21 +173,12 @@ public class HyperGraph {
         if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
             treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, false);
         }
-        updateEdges(edge, edge.getLeftExtendedNodes(), newLeft);
-        updateEdges(edge, edge.getRightExtendedNodes(), newRight);
         joinEdges.get(edgeIndex).setLeftExtendedNodes(newLeft);
         joinEdges.get(edgeIndex).setRightExtendedNodes(newRight);
         if (treeEdgesCache.containsKey(edge.getReferenceNodes())) {
             treeEdgesCache.get(edge.getReferenceNodes()).set(edgeIndex, true);
         }
-    }
 
-    private void updateEdges(Edge edge, long oldNodes, long newNodes) {
-        long removeNodes = LongBitmap.newBitmapDiff(oldNodes, newNodes);
-        LongBitmap.getIterator(removeNodes).forEach(index -> nodes.get(index).removeEdge(edge));
-
-        long addedNodes = LongBitmap.newBitmapDiff(newNodes, oldNodes);
-        LongBitmap.getIterator(addedNodes).forEach(index -> nodes.get(index).attachEdge(edge));
     }
 
     /**
@@ -211,9 +217,8 @@ public class HyperGraph {
             return false;
         }
         LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
-        return join.getJoinType() == JoinType.INNER_JOIN
-                && !join.isMarkJoin()
-                && !join.getExpressions().isEmpty()
+        return !join.isMarkJoin()
+//                && !join.getExpressions().isEmpty()
                 && !join.isLeadingJoin();
     }
 
@@ -287,8 +292,8 @@ public class HyperGraph {
         return builder.toString();
     }
 
-    public static HyperGraph.Builder builderForDPhyper(Group group) {
-        return new HyperGraph.Builder().buildHyperGraphForDPhyper(group);
+    public static HyperGraph.Builder builderForDPhyper(Group group, CascadesContext ctx) {
+        return new HyperGraph.Builder().buildHyperGraphForDPhyper(group, ctx);
     }
 
     public static HyperGraph.Builder builderForMv(Plan plan) {
@@ -335,17 +340,44 @@ public class HyperGraph {
 
         // These hyperGraphs should be replaced nodes when building all
         private final Map<Long, List<HyperGraph>> replacedHyperGraphs = new LinkedHashMap<>();
-        private final HashMap<Slot, Long> slotToNodeMap = new LinkedHashMap<>();
+        // Key: hyper node's output slots, the slots come from simple slotReference or Alias
+        // value: the long bitmap value representing hyper node(simple node or joined nodes)
+        // addDPHyperNode method add slots from simple node
+        // addAlias method add slots from both simple node and joined nodes, depending on the alias's input slots
+        private final HashMap<Slot, Long> slotToHyperNodeMap = new LinkedHashMap<>();
+        // key: the long bitmap value representing hyper node(simple node or joined nodes)
+        // value: hyper node's complex project outputs coming from Alias in LogicalProject node
         private final Map<Long, List<NamedExpression>> complexProject = new LinkedHashMap<>();
         private Set<Slot> finalOutputs;
+
+        private CascadesContext ctx;
+
+        private ExpressionRewriteContext expressionRewriteCtx;
+
+        private Map<Slot, Expression> aliasReplaceMap = new LinkedHashMap<>();
+
+        private List<NamedExpression> finalProjects = new ArrayList<>();
+
+        private long outerJoinedNoes = 0;
 
         public List<AbstractNode> getNodes() {
             return nodes;
         }
 
-        private HyperGraph.Builder buildHyperGraphForDPhyper(Group group) {
+        private HyperGraph.Builder buildHyperGraphForDPhyper(Group group, CascadesContext ctx) {
+            this.ctx = ctx;
+            this.expressionRewriteCtx = new ExpressionRewriteContext(ctx);
             finalOutputs = group.getLogicalProperties().getOutputSet();
             this.buildForDPhyper(group.getLogicalExpression());
+            for (Slot slot : finalOutputs) {
+                Expression expression = aliasReplaceMap.get(slot);
+                if (expression != null) {
+                    finalProjects.add(new Alias(slot.getExprId(), expression, slot.getName()));
+                } else {
+                    finalProjects.add(slot);
+                }
+            }
+            complexProject.clear();
             return this;
         }
 
@@ -356,7 +388,7 @@ public class HyperGraph {
         }
 
         public HyperGraph build() {
-            return new HyperGraph(finalOutputs, joinEdges, nodes, filterEdges, complexProject);
+            return new HyperGraph(finalProjects, joinEdges, nodes, filterEdges, complexProject, ctx);
         }
 
         public void updateNode(int idx, Group group) {
@@ -364,7 +396,13 @@ public class HyperGraph {
             nodes.set(idx, ((DPhyperNode) nodes.get(idx)).withGroup(group));
         }
 
-        // Build Graph for DPhyper
+        /**
+         * Build Graph for DPhyper in bottom-up way, it means build node first, then edges
+         *
+         * @param groupExpression the groupExpression contains root plan node of this join cluster
+         * @return Pair<BitSet, Long>, BitSet is the latest join edges' index in joinEdges, Long is all the subtree
+         * nodes of the latest join edges' index
+         */
         private Pair<BitSet, Long> buildForDPhyper(GroupExpression groupExpression) {
             // process Project
             if (isValidProject(groupExpression.getPlan())) {
@@ -452,12 +490,13 @@ public class HyperGraph {
          */
         public boolean addAlias(Alias alias, long subTreeNodes) {
             Slot aliasSlot = alias.toSlot();
-            if (slotToNodeMap.containsKey(aliasSlot)) {
+            if (slotToHyperNodeMap.containsKey(aliasSlot)) {
                 return true;
             }
             long bitmap = LongBitmap.newBitmap();
+            // find the nodes produce the input slots, the nodes is subset of subTreeNodes
             for (Slot slot : alias.getInputSlots()) {
-                bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
+                bitmap = LongBitmap.or(bitmap, slotToHyperNodeMap.get(slot));
             }
             // The case hit when there are some constant aliases such as:
             // select * from t1 join (
@@ -468,13 +507,9 @@ public class HyperGraph {
                 bitmap = subTreeNodes;
             }
             Preconditions.checkArgument(bitmap > 0, "slot must belong to some table");
-            slotToNodeMap.put(aliasSlot, bitmap);
-            if (!complexProject.containsKey(bitmap)) {
-                complexProject.put(bitmap, new ArrayList<>());
-            }
-            alias = (Alias) PlanUtils.mergeProjections(complexProject.get(bitmap), Lists.newArrayList(alias)).get(0);
-
-            complexProject.get(bitmap).add(alias);
+            slotToHyperNodeMap.put(aliasSlot, bitmap);
+            alias = (Alias) ExpressionUtils.replaceNameExpression(alias, aliasReplaceMap);
+            aliasReplaceMap.put(aliasSlot, alias.child());
             return true;
         }
 
@@ -486,8 +521,8 @@ public class HyperGraph {
          */
         private int addDPHyperNode(Group group) {
             for (Slot slot : group.getLogicalExpression().getPlan().getOutput()) {
-                Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
-                slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
+                Preconditions.checkArgument(!slotToHyperNodeMap.containsKey(slot));
+                slotToHyperNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
             }
             nodes.add(new DPhyperNode(nodes.size(), group));
             return nodes.size() - 1;
@@ -501,47 +536,81 @@ public class HyperGraph {
          */
         private int addStructInfoNode(Plan plan) {
             for (Slot slot : plan.getOutput()) {
-                Preconditions.checkArgument(!slotToNodeMap.containsKey(slot));
-                slotToNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
+                Preconditions.checkArgument(!slotToHyperNodeMap.containsKey(slot));
+                slotToHyperNodeMap.put(slot, LongBitmap.newBitmap(nodes.size()));
             }
             nodes.add(new StructInfoNode(nodes.size(), plan));
             return nodes.size() - 1;
         }
 
-        private long calNodeMap(Set<Slot> slots) {
+        private long calReferencedNodesBySlots(Set<Slot> slots) {
             Preconditions.checkArgument(slots.size() != 0);
             long bitmap = LongBitmap.newBitmap();
             for (Slot slot : slots) {
-                Preconditions.checkArgument(slotToNodeMap.containsKey(slot));
-                bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
+                Preconditions.checkArgument(slotToHyperNodeMap.containsKey(slot));
+                bitmap = LongBitmap.or(bitmap, slotToHyperNodeMap.get(slot));
             }
             return bitmap;
         }
 
         /**
-         * try to add edge for join group
+         * try to add edge for join group ( only works for inner join!!! )
+         * 1. consider original join node's conjuncts:
+         *      inner join conjuncts: t1.a = t2.a and t1.b = t3.b
+         * 2. extract join conjuncts:
+         *      nodeToConjuncts contains 2 elements : (t1 and t2, t1.a = t2.a), (t1 and t3, t1.b = t3.b)
+         * 3. based on nodeToConjuncts, create 2 new join node and edge:
+         *      inner join1 : t1.a = t2.a
+         *      inner join2 : t1.b = t3.b
          *
          * @param join The join plan
+         * @param leftChildEdgeNodes first level left child edges and all nodes in the left tree
+         * @param rightChildEdgeNodes first level right child edges and all nodes in the right tree
+         * @return BitSet indicate the join edges' index in joinEdges produced by @param join
          */
         private BitSet addJoin(LogicalJoin<?, ?> join,
-                Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
-            Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new LinkedHashMap<>();
-            for (Expression expression : join.getHashJoinConjuncts()) {
-                // TODO: avoid calling calculateEnds if calNodeMap's results are same
-                Pair<Long, Long> ends = calculateEnds(calNodeMap(expression.getInputSlots()), leftEdgeNodes,
-                        rightEdgeNodes);
-                if (!conjuncts.containsKey(ends)) {
-                    conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
+                Pair<BitSet, Long> leftChildEdgeNodes, Pair<BitSet, Long> rightChildEdgeNodes) {
+            // the join conjuncts may only use subset of leftNodes and rightNodes
+            // extract inner join conjuncts to requiredNodesToConjuncts map
+            // requiredNodesToConjuncts:
+            // Pair<Long, Long> -> [leftNodes, rightNodes] only contains conjuncts' input slots referenced nodes
+            // Pair<List<Expression>, List<Expression>> -> [hashConjuncts, otherConjuncts]
+            // TODO: need handle mark conjuncts here
+            Map<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> requiredNodesToConjuncts = new LinkedHashMap<>();
+            if (join.getJoinType().isInnerJoin()) {
+                Pair<Long, Long> ends = calculateEnds(calReferencedNodesBySlots(join.getInputSlots()),
+                        leftChildEdgeNodes, rightChildEdgeNodes);
+//                requiredNodesToConjuncts.put(ends, Pair.of(join.getHashJoinConjuncts(), join.getOtherJoinConjuncts()));
+                if (LongBitmap.isOverlap(outerJoinedNoes, ends.first) || LongBitmap.isOverlap(outerJoinedNoes, ends.second)) {
+                    requiredNodesToConjuncts.put(ends, Pair.of(join.getHashJoinConjuncts(), join.getOtherJoinConjuncts()));
+                } else {
+                    for (Expression expression : join.getHashJoinConjuncts()) {
+                        // TODO: avoid calling calculateEnds if calNodeMap's results are same
+                        // split join conjunct's input slots into left child and right child group
+                        // ends.first is left child nodes, ends.second is right child nodes
+                        ends = calculateEnds(calReferencedNodesBySlots(expression.getInputSlots()),
+                                leftChildEdgeNodes, rightChildEdgeNodes);
+                        if (!requiredNodesToConjuncts.containsKey(ends)) {
+                            requiredNodesToConjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
+                        }
+                        requiredNodesToConjuncts.get(ends).first.add(expression);
+                    }
+                    for (Expression expression : join.getOtherJoinConjuncts()) {
+                        ends = calculateEnds(calReferencedNodesBySlots(expression.getInputSlots()),
+                                leftChildEdgeNodes, rightChildEdgeNodes);
+                        if (!requiredNodesToConjuncts.containsKey(ends)) {
+                            requiredNodesToConjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
+                        }
+                        requiredNodesToConjuncts.get(ends).second.add(expression);
+                    }
                 }
-                conjuncts.get(ends).first.add(expression);
-            }
-            for (Expression expression : join.getOtherJoinConjuncts()) {
-                Pair<Long, Long> ends = calculateEnds(calNodeMap(expression.getInputSlots()), leftEdgeNodes,
-                        rightEdgeNodes);
-                if (!conjuncts.containsKey(ends)) {
-                    conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
-                }
-                conjuncts.get(ends).second.add(expression);
+            } else if (join.getJoinType().isCrossJoin()) {
+                return addCrossJoin(join, leftChildEdgeNodes, rightChildEdgeNodes);
+            } else {
+                outerJoinedNoes = LongBitmap.or(leftChildEdgeNodes.second, rightChildEdgeNodes.second);
+                Pair<Long, Long> ends = calculateEnds(calReferencedNodesBySlots(join.getInputSlots()),
+                        leftChildEdgeNodes, rightChildEdgeNodes);
+                requiredNodesToConjuncts.put(ends, Pair.of(join.getHashJoinConjuncts(), join.getOtherJoinConjuncts()));
             }
 
             BitSet curJoinEdges = new BitSet();
@@ -549,29 +618,52 @@ public class HyperGraph {
                     Sets.intersection(join.getInputSlots(), join.left().getOutputSet()));
             Set<Slot> rightInputSlots = ImmutableSet.copyOf(
                     Sets.intersection(join.getInputSlots(), join.right().getOutputSet()));
-            for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
+            for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : requiredNodesToConjuncts
                     .entrySet()) {
-                LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
-                        entry.getValue().second,
+                List<Expression> newHashConjuncts = ExpressionUtils.replace(entry.getValue().first, aliasReplaceMap);
+                List<Expression> newOtherConjuncts = ExpressionUtils.replace(entry.getValue().second, aliasReplaceMap);
+                LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), newHashConjuncts,
+                        newOtherConjuncts,
                         new DistributeHint(DistributeType.NONE), join.getMarkJoinSlotReference(),
                         Lists.newArrayList(join.left(), join.right()), null);
                 Pair<Long, Long> ends = entry.getKey();
-                JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,
-                        LongBitmap.newBitmapUnion(leftEdgeNodes.second, rightEdgeNodes.second),
-                        ends.first, ends.second, leftInputSlots, rightInputSlots);
-                for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
-                    nodes.get(nodeIndex).attachEdge(edge);
-                }
+                // we can see JoinEdge contains following info
+                // 1. LogicalJoin operator
+                // 2. edgeIndex in joinEdges
+                // 3. first level left child edge and right child edge
+                // 4. all subtree nodes
+                // 5. left and right required nodes(produced by join conjuncts)
+                // 6. left and right input slots(used for struct info)
+                JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftChildEdgeNodes.first,
+                        rightChildEdgeNodes.first, leftChildEdgeNodes.second,
+                        rightChildEdgeNodes.second, ends.first, ends.second, leftInputSlots, rightInputSlots);
                 curJoinEdges.set(edge.getIndex());
                 joinEdges.add(edge);
             }
             curJoinEdges.stream().forEach(i -> joinEdges.get(i).addCurJoinEdges(curJoinEdges));
-            curJoinEdges.stream().forEach(i -> ConflictRulesMaker.makeJoinConflictRules(joinEdges.get(i), joinEdges));
+            curJoinEdges.stream().forEach(i -> ConflictRulesMaker.makeJoinConflictRules(joinEdges.get(i), joinEdges, expressionRewriteCtx));
             curJoinEdges.stream().forEach(i ->
                     ConflictRulesMaker.makeFilterConflictRules(joinEdges.get(i), joinEdges, filterEdges));
             return curJoinEdges;
             // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
             // We don't implement this trick now.
+        }
+
+        private BitSet addCrossJoin(LogicalJoin<?, ?> join,
+                               Pair<BitSet, Long> leftChildEdgeNodes, Pair<BitSet, Long> rightChildEdgeNodes) {
+            BitSet curJoinEdges = new BitSet();
+            Pair<Long, Long> ends = calculateEnds(calReferencedNodesBySlots(Sets.union(join.left().getOutputSet(), join.right().getOutputSet())),
+                    leftChildEdgeNodes, rightChildEdgeNodes);
+            JoinEdge edge = new JoinEdge(join, joinEdges.size(), leftChildEdgeNodes.first,
+                    rightChildEdgeNodes.first, leftChildEdgeNodes.second,
+                    rightChildEdgeNodes.second, ends.first, ends.second, join.left().getOutputSet(), join.right().getOutputSet());
+            curJoinEdges.set(edge.getIndex());
+            joinEdges.add(edge);
+            curJoinEdges.stream().forEach(i -> joinEdges.get(i).addCurJoinEdges(curJoinEdges));
+            curJoinEdges.stream().forEach(i -> ConflictRulesMaker.makeJoinConflictRules(joinEdges.get(i), joinEdges, expressionRewriteCtx));
+            curJoinEdges.stream().forEach(i ->
+                    ConflictRulesMaker.makeFilterConflictRules(joinEdges.get(i), joinEdges, filterEdges));
+            return curJoinEdges;
         }
 
         private BitSet addFilter(LogicalFilter<?> filter, Pair<BitSet, Long> childEdgeNodes) {
@@ -590,23 +682,12 @@ public class HyperGraph {
                 Pair<BitSet, Long> rightEdgeNodes) {
             long left = LongBitmap.newBitmapIntersect(allNodes, leftEdgeNodes.second);
             long right = LongBitmap.newBitmapIntersect(allNodes, rightEdgeNodes.second);
+            // handle degenerate predicates
             if (left == 0) {
-                Preconditions.checkArgument(leftEdgeNodes.first.cardinality() > 0,
-                        "the number of the table which expression reference is less 2");
-                Pair<BitSet, Long> llEdgesNodes = joinEdges.get(leftEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(
-                        joinEdges);
-                Pair<BitSet, Long> lrEdgesNodes = joinEdges.get(leftEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(
-                        joinEdges);
-                return calculateEnds(allNodes, llEdgesNodes, lrEdgesNodes);
+                left = leftEdgeNodes.second;
             }
             if (right == 0) {
-                Preconditions.checkArgument(rightEdgeNodes.first.cardinality() > 0,
-                        "the number of the table which expression reference is less 2");
-                Pair<BitSet, Long> rlEdgesNodes = joinEdges.get(rightEdgeNodes.first.nextSetBit(0)).getLeftEdgeNodes(
-                        joinEdges);
-                Pair<BitSet, Long> rrEdgesNodes = joinEdges.get(rightEdgeNodes.first.nextSetBit(0)).getRightEdgeNodes(
-                        joinEdges);
-                return calculateEnds(allNodes, rlEdgesNodes, rrEdgesNodes);
+                right = rightEdgeNodes.second;
             }
             return Pair.of(left, right);
         }

@@ -31,7 +31,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Edge in HyperGraph
+ * Edge in HyperGraph, currently it's a join edge or filter edge
+ * join edge is used for join reorder and mtmv match, and filter edge is only used for mtmv match
+ * the original operator mentioned in comments is join operator or filter operator
  */
 public abstract class Edge implements HyperElement {
     private final int index;
@@ -48,13 +50,16 @@ public abstract class Edge implements HyperElement {
     // The nodes needed which to prevent wrong association or r-association
     private long rightExtendedNodes;
 
-    // record the left child edges and right child edges in origin plan tree
+    // record the left child edges and right child edges bellow the original operator, just first level child, not more
+    // because we split inner join conjuncts to multiple inner join edges, we may have n : 1
+    // as edges to original join node
     private final BitSet leftChildEdges;
     private final BitSet rightChildEdges;
 
-    // record the edges in the same operator
+    // record the edges in the original operator
     private final BitSet curOperatorEdges = new BitSet();
-    // record all sub nodes behind in this operator. It's T function in paper
+
+    // record all sub nodes bellow the original operator. It's T function in paper
     private final long subTreeNodes;
     // The edges which prevents association or l-association when join edge
     // and prevents push down or pull up when filter edge in the left of edge
