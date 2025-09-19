@@ -40,7 +40,11 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class MaterializedViewHandlerTest {
@@ -324,6 +328,63 @@ public class MaterializedViewHandlerTest {
             Assert.fail(e.getMessage());
         }
 
+    }
+
+    @Test
+    public void testCheckSequenceMapping(@Injectable OlapTable olapTable) throws AnalysisException {
+        Map<String, List<String>> sequenceMapping  = new HashMap<>();
+        sequenceMapping.put("s1", Arrays.asList("c", "d"));
+        sequenceMapping.put("s2", Arrays.asList("e"));
+
+        List<Column> rollupSchema  = new ArrayList<>();
+        rollupSchema.add(new Column("s1", Type.INT));
+        rollupSchema.add(new Column("c", Type.VARCHAR));
+        rollupSchema.add(new Column("d", Type.VARCHAR));
+
+        new Expectations() {
+            {
+                olapTable.getColumnSeqMapping();
+                result = sequenceMapping;
+            }
+        };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Map<String, List<String>> newMapping = Deencapsulation.invoke(materializedViewHandler,
+                    "processSequenceMapping", olapTable, rollupSchema);
+            Assert.assertTrue(!newMapping.containsKey("s2"));
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+    }
+
+    @Test
+    public void testAddSequenceMappingKeyColumn(@Injectable OlapTable olapTable) throws AnalysisException {
+        Map<String, List<String>> sequenceMapping = new HashMap<>();
+        sequenceMapping.put("s1", Arrays.asList("c", "d"));
+        List<Column> rollupSchema  = new ArrayList<>();
+        rollupSchema.add(new Column("c", Type.VARCHAR));
+        rollupSchema.add(new Column("d", Type.VARCHAR));
+
+        Column seqenceKeyColumn = new Column("s1", Type.INT);
+        new Expectations() {
+            {
+                olapTable.getColumnSeqMapping();
+                result = sequenceMapping;
+                olapTable.getKeysType();
+                result = KeysType.UNIQUE_KEYS;
+                olapTable.getColumn("s1");
+                result = seqenceKeyColumn;
+            }
+        };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "addSequenceMappingKeyColumn",
+                    olapTable, rollupSchema);
+            Assert.assertTrue("added columns should contain sequence column",
+                    rollupSchema.contains(seqenceKeyColumn));
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
     }
 
 }
