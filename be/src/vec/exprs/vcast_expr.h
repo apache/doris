@@ -82,8 +82,6 @@ public:
 
     TryCastExpr(const TExprNode& node)
             : VCastExpr(node), _original_cast_return_is_nullable(node.is_cast_nullable) {}
-    Status open(RuntimeState* state, VExprContext* context,
-                FunctionContext::FunctionStateScope scope) override;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
@@ -97,9 +95,6 @@ private:
     //Try_cast always returns nullable,
     // but we also need the information of whether the return value of the original cast is nullable.
     const bool _original_cast_return_is_nullable = false;
-
-    // If cast fails when constant is executed, then this expression will directly return null.
-    bool _cast_constant_execute_failed = false;
 };
 
 } // namespace doris::vectorized

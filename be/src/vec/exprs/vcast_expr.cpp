@@ -143,33 +143,9 @@ DataTypePtr TryCastExpr::original_cast_return_type() {
     }
 }
 
-Status TryCastExpr::open(RuntimeState* state, VExprContext* context,
-                         FunctionContext::FunctionStateScope scope) {
-    auto st = VCastExpr::open(state, context, scope);
-    if (st.ok()) {
-        return st;
-    }
-    if (!cast_error_code(st)) {
-        _cast_constant_execute_failed = true;
-        return st;
-    }
-    return Status::OK();
-}
-
 Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK(_open_finished || _getting_const_col)
             << _open_finished << _getting_const_col << _expr_name;
-
-    if (_cast_constant_execute_failed) {
-        // If cast constant execute failed in open function, then all the result is null
-        auto result_column = _data_type->create_column();
-        DCHECK(result_column->is_nullable());
-        result_column->insert_many_defaults(block->rows());
-        block->insert({std::move(result_column), _data_type, expr_name()});
-        *result_column_id = block->columns() - 1;
-        return Status::OK();
-    }
-
     if (is_const_and_have_executed()) { // const have executed in open function
         return get_result_from_const(block, _expr_name, result_column_id);
     }
