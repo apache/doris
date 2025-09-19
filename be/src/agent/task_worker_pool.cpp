@@ -501,7 +501,7 @@ void add_task_count(const TAgentTaskRequest& task, int n) {
         if (n > 0) {
             // only count fragment when task is actually starting
             doris::g_fragment_executing_count << 1;
-            int64 now = duration_cast<std::chrono::milliseconds>(
+            int64_t now = duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
             g_fragment_last_active_time.set_value(now);
