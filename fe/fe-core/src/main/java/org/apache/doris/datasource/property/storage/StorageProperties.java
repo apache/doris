@@ -21,7 +21,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
-import org.apache.doris.fs.SchemaTypeMapper;
 
 import lombok.Getter;
 import org.apache.hadoop.conf.Configuration;
@@ -31,7 +30,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 
