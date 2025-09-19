@@ -246,6 +246,7 @@ private:
             result_null_map[row] = true;
             result_column->insert_default();
         };
+        // state isn't valid means there's NULL in timezone input. so return null rather than exception
         if (!convert_tz_state->is_valid) [[unlikely]] {
             // If an invalid timezone is present, return null
             for (size_t i = 0; i < input_rows_count; i++) {

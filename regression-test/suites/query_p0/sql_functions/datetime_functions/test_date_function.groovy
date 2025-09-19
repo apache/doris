@@ -87,10 +87,9 @@ suite("test_date_function") {
 
     sql """ truncate table ${tableName} """
 
-    def timezoneCachedTableName = "test_convert_tz_with_timezone_cache"
-    sql """ DROP TABLE IF EXISTS ${timezoneCachedTableName} """
+    sql """ DROP TABLE IF EXISTS test_convert_tz_with_timezone_cache """
     sql """
-        CREATE TABLE ${timezoneCachedTableName} (
+        CREATE TABLE test_convert_tz_with_timezone_cache (
             id int,
             test_datetime datetime NULL COMMENT "",
             origin_tz VARCHAR(255),
@@ -107,7 +106,7 @@ suite("test_date_function") {
     """
 
     sql """
-        INSERT INTO ${timezoneCachedTableName} VALUES
+        INSERT INTO test_convert_tz_with_timezone_cache VALUES
             (1, "2019-08-01 13:21:03", "Asia/Shanghai", "Asia/Shanghai"),
             (2, "2019-08-01 13:21:03", "Asia/Singapore", "Asia/Shanghai"),
             (3, "2019-08-01 13:21:03", "Asia/Taipei", "Asia/Shanghai"),
@@ -130,11 +129,18 @@ suite("test_date_function") {
 
     sql "set parallel_pipeline_task_num = 8"
 
+    qt_sql0 """
+        select convert_tz('2000-12-03 00:00:00', `origin_tz`, `target_tz`)
+        from test_convert_tz_with_timezone_cache order by 1;
+    """
+
+    qt_sql00 " select convert_tz(test_datetime, 'a', NULL) from test_convert_tz_with_timezone_cache; "
+
     qt_sql1 """
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         ORDER BY `id`
     """
     qt_sql2 """
@@ -143,7 +149,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 2;
     """
@@ -153,7 +159,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 4;
     """
@@ -163,7 +169,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 8;
     """
@@ -172,7 +178,7 @@ suite("test_date_function") {
         SELECT
             `id`, `test_datetime`, `origin_tz`, `target_tz`, convert_tz(`test_datetime`, `origin_tz`, `target_tz`)
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         ORDER BY `id`
     """
     qt_sql_vec2 """
@@ -181,7 +187,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Asia/Singapore", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 2;
     """
@@ -191,7 +197,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "Australia/Melbourne", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Asia/Shanghai")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 4;
     """
@@ -201,7 +207,7 @@ suite("test_date_function") {
             convert_tz(`test_datetime`, "America/Dawson", `target_tz`),
             convert_tz(`test_datetime`, `origin_tz`, "Africa/Lusaka")
         FROM
-            ${timezoneCachedTableName}
+            test_convert_tz_with_timezone_cache
         WHERE
             id = 8;
     """

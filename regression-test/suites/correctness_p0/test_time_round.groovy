@@ -427,4 +427,17 @@ suite("test_time_round") {
     testFoldConst("select second_floor('2025-09-10 12:34:56.45', '2025-09-10 12:34:50.123')")
     testFoldConst("select second_floor('2025-09-10 12:34:56.8901', 7, '2025-09-10 12:34:50.234')")
     testFoldConst("select second_floor('2025-09-10 12:34:56.12', 15, '2025-09-10 12:34:30.567890')")
+
+    test {
+        sql "select year_ceil('9999-12-31', '2000-01-01');"
+        exception "out of range"
+    }
+    test {
+        sql "select year_ceil('9999-12-31');"
+        exception "out of range"
+    }
+    test {
+        sql "select milliseconds_add('9999-12-31 23:59:59.999999', 1);"
+        exception "out of range"
+    }
 }

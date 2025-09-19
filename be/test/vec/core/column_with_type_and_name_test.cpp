@@ -35,7 +35,7 @@ TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     column_with_type_and_name.type =
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
     column_with_type_and_name.name = "column_with_type_and_name";
-    auto result = column_with_type_and_name.get_nested_of_nullable(true);
+    auto result = column_with_type_and_name.unnest_nullable(true);
     EXPECT_TRUE(is_column_const(*result.column));
 }
 

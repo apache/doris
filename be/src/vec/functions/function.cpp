@@ -207,7 +207,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         ColumnNumbers new_args;
         for (auto arg : args) {
             new_args.push_back(block.columns());
-            block.insert(block.get_by_position(arg).get_nested_of_nullable(need_to_default));
+            block.insert(block.get_by_position(arg).unnest_nullable(need_to_default));
             DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
