@@ -388,19 +388,13 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
 
 Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
                                             MutableColumnPtr& doris_column, size_t num_rows) {
-    // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
-    // Example in Java:
-    //   long addr = OffHeap.allocateMemory(src.length);
-    //   OffHeap.copyMemory(src, OffHeap.BYTE_ARRAY_OFFSET, null, addr, src.length);
-    //   OffHeap.putLong(null, data + 16L * rowIndex, src.length);
-    //   OffHeap.putLong(null, data + 16L * rowIndex + 8, addr);
-    // Here we read back that buffer and insert into ColumnVarbinary.
-
-    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
-    char* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
     if (num_rows == 0) {
         return Status::OK();
     }
+    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
+    char* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
+
+    // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
     for (size_t i = 0; i < num_rows; ++i) {
         // Read length (first 8 bytes)
         int64_t len = 0;
@@ -420,18 +414,18 @@ Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
-    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
-    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
-
     // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
     // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
     // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
     if (num_rows == 0) {
         return Status::OK();
     }
+
+    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
+    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
+    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
+    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
     size_t origin_chars_size = string_chars.size();
     string_chars.resize(origin_chars_size + offsets[num_rows - 1]);

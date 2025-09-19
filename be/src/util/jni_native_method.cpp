@@ -22,16 +22,8 @@
 #include <vector>
 
 #include "jni.h"
-#include "vec/columns/column_string.h"
 
 namespace doris {
-
-jlong JavaNativeMethods::resizeStringColumn(JNIEnv* env, jclass clazz, jlong columnAddr,
-                                            jint length) {
-    auto* column = reinterpret_cast<vectorized::ColumnString::Chars*>(columnAddr);
-    column->resize(length);
-    return reinterpret_cast<jlong>(column->data());
-}
 
 jlong JavaNativeMethods::memoryMalloc(JNIEnv* env, jclass clazz, jlong bytes) {
     return reinterpret_cast<long>(malloc(bytes));
@@ -52,7 +44,7 @@ jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintA
 
     jint* elems = env->GetIntArrayElements(sizes, nullptr);
     if (elems == nullptr) {
-        return nullptr; // OOM
+        return nullptr;
     }
 
     jlongArray result = env->NewLongArray(n);

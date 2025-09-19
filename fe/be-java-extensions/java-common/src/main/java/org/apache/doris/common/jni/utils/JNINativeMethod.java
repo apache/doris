@@ -22,11 +22,6 @@ package org.apache.doris.common.jni.utils;
  */
 public class JNINativeMethod {
     /**
-     * Resize string column and return the new column address in off heap.
-     */
-    public static native long resizeStringColumn(long columnAddr, int byteSize);
-
-    /**
      * Allocate memory in off heap, which will be tracked by memory tracker.
      */
     public static native long memoryTrackerMalloc(long size);
