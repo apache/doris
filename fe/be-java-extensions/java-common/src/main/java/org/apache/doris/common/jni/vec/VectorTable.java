@@ -34,6 +34,10 @@ public class VectorTable {
     private final VectorColumn meta;
     private final boolean onlyReadable;
     private final int numRowsOfReadable;
+    // this will be true if fields is empty
+    private final boolean isVirtual;
+    // count rows when isVirtual is true
+    private int numVirtualRows = 0;
 
     // Create writable vector table
     private VectorTable(ColumnType[] types, String[] fields, int capacity) {
@@ -48,6 +52,7 @@ public class VectorTable {
         this.meta = VectorColumn.createWritableColumn(new ColumnType("#meta", Type.BIGINT), metaSize);
         this.onlyReadable = false;
         numRowsOfReadable = -1;
+        this.isVirtual = columns.length == 0;
     }
 
     // Create readable vector table
@@ -69,6 +74,7 @@ public class VectorTable {
         this.meta = VectorColumn.createReadableColumn(metaAddress, metaSize, new ColumnType("#meta", Type.BIGINT));
         this.onlyReadable = true;
         numRowsOfReadable = numRows;
+        this.isVirtual = columns.length == 0;
     }
 
     public static VectorTable createWritableTable(ColumnType[] types, String[] fields, int capacity) {
@@ -111,16 +117,24 @@ public class VectorTable {
 
     public void appendNativeData(int fieldId, NativeColumnValue o) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         columns[fieldId].appendNativeValue(o);
     }
 
     public void appendData(int fieldId, ColumnValue o) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         columns[fieldId].appendValue(o);
+    }
+
+    public void appendVirtualData(int numRows) {
+        assert (isVirtual);
+        numVirtualRows += numRows;
     }
 
     public void appendData(int fieldId, Object[] batch, ColumnValueConverter converter, boolean isNullable) {
         assert (!onlyReadable);
+        assert (!isVirtual);
         if (converter != null) {
             columns[fieldId].appendObjectColumn(converter.convert(batch), isNullable);
         } else {
@@ -190,6 +204,8 @@ public class VectorTable {
     public int getNumRows() {
         if (onlyReadable) {
             return numRowsOfReadable;
+        } else if (isVirtual) {
+            return numVirtualRows;
         } else {
             return columns[0].numRows();
         }
