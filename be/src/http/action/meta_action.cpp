@@ -67,18 +67,45 @@ Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
         return Status::InternalError("convert failed, {}", e.what());
     }
 
-    auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
     std::string operation = req->param(OP);
-    if (operation == HEADER) {
-        TabletMeta tablet_meta;
-        tablet->generate_tablet_meta_copy(tablet_meta);
-        json2pb::Pb2JsonOptions json_options;
-        json_options.pretty_json = true;
-        json_options.bytes_to_base64 = enable_byte_to_base64;
-        tablet_meta.to_json(json_meta, json_options);
+    if (config::is_cloud_mode()) {
+        if (operation == HEADER) {
+            TabletMetaSharedPtr tablet_meta;
+            cloud::CloudMetaMgr& cloud_meta_mgr = _exec_env->storage_engine()->meta_mgr();
+            Status st = cloud_meta_mgr->get_tablet_meta(tablet_id, &tablet_meta);
+            if (!st.ok()) {
+                return Status::InternalError("tablet meta not found, err: {}", st.to_string());
+            }
+            json2pb::Pb2JsonOptions json_options;
+            json_options.pretty_json = true;
+            json_options.bytes_to_base64 = enable_byte_to_base64;
+            tablet_meta.to_json(json_meta, json_options);
+        } else if (operation == DATA_SIZE) {
+            cloud::CloudTabletMgr& cloud_tablet_mgr = _exec_env->storage_engine()->tablet_mgr();
+            auto res = cloud_tablet_mgr.get_tablet(tablet_id);
+            if (!res.ok()) {
+                return Status::InternalError("tablet not found, err: {}", res.to_string());
+            }
+            EasyJson data_size;
+            {
+                auto* cloud_tablet = res.value().get();
+                std::shared_lock rowset_ldlock(cloud_tablet->get_header_lock());
+                data_size["local_data_size"] = cloud_tablet->tablet_local_size();
+                data_size["remote_data_size"] = cloud_tablet->tablet_remote_size();
+            }
+            *json_meta = data_size.ToString();
+        }
         return Status::OK();
-    } else if (operation == DATA_SIZE) {
-        if (!config::is_cloud_mode()) {
+    } else {
+        auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
+        if (operation == HEADER) {
+            TabletMeta tablet_meta;
+            tablet->generate_tablet_meta_copy(tablet_meta);
+            json2pb::Pb2JsonOptions json_options;
+            json_options.pretty_json = true;
+            json_options.bytes_to_base64 = enable_byte_to_base64;
+            tablet_meta.to_json(json_meta, json_options);
+        } else if (operation == DATA_SIZE) {
             EasyJson data_size;
             {
                 auto* local_tablet = static_cast<Tablet*>(tablet.get());
