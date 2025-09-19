@@ -651,10 +651,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     private static String serializeSession(Serializable object) throws IOException {
-        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-        ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
-        objectOutputStream.writeObject(object);
-        byte[] serializedBytes = byteArrayOutputStream.toByteArray();
-        return Base64.getEncoder().encodeToString(serializedBytes);
+        try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+             ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)) {
+            objectOutputStream.writeObject(object);
+            byte[] serializedBytes = byteArrayOutputStream.toByteArray();
+            return Base64.getEncoder().encodeToString(serializedBytes);
+        }
     }
 }
