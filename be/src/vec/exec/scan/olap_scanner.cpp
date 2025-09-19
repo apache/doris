@@ -747,6 +747,20 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
+                   stats.variant_scan_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,
+                   stats.variant_scan_sparse_column_bytes);
+    COUNTER_UPDATE(local_state->_variant_fill_path_from_sparse_column_timer,
+                   stats.variant_fill_path_from_sparse_column_timer_ns);
+    COUNTER_UPDATE(local_state->_variant_subtree_default_iter_count,
+                   stats.variant_subtree_default_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_leaf_iter_count,
+                   stats.variant_subtree_leaf_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_hierarchical_iter_count,
+                   stats.variant_subtree_hierarchical_iter_count);
+    COUNTER_UPDATE(local_state->_variant_subtree_sparse_iter_count,
+                   stats.variant_subtree_sparse_iter_count);
 
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),

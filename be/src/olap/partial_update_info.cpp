@@ -264,19 +264,19 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                 if (pos == std::string::npos) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                    default_value = dtv.debug_string();
+                    default_value = dtv.to_string();
                 } else {
                     int precision = std::stoi(column.default_value().substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
-                    default_value = dtv.debug_string();
+                    default_value = dtv.to_string();
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {
                 DateV2Value<DateV2ValueType> dv;
                 dv.from_unixtime(timestamp_ms / 1000, timezone);
-                default_value = dv.debug_string();
+                default_value = dv.to_string();
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_BITMAP &&
                                 to_lower(column.default_value()).find(to_lower("BITMAP_EMPTY")) !=
                                         std::string::npos)) {

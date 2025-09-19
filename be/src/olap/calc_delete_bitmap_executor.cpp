@@ -21,7 +21,6 @@
 
 #include <ostream>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "olap/base_tablet.h"
 #include "olap/memtable.h"
@@ -93,10 +92,10 @@ Status CalcDeleteBitmapToken::wait() {
     return _status;
 }
 
-void CalcDeleteBitmapExecutor::init() {
+void CalcDeleteBitmapExecutor::init(int max_threads) {
     static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
                               .set_min_threads(1)
-                              .set_max_threads(config::calc_delete_bitmap_max_thread)
+                              .set_max_threads(max_threads)
                               .build(&_thread_pool));
 }
 

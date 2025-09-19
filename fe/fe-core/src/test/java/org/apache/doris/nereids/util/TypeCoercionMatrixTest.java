@@ -1266,7 +1266,7 @@ public class TypeCoercionMatrixTest {
         // GreaterThan greaterThan = new GreaterThan(c1, c2);
         // equalTo = (EqualTo) TypeCoercionUtils.processComparisonPredicate(equalTo);
         // greaterThan = (GreaterThan) TypeCoercionUtils.processComparisonPredicate(greaterThan);
-        Optional<DataType> result = TypeCoercionUtils.findWiderTypeForTwo(leftType, rightType, false);
+        Optional<DataType> result = TypeCoercionUtils.findWiderTypeForTwo(leftType, rightType, false, false);
         Assertions.assertEquals(Optional.ofNullable(commonType), result);
     }
 }

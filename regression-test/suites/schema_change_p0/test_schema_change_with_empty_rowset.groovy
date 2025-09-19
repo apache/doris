@@ -18,8 +18,13 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
-suite("test_schema_change_mow_with_empty_rowset", "p0") {
-    def tableName = "test_sc_mow_with_empty_rowset"
+suite("test_schema_change_with_empty_rowset", "p0,nonConcurrent") {
+    def custoBeConfig = [
+        max_tablet_version_num : 100
+    ]
+
+    setBeConfigTemporary(custoBeConfig) {
+    def tableName = "test_sc_with_empty_rowset"
 
     def getJobState = { tbl ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tbl}' ORDER BY createtime DESC LIMIT 1 """
@@ -44,7 +49,7 @@ suite("test_schema_change_mow_with_empty_rowset", "p0") {
       `k12` date NULL,
       `k13` datetime NULL
     ) ENGINE=OLAP
-    unique KEY(k1, k2, k3)
+    UNIQUE KEY(k1, k2, k3)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 2
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
@@ -57,10 +62,14 @@ suite("test_schema_change_mow_with_empty_rowset", "p0") {
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00') """
     }   
 
+
+    // trigger compactions for all tablets in ${tableName}
+    trigger_and_wait_compaction(tableName, "cumulative")
+
     sql """ alter table ${tableName} modify column k4 string NULL"""
 
-    for (int i = 0; i < 20; i++) {
-        sql """ insert into ${tableName} values (100, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    for (int i = 100; i < 120; i++) {
+        sql """ insert into ${tableName} values ($i, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00') """
         sleep(20)
     }   
@@ -76,6 +85,7 @@ suite("test_schema_change_mow_with_empty_rowset", "p0") {
         }
     )
 
-    qt_sql """ select * from ${tableName} order by k1, k2, k3 """
+    qt_sql """ select sum(k1), sum(k2) from ${tableName} """
+    }
 }
 

@@ -26,6 +26,9 @@
 
 namespace doris {
 
+bvar::Adder<int64_t> g_cloud_commit_rowset_count("cloud_commit_rowset_count");
+bvar::Adder<int64_t> g_cloud_commit_empty_rowset_count("cloud_commit_empty_rowset_count");
+
 CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& req,
                                    RuntimeProfile* profile, const UniqueId& load_id)
         : BaseDeltaWriter(req, profile, load_id), _engine(engine) {
@@ -108,10 +111,12 @@ const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
 }
 
 Status CloudDeltaWriter::commit_rowset() {
+    g_cloud_commit_rowset_count << 1;
     std::lock_guard<bthread::Mutex> lock(_mtx);
 
     // Handle empty rowset (no data written)
     if (!_is_init) {
+        g_cloud_commit_empty_rowset_count << 1;
         return _commit_empty_rowset();
     }
 

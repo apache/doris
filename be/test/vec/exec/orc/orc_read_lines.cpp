@@ -122,7 +122,7 @@ static void read_orc_line(int64_t line, std::string block_dump) {
                                            time_zone, &io_ctx, nullptr, true);
     auto local_fs = io::global_local_filesystem();
     io::FileReaderSPtr file_reader;
-    static_cast<void>(reader->set_read_lines_mode({line}));
+    static_cast<void>(reader->read_by_rows({line}));
 
     static_cast<void>(local_fs->open_file(range.path, &file_reader));
 
