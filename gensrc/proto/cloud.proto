@@ -1586,6 +1586,7 @@ message GetDeleteBitmapRequest {
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
     optional string request_ip = 10;
+    optional int64 dbm_bytes_threshold = 11;
 }
 
 message GetDeleteBitmapResponse {
@@ -1596,6 +1597,10 @@ message GetDeleteBitmapResponse {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
     optional int64 tablet_id = 6;
+    // indicates whether the reponse contains all request rowsets' delete bitmap
+    // when `has_more` is `true`, BE should launch RPC again to get the results for remaining rowsets
+    optional bool has_more = 100;
+    repeated string returned_rowset_ids = 101;
 }
 
 message RemoveDeleteBitmapRequest {
