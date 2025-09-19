@@ -28,9 +28,13 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/runtime_state.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/functions/simple_function_factory.h"
@@ -71,8 +75,8 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
     }
     VExpr::register_function_context(state, context);
-    _expr_name = fmt::format("(CAST {}({}) TO {})", child_name, child->data_type()->get_name(),
-                             _target_data_type_name);
+    _expr_name = fmt::format("({} {}({}) TO {})", cast_name(), child_name,
+                             child->data_type()->get_name(), _target_data_type_name);
     _prepare_finished = true;
     return Status::OK();
 }
@@ -122,13 +126,159 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     return Status::OK();
 }
 
+bool cast_error_code(Status& st) {
+    //There may be more error codes that need to be captured by try cast in the future.
+    if (st.is<ErrorCode::INVALID_ARGUMENT>()) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+DataTypePtr TryCastExpr::original_cast_return_type() {
+    if (_original_cast_return_is_nullable) {
+        return _data_type;
+    } else {
+        return remove_nullable(_data_type);
+    }
+}
+
+Status TryCastExpr::open(RuntimeState* state, VExprContext* context,
+                         FunctionContext::FunctionStateScope scope) {
+    auto st = VCastExpr::open(state, context, scope);
+    if (st.ok()) {
+        return st;
+    }
+    if (!cast_error_code(st)) {
+        _cast_constant_execute_failed = true;
+        return st;
+    }
+    return Status::OK();
+}
+
+Status TryCastExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
+    DCHECK(_open_finished || _getting_const_col)
+            << _open_finished << _getting_const_col << _expr_name;
+
+    if (_cast_constant_execute_failed) {
+        // If cast constant execute failed in open function, then all the result is null
+        auto result_column = _data_type->create_column();
+        DCHECK(result_column->is_nullable());
+        result_column->insert_many_defaults(block->rows());
+        block->insert({std::move(result_column), _data_type, expr_name()});
+        *result_column_id = block->columns() - 1;
+        return Status::OK();
+    }
+
+    if (is_const_and_have_executed()) { // const have executed in open function
+        return get_result_from_const(block, _expr_name, result_column_id);
+    }
+
+    int input_column_id = 0;
+
+    // For try_cast, try to execute it in batches first.
+
+    // execute child first
+    RETURN_IF_ERROR(_children[0]->execute(context, block, &input_column_id));
+
+    // prepare block
+    int output_column_id = block->columns();
+    block->insert({nullptr, original_cast_return_type(), _expr_name});
+
+    // batch execute
+    auto batch_exec_status = _function->execute(context->fn_context(_fn_context_index), *block,
+                                                {static_cast<uint32_t>(input_column_id)},
+                                                output_column_id, block->rows());
+    // If batch is executed successfully,
+    // it means that there is no error and it will be returned directly.
+    if (batch_exec_status.ok()) {
+        // wrap nullable
+        block->get_by_position(output_column_id).column =
+                make_nullable(block->get_by_position(output_column_id).column);
+        block->get_by_position(output_column_id).type =
+                make_nullable(block->get_by_position(output_column_id).type);
+        *result_column_id = output_column_id;
+        return batch_exec_status;
+    }
+
+    // If there is an error that cannot be handled by try cast, it will be returned directly.
+    if (!cast_error_code(batch_exec_status)) {
+        return batch_exec_status;
+    }
+
+    // If there is an error that can be handled by try cast,
+    // it will be converted into line execution.
+    auto& input_info = block->get_by_position(input_column_id);
+    ColumnPtr return_column;
+    // distinguish whether the return value of the original cast is nullable
+    if (_original_cast_return_is_nullable) {
+        RETURN_IF_ERROR(single_row_execute<true>(context, input_info, return_column));
+    } else {
+        RETURN_IF_ERROR(single_row_execute<false>(context, input_info, return_column));
+    }
+    // wrap nullable
+    block->get_by_position(output_column_id).column = return_column;
+    block->get_by_position(output_column_id).type =
+            make_nullable(block->get_by_position(output_column_id).type);
+    *result_column_id = output_column_id;
+    return Status::OK();
+}
+
+template <bool original_cast_reutrn_is_nullable>
+Status TryCastExpr::single_row_execute(VExprContext* context,
+                                       const ColumnWithTypeAndName& input_info,
+                                       ColumnPtr& return_column) {
+    auto input_column = input_info.column;
+    const auto& input_type = input_info.type;
+    const auto& input_name = input_info.name;
+    auto result_column = _data_type->create_column();
+
+    ColumnNullable& result_null_column = assert_cast<ColumnNullable&>(*result_column);
+
+    IColumn& result_nested_column = result_null_column.get_nested_column();
+    auto& result_null_map_data = result_null_column.get_null_map_data();
+
+    auto insert_from_single_row = [&](const IColumn& single_exec_column, size_t row) {
+        DCHECK_EQ(single_exec_column.size(), 1);
+        if constexpr (original_cast_reutrn_is_nullable) {
+            result_null_column.insert_from(single_exec_column, 0);
+        } else {
+            DCHECK(!single_exec_column.is_nullable());
+            result_nested_column.insert_from(single_exec_column, 0);
+            result_null_map_data.push_back(0);
+        }
+    };
+
+    auto insert_null = [&](size_t row) { result_null_column.insert_default(); };
+
+    const auto size = input_column->size();
+    for (size_t row = 0; row < size; ++row) {
+        Block single_row_block;
+        single_row_block.insert({input_column->cut(row, 1), input_type, input_name});
+        single_row_block.insert({nullptr, original_cast_return_type(), _expr_name});
+
+        auto single_exec_status = _function->execute(context->fn_context(_fn_context_index),
+                                                     single_row_block, {0}, 1, 1);
+        if (single_exec_status.ok()) {
+            insert_from_single_row(*single_row_block.get_by_position(1).column, row);
+        } else {
+            if (!cast_error_code(single_exec_status)) {
+                return single_exec_status;
+            }
+            insert_null(row);
+        }
+    }
+    return_column = std::move(result_column);
+    return Status::OK();
+}
+
 const std::string& VCastExpr::expr_name() const {
     return _expr_name;
 }
 
 std::string VCastExpr::debug_string() const {
     std::stringstream out;
-    out << "CastExpr(CAST " << get_child(0)->data_type()->get_name() << " to "
+    out << cast_name() << " Expr(CAST " << get_child(0)->data_type()->get_name() << " to "
         << _target_data_type->get_name() << "){";
     bool first = true;
     for (const auto& input_expr : children()) {
