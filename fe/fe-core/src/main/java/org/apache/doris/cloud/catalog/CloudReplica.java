@@ -378,7 +378,7 @@ public class CloudReplica extends Replica {
             // between the downstream be and tablet of the shadow index
             if (setIfAbsent) {
                 try {
-                    beId = hashReplicaToBe(clusterId, true);
+                    beId = getBackendIdImpl(clusterId);
                     updateClusterToPrimaryBe(clusterId, beId);
                     return Env.getCurrentSystemInfo().getBackend(beId);
                 } catch (ComputeGroupException e) {
