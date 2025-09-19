@@ -101,15 +101,17 @@ public class FollowerColumnSender extends MasterDaemon {
         }
         TNetworkAddress address = new TNetworkAddress(master.getHost(), master.getRpcPort());
         FrontendService.Client client = null;
+        boolean isReturnToPool = false;
         try {
             client = ClientPool.frontendPool.borrowObject(address);
             client.syncQueryColumns(queryColumns);
             LOG.info("Send {} high priority columns and {} mid priority columns to master.",
                     highs.size(), mids.size());
+            isReturnToPool = true;
         } catch (Throwable t) {
             LOG.warn("Failed to sync stats to master: {}", address, t);
         } finally {
-            if (client != null) {
+            if (client != null && isReturnToPool) {
                 ClientPool.frontendPool.returnObject(address, client);
             }
         }
