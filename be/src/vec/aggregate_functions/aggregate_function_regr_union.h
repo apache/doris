@@ -117,6 +117,37 @@ struct RegrInterceptFunc : AggregateFunctionRegrData<T> {
     }
 };
 
+template <PrimitiveType T>
+struct RegrAvgxFunc : AggregateFunctionRegrData<T> {
+    static constexpr const char* name = "regr_avgx";
+
+    Float64 get_result() const {
+        if (this->count == 0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sum_x / (double)this->count;
+    }
+};
+
+template <PrimitiveType T>
+struct RegrAvgyFunc : AggregateFunctionRegrData<T> {
+    static constexpr const char* name = "regr_avgy";
+
+    Float64 get_result() const {
+        if (this->count == 0) {
+            return std::numeric_limits<Float64>::quiet_NaN();
+        }
+        return this->sum_y / (double)this->count;
+    }
+};
+
+template <PrimitiveType T>
+struct RegrCountFunc : AggregateFunctionRegrData<T> {
+    static constexpr const char* name = "regr_count";
+
+    UInt64 get_result() const { return this->count; }
+};
+
 template <typename RegrFunc, bool y_nullable, bool x_nullable>
 class AggregateFunctionRegrSimple
         : public IAggregateFunctionDataHelper<
@@ -204,6 +235,93 @@ public:
             dst_column_with_nullable.get_null_map_data().push_back(0);
             dst_column.get_data().push_back(result);
         }
+    }
+};
+
+// Specialized implementation for regr_count which returns ColumnInt64
+template <bool y_nullable, bool x_nullable>
+class AggregateFunctionRegrCount
+        : public IAggregateFunctionDataHelper<RegrCountFunc<TYPE_DOUBLE>,
+                                              AggregateFunctionRegrCount<y_nullable, x_nullable>> {
+public:
+    using XInputCol = typename PrimitiveTypeTraits<TYPE_DOUBLE>::ColumnType;
+    using YInputCol = XInputCol;
+    using ResultCol = ColumnInt64;
+
+    explicit AggregateFunctionRegrCount(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<RegrCountFunc<TYPE_DOUBLE>,
+                                           AggregateFunctionRegrCount<y_nullable, x_nullable>>(
+                      argument_types_) {
+        DCHECK(!argument_types_.empty());
+    }
+
+    String get_name() const override { return "regr_count"; }
+
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeInt64>());
+    }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        bool y_null = false;
+        bool x_null = false;
+        const YInputCol* y_nested_column = nullptr;
+        const XInputCol* x_nested_column = nullptr;
+
+        if constexpr (y_nullable) {
+            const ColumnNullable& y_column_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            y_null = y_column_nullable.is_null_at(row_num);
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    y_column_nullable.get_nested_column_ptr().get());
+        } else {
+            y_nested_column = assert_cast<const YInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[0]).get_ptr().get());
+        }
+
+        if constexpr (x_nullable) {
+            const ColumnNullable& x_column_nullable =
+                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[1]);
+            x_null = x_column_nullable.is_null_at(row_num);
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    x_column_nullable.get_nested_column_ptr().get());
+        } else {
+            x_nested_column = assert_cast<const XInputCol*, TypeCheckOnRelease::DISABLE>(
+                    (*columns[1]).get_ptr().get());
+        }
+
+        if (x_null || y_null) {
+            return;
+        }
+
+        this->data(place).add(y_nested_column->get_data()[row_num],
+                              x_nested_column->get_data()[row_num]);
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
+        this->data(place).merge(this->data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena&) const override {
+        this->data(place).read(buf);
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        const auto& data = this->data(place);
+        auto& dst_column_with_nullable = assert_cast<ColumnNullable&>(to);
+        auto& dst_column = assert_cast<ColumnInt64&>(dst_column_with_nullable.get_nested_column());
+        UInt64 result = data.get_result();
+
+        dst_column_with_nullable.get_null_map_data().push_back(0);
+        dst_column.get_data().push_back(result);
     }
 };
 } // namespace doris::vectorized
