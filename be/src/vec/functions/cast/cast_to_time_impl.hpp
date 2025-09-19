@@ -64,7 +64,7 @@ template <bool IsStrict>
                 if (in_scale_part == common::exp10_i32(target_scale)) {
                     // overflow, round up to next second
                     val += sign * TimeValue::ONE_SECOND_MICROSECONDS;
-                    SET_PARAMS_RET_FALSE_IFN(!TimeValue::valid(val),
+                    SET_PARAMS_RET_FALSE_IFN(TimeValue::valid(val),
                                              "time overflow when rounding up");
                     in_scale_part = 0;
                 }

@@ -95,7 +95,8 @@ public:
                 << "Time and microsecond must be non-negative but got " << time << " and "
                 << microsecond;
 
-        return static_cast<TimeType>(time - ((int)time % ONE_SECOND_MICROSECONDS) + microsecond);
+        return static_cast<TimeType>(time - ((int64_t)time % ONE_SECOND_MICROSECONDS) +
+                                     microsecond);
     }
 
     static std::string to_string(TimeType time, int scale) {
