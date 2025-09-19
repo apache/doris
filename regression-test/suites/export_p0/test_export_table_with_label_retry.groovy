@@ -157,6 +157,9 @@ suite("test_export_table_with_label_retry", "p0") {
         """
         waiting_export_expect_failed.call(label)
 
+        def res = sql_return_maparray(""" show export where label = "${label}" """)
+        assertTrue(res[0].get("ErrorMsg").toString().contains("Unknown broker name(null)"))
+
         // exec right export with same label again
         sql """
             EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
