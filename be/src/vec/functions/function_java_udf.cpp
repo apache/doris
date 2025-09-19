@@ -59,19 +59,17 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
 
             RETURN_IF_ERROR(Jni::Util::find_class(env, EXECUTOR_CLASS, &jni_ctx->executor_cl));
 
-
-            Jni::LocalArray ctor_params_bytes;
-            RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
-            RETURN_IF_ERROR(jni_ctx->executor_cl.new_object(env, jni_ctx->executor_ctor_id)
-                                    .with_arg(ctor_params_bytes)
-                                    .call(&jni_ctx->executor));
-
             RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "<init>", EXECUTOR_CTOR_SIGNATURE,
                                                             &jni_ctx->executor_ctor_id));
             RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
                     env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
             RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
                                                             &jni_ctx->executor_close_id));
+            Jni::LocalArray ctor_params_bytes;
+            RETURN_IF_ERROR(Jni::Util::SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.new_object(env, jni_ctx->executor_ctor_id)
+                                    .with_arg(ctor_params_bytes)
+                                    .call(&jni_ctx->executor));
         }
         jni_ctx->open_successes = true;
     }

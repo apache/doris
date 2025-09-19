@@ -413,8 +413,21 @@ public:
     Status call(Object<Global>* result);
 
     Status call() {
-        CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
-        RETURN_ERROR_IF_EXC(_env);
+        using return_type = typename CallHelper<tag>::RETURN_TYPE;
+        if constexpr (std::disjunction_v<std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
+                std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
+                std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
+                std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
+                        std::is_same<return_type, void>>) {
+            CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
+            RETURN_ERROR_IF_EXC(_env);
+        } else if constexpr (std::is_same_v<return_type, jobject>) {
+            jobject tmp = CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
+            RETURN_ERROR_IF_EXC(_env);
+            _env->DeleteLocalRef(tmp);
+        } else {
+            static_assert(false);
+        }
         return Status::OK();
     }
 
@@ -478,9 +491,23 @@ public:
 
     // no override
     Status call() {
-        CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
-                                   this->_args.data());
-        RETURN_ERROR_IF_EXC(this->_env);
+        using return_type = typename CallHelper<tag>::RETURN_TYPE;
+        if constexpr (std::disjunction_v<std::is_same<return_type, jboolean>, std::is_same<return_type, jbyte>,
+                std::is_same<return_type, jchar>, std::is_same<return_type, jshort>,
+                std::is_same<return_type, jint>, std::is_same<return_type, jlong>,
+                std::is_same<return_type, jfloat>, std::is_same<return_type, jdouble>,
+                std::is_same<return_type, void>>) {
+            CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
+                                       this->_args.data());
+            RETURN_ERROR_IF_EXC(this->_env);
+        } else if constexpr (std::is_same_v<return_type, jobject>) {
+            jobject tmp = CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
+                                       this->_args.data());
+            RETURN_ERROR_IF_EXC(this->_env);
+            this->_env->DeleteLocalRef(tmp);
+        } else {
+            static_assert(false);
+        }
         return Status::OK();
     }
 
@@ -608,6 +635,7 @@ public:
 
 protected:
     jobject _obj = nullptr;
+    DISALLOW_COPY_AND_ASSIGN(Object);
 };
 
 using LocalObject = Object<Local>;
@@ -688,22 +716,37 @@ using GlobalByteArrayBufferGuard = BufferGuard<ByteArray, Global>;
 template <RefType Ref>
 class String : public Object<Ref> {
 public:
+    String() = default;
+
     static Status new_string(JNIEnv* env, const char* utf_chars, String<Ref>* result) {
         DCHECK(result->uninitialized());
 
-        result->_obj = env->NewStringUTF(utf_chars);
-        RETURN_ERROR_IF_EXC(env);
+        if constexpr (Ref == Local) {
+            result->_obj = env->NewStringUTF(utf_chars);
+            RETURN_ERROR_IF_EXC(env);
+        } else if constexpr (Ref == Global) {
+            String local_result;
+            local_result->_obj = env->NewStringUTF(utf_chars);
+            RETURN_ERROR_IF_EXC(env);
+            RETURN_IF_ERROR(local_to_global_ref(env, local_result, result));
+        } else {
+            static_assert(false);
+        }
         return Status::OK();
     }
 
     Status get_string_chars(JNIEnv* env, StringBufferGuard<Ref>* jni_chars) const {
         return StringBufferGuard<Ref>::create(env, *this, jni_chars, nullptr);
     }
+private:
+    DISALLOW_COPY_AND_ASSIGN(String);
 };
 
 template <RefType Ref>
 class Array : public Object<Ref> {
 public:
+    Array() = default;
+
     Status get_length(JNIEnv* env, jsize* result) const {
         DCHECK(!this->uninitialized());
 
@@ -722,14 +765,17 @@ public:
 
     template <BufferType T>
     Status get_primitive_elements(JNIEnv* env, BufferGuard<T, Ref>* buffer) {
+        DCHECK(!this->uninitialized());
         return BufferGuard<T, Ref>::create(env, this->_obj, buffer, nullptr);
     }
 
     Status get_byte_elements(JNIEnv* env, ByteArrayBufferGuard<Ref>* jni_bytes) const {
+        DCHECK(!this->uninitialized());
         return ByteArrayBufferGuard<Ref>::create(env, *this, jni_bytes, nullptr);
     }
 
     Status get_byte_elements(JNIEnv* env, jsize start, jsize len, jbyte* buffer) {
+        DCHECK(!this->uninitialized());
         env->GetByteArrayRegion((jbyteArray)this->_obj, start, len,
                                 reinterpret_cast<jbyte*>(buffer));
         RETURN_ERROR_IF_EXC(env);
@@ -770,11 +816,15 @@ public:
         RETURN_IF_ERROR(WriteBufferToByteArray(env, (jbyte*)buffer, size, serialized_msg));
         return Status::OK();
     }
+private:
+    DISALLOW_COPY_AND_ASSIGN(Array);
 };
 
 template <RefType Ref>
 class Class : public Object<Ref> {
 public:
+    Class() = default;
+
     static Status find_class(JNIEnv* env, const char* class_str, Class<Ref>* result) {
         DCHECK(result->uninitialized());
         if constexpr (Ref == Local) {
@@ -863,6 +913,8 @@ public:
         DCHECK(!method_id.uninitialized());
         return FunctionCall<StaticVoidMethod>::instance(env, (jclass)this->_obj, method_id._id);
     }
+private:
+    DISALLOW_COPY_AND_ASSIGN(Class);
 };
 
 using LocalClass = Class<Local>;
@@ -897,6 +949,7 @@ NonvirtaulFunctionCall<tag>& NonvirtaulFunctionCall<tag>::with_arg(const Object<
 
 template <CallTag tag>
 Status FunctionCall<tag>::call(Object<Local>* result) {
+    DCHECK(result->uninitialized());
     result->_obj = CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
     RETURN_ERROR_IF_EXC(this->_env);
     return Status::OK();
@@ -904,6 +957,7 @@ Status FunctionCall<tag>::call(Object<Local>* result) {
 
 template <CallTag tag>
 Status FunctionCall<tag>::call(Object<Global>* result) {
+    DCHECK(result->uninitialized());
     Object<Local> local_result;
     local_result._obj = CallHelper<tag>::call_impl(_env, _base, _method, _args.data());
     RETURN_ERROR_IF_EXC(this->_env);
@@ -912,6 +966,7 @@ Status FunctionCall<tag>::call(Object<Global>* result) {
 
 template <CallTag tag>
 Status NonvirtaulFunctionCall<tag>::call(Object<Local>* result) {
+    DCHECK(result->uninitialized());
     result->_obj = CallHelper<tag>::call_impl(this->_env, this->_base, _cls, this->_method,
                                               this->_args.data());
     RETURN_ERROR_IF_EXC(this->_env);

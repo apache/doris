@@ -122,10 +122,6 @@ Status JdbcConnector::open(RuntimeState* state, bool read) {
                     .with_arg(jtable_type)
                     .call(&executor_name));
 
-    //    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-    //            jobject, executor_name, env,
-    //            CallStaticObjectMethod(_executor_factory_clazz, _executor_factory_ctor_id,
-    //                                   jtable_type));
     Jni::LocalStringBufferGuard executor_name_str;
     RETURN_IF_ERROR(executor_name.get_string_chars(env, &executor_name_str));
 

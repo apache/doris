@@ -156,17 +156,9 @@ Status JniConnector::get_table_schema(std::string& table_schema_str) {
     Jni::LocalString jstr;
     RETURN_IF_ERROR(
             _jni_scanner_obj.call_object_method(env, _jni_scanner_get_table_schema).call(&jstr));
-
-    // const char* cstr = env->GetStringUTFChars(jstr, nullptr);  todo xxx
-    // RETURN_ERROR_IF_EXC(env);
-
-    // if (cstr == nullptr) {
-    //     return Status::RuntimeError("GetStringUTFChars returned null");
-    // }
-
-    // table_schema_str = std::string(cstr); // copy to std::string
-    // env->ReleaseStringUTFChars(jstr, cstr);
-    // env->DeleteLocalRef(jstr);
+    Jni::LocalStringBufferGuard cstr;
+    RETURN_IF_ERROR(jstr.get_string_chars(env, &cstr));
+    table_schema_str = std::string{cstr.get()}; // copy to std::string
     return Status::OK();
 }
 
@@ -184,48 +176,35 @@ Status JniConnector::close() {
     if (!_closed) {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
-        // if (_scanner_opened && _jni_scanner_obj != nullptr) {
-        COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-        COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+        if (_scanner_opened) {
+            COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+            COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
 
-        RETURN_ERROR_IF_EXC(env);
-        int64_t _append = 0;
-        RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                                .call(&_append));
+            RETURN_ERROR_IF_EXC(env);
+            int64_t _append = 0;
+            RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                                    .call(&_append));
 
-        COUNTER_UPDATE(_java_append_data_time, _append);
+            COUNTER_UPDATE(_java_append_data_time, _append);
 
-        int64_t _create = 0;
-        RETURN_IF_ERROR(
-                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                        .call(&_create));
+            int64_t _create = 0;
+            RETURN_IF_ERROR(
+                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                            .call(&_create));
 
-        COUNTER_UPDATE(_java_create_vector_table_time, _create);
+            COUNTER_UPDATE(_java_create_vector_table_time, _create);
 
-        COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
+            COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
 
-        _max_time_split_weight_counter->conditional_update(
-                _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                _self_split_weight);
+            _max_time_split_weight_counter->conditional_update(
+                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                    _self_split_weight);
 
-        // _fill_block may be failed and returned, we should release table in close.
-        // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-        RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-
-        // }
-        // if (_jni_scanner_cls != nullptr) {
-        //     // _jni_scanner_cls may be null if init connector failed
-        //     env->DeleteGlobalRef(_jni_scanner_cls);
-        // }
-        // _closed = true;
-        // jthrowable exc = (env)->ExceptionOccurred();
-        // if (exc != nullptr) {
-        //     // Ensure successful resource release
-        //     throw Exception(Status::FatalError("Failed to release jni resource: {}",
-        //                                        JniUtil::GetJniExceptionMsg(env).to_string()));
-        // }
+            // _fill_block may be failed and returned, we should release table in close.
+            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
+            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
+            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
+        }
     }
     return Status::OK();
 }
@@ -233,8 +212,6 @@ Status JniConnector::close() {
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
     RETURN_IF_ERROR(
             Jni::Util::get_jni_scanner_class(env, _connector_class.c_str(), &_jni_scanner_cls));
-
-    RETURN_ERROR_IF_EXC(env);
 
     Jni::MethodId scanner_constructor;
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "<init>", "(ILjava/util/Map;)V",
@@ -247,15 +224,6 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
                             .with_arg(batch_size)
                             .with_arg(hashmap_object)
                             .call(&_jni_scanner_obj));
-
-    // jobject jni_scanner_obj =
-    //         env->NewObject(_jni_scanner_cls, scanner_constructor, batch_size, hashmap_object);
-
-    // RETURN_ERROR_IF_EXC(env);
-
-    // prepare constructor parameters
-    // env->DeleteGlobalRef(hashmap_object);
-    // RETURN_ERROR_IF_EXC(env);
 
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "open", "()V", &_jni_scanner_open));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getNextBatchMeta", "()J",
@@ -273,29 +241,6 @@ Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
             _jni_scanner_cls.get_method(env, "releaseTable", "()V", &_jni_scanner_release_table));
     RETURN_IF_ERROR(_jni_scanner_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
                                                 &_jni_scanner_get_statistics));
-
-    // _jni_scanner_open = env->GetMethodID(_jni_scanner_cls, "open", "()V");
-    // RETURN_ERROR_IF_EXC(env);
-    // _jni_scanner_get_next_batch = env->GetMethodID(_jni_scanner_cls, "getNextBatchMeta", "()J");
-    // RETURN_ERROR_IF_EXC(env);
-    // _jni_scanner_get_append_data_time =
-    //         env->GetMethodID(_jni_scanner_cls, "getAppendDataTime", "()J");
-    // RETURN_ERROR_IF_EXC(env);
-    // _jni_scanner_get_create_vector_table_time =
-    //         env->GetMethodID(_jni_scanner_cls, "getCreateVectorTableTime", "()J");
-    // RETURN_ERROR_IF_EXC(env);
-    // _jni_scanner_get_table_schema =
-    //         env->GetMethodID(_jni_scanner_cls, "getTableSchema", "()Ljava/lang/String;");
-    // RETURN_ERROR_IF_EXC(env);
-    // _jni_scanner_close = env->GetMethodID(_jni_scanner_cls, "close", "()V");
-    // _jni_scanner_release_column = env->GetMethodID(_jni_scanner_cls, "releaseColumn", "(I)V");
-    // _jni_scanner_release_table = env->GetMethodID(_jni_scanner_cls, "releaseTable", "()V");
-    // _jni_scanner_get_statistics =
-    //         env->GetMethodID(_jni_scanner_cls, "getStatistics", "()Ljava/util/Map;");
-    // RETURN_ERROR_IF_EXC(env);
-    // RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_scanner_obj, &_jni_scanner_obj));
-    // env->DeleteLocalRef(jni_scanner_obj);
-    // RETURN_ERROR_IF_EXC(env);
     return Status::OK();
 }
 
