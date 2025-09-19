@@ -28,7 +28,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
 import org.apache.doris.job.common.FailureReason;
@@ -88,7 +87,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     protected long latestAutoResumeTimestamp;
     @Getter
     @Setter
-    protected long autoResumeCount = 0L;
+    protected long autoResumeCount;
     @Getter
     @SerializedName("props")
     private Map<String, String> properties;
@@ -218,6 +217,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     protected StreamingInsertTask createStreamingInsertTask() {
+        if (originTvfProps == null) {
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
+        }
         this.runningStreamTask = new StreamingInsertTask(getJobId(), Env.getCurrentEnv().getNextId(), getExecuteSql(),
                 offsetProvider, getCurrentDbName(), jobProperties, originTvfProps, getCreateUser());
         Env.getCurrentEnv().getJobManager().getStreamingTaskManager().registerTask(runningStreamTask);
@@ -277,9 +279,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
-                this.failureReason = new FailureReason(task.getErrMsg());
-            }
+            this.failureReason = new FailureReason(task.getErrMsg());
         } finally {
             writeUnlock();
         }
@@ -420,7 +420,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
-                        runningStreamTask.getRunningOffset().toJson()));
+                        runningStreamTask.getRunningOffset().toSerializedJson()));
         } finally {
             if (shouldReleaseLock) {
                 writeUnlock();

@@ -17,8 +17,8 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
-import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -37,6 +37,6 @@ public class StreamingJobStatistic {
     private long fileSize;
 
     public String toJson() {
-        return GsonUtils.GSON.toJson(this);
+        return new Gson().toJson(this);
     }
 }

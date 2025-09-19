@@ -247,9 +247,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
         switch (taskType) {
             case SCHEDULED:
-                return currentJobStatus.equals(JobStatus.RUNNING) || currentJobStatus.equals(JobStatus.PENDING);
+                return currentJobStatus.equals(JobStatus.RUNNING);
             case MANUAL:
                 return currentJobStatus.equals(JobStatus.RUNNING) || currentJobStatus.equals(JobStatus.PAUSED);
+            case STREAMING:
+                return !jobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.FINISHED);
             default:
                 throw new IllegalArgumentException("Unsupported TaskType: " + taskType);
         }
