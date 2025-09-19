@@ -797,6 +797,16 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                 .tag("msg", msg);
         return;
     }
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("before compaction, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
 
     if (compaction.type() == TabletCompactionJobPB::EMPTY_CUMULATIVE) {
         stats->set_cumulative_compaction_cnt(stats->cumulative_compaction_cnt() + 1);
@@ -869,7 +879,27 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                << " compaction.size_output_rowsets=" << compaction.size_output_rowsets()
                << " compaction.size_input_rowsets=" << compaction.size_input_rowsets();
     txn->put(stats_key, stats_val);
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("before merge, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
     merge_tablet_stats(*stats, detached_stats); // this is to check
+    LOG_INFO("lyk_debug")
+            .tag("tablet_id", tablet_id)
+            .tag("after merge, stats=", stats->ShortDebugString())
+            .tag("detached_stats",
+                 fmt::format("data_size={} num_rows={} num_rowsets={} num_segs={} index_size={} "
+                             "segment_size={}",
+                             detached_stats.data_size, detached_stats.num_rows,
+                             detached_stats.num_rowsets, detached_stats.num_segs,
+                             detached_stats.index_size, detached_stats.segment_size))
+            .tag("compaction=", compaction.ShortDebugString());
     if (stats->data_size() < 0 || stats->num_rowsets() < 1) [[unlikely]] {
         INSTANCE_LOG(ERROR) << "buggy data size, tablet_id=" << tablet_id
                             << " stats.num_rows=" << stats->num_rows()
