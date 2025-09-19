@@ -146,6 +146,16 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
     }
 
     bool eos = request->eos();
+
+    // check blocks valid
+
+    for (int i = 0; i < request->blocks_size(); i++) {
+        auto block = request->blocks(i);
+        if (!block.IsInitialized()) {
+            LOG_WARNING("block is not initialized");
+        }
+    }
+
     if (!request->blocks().empty()) {
         for (int i = 0; i < request->blocks_size(); i++) {
             // Previously there was a const_cast here, but in our internal tests this occasionally caused a hard-to-reproduce core dump.
