@@ -97,7 +97,11 @@ public enum SchemaTableType {
     SCH_ROUTINE_LOAD_JOBS("ROUTINE_LOAD_JOBS", "ROUTINE_LOAD_JOBS",
             TSchemaTableType.SCH_ROUTINE_LOAD_JOBS),
     SCH_VIEW_DEPENDENCY("VIEW_DEPENDENCY", "VIEW_DEPENDENCY",
-                    TSchemaTableType.SCH_VIEW_DEPENDENCY);
+                    TSchemaTableType.SCH_VIEW_DEPENDENCY),
+    SQL_BLOCK_RULE_STATUS("SQL_BLOCK_RULE_STATUS", "SQL_BLOCK_RULE_STATUS",
+            TSchemaTableType.SCH_SQL_BLOCK_RULE_STATUS),
+    SCH_ENCRYPTION_KEYS("ENCRYPTION_KEYS", "ENCRYPTION_KEYS",
+                          TSchemaTableType.SCH_ENCRYPTION_KEYS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
 

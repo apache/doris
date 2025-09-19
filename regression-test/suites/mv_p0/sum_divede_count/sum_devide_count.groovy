@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("sum_devide_count") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS d_table; """
 
@@ -43,7 +45,7 @@ suite ("sum_devide_count") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view kavg as select k1,k4,sum(k2),count(k2) from d_table group by k1,k4;")
+    createMV ("create materialized view kavg as select k1 as a1,k4 as a2,sum(k2) as a3,count(k2) as a4 from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
     sql "insert into d_table select -4,-4,-4,'d';"

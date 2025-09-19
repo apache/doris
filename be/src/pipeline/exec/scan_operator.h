@@ -80,7 +80,6 @@ public:
     virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
-
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
 
     virtual int64_t get_push_down_count() = 0;
@@ -134,8 +133,10 @@ class ScanLocalState : public ScanLocalStateBase {
             : ScanLocalStateBase(state, parent) {}
     ~ScanLocalState() override = default;
 
-    Status init(RuntimeState* state, LocalStateInfo& info) override;
-    Status open(RuntimeState* state) override;
+    virtual Status init(RuntimeState* state, LocalStateInfo& info) override;
+
+    virtual Status open(RuntimeState* state) override;
+
     Status close(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const final;
 
@@ -156,15 +157,13 @@ class ScanLocalState : public ScanLocalStateBase {
 
     int64_t get_push_down_count() override;
 
-    std::vector<Dependency*> filter_dependencies() override {
+    std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
             return {};
         }
-        std::vector<Dependency*> res;
-        res.resize(_filter_dependencies.size());
-        for (size_t i = 0; i < _filter_dependencies.size(); i++) {
-            res[i] = _filter_dependencies[i].get();
-        }
+        std::vector<Dependency*> res(_filter_dependencies.size());
+        std::transform(_filter_dependencies.begin(), _filter_dependencies.end(), res.begin(),
+                       [](DependencySPtr dep) { return dep.get(); });
         return res;
     }
 
@@ -210,14 +209,12 @@ protected:
     virtual PushDownType _should_push_down_is_null_predicate() {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual Status _should_push_down_binary_predicate(
+    Status _should_push_down_binary_predicate(
             vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
             StringRef* constant_val, int* slot_ref_child,
             const std::function<bool(const std::string&)>& fn_checker, PushDownType& pdt);
 
-    virtual PushDownType _should_push_down_in_predicate(vectorized::VInPredicate* in_pred,
-                                                        vectorized::VExprContext* expr_ctx,
-                                                        bool is_not_in);
+    PushDownType _should_push_down_in_predicate(vectorized::VInPredicate* in_pred, bool is_not_in);
 
     virtual Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
                                                      vectorized::VExprContext* expr_ctx,

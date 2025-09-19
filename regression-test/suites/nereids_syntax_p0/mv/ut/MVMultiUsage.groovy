@@ -18,9 +18,13 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("MVMultiUsage") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS MVMultiUsage; """
+    // this mv rewrite would not be rewritten in RBO, so set NOT_IN_RBO explicitly
+    sql """ set pre_materialized_view_rewrite_strategy = NOT_IN_RBO """
 
     sql """
             create table MVMultiUsage (
@@ -38,7 +42,7 @@ suite ("MVMultiUsage") {
     sql """insert into MVMultiUsage values("2020-01-03",3,"c",3,3,3);"""
 
 
-    createMV("create materialized view MVMultiUsage_mv as select deptno, empid, salary from MVMultiUsage order by deptno;")
+    createMV("create materialized view MVMultiUsage_mv as select deptno as a1, empid as a2, salary as a3 from MVMultiUsage order by deptno;")
 
     sleep(3000)
 

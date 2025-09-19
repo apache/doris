@@ -61,6 +61,7 @@ struct ReportStatusRequest {
     int backend_num;
     RuntimeState* runtime_state;
     std::string load_error_url;
+    std::string first_error_msg;
     std::function<void(const Status&)> cancel_fn;
 };
 
@@ -104,6 +105,16 @@ public:
             return false;
         }
         return _query_watcher.elapsed_time_seconds(now) > _timeout_second;
+    }
+
+    int64_t get_remaining_query_time_seconds() const {
+        timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (is_timeout(now)) {
+            return -1;
+        }
+        int64_t elapsed_seconds = _query_watcher.elapsed_time_seconds(now);
+        return _timeout_second - elapsed_seconds;
     }
 
     void set_ready_to_execute(Status reason);
@@ -247,6 +258,18 @@ public:
         DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
     }
 
+    void set_ai_resources(std::map<std::string, TAIResource> ai_resources) {
+        _ai_resources =
+                std::make_unique<std::map<std::string, TAIResource>>(std::move(ai_resources));
+    }
+
+    const std::map<std::string, TAIResource>& get_ai_resources() const {
+        if (_ai_resources == nullptr) {
+            throw Status::InternalError("AI resources not found");
+        }
+        return *_ai_resources;
+    }
+
     std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
     get_using_brpc_stubs() {
         std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
@@ -267,6 +290,8 @@ public:
 
     void set_load_error_url(std::string error_url);
     std::string get_load_error_url();
+    void set_first_error_msg(std::string error_msg);
+    std::string get_first_error_msg();
 
 private:
     friend class QueryTaskController;
@@ -335,6 +360,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>> _profile_map;
     std::unordered_map<int, std::shared_ptr<TRuntimeProfileTree>> _load_channel_profile_map;
 
+    std::unique_ptr<std::map<std::string, TAIResource>> _ai_resources;
+
     void _report_query_profile();
 
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
@@ -342,6 +369,7 @@ private:
 
     std::mutex _error_url_lock;
     std::string _load_error_url;
+    std::string _first_error_msg;
 
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile

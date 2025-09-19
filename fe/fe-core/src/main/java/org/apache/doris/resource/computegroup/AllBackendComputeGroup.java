@@ -65,6 +65,10 @@ public class AllBackendComputeGroup extends ComputeGroup {
         return systemInfoService.getAllClusterBackendsNoException().values().asList();
     }
 
+    // In non cloud mode, if root or admin user not set resource group name, then will use all
+    // resource groups(This is by design in the past). So we need get all workload groups
+    // from different resource groups and publish the workload group to all backends.
+    // The backend will filter the workload group that is pre-created in its local.
     @Override
     public List<WorkloadGroup> getWorkloadGroup(String wgName, WorkloadGroupMgr wgMgr) throws UserException {
         List<WorkloadGroup> wgList = Lists.newArrayList();

@@ -30,7 +30,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[item]
 
 Hint log:
-Used: leading(store_sales broadcast customer_demographics broadcast date_dim broadcast promotion shuffle item )  
+Used: leading(store_sales broadcast customer_demographics broadcast date_dim broadcast promotion shuffle item )
 UnUsed:
 SyntaxError:
 

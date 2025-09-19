@@ -26,8 +26,8 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/uint128.h"
+#include "vec/core/extended_types.h"
 #include "vec/core/types.h"
-#include "vec/core/wide_integer.h"
 
 namespace doris::vectorized {
 
@@ -151,7 +151,7 @@ struct Construct<true, true, 16> {
     */
 template <typename A, typename B>
 struct ResultOfAdditionMultiplication {
-    static constexpr PrimitiveType Type = Construct < std::is_signed_v<A> || std::is_signed_v<B>,
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>,
                                    std::is_floating_point_v<A> || std::is_floating_point_v<B>,
                                    next_size(max(sizeof(A), sizeof(B))) > ::Type;
 };
@@ -179,8 +179,8 @@ struct ResultOfFloatingPointDivision {
     */
 template <typename A, typename B>
 struct ResultOfIntegerDivision {
-    static constexpr PrimitiveType Type = Construct < std::is_signed_v<A> || std::is_signed_v<B>,
-                                   false, sizeof(A) > ::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
+                                   sizeof(A) > ::Type;
 };
 
 /** Division with remainder you get a number with the same number of bits as in divisor.
@@ -201,8 +201,8 @@ struct ResultOfModulo {
         }
         return max_float_size;
     }
-    static constexpr PrimitiveType Type = Construct < std::is_signed_v<A> || std::is_signed_v<B>,
-                                   has_float, result_size() > ::Type;
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, has_float,
+                                   result_size() > ::Type;
 };
 
 template <typename A>
@@ -237,8 +237,7 @@ struct ResultOfAbs<Decimal128V3> {
     */
 template <typename A, typename B>
 struct ResultOfBit {
-    static constexpr PrimitiveType Type = Construct < std::is_signed_v<A> || std::is_signed_v<B>,
-                                   false,
+    static constexpr PrimitiveType Type = Construct < IsSignedV<A> || IsSignedV<B>, false,
                                    std::is_floating_point_v<A> || std::is_floating_point_v<B>
                                            ? 8
                                            : max(sizeof(A), sizeof(B)) > ::Type;
@@ -246,7 +245,7 @@ struct ResultOfBit {
 
 template <typename A>
 struct ResultOfBitNot {
-    static constexpr PrimitiveType Type = Construct<std::is_signed_v<A>, false, sizeof(A)>::Type;
+    static constexpr PrimitiveType Type = Construct<IsSignedV<A>, false, sizeof(A)>::Type;
 };
 
 template <PrimitiveType A, PrimitiveType B>
@@ -265,9 +264,10 @@ constexpr int max_ascii_len() {
     return 0;
 }
 
+// bool type
 template <>
 inline constexpr int max_ascii_len<uint8_t>() {
-    return 3;
+    return 1;
 }
 
 template <>

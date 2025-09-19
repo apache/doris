@@ -41,7 +41,6 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -162,7 +161,7 @@ TEST_F(DataTypeStringSerDeTest, serdes) {
             Arena pool;
 
             for (size_t j = 0; j != row_count; ++j) {
-                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, &pool, 0, j);
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j);
             }
             jsonb_writer.writeEndObject();
 

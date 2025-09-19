@@ -28,11 +28,15 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.qe.ConnectContext;
 
@@ -128,10 +132,10 @@ public class MTMVUtil {
         Expression strToDate = DateTimeExtractAndTransform
                 .strToDate(new VarcharLiteral(expr.getStringValue()), new VarcharLiteral(dateFormat));
         if (strToDate instanceof DateTimeV2Literal) {
-            return ((IntegerLiteral) DateTimeExtractAndTransform
-                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue();
+            return ((DecimalV3Literal) DateTimeExtractAndTransform
+                    .unixTimestamp((DateTimeV2Literal) strToDate)).getValue().longValue();
         } else if (strToDate instanceof DateV2Literal) {
-            return ((IntegerLiteral) DateTimeExtractAndTransform
+            return ((BigIntLiteral) DateTimeExtractAndTransform
                     .unixTimestamp((DateV2Literal) strToDate)).getValue();
         } else {
             throw new AnalysisException(
@@ -170,5 +174,28 @@ public class MTMVUtil {
                 }
             }
         }
+    }
+
+    /**
+     * get MTMV task num by status
+     *
+     * @param status status of task
+     * @return if status is null, return 0
+     */
+    public static Integer getTaskNum(TaskStatus status) {
+        if (status == null) {
+            return 0;
+        }
+        int res = 0;
+        List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(JobType.MV);
+        for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            List<AbstractTask> tasks = job.getRunningTasks();
+            for (AbstractTask task : tasks) {
+                if (task.getStatus().equals(status)) {
+                    res++;
+                }
+            }
+        }
+        return res;
     }
 }

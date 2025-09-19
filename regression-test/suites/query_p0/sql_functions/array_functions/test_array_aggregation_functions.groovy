@@ -55,5 +55,14 @@ suite("test_array_aggregation_functions") {
     qt_select "SELECT k1, array_max(a1), array_max(a2), array_max(a3), array_max(a4), array_max(a5), array_max(a6), array_max(a7), array_max(a8), array_max(a9), array_max(a10), array_max(a11), array_max(a12), array_max(a13), array_max(a14), array_max(a15), array_max(a16)from ${tableName} order by k1"
     qt_select "SELECT k1, array_avg(a1), array_avg(a2), array_avg(a3), array_avg(a4), array_avg(a5), array_avg(a6), array_avg(a7), array_avg(a8), array_avg(a13), array_avg(a14), array_avg(a15), array_avg(a16) from ${tableName} order by k1"
     qt_select "SELECT k1, array_sum(a1), array_sum(a2), array_sum(a3), array_sum(a4), array_sum(a5), array_sum(a6), array_sum(a7), array_sum(a8), array_sum(a13), array_sum(a14), array_sum(a15), array_sum(a16) from ${tableName} order by k1"
-    qt_select "SELECT k1, array_product(a1), array_product(a2), array_product(a3), array_product(a4), array_product(a5), array_product(a6), array_product(a7), array_product(a8), array_product(a13), array_product(a14), array_product(a15), array_product(a16) from ${tableName} order by k1"
+    // a5 a3 should overflow
+    qt_select "SELECT k1, array_product(a1), array_product(a2), array_product(a4), array_product(a6), array_product(a7), array_product(a8), array_product(a13), array_product(a14), array_product(a15), array_product(a16) from ${tableName} order by k1"
+    test {
+        sql "select array_product(a5) from ${tableName} order by k1"
+        exception "Product overflow for"
+    }
+    test {
+        sql "select array_product(a3) from ${tableName} order by k1"
+        exception "Product overflow for"
+    }
 }

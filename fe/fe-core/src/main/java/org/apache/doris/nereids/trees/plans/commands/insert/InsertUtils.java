@@ -602,7 +602,7 @@ public class InsertUtils {
                 return (NamedExpression) defualtValueExpression;
             } else {
                 return new Alias(Literal.of(column.getDefaultValue())
-                        .checkedCastTo(DataType.fromCatalogType(column.getType())),
+                        .checkedCastWithFallback(DataType.fromCatalogType(column.getType())),
                         column.getName());
             }
         } catch (org.apache.doris.common.AnalysisException e) {

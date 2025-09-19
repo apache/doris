@@ -27,7 +27,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -51,6 +51,7 @@ public class AddColumnOp extends AlterTableOp {
     private String rollupName;
 
     private Map<String, String> properties;
+
     // set in analyze
     private Column column;
 
@@ -73,6 +74,10 @@ public class AddColumnOp extends AlterTableOp {
 
     public String getRollupName() {
         return rollupName;
+    }
+
+    public void setColumn(Column column) {
+        this.column = column;
     }
 
     @Override
@@ -137,7 +142,9 @@ public class AddColumnOp extends AlterTableOp {
         boolean isEnableMergeOnWrite = false;
         KeysType keysType = KeysType.DUP_KEYS;
         Set<String> clusterKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        Table table = Env.getCurrentInternalCatalog().getDbOrDdlException(tableName.getDb())
+        TableIf table = Env.getCurrentEnv().getCatalogMgr()
+                .getCatalogOrDdlException(tableName.getCtl())
+                .getDbOrDdlException(tableName.getDb())
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             isOlap = true;

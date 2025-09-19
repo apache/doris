@@ -37,6 +37,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris::io {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
 bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
@@ -114,9 +115,18 @@ Status HdfsFileReader::close() {
     return Status::OK();
 }
 
-#ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+                                    const IOContext* io_ctx) {
+    auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
+    if (!st.ok()) {
+        _accessor.destroy();
+    }
+    return st;
+}
+
+#ifdef USE_HADOOP_HDFS
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: {}", _path.native());
     }
@@ -138,8 +148,11 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t has_read = 0;
     while (has_read < bytes_req) {
+        int64_t max_to_read = bytes_req - has_read;
+        tSize to_read = static_cast<tSize>(
+                std::min(max_to_read, static_cast<int64_t>(std::numeric_limits<tSize>::max())));
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
-                                    to + has_read, bytes_req - has_read);
+                                    to + has_read, to_read);
         {
             [[maybe_unused]] Status error_ret;
             TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", error_ret);
@@ -169,8 +182,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 #else
 // The hedged read only support hdfsPread().
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
-Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                    const IOContext* /*io_ctx*/) {
+Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                                       const IOContext* /*io_ctx*/) {
     if (closed()) [[unlikely]] {
         return Status::InternalError("read closed file: ", _path.native());
     }
@@ -204,8 +217,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 
     size_t has_read = 0;
     while (has_read < bytes_req) {
-        int64_t loop_read =
-                hdfsRead(_handle->fs(), _handle->file(), to + has_read, bytes_req - has_read);
+        int64_t loop_read = hdfsRead(_handle->fs(), _handle->file(), to + has_read,
+                                     static_cast<int32_t>(bytes_req - has_read));
         if (loop_read < 0) {
             // invoker maybe just skip Status.NotFound and continue
             // so we need distinguish between it and other kinds of errors
@@ -266,5 +279,6 @@ void HdfsFileReader::_collect_profile_before_close() {
 #endif
     }
 }
+#include "common/compile_check_end.h"
 
 } // namespace doris::io

@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.util.Map;
@@ -39,7 +40,7 @@ public class ColumnStatisticBuilder {
     private ColumnStatistic original;
 
     private String updatedTime;
-    private Map<LiteralExpr, Float> hotValues;
+    private Map<Literal, Float> hotValues;
 
     public ColumnStatisticBuilder() {
     }
@@ -131,7 +132,7 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
-    public ColumnStatisticBuilder setHotValues(Map<LiteralExpr, Float> hotValues) {
+    public ColumnStatisticBuilder setHotValues(Map<Literal, Float> hotValues) {
         this.hotValues = hotValues;
         return this;
     }
@@ -185,7 +186,7 @@ public class ColumnStatisticBuilder {
         return this;
     }
 
-    public Map<LiteralExpr, Float> getHotValues() {
+    public Map<Literal, Float> getHotValues() {
         return hotValues;
     }
 

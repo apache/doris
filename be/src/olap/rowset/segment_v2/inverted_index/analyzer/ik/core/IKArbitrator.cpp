@@ -22,7 +22,7 @@ namespace doris::segment_v2 {
 void IKArbitrator::process(AnalyzeContext& context, bool use_smart) {
     auto org_lexemes = context.getOrgLexemes();
     auto org_lexeme = org_lexemes->pollFirst();
-    LexemePath* cross_path = new LexemePath(pool_);
+    LexemePath* cross_path = new LexemePath(arena_);
 
     auto process_path = [&](LexemePath* path) {
         if (path->size() == 1 || !use_smart) {
@@ -43,7 +43,7 @@ void IKArbitrator::process(AnalyzeContext& context, bool use_smart) {
             // Find the next crossPath that does not intersect with crossPath.
             process_path(cross_path);
             // Add orgLexeme to the new crossPath
-            cross_path = new LexemePath(pool_);
+            cross_path = new LexemePath(arena_);
             cross_path->addCrossLexeme(*org_lexeme);
         }
         org_lexeme = org_lexemes->pollFirst();
@@ -56,12 +56,12 @@ void IKArbitrator::process(AnalyzeContext& context, bool use_smart) {
 // Performs ambiguity resolution on a given lexeme path.
 LexemePath* IKArbitrator::judge(Cell* lexeme_cell, size_t full_text_length) {
     // Candidate result path
-    LexemePath* path_option = new LexemePath(pool_);
+    LexemePath* path_option = new LexemePath(arena_);
 
     // Traverse crossPath once and return the stack of conflicting Lexemes
     std::stack<Cell*, std::vector<Cell*>> lexemeStack;
     forwardPath(lexeme_cell, path_option, lexemeStack);
-    LexemePath* best_path = new LexemePath(*path_option, pool_);
+    LexemePath* best_path = new LexemePath(*path_option, arena_);
 
     // Process ambiguous words if they exist
     while (!lexemeStack.empty()) {
@@ -71,7 +71,7 @@ LexemePath* IKArbitrator::judge(Cell* lexeme_cell, size_t full_text_length) {
         forwardPath(c, path_option);
         if (*path_option < *best_path) {
             delete best_path;
-            best_path = new LexemePath(*path_option, pool_);
+            best_path = new LexemePath(*path_option, arena_);
         }
     }
     delete path_option;

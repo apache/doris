@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.SetDefaultStorageVaultStmt;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AlterObjStoreInfoRequest.Operation;
@@ -26,7 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -210,7 +210,7 @@ public class StorageVaultMgr {
                 properties.keySet().stream()
                         .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
                                 || key.toLowerCase().contains(S3Properties.S3_PREFIX)
-                                || key.toLowerCase().contains(S3Properties.PROVIDER))
+                                || key.toLowerCase().contains(StorageProperties.FS_PROVIDER_KEY))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
@@ -238,11 +238,6 @@ public class StorageVaultMgr {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
-    }
-
-    @VisibleForTesting
-    public void setDefaultStorageVault(SetDefaultStorageVaultStmt stmt) throws DdlException {
-        setDefaultStorageVault(stmt.getStorageVaultName());
     }
 
     public void setDefaultStorageVault(String vaultName) throws DdlException {
@@ -294,6 +289,27 @@ public class StorageVaultMgr {
             return defaultVaultInfo;
         } finally {
             rwLock.readLock().unlock();
+        }
+    }
+
+    public StorageVaultType getStorageVaultTypeByName(String vaultName) throws DdlException {
+        try {
+            Cloud.GetObjStoreInfoResponse resp = MetaServiceProxy.getInstance()
+                    .getObjStoreInfo(Cloud.GetObjStoreInfoRequest.newBuilder().build());
+
+            for (Cloud.StorageVaultPB vault : resp.getStorageVaultList()) {
+                if (vault.getName().equals(vaultName)) {
+                    if (vault.hasHdfsInfo()) {
+                        return StorageVaultType.HDFS;
+                    } else if (vault.hasObjInfo()) {
+                        return StorageVaultType.S3;
+                    }
+                }
+            }
+            return StorageVaultType.UNKNOWN;
+        } catch (RpcException e) {
+            LOG.warn("failed to get storage vault type due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
         }
     }
 

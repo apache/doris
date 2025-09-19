@@ -29,6 +29,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/field.h"
@@ -36,7 +37,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -57,7 +57,6 @@ String IDataType::do_get_name() const {
 
 ColumnPtr IDataType::create_column_const(size_t size, const Field& field) const {
     auto column = create_column();
-    column->reserve(1);
     column->insert(field);
     return ColumnConst::create(std::move(column), size);
 }
@@ -81,12 +80,6 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_string not implement.", get_name());
     return "";
-}
-Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Data type {} from_string not implement.", get_name());
-
-    return Status::OK();
 }
 
 void IDataType::to_string_batch(const IColumn& column, ColumnString& column_to) const {
@@ -171,6 +164,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::TIMEV2;
     case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
         return PGenericType::FIXEDLENGTHOBJECT;
+    case doris::PrimitiveType::TYPE_VARBINARY:
+        return PGenericType::VARBINARY;
     default:
         break;
     }
@@ -222,6 +217,11 @@ const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr
         *column = const_column->get_ptr();
     }
     return buf;
+}
+
+FieldWithDataType IDataType::get_field_with_data_type(const IColumn& column, size_t row_num) const {
+    return FieldWithDataType {.field = column[row_num],
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

@@ -242,6 +242,22 @@ under the License.
             <artifactId>dynamodb</artifactId>
             <version>${awssdk.version}</version>
         </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3tables</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.s3tables</groupId>
+            <artifactId>s3-tables-catalog-for-iceberg</artifactId>
+            <version>${s3tables.catalog.version}</version>
+        </dependency>
+        <!-- AWS SDK Core -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sdk-core</artifactId>
+            <version>${awssdk.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

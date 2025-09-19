@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -28,9 +28,14 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.TypeUtils;
 
-import java.util.List;
+import com.google.common.collect.ImmutableList;
+
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -42,18 +47,41 @@ import java.util.stream.Collectors;
  * project(A.*)
  *    - LeftAntiJoin(A, B)
  */
-public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
+public class ConvertOuterJoinToAntiJoin extends DefaultPlanRewriter<Map<ExprId, ExprId>> implements CustomRewriter {
+    private ExprIdRewriter exprIdReplacer;
 
     @Override
-    public Rule build() {
-        return logicalFilter(logicalJoin()
-                .when(join -> join.getJoinType().isOuterJoin()))
-                .then(this::toAntiJoin)
-        .toRule(RuleType.CONVERT_OUTER_JOIN_TO_ANTI);
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        if (!plan.containsType(LogicalJoin.class)) {
+            return plan;
+        }
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        ExprIdRewriter.ReplaceRule replaceRule = new ExprIdRewriter.ReplaceRule(replaceMap);
+        exprIdReplacer = new ExprIdRewriter(replaceRule, jobContext);
+        return plan.accept(this, replaceMap);
     }
 
-    private Plan toAntiJoin(LogicalFilter<LogicalJoin<Plan, Plan>> filter) {
+    @Override
+    public Plan visit(Plan plan, Map<ExprId, ExprId> replaceMap) {
+        plan = visitChildren(this, plan, replaceMap);
+        plan = exprIdReplacer.rewriteExpr(plan, replaceMap);
+        return plan;
+    }
+
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Map<ExprId, ExprId> replaceMap) {
+        filter = (LogicalFilter<? extends Plan>) visit(filter, replaceMap);
+        if (!(filter.child() instanceof LogicalJoin)) {
+            return filter;
+        }
+        return toAntiJoin((LogicalFilter<LogicalJoin<Plan, Plan>>) filter, replaceMap);
+    }
+
+    private Plan toAntiJoin(LogicalFilter<LogicalJoin<Plan, Plan>> filter, Map<ExprId, ExprId> replaceMap) {
         LogicalJoin<Plan, Plan> join = filter.child();
+        if (!join.getJoinType().isLeftOuterJoin() && !join.getJoinType().isRightOuterJoin()) {
+            return filter;
+        }
 
         Set<Slot> alwaysNullSlots = filter.getConjuncts().stream()
                 .filter(p -> TypeUtils.isNull(p).isPresent())
@@ -66,33 +94,37 @@ public class ConvertOuterJoinToAntiJoin extends OneRewriteRuleFactory {
                 .filter(s -> alwaysNullSlots.contains(s) && !s.nullable())
                 .collect(Collectors.toSet());
 
-        Plan newJoin = null;
+        Plan newChild = null;
         if (join.getJoinType().isLeftOuterJoin() && !rightAlwaysNullSlots.isEmpty()) {
-            newJoin = join.withJoinTypeAndContext(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
+            newChild = join.withJoinTypeAndContext(JoinType.LEFT_ANTI_JOIN, join.getJoinReorderContext());
         }
         if (join.getJoinType().isRightOuterJoin() && !leftAlwaysNullSlots.isEmpty()) {
-            newJoin = join.withJoinTypeAndContext(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
+            newChild = join.withJoinTypeAndContext(JoinType.RIGHT_ANTI_JOIN, join.getJoinReorderContext());
         }
-        if (newJoin == null) {
-            return null;
+        if (newChild == null) {
+            return filter;
         }
 
-        if (!newJoin.getOutputSet().containsAll(filter.getInputSlots())) {
+        if (!newChild.getOutputSet().containsAll(filter.getInputSlots())) {
             // if there are slots that don't belong to join output, we use null alias to replace them
             // such as:
             //   project(A.id, null as B.id)
             //       -  (A left anti join B)
-            Set<Slot> joinOutput = newJoin.getOutputSet();
-            List<NamedExpression> projects = filter.getOutput().stream()
-                    .map(s -> {
-                        if (joinOutput.contains(s)) {
-                            return s;
-                        } else {
-                            return new Alias(s.getExprId(), new NullLiteral(s.getDataType()), s.getName());
-                        }
-                    }).collect(Collectors.toList());
-            newJoin = new LogicalProject<>(projects, newJoin);
+            Set<Slot> joinOutputs = newChild.getOutputSet();
+            ImmutableList.Builder<NamedExpression> projectsBuilder = ImmutableList.builder();
+            for (NamedExpression e : filter.getOutput()) {
+                if (joinOutputs.contains(e)) {
+                    projectsBuilder.add(e);
+                } else {
+                    Alias newAlias = new Alias(new NullLiteral(e.getDataType()), e.getName(), e.getQualifier());
+                    replaceMap.put(e.getExprId(), newAlias.getExprId());
+                    projectsBuilder.add(newAlias);
+                }
+            }
+            newChild = new LogicalProject<>(projectsBuilder.build(), newChild);
+            return exprIdReplacer.rewriteExpr(filter.withChildren(newChild), replaceMap);
+        } else {
+            return filter.withChildren(newChild);
         }
-        return filter.withChildren(newJoin);
     }
 }

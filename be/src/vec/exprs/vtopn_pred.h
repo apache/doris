@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/core/column_numbers.h"
 #include "vec/data_types/data_type.h"
+#include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/simple_function_factory.h"
@@ -56,6 +57,7 @@ public:
         node.__set_is_nullable(target_ctx->root()->is_nullable());
         expr = vectorized::VTopNPred::create_shared(node, source_node_id, target_ctx);
 
+        DCHECK(target_ctx->root() != nullptr);
         expr->add_child(target_ctx->root());
 
         return Status::OK();
@@ -113,6 +115,63 @@ public:
     }
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    // only used in external table (for min-max filter). get `slot > xxx`, not `function(slot) > xxx`.
+    bool get_binary_expr(VExprSPtr& new_root) const {
+        if (!get_child(0)->is_slot_ref()) {
+            // top rf maybe is `xxx order by abs(column) limit xxx`.
+            return false;
+        }
+
+        if (!_predicate->has_value()) {
+            return false;
+        }
+
+        auto* slot_ref = assert_cast<VSlotRef*>(get_child(0).get());
+        auto slot_data_type = remove_nullable(slot_ref->data_type());
+        {
+            TFunction fn;
+            TFunctionName fn_name;
+            fn_name.__set_db_name("");
+            fn_name.__set_function_name(_predicate->is_asc() ? "le" : "ge");
+            fn.__set_name(fn_name);
+            fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+            std::vector<TTypeDesc> arg_types;
+            arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                 slot_data_type->get_precision(),
+                                                 slot_data_type->get_scale()));
+
+            arg_types.push_back(create_type_desc(slot_data_type->get_primitive_type(),
+                                                 slot_data_type->get_precision(),
+                                                 slot_data_type->get_scale()));
+            fn.__set_arg_types(arg_types);
+            fn.__set_ret_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            fn.__set_has_var_args(false);
+
+            TExprNode texpr_node;
+            texpr_node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+            texpr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+            texpr_node.__set_opcode(_predicate->is_asc() ? TExprOpcode::LE : TExprOpcode::GE);
+            texpr_node.__set_fn(fn);
+            texpr_node.__set_num_children(2);
+            texpr_node.__set_is_nullable(is_nullable());
+            new_root = VectorizedFnCall::create_shared(texpr_node);
+        }
+
+        {
+            // add slot
+            new_root->add_child(children().at(0));
+        }
+        // add Literal
+        {
+            Field field = _predicate->get_value();
+            TExprNode node = create_texpr_node_from(field, slot_data_type->get_primitive_type(),
+                                                    slot_data_type->get_precision(),
+                                                    slot_data_type->get_scale());
+            new_root->add_child(VLiteral::create_shared(node));
+        }
+        return true;
+    }
 
 private:
     int _source_node_id;

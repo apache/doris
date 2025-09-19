@@ -32,6 +32,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import org.apache.doris.nereids.util.ResponsibilityChain;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -300,8 +302,12 @@ public class ComputeSignatureHelper {
 
         // get all common type for any data type
         for (Map.Entry<Integer, List<DataType>> dataTypes : indexToArgumentTypes.entrySet()) {
-            // TODO: should use the same common type method of implicitCast
-            Optional<DataType> dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            Optional<DataType> dataType;
+            if (GlobalVariable.enableNewTypeCoercionBehavior) {
+                dataType = TypeCoercionUtils.findWiderCommonType(dataTypes.getValue(), false, true);
+            } else {
+                dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
@@ -357,28 +363,14 @@ public class ComputeSignatureHelper {
         return signature;
     }
 
-    /** dynamicComputePropertiesOfArray */
-    public static FunctionSignature dynamicComputePropertiesOfArray(
-            FunctionSignature signature, List<Expression> arguments) {
+    /** ensureNestedNullableOfArray */
+    public static FunctionSignature ensureNestedNullableOfArray(FunctionSignature signature,
+            List<Expression> arguments) {
         if (!(signature.returnType instanceof ArrayType)) {
             return signature;
         }
-
-        // fill item type by the type of first item
         ArrayType arrayType = (ArrayType) signature.returnType;
-
-        // Now Array type do not support ARRAY<NOT_NULL>, set it to true temporarily
-        boolean containsNull = true;
-
-        // fill containsNull if any array argument contains null
-        /* boolean containsNull = arguments
-                .stream()
-                .map(Expression::getDataType)
-                .filter(argType -> argType instanceof ArrayType)
-                .map(ArrayType.class::cast)
-                .anyMatch(ArrayType::containsNull);*/
-        return signature.withReturnType(
-                ArrayType.of(arrayType.getItemType(), arrayType.containsNull() || containsNull));
+        return signature.withReturnType(ArrayType.of(arrayType.getItemType(), true));
     }
 
     // for time type with precision(now are DateTimeV2Type and TimeV2Type),
@@ -453,6 +445,58 @@ public class ComputeSignatureHelper {
             signature = signature.withReturnType(
                     TypeCoercionUtils.replaceTimesWithTargetPrecision(signature.returnType, finalTypeScale));
         }
+        return signature;
+    }
+
+    /**
+     * Dynamically compute function signature for variant type arguments.
+     * This method handles cases where the function signature contains variant types
+     * and needs to be adjusted based on the actual argument types.
+     *
+     * @param signature Original function signature
+     * @param arguments List of actual arguments passed to the function
+     * @return Updated function signature with resolved variant types
+     */
+    public static FunctionSignature dynamicComputeVariantArgs(
+            FunctionSignature signature, List<Expression> arguments) {
+
+        List<DataType> newArgTypes = Lists.newArrayListWithCapacity(arguments.size());
+        boolean findVariantType = false;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            // Get signature type for current argument position
+            DataType sigType;
+            if (i >= signature.argumentsTypes.size()) {
+                sigType = signature.getVarArgType().orElseThrow(
+                        () -> new AnalysisException("function arity not match with signature"));
+            } else {
+                sigType = signature.argumentsTypes.get(i);
+            }
+
+            // Get actual type of the argument expression
+            DataType expressionType = arguments.get(i).getDataType();
+
+            // If both signature type and expression type are variant,
+            // use expression type and update return type
+            if (sigType instanceof VariantType && expressionType instanceof VariantType) {
+                // return type is variant, update return type to expression type
+                if (signature.returnType instanceof VariantType) {
+                    signature = signature.withReturnType(expressionType);
+                    if (findVariantType) {
+                        throw new AnalysisException("variant type is not supported in multiple arguments");
+                    } else {
+                        findVariantType = true;
+                    }
+                }
+                newArgTypes.add(expressionType);
+            } else {
+                // Otherwise keep original signature type
+                newArgTypes.add(sigType);
+            }
+        }
+
+        // Update signature with new argument types
+        signature = signature.withArgumentTypes(signature.hasVarArgs, newArgTypes);
         return signature;
     }
 

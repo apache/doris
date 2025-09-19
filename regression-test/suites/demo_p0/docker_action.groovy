@@ -17,33 +17,51 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
+// Every docker suite will connect to a docker cluster.
+// The docker cluster is new created and independent, not contains history data,
+// not affect the external doris cluster, not affect other docker cluster.
+
 // Run docker suite steps:
-// 1. Read 'docker/runtime/doris-compose/Readme.md', make sure you can setup a doris docker cluster;
-// 2. update regression-conf-custom.groovy with config:
+// 1. Before run docker regreesion test, make sure you can setup a doris docker cluster.
+//    Read readme in [doris-compose](https://github.com/apache/doris/tree/master/docker/runtime/doris-compose)'
+//    to setup a docker doris cluster;
+// 2. Then run the docker suite, and setup regression-conf-custom.groovy with following config:
 //    image = "xxxx"                // your doris docker image
 //    excludeDockerTest = false     // do run docker suite, default is true
 //    dockerEndDeleteFiles = false  // after run docker suite, whether delete contains's log and data in directory '/tmp/doris/<suite-name>'
 
-// When run docker suite, then no need an external doris cluster.
+// When run docker suite, the regression test no need to connect to an external doris cluster,
+// but can still connect to one just like run a non-docker suite.
 // But whether run a docker suite, need more check.
-// Firstly, get the pipeline's run mode (cloud or not_cloud):
-// If there's an external doris cluster, then fetch pipeline's runMode from it.
-// If there's no external doris cluster, then set pipeline's runMode with command args.
-//    for example:  sh run-regression-test.sh --run docker_action  -runMode=cloud/not_cloud
-// Secondly, compare ClusterOptions.cloudMode and pipeline's runMode
-// If ClusterOptions.cloudMode = null then let ClusterOptions.cloudMode = pipeline's cloudMode, and run docker suite.
-// if ClusterOptions.cloudMode = true or false, if cloudMode == pipeline's cloudMode or pipeline's cloudMode is unknown,
-//      then run docker suite, otherwise don't run docker suite.
+// Firstly, get the regression test's run mode (cloud or not_cloud):
+// a) If the regression test connect to an external doris cluster,
+//    then will use the external doris cluster's runMode(cloud or not_cloud) as the regression runMode.
+// b) If there's no external doris cluster, then user can set the regression runMode with command arg `-runMode`.
+//    for example:
+//       `sh run-regression-test.sh --run -d demo_p0 -s docker_action  -runMode=cloud/not_cloud`
+//    what's more, if the docker suite not contains 'isCloudMode()', then no need specify the command arg `-runMode`.
+//    for exmaple, if the regression not connect to an external doris cluster, then command:
+//      `sh run-regression-test.sh --run -d demo_p0 -s docker_action`
+//    will run both cloud case and not_cloud case.
+// Secondly, compare ClusterOptions.cloudMode and the regression's runMode
+// a) If ClusterOptions.cloudMode = null then let ClusterOptions.cloudMode = the regression's cloudMode, and run docker suite.
+// b) if ClusterOptions.cloudMode = true or false, and regreesion runMode equals equals the suite's cloudMode
+//    or regression's cloudMode is unknown, then run docker suite.
+//
+//
+//  By default, after run a docker suite, whether run succ or fail, the suite's relate docker cluster will auto destroy.
+// If user don't want to destroy the docker cluster after the test, then user can specify with arg `-noKillDocker`
+// for exmaple:
+//   `sh run-regression-test.sh --run -d demo_p0 -s docker_action -noKillDocker`
+// will run 3 docker cluster, and the last docker cluster will not destroy .
 
-// NOTICE:
+// NOTICE, for code:
 // 1. Need add 'docker' to suite's group, and don't add 'nonConcurrent' to it;
-// 2. In docker closure:
-//    a. Don't use 'Awaitility.await()...until(f)', but use 'dockerAwaitUntil(..., f)';
-//    b. Don't use java Thread, but use regress framework's ThreadAction(see example demo_p0/thread_action.groovy);
-// 3. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
-// instead should use `ClusterOptions.cloudMode = true/false` is enough.
-// Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.
-// On the contrary, `ClusterOptions.cloudMode = true/false` no need specific -runMode=cloud/not_cloud when no external doris cluster exists.
+// 2. No need to use code ` if (isCloudMode()) { return } `  in docker suites,
+//    instead should use `ClusterOptions.cloudMode = true/false` is enough.
+//    Because when run docker suite without an external doris cluster, if suite use code `isCloudMode()`, it need specific -runMode=cloud/not_cloud.
+//    On the contrary, `ClusterOptions.cloudMode = true/false` no need specific -runMode=cloud/not_cloud when no external doris cluster exists.
+// 3. For more options and functions usage, read the file `suite/SuiteCluster.groovy` in regression framework.
 
 suite('docker_action', 'docker') {
     // run a new docker
@@ -53,6 +71,7 @@ suite('docker_action', 'docker') {
 
         cluster.checkBeIsAlive(2, true)
 
+        // fe and be's index start from 1, not 0.
         // stop backend 2, 3
         cluster.stopBackends(2, 3)
 

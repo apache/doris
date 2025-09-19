@@ -37,7 +37,7 @@ std::shared_ptr<DebugPoint> DebugPoints::get_debug_point(const std::string& name
     if (!config::enable_debug_points) {
         return nullptr;
     }
-    auto map_ptr = std::atomic_load_explicit(&_debug_points, std::memory_order_relaxed);
+    auto map_ptr = _debug_points.load();
     auto it = map_ptr->find(name);
     if (it == map_ptr->end()) {
         return nullptr;
@@ -76,22 +76,19 @@ void DebugPoints::remove(const std::string& name) {
 }
 
 void DebugPoints::update(std::function<void(DebugPointMap&)>&& handler) {
-    auto old_points = std::atomic_load_explicit(&_debug_points, std::memory_order_relaxed);
+    auto old_points = _debug_points.load();
     while (true) {
         auto new_points = std::make_shared<DebugPointMap>(*old_points);
         handler(*new_points);
-        if (std::atomic_compare_exchange_strong_explicit(
-                    &_debug_points, &old_points,
-                    std::static_pointer_cast<const DebugPointMap>(new_points),
-                    std::memory_order_relaxed, std::memory_order_relaxed)) {
+        if (_debug_points.compare_exchange_strong(
+                    old_points, std::static_pointer_cast<const DebugPointMap>(new_points))) {
             break;
         }
     }
 }
 
 void DebugPoints::clear() {
-    std::atomic_store_explicit(&_debug_points, std::make_shared<const DebugPointMap>(),
-                               std::memory_order_relaxed);
+    _debug_points.store(std::make_shared<const DebugPointMap>());
     LOG(INFO) << "clear debug points";
 }
 

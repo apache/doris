@@ -220,6 +220,11 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
             sql """ select * from tag_branch_table@tag(b1) ; """
             exception "does not have tag named b1"
         }
+
+        test {
+            sql """ select * from tag_branch_table@brand(b1) ; """
+            exception "Invalid param type: brand"
+        }
     }
 
     try {
@@ -234,6 +239,35 @@ suite("iceberg_query_tag_branch", "p0,external,doris,external_docker,external_do
         query_tag_branch_only()
         query_tag_branch_in_subquery()
         query_exception()
+
+        // test sql. no result check because snapshot_id is changed every time
+        sql """
+            SELECT
+              refs_data.snapshot_id,
+              snapshots.committed_at,
+              snapshots.operation,
+              ARRAY_SORT(refs_data.refs)
+            FROM (
+              SELECT
+                snapshot_id,
+                ARRAY_AGG(CONCAT(type, ':', name)) AS refs
+              FROM
+                tag_branch_table\$refs
+              GROUP BY
+                snapshot_id
+            ) AS refs_data
+            JOIN (
+              SELECT
+                snapshot_id,
+                committed_at,
+                operation
+              FROM
+                tag_branch_table\$snapshots
+            ) AS snapshots
+            ON refs_data.snapshot_id = snapshots.snapshot_id
+            ORDER BY
+              snapshots.committed_at;
+        """
 
     } finally {
         // Restore default values

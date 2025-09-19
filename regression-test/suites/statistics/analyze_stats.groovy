@@ -2966,16 +2966,24 @@ PARTITION `p599` VALUES IN (599)
     """
     sql """analyze table region with sync"""
     def versionResult = sql """show column stats region"""
-    assertEquals(versionResult[0][16], "1")
-    assertEquals(versionResult[1][16], "1")
-    assertEquals(versionResult[2][16], "1")
+    if (!isCloudMode()) {
+        assertEquals(versionResult[0][16], "1")
+        assertEquals(versionResult[1][16], "1")
+        assertEquals(versionResult[2][16], "1")
+    }
 
     sql """insert into region values (1, "1", "1")"""
     sql """analyze table region with sync"""
-    versionResult = sql """show column stats region"""
-    assertEquals(versionResult[0][16], "2")
-    assertEquals(versionResult[1][16], "2")
-    assertEquals(versionResult[2][16], "2")
+    def newVersionResult = sql """show column stats region"""
+    if (!isCloudMode()) {
+        assertEquals(newVersionResult[0][16], "2")
+        assertEquals(newVersionResult[1][16], "2")
+        assertEquals(newVersionResult[2][16], "2")
+    } else {
+        assertTrue(versionResult[0][16] < newVersionResult[0][16])
+        assertTrue(versionResult[1][16] < newVersionResult[1][16])
+        assertTrue(versionResult[2][16] < newVersionResult[2][16])
+    }
 
     sql """drop database if exists test_version"""
 }

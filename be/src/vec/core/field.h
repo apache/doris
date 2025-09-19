@@ -38,6 +38,7 @@
 #include "olap/hll.h"
 #include "util/bitmap_value.h"
 #include "util/quantile_state.h"
+#include "vec/common/string_view.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 #include "vec/json/path_in_data.h"
@@ -83,7 +84,9 @@ struct Map : public FieldVector {
     using FieldVector::FieldVector;
 };
 
-using VariantMap = std::map<PathInData, Field>;
+struct FieldWithDataType;
+
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 //TODO: rethink if we really need this? it only save one pointer from std::string
 // not POD type so could only use read/write_json_binary instead of read/write_binary
@@ -189,7 +192,6 @@ public:
 
     operator T() const { return dec; }
     T get_value() const { return dec; }
-    T get_scale_multiplier() const;
     UInt32 get_scale() const { return scale; }
 
     template <typename U>
@@ -384,6 +386,8 @@ public:
         case PrimitiveType::TYPE_CHAR:
         case PrimitiveType::TYPE_VARCHAR:
             return get<String>() <=> rhs.get<String>();
+        case PrimitiveType::TYPE_VARBINARY:
+            return get<doris::StringView>() <=> rhs.get<doris::StringView>();
         case PrimitiveType::TYPE_DECIMAL32:
             return get<Decimal32>() <=> rhs.get<Decimal32>();
         case PrimitiveType::TYPE_DECIMAL64:
@@ -430,6 +434,9 @@ public:
         case PrimitiveType::TYPE_VARCHAR:
             f(field.template get<String>());
             return;
+        case PrimitiveType::TYPE_VARBINARY:
+            f(field.template get<doris::StringView>());
+            return;
         case PrimitiveType::TYPE_JSONB:
             f(field.template get<JsonbField>());
             return;
@@ -475,89 +482,14 @@ public:
         }
     }
 
-    std::string to_string() const {
-        std::string res;
-        switch (type) {
-        case PrimitiveType::TYPE_DATETIMEV2: {
-            auto v = get<UInt64>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DATETIME:
-        case PrimitiveType::TYPE_DATE:
-        case PrimitiveType::TYPE_BIGINT: {
-            auto v = get<Int64>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_LARGEINT: {
-            auto v = get<Int128>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_IPV6: {
-            auto v = get<IPv6>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DOUBLE: {
-            auto v = get<Float64>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR: {
-            res = get<String>();
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL32: {
-            auto v = get<DecimalField<Decimal32>>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL64: {
-            auto v = get<DecimalField<Decimal64>>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMALV2: {
-            auto v = get<DecimalField<Decimal128V2>>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL128I: {
-            auto v = get<DecimalField<Decimal128V3>>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL256: {
-            auto v = get<DecimalField<Decimal256>>();
-            res.resize(sizeof(v));
-            memcpy(res.data(), &v, sizeof(v));
-            break;
-        }
-        default:
-            throw Exception(Status::FatalError("type not supported, type={}", get_type_name()));
-        }
-        return res;
-    }
+    std::string_view as_string_view() const;
 
 private:
-    std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
-                         Int128, IPv6, Float64, String, JsonbField, Array, Tuple, Map, VariantMap,
-                         DecimalField<Decimal32>, DecimalField<Decimal64>,
-                         DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
-                         DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState>
+    std::aligned_union_t<
+            DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64, Int128, IPv6,
+            Float64, String, JsonbField, Array, Tuple, Map, VariantMap, DecimalField<Decimal32>,
+            DecimalField<Decimal64>, DecimalField<Decimal128V2>, DecimalField<Decimal128V3>,
+            DecimalField<Decimal256>, BitmapValue, HyperLogLog, QuantileState, doris::StringView>
             storage;
 
     PrimitiveType type;
@@ -586,6 +518,15 @@ private:
     }
 };
 
+struct FieldWithDataType {
+    Field field;
+    // used for nested type of array
+    PrimitiveType base_scalar_type_id = PrimitiveType::INVALID_TYPE;
+    uint8_t num_dimensions = 0;
+    int precision = -1;
+    int scale = -1;
+};
+
 template <typename T>
 T get(const Field& field) {
     return field.template get<T>();
@@ -601,7 +542,7 @@ T get(Field& field) {
 /// signedness of char is different in Linux on x86 and Linux on ARM.
 template <>
 struct NearestFieldTypeImpl<char> {
-    using Type = std::conditional_t<std::is_signed_v<char>, Int64, UInt64>;
+    using Type = std::conditional_t<IsSignedV<char>, Int64, UInt64>;
 };
 template <>
 struct NearestFieldTypeImpl<signed char> {
@@ -720,7 +661,7 @@ struct std::hash<doris::vectorized::Field> {
         if (field.is_null()) {
             return 0;
         }
-        std::hash<std::string> hasher;
-        return hasher(field.to_string());
+        std::hash<std::string_view> hasher;
+        return hasher(field.as_string_view());
     }
 };

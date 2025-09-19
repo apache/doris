@@ -146,10 +146,12 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         Assertions.assertEquals(64, digest3.length());
     }
 
+    // after add hint control agg phase, this case will be reopen
     @Test
     public void testProjectOnAggregate() throws Exception {
         connectContext.getSessionVariable()
-                .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT");
+                .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setAggPhase(1);
         try {
             String digest1 = getDigest(
                     "select k1 + 1, k2 + 2, sum(v1) + 3, sum(v2) + 4 as v from db1.non_part group by k1, k2"
@@ -162,6 +164,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         } finally {
             connectContext.getSessionVariable()
                     .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            connectContext.getSessionVariable().setAggPhase(0);
         }
     }
 
@@ -203,7 +206,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
     @Test
     public void testHaving() throws Throwable {
-        List<TNormalizedPlanNode> normalizedPlanNodes = onePhaseAggWithoutDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> normalizedPlanNodes = phaseAgg(1, () -> normalizePlans(
                 "select k1, sum(v1) as v from db1.part1 where dt='2024-05-01' group by 1 having v > 10"));
         Assertions.assertEquals(2, normalizedPlanNodes.size());
         Assertions.assertTrue(
@@ -301,7 +304,7 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
 
     @Test
     public void testSelectFromGroupBy() {
-        twoPhaseAggWithoutDistinct(() -> {
+        phaseAgg(2, () -> {
             TQueryCacheParam queryCacheParam1 = getQueryCacheParam("select k1, sum(v1) from db1.part1 group by k1");
             TQueryCacheParam queryCacheParam2 = getQueryCacheParam("select k1, sum(v1) from db1.part1 group by k1 limit 10");
             Assertions.assertNotEquals(queryCacheParam1.digest, queryCacheParam2.digest);
@@ -319,38 +322,39 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
             List<TNormalizedPlanNode> plans2 = normalizePlans(
                     "select sum(v1), k1 from db1.part1 where dt between '2024-04-10' and '2024-05-06' group by k1");
             Assertions.assertEquals(plans1, plans2);
+            return null;
         });
     }
 
     @Test
     public void phasesAgg() {
-        List<TNormalizedPlanNode> onePhaseAggPlans = onePhaseAggWithoutDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> onePhaseAggPlans = phaseAgg(1, () -> normalizePlans(
                 "select sum(v1), k1 from db1.part1 where dt = '2024-04-10' group by k1"));
-        List<TNormalizedPlanNode> onePhaseAggPlans2 = onePhaseAggWithoutDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> onePhaseAggPlans2 = phaseAgg(1, () -> normalizePlans(
                 "select k1, sum(v1) from db1.part1 where dt = '2024-04-10' group by k1"));
         Assertions.assertEquals(onePhaseAggPlans, onePhaseAggPlans2);
 
-        List<TNormalizedPlanNode> twoPhaseAggPlans = twoPhaseAggWithoutDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> twoPhaseAggPlans = phaseAgg(2, () -> normalizePlans(
                 "select sum(v1), k1 from db1.part1 where dt = '2024-04-10' group by k1"));
         Assertions.assertNotEquals(onePhaseAggPlans, twoPhaseAggPlans);
     }
 
     @Test
     public void phasesDistinctAgg() {
-        List<TNormalizedPlanNode> noDistinctPlans = onePhaseAggWithoutDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> noDistinctPlans = phaseAgg(1, () -> normalizePlans(
                 "select k1 from db1.part1 where dt = '2024-04-10' group by k1"));
-        List<TNormalizedPlanNode> onePhaseAggPlans = onePhaseAggWithDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> onePhaseAggPlans = phaseAgg(1, () -> normalizePlans(
                 "select distinct k1 from db1.part1 where dt = '2024-04-10'"));
         Assertions.assertEquals(noDistinctPlans, onePhaseAggPlans);
-        List<TNormalizedPlanNode> twoPhaseAggPlans = twoPhaseAggWithDistinct(() -> normalizePlans(
+        List<TNormalizedPlanNode> twoPhaseAggPlans = phaseAgg(2, () -> normalizePlans(
                 "select distinct k1 from db1.part1 where dt = '2024-04-10'"));
-        Assertions.assertEquals(onePhaseAggPlans, twoPhaseAggPlans);
+        Assertions.assertNotEquals(onePhaseAggPlans, twoPhaseAggPlans);
 
-        List<TNormalizedPlanNode> threePhaseAggPlans = threePhaseAggWithDistinct(() -> normalizePlans(
-                "select sum(distinct v1), k1 from db1.part1 where dt = '2024-04-10' group by k1"));
-        List<TNormalizedPlanNode> fourPhaseAggPlans = fourPhaseAggWithDistinct(() -> normalizePlans(
-                "select sum(distinct v1), k1 from db1.part1 where dt = '2024-04-10' group by k1"));
-        Assertions.assertNotEquals(fourPhaseAggPlans, threePhaseAggPlans);
+        List<TNormalizedPlanNode> threePhaseAggPlans = phaseAgg(3, () -> normalizePlans(
+                "select sum(distinct v1), k2 from db1.part1 where dt = '2024-04-10' group by k2"));
+        List<TNormalizedPlanNode> fourPhaseAggPlans = phaseAgg(4, () -> normalizePlans(
+                "select sum(distinct v1), k2 from db1.part1 where dt = '2024-04-10' group by k2"));
+        Assertions.assertEquals(fourPhaseAggPlans, threePhaseAggPlans);
     }
 
     private String getDigest(String sql) throws Exception {
@@ -390,115 +394,14 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         return normalizedPlans;
     }
 
-    private void onePhaseAggWithoutDistinct(Callback callback) {
-        onePhaseAggWithoutDistinct(() -> {
-            callback.run();
-            return null;
-        });
-    }
-
-    private <T> T onePhaseAggWithDistinct(ResultCallback<T> callback) {
+    private <T> T phaseAgg(int phase, ResultCallback<T> callback) {
         try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,"
-                            + "TWO_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "THREE_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT_WITH_FULL_DISTRIBUTE,"
-                            + "TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI");
+            connectContext.getSessionVariable().setAggPhase(phase);
             return callback.run();
         } catch (Throwable e) {
             throw new RuntimeException(e);
         } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        }
-    }
-
-    private <T> T twoPhaseAggWithDistinct(ResultCallback<T> callback) {
-        try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,"
-                            + "THREE_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT_WITH_FULL_DISTRIBUTE,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI");
-            return callback.run();
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        }
-    }
-
-    private <T> T threePhaseAggWithDistinct(ResultCallback<T> callback) {
-        try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "FOUR_PHASE_AGGREGATE_WITH_DISTINCT_WITH_FULL_DISTRIBUTE,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,"
-                            + "TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI");
-            return callback.run();
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        }
-    }
-
-    private <T> T fourPhaseAggWithDistinct(ResultCallback<T> callback) {
-        try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,"
-                            + "THREE_PHASE_AGGREGATE_WITH_DISTINCT,"
-                            + "ONE_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI,"
-                            + "TWO_PHASE_AGGREGATE_SINGLE_DISTINCT_TO_MULTI");
-            return callback.run();
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        }
-    }
-
-
-    private <T> T onePhaseAggWithoutDistinct(ResultCallback<T> callback) {
-        try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,TWO_PHASE_AGGREGATE_WITHOUT_DISTINCT");
-            return callback.run();
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
-        }
-    }
-
-    private void twoPhaseAggWithoutDistinct(Callback callback) {
-        twoPhaseAggWithoutDistinct(() -> {
-            callback.run();
-            return null;
-        });
-    }
-
-    private <T> T twoPhaseAggWithoutDistinct(ResultCallback<T> callback) {
-        try {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION,ONE_PHASE_AGGREGATE_WITHOUT_DISTINCT");
-            return callback.run();
-        } catch (Throwable e) {
-            throw new RuntimeException(e);
-        } finally {
-            connectContext.getSessionVariable()
-                    .setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+            connectContext.getSessionVariable().setAggPhase(0);
         }
     }
 

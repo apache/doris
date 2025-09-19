@@ -17,13 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.RefreshCatalogStmt;
-import org.apache.doris.analysis.RefreshDbStmt;
-import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.CatalogFactory;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -32,9 +28,9 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.persist.OperationType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,10 +53,10 @@ public class RefreshManager {
     private Map<Long, Integer[]> refreshMap = Maps.newConcurrentMap();
 
     // Refresh catalog
-    public void handleRefreshCatalog(RefreshCatalogStmt stmt) throws UserException {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(stmt.getCatalogName());
-        CatalogLog log = CatalogFactory.createCatalogLog(catalog.getId(), stmt);
-        refreshCatalogInternal(catalog, log.isInvalidCache());
+    public void handleRefreshCatalog(String catalogName, boolean invalidCache) throws UserException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
+        refreshCatalogInternal(catalog, invalidCache);
+        CatalogLog log = CatalogLog.createForRefreshCatalog(catalog.getId(), invalidCache);
         Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
     }
 
@@ -76,15 +72,13 @@ public class RefreshManager {
     private void refreshCatalogInternal(CatalogIf catalog, boolean invalidCache) {
         String catalogName = catalog.getName();
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+            ((ExternalCatalog) catalog).resetToUninitialized(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
         }
     }
 
     // Refresh database
-    public void handleRefreshDb(RefreshDbStmt stmt) throws DdlException {
-        String catalogName = stmt.getCatalogName();
-        String dbName = stmt.getDbName();
+    public void handleRefreshDb(String catalogName, String dbName) throws DdlException {
         Env env = Env.getCurrentEnv();
         CatalogIf catalog = catalogName != null ? env.getCatalogMgr().getCatalog(catalogName) : env.getCurrentCatalog();
         if (catalog == null) {
@@ -94,40 +88,38 @@ public class RefreshManager {
             throw new DdlException("Only support refresh database in external catalog");
         }
         DatabaseIf db = catalog.getDbOrDdlException(dbName);
-        ((ExternalDatabase) db).setUnInitialized(stmt.isInvalidCache());
+        refreshDbInternal((ExternalDatabase) db);
 
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setInvalidCache(stmt.isInvalidCache());
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
         Env.getCurrentEnv().getEditLog().logRefreshExternalDb(log);
     }
 
     public void replayRefreshDb(ExternalObjectLog log) {
-        refreshDbInternal(log.getCatalogId(), log.getDbId(), log.isInvalidCache());
+        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
+        if (catalog == null) {
+            LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
+        }
+        Optional<ExternalDatabase<? extends ExternalTable>> db;
+        if (!Strings.isNullOrEmpty(log.getDbName())) {
+            db = catalog.getDbForReplay(log.getDbName());
+        } else {
+            db = catalog.getDbForReplay(log.getDbId());
+        }
+
+        if (!db.isPresent()) {
+            LOG.warn("failed to find db when replaying refresh db: {}", log.debugForRefreshDb());
+        } else {
+            refreshDbInternal(db.get());
+        }
     }
 
-    private void refreshDbInternal(long catalogId, long dbId, boolean invalidCache) {
-        ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
-        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(dbId);
-        // Database may not exist if 'use_meta_cache' is true.
-        // Because each FE fetch the meta data independently.
-        db.ifPresent(e -> {
-            e.setUnInitialized(invalidCache);
-            LOG.info("refresh database {} in catalog {} with invalidCache {}", e.getFullName(),
-                    catalog.getName(), invalidCache);
-        });
+    private void refreshDbInternal(ExternalDatabase db) {
+        db.resetToUninitialized();
+        LOG.info("refresh database {} in catalog {}", db.getFullName(), db.getCatalog().getName());
     }
 
     // Refresh table
-    public void handleRefreshTable(RefreshTableStmt stmt) throws UserException {
-        String catalogName = stmt.getCtl();
-        String dbName = stmt.getDbName();
-        String tableName = stmt.getTblName();
-        refreshTable(catalogName, dbName, tableName, false);
-    }
-
-    public void refreshTable(String catalogName, String dbName, String tableName, boolean ignoreIfNotExists)
+    public void handleRefreshTable(String catalogName, String dbName, String tableName, boolean ignoreIfNotExists)
             throws DdlException {
         Env env = Env.getCurrentEnv();
         CatalogIf catalog = catalogName != null ? env.getCatalogMgr().getCatalog(catalogName) : env.getCurrentCatalog();
@@ -153,33 +145,47 @@ public class RefreshManager {
             }
             return;
         }
-        refreshTableInternal(catalog, db, table, 0);
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, 0);
 
-        ExternalObjectLog log = new ExternalObjectLog();
-        log.setCatalogId(catalog.getId());
-        log.setDbId(db.getId());
-        log.setTableId(table.getId());
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
+                table.getName());
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 
     public void replayRefreshTable(ExternalObjectLog log) {
         ExternalCatalog catalog = (ExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(log.getCatalogId());
         if (catalog == null) {
-            LOG.warn("failed to find catalog replaying refresh table {}", log.getCatalogId());
+            LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<ExternalDatabase<? extends ExternalTable>> db = catalog.getDbForReplay(log.getDbId());
+        Optional<ExternalDatabase<? extends ExternalTable>> db;
+        if (!Strings.isNullOrEmpty(log.getDbName())) {
+            db = catalog.getDbForReplay(log.getDbName());
+        } else {
+            db = catalog.getDbForReplay(log.getDbId());
+        }
         // See comment in refreshDbInternal for why db and table may be null.
         if (!db.isPresent()) {
-            LOG.warn("failed to find db replaying refresh table {}", log.getDbId());
+            LOG.warn("failed to find db when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        Optional<? extends ExternalTable> table = db.get().getTableForReplay(log.getTableId());
+        Optional<? extends ExternalTable> table;
+        if (!Strings.isNullOrEmpty(log.getTableName())) {
+            table = db.get().getTableForReplay(log.getTableName());
+        } else {
+            table = db.get().getTableForReplay(log.getTableId());
+        }
         if (!table.isPresent()) {
-            LOG.warn("failed to find table replaying refresh table {}", log.getTableId());
+            LOG.warn("failed to find table when replaying refresh table: {}", log.debugForRefreshTable());
             return;
         }
-        refreshTableInternal(catalog, db.get(), table.get(), log.getLastUpdateTime());
+        if (!Strings.isNullOrEmpty(log.getNewTableName())) {
+            // this is a rename table op
+            db.get().unregisterTable(log.getTableName());
+            db.get().resetMetaCacheNames();
+        } else {
+            refreshTableInternal(db.get(), table.get(), log.getLastUpdateTime());
+        }
     }
 
     public void refreshExternalTableFromEvent(String catalogName, String dbName, String tableName,
@@ -200,18 +206,17 @@ public class RefreshManager {
         if (table == null) {
             return;
         }
-        refreshTableInternal(catalog, db, table, updateTime);
+        refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
     }
 
-    public void refreshTableInternal(CatalogIf catalog, DatabaseIf db, TableIf table, long updateTime) {
-        if (table instanceof ExternalTable) {
-            ((ExternalTable) table).unsetObjectCreated();
-        }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache((ExternalTable) table);
+    public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
+        table.unsetObjectCreated();
         if (table instanceof HMSExternalTable && updateTime > 0) {
             ((HMSExternalTable) table).setEventUpdateTime(updateTime);
         }
-        LOG.info("refresh table {} from db {} in catalog {}", table.getName(), db.getFullName(), catalog.getName());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table);
+        LOG.info("refresh table {}, id {} from db {} in catalog {}",
+                table.getName(), table.getId(), db.getFullName(), db.getCatalog().getName());
     }
 
     // Refresh partition
@@ -282,12 +287,12 @@ public class RefreshManager {
                          * {@link org.apache.doris.analysis.RefreshCatalogStmt#analyze(Analyzer)} is ok,
                          * because the default value of invalidCache is true.
                          * */
-                        RefreshCatalogCommand refreshCatalogCommand = new RefreshCatalogCommand(catalogName, null);
                         try {
-                            refreshCatalogCommand.handleRefreshCatalog();
+                            Env.getCurrentEnv().getRefreshManager().handleRefreshCatalog(catalogName, true);
                         } catch (Exception e) {
                             LOG.warn("failed to refresh catalog {}", catalogName, e);
                         }
+
                         // reset
                         timeGroup[1] = original;
                         refreshMap.put(catalogId, timeGroup);

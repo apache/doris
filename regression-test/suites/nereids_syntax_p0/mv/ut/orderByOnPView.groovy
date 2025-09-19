@@ -19,6 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 // nereids_testOrderByQueryOnProjectView
 suite ("orderByOnPView") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql """ DROP TABLE IF EXISTS orderByOnPView; """
@@ -38,7 +40,7 @@ suite ("orderByOnPView") {
     sql """insert into orderByOnPView values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into orderByOnPView values("2020-01-03",3,"c",3,3,3);"""
 
-    createMV("create materialized view orderByOnPView_mv as select deptno, empid from orderByOnPView;")
+    createMV("create materialized view orderByOnPView_mv as select deptno as a1, empid as a2 from orderByOnPView;")
 
     sleep(3000)
 

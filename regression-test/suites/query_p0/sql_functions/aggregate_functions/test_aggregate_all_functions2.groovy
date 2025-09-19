@@ -84,7 +84,45 @@ suite("test_aggregate_all_functions2") {
     qt_select_topn_array6 """ select topn_array(k11,3,100) from baseall; """ 
     qt_select_count1 """ select count(distinct k1,k2,k5) from baseall; """ 
     qt_select_count2 """ select count(distinct k1,k2,cast(k5 as decimalv3(38,18))) from baseall; """ 
+    qt_select_percentile_reservoir1 """ select percentile_reservoir(k8,0.5) from baseall; """ 
+    qt_select_percentile_reservoir2 """ select percentile_reservoir(k8,0.99) from baseall; """ 
+    qt_select_percentile_reservoir3 """ select percentile_reservoir(k8,0.5) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k8,0.99) from baseall group by k6 order by 1; """ 
+    qt_select_percentile_reservoir4 """ select percentile_reservoir(k1,1) from baseall; """ 
+    qt_select_percentile_reservoir5 """ select percentile_reservoir(k1,0.5) over(partition by k6) from baseall order by k1; """
+    sql """
+        select percentile_reservoir(number,0.5) from numbers("number" = "1000000");
+    """
+    test {
+        sql """ select percentile_reservoir(k8,k1) from baseall; """ 
+        exception "percentile_reservoir requires second parameter must be a constant"
+    }
 
+    test {
+        sql """ select percentile_reservoir(k8,2) from baseall; """ 
+        exception "percentile_reservoir level must be in [0, 1]"
+    }
+
+    qt_bool_and """SELECT bool_and(k0) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k1) FROM baseall;"""
+    qt_bool_and """SELECT bool_and(k8) over(partition by k6) from baseall order by k1;"""
+    qt_bool_and """SELECT booland_agg(k0) over(partition by k8) from baseall order by k1;"""
+    qt_bool_or """SELECT bool_or(k2) FROM baseall group by k6 order by 1;"""
+    qt_bool_or """SELECT bool_or(k3) FROM baseall;"""
+    qt_bool_or """SELECT boolor_agg(k4) over(partition by k9) from baseall order by k1;"""
+    qt_bool_xor """SELECT bool_xor(k4) FROM baseall;"""
+    qt_bool_xor """SELECT bool_xor(k5) FROM baseall group by k6 order by 1;"""
+    qt_bool_xor """SELECT boolxor_agg(k13) over(partition by k10) from baseall order by k1;"""
+
+    test {
+        sql """SELECT booland_agg(k7) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
+
+    test {
+        sql """SELECT boolor_agg(k10) FROM baseall;"""
+        exception "requires a boolean or numeric argument"
+    }
 
     sql "DROP DATABASE IF EXISTS metric_table"
     sql """

@@ -53,7 +53,7 @@ PhysicalResultSink
 --------------------PhysicalOlapScan[warehouse]
 
 Hint log:
-Used: leading(inventory shuffle { catalog_returns shuffle { catalog_sales shuffle { d3 broadcast d1 } broadcast household_demographics shuffle customer_demographics broadcast promotion shuffle item } broadcast d2 } broadcast warehouse )  
+Used: leading(inventory shuffle { catalog_returns shuffle { catalog_sales shuffle { d3 d1 } broadcast household_demographics shuffle customer_demographics broadcast promotion shuffle item } broadcast d2 } broadcast warehouse )
 UnUsed:
 SyntaxError:
 

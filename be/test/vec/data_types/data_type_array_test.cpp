@@ -26,6 +26,7 @@
 #include <iostream>
 #include <stdexcept>
 
+#include "runtime/primitive_type.h"
 #include "vec/columns/column.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -33,22 +34,23 @@
 #include "vec/data_types/common_data_type_test.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_jsonb.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/function/function_test_util.h"
 
 // this test is gonna to be a data type test template for all DataType which should make ut test to coverage the function defined
 // for example DataTypeIPv4 should test this function:
 // 1. datatype meta info:
 //         get_type_id, get_type_as_type_descriptor, get_storage_field_type, have_subtypes, get_pdata_type (const IDataType *data_type), to_pb_column_meta (PColumnMeta *col_meta)
-//         get_family_name, get_is_parametric, should_align_right_in_pretty_formats
-//         text_can_contain_only_valid_utf8
+//         get_family_name, get_is_parametric,
 //         have_maximum_size_of_value, get_maximum_size_of_value_in_memory, get_size_of_value_in_memory
 //         get_precision, get_scale
-//         is_null_literal, is_value_represented_by_number, is_value_unambiguously_represented_in_contiguous_memory_region
+//         is_null_literal
 // 2. datatype creation with column : create_column, create_column_const (size_t size, const Field &field), create_column_const_with_default_value (size_t size), get_uncompressed_serialized_bytes (const IColumn &column, int be_exec_version)
 // 3. serde related: get_serde (int nesting_level=1)
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to), from_string (ReadBuffer &rb, IColumn *column)
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
-// 4. compare: equals (const IDataType &rhs), is_comparable
+// 4. compare: equals (const IDataType &rhs)
 // 5. others: update_avg_value_size_hint (const IColumn &column, double &avg_value_size_hint)
 
 namespace doris::vectorized {
@@ -346,18 +348,12 @@ TEST_F(DataTypeArrayTest, MetaInfoTest) {
                 .family_name = "Array",
                 .has_subtypes = true,
                 .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_ARRAY,
-                .should_align_right_in_pretty_formats = false,
-                .text_can_contain_only_valid_utf8 = nested_type->text_can_contain_only_valid_utf8(),
                 .have_maximum_size_of_value = false,
                 .size_of_value_in_memory = size_t(-1),
                 .precision = size_t(-1),
                 .scale = size_t(-1),
                 .is_null_literal = false,
-                .is_value_represented_by_number = false,
                 .pColumnMeta = col_meta.get(),
-                .is_value_unambiguously_represented_in_contiguous_memory_region =
-                        nested_type
-                                ->is_value_unambiguously_represented_in_contiguous_memory_region(),
                 .default_field = Field::create_field<TYPE_ARRAY>(a),
         };
         DataTypePtr arr = remove_nullable(type);
@@ -457,7 +453,6 @@ TEST_F(DataTypeArrayTest, CompareTest) {
     for (auto& type : array_types) {
         const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         auto nested_type = array_type->get_nested_type();
-        EXPECT_EQ(nested_type->is_comparable(), array_type->is_comparable());
         EXPECT_FALSE(array_type->equals(*type));
     }
 }
@@ -532,6 +527,104 @@ TEST_F(DataTypeArrayTest, GetNumberOfDimensionsTest) {
         const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         // array dimension is only for array to nested array , if array nested map or struct, the dimension also be is 1
         EXPECT_EQ(array_type->get_number_of_dimensions(), 1) << "for type: " << type->get_name();
+    }
+}
+
+TEST_F(DataTypeArrayTest, GetFieldWithDataTypeTest) {
+    // 1. Simple type array: Array<Int32>
+    {
+        auto nested_type = std::make_shared<DataTypeNumber<TYPE_INT>>();
+        auto array_type = std::make_shared<DataTypeArray>(nested_type);
+        auto column = array_type->create_column();
+        Array arr;
+        arr.push_back(Field::create_field<TYPE_INT>(1));
+        arr.push_back(Field::create_field<TYPE_INT>(2));
+        column->insert(Field::create_field<TYPE_ARRAY>(arr));
+
+        auto fdt = array_type->get_field_with_data_type(*column, 0);
+        EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
+        EXPECT_EQ(fdt.field.get<Array>(), arr);
+        EXPECT_EQ(fdt.base_scalar_type_id, TYPE_INT);
+        EXPECT_EQ(fdt.num_dimensions, 1);
+        EXPECT_EQ(fdt.precision, -1);
+        EXPECT_EQ(fdt.scale, -1);
+    }
+
+    // 2. Decimal array: Array<Decimal128V2>
+    {
+        auto nested_type = std::make_shared<DataTypeDecimal128>(27, 9);
+        auto array_type = std::make_shared<DataTypeArray>(nested_type);
+        auto column = array_type->create_column();
+        Array arr;
+        arr.push_back(
+                Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(-12345678, 0)));
+        arr.push_back(Field::create_field<TYPE_DECIMAL128I>(DecimalField<Decimal128V3>(12345, 9)));
+        column->insert(Field::create_field<TYPE_ARRAY>(arr));
+
+        auto fdt = array_type->get_field_with_data_type(*column, 0);
+        EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
+        EXPECT_EQ(fdt.base_scalar_type_id, TYPE_DECIMAL128I);
+        EXPECT_EQ(fdt.num_dimensions, 1);
+        EXPECT_EQ(fdt.precision, 27);
+        EXPECT_EQ(fdt.scale, 9);
+    }
+
+    // 3. DateTimeV2 array: Array<DateTimeV2>
+    {
+        auto nested_type = std::make_shared<DataTypeDateTimeV2>(3);
+        auto array_type = std::make_shared<DataTypeArray>(nested_type);
+        auto column = array_type->create_column();
+        Array arr;
+        arr.push_back(Field::create_field<TYPE_DATETIMEV2>(static_cast<UInt64>(1234567890)));
+        column->insert(Field::create_field<TYPE_ARRAY>(arr));
+
+        auto fdt = array_type->get_field_with_data_type(*column, 0);
+        EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
+        EXPECT_EQ(fdt.base_scalar_type_id, TYPE_DATETIMEV2);
+        EXPECT_EQ(fdt.num_dimensions, 1);
+        EXPECT_EQ(fdt.precision, -1);
+        EXPECT_EQ(fdt.scale, 3);
+    }
+
+    // 4. Jsonb array: Array<Jsonb>
+    {
+        auto nested_type = std::make_shared<DataTypeJsonb>();
+        auto array_type = std::make_shared<DataTypeArray>(nested_type);
+        auto column = array_type->create_column();
+        const char* json_str = "{\"key\": \"value\"}";
+        JsonbField jsonb_field(json_str, strlen(json_str));
+        Array arr;
+        arr.push_back(Field::create_field<TYPE_JSONB>(jsonb_field));
+        column->insert(Field::create_field<TYPE_ARRAY>(arr));
+
+        auto fdt = array_type->get_field_with_data_type(*column, 0);
+        EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
+        EXPECT_EQ(fdt.base_scalar_type_id, TYPE_JSONB);
+        EXPECT_EQ(fdt.num_dimensions, 1);
+        const auto& result_arr = fdt.field.get<Array>();
+        EXPECT_EQ(result_arr.size(), 1);
+        EXPECT_EQ(result_arr[0].get_type(), TYPE_JSONB);
+        EXPECT_EQ(std::string(result_arr[0].get<JsonbField>().get_value(),
+                              result_arr[0].get<JsonbField>().get_size()),
+                  json_str);
+    }
+
+    // 5. Multi-dimensional array: Array<Array<Int32>>
+    {
+        auto nested_type = std::make_shared<DataTypeNumber<TYPE_INT>>();
+        auto array_type_inner = std::make_shared<DataTypeArray>(nested_type);
+        auto array_type_outer = std::make_shared<DataTypeArray>(array_type_inner);
+        auto column = array_type_outer->create_column();
+        Array inner_arr;
+        inner_arr.push_back(Field::create_field<TYPE_INT>(1));
+        Array outer_arr;
+        outer_arr.push_back(Field::create_field<TYPE_ARRAY>(inner_arr));
+        column->insert(Field::create_field<TYPE_ARRAY>(outer_arr));
+
+        auto fdt = array_type_outer->get_field_with_data_type(*column, 0);
+        EXPECT_EQ(fdt.field.get_type(), TYPE_ARRAY);
+        EXPECT_EQ(fdt.base_scalar_type_id, TYPE_INT);
+        EXPECT_EQ(fdt.num_dimensions, 2);
     }
 }
 

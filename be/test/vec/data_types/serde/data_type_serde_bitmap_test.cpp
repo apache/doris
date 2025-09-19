@@ -59,7 +59,7 @@ TEST(BitmapSerdeTest, writeOneCellToJsonb) {
     JsonbWriterT<JsonbOutStream> jsonb_writer;
     Arena pool;
     jsonb_writer.writeStartObject();
-    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, &pool, 0, 0);
+    bitmap_serde->write_one_cell_to_jsonb(*column_bitmap, jsonb_writer, pool, 0, 0);
     jsonb_writer.writeEndObject();
 
     auto jsonb_column = ColumnString::create();

@@ -51,10 +51,15 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_max", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMax(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()) {
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException("array_max does not support complex types: " + toSql());
         }
     }
@@ -70,7 +75,7 @@ public class ArrayMax extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArrayMax withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayMax(children.get(0));
+        return new ArrayMax(getFunctionParams(children));
     }
 
     @Override

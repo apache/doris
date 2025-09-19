@@ -3,7 +3,7 @@
 ab	ab	\N
 abc	abc	2.7
 ccd	ccd	7.8
-qwe	qwe	8.0
+qwe	qwe	8
 
 -- !test_coalesce_null_begin2 --
 ab
@@ -42,7 +42,7 @@ ab
 \N
 
 -- !test_coalesce_nonnull --
-\N	qwe	8.0
+\N	qwe	8
 1	abc	2.7
 2	ccd	7.8
 9	ab	\N
@@ -51,7 +51,7 @@ ab
 \N
 2.7
 7.8
-8.0
+8
 
 -- !test_nvl_null_nullable --
 ab

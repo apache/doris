@@ -48,4 +48,53 @@ suite("regression_test_variant_hirachinal", "variant_type"){
     sql """insert into ${table_name} values (-3, '{"c" : 12345}')"""
     order_qt_sql1 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = -4 or (k = 1 and v['c'] = 1024) order by k"
     order_qt_sql2 "select cast(v['c'] as string) from var_rs where k = -3 or k = -2 or k = 1 order by k, cast(v['c'] as text) limit 3"
+
+
+    table_name = "var_rs2" 
+    sql "DROP TABLE IF EXISTS ${table_name}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            k bigint,
+            v variant<properties("variant_max_subcolumns_count" = "2")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
+
+    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
+    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+
+    qt_sql """select v['c'] from ${table_name} order by k;"""
+
+    sql "DROP TABLE IF EXISTS ${table_name}"
+
+    sql """
+        CREATE TABLE IF NOT EXISTS ${table_name} (
+            k bigint,
+            v variant<'c.d' : decimal(10, 5), properties("variant_max_subcolumns_count" = "2", "variant_enable_typed_paths_to_sparse" = "true")>
+        )
+        DUPLICATE KEY(`k`)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        properties("replication_num" = "1", "disable_auto_compaction" = "false");
+    """
+
+    sql """insert into ${table_name} values (1, '{"a": 1, "b": 2, "c" : {"d" : 2}}'), (2, '{"a": 3, "b": 4}');"""
+    sql """insert into ${table_name} values (3, '{"c": {"d": 6}}');"""
+    sql """insert into ${table_name} values (4, NULL);"""
+    sql """insert into ${table_name} values (5, '{}');"""
+
+    qt_sql """select v['c'] from ${table_name} order by k;"""
+    qt_sql """select v from ${table_name} order by k;"""
+
+    sql "DROP TABLE IF EXISTS t"
+    sql """create table t(a int, v variant, vn variant not null) PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    sql """insert into t values(1, '{}', '{}');"""
+    sql """insert into t values(2, '{}', '{}');"""
+    sql """insert into t values(3, NULL, '{"a" : 1, "b" : 2, "c" : 3, "d" : 4}');"""
+    qt_sql """select * from t order by a;"""
+    qt_sql """select * from t where v is null;"""
+
+
 }

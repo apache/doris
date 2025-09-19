@@ -34,7 +34,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
@@ -43,7 +45,10 @@ import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsImportColumnDesc;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.thrift.TBrokerFileStatus;
+import org.apache.doris.thrift.TFileFormatType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -62,6 +67,9 @@ public class BrokerFileGroup {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroup.class);
 
     private long tableId;
+    // columnSeparator and lineDelimiter here are only for toString(),
+    // and may be null if format will be decided by file's suffix
+    // we should get them from fileFormatProperties
     private String columnSeparator;
     private String lineDelimiter;
     // fileFormat may be null, which means format will be decided by file's suffix
@@ -172,8 +180,8 @@ public class BrokerFileGroup {
         }
 
         fileFormatProperties = dataDescription.getFileFormatProperties();
-        fileFormat = fileFormatProperties.getFormatName();
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
+            fileFormat = fileFormatProperties.getFormatName();
             columnSeparator = ((CsvFileFormatProperties) fileFormatProperties).getColumnSeparator();
             lineDelimiter = ((CsvFileFormatProperties) fileFormatProperties).getLineDelimiter();
         }
@@ -285,7 +293,17 @@ public class BrokerFileGroup {
         this.fileSize = fileSize;
     }
 
+    public void initDeferredFileFormatPropertiesIfNecessary(List<TBrokerFileStatus> fileStatuses) {
+        if (fileFormatProperties instanceof DeferredFileFormatProperties) {
+            Preconditions.checkState(fileStatuses != null && !fileStatuses.isEmpty());
+            TBrokerFileStatus fileStatus = fileStatuses.get(0);
+            TFileFormatType formatType = Util.getFileFormatTypeFromPath(fileStatus.path);
+            ((DeferredFileFormatProperties) fileFormatProperties).deferInit(formatType);
+        }
+    }
+
     public boolean isBinaryFileFormat() {
+        // Must call initDeferredFileFormatPropertiesIfNecessary before
         return fileFormatProperties instanceof ParquetFileFormatProperties
                 || fileFormatProperties instanceof OrcFileFormatProperties;
     }
@@ -357,13 +375,13 @@ public class BrokerFileGroup {
 
     public NereidsBrokerFileGroup toNereidsBrokerFileGroup() throws UserException {
         Expression deleteCondition = getDeleteCondition() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getDeleteCondition().toSqlWithoutTbl()).get(0)
                 : null;
         Expression precedingFilter = getPrecedingFilterExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getPrecedingFilterExpr().toSqlWithoutTbl()).get(0)
                 : null;
         Expression whereExpr = getWhereExpr() != null
-                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSql()).get(0)
+                ? NereidsLoadUtils.parseExpressionSeq(getWhereExpr().toSqlWithoutTbl()).get(0)
                 : null;
         List<NereidsImportColumnDesc> importColumnDescs = null;
         if (columnExprList != null && !columnExprList.isEmpty()) {

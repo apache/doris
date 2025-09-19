@@ -357,4 +357,56 @@ suite("map_agg") {
     qt_test_dumplicate "select k2, m['b'] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
 
     qt_test_null "select k2, m[null] from (select k2, map_agg(v1, v2) m from `test_map_agg_2` group  by k2) a order by k2;"
+
+    sql "DROP TABLE IF EXISTS `test_map_agg_datetime`;"
+    sql """
+        CREATE TABLE `test_map_agg_datetime` (
+        `k1` int NULL,
+        `v1` date NULL,
+        `v2` datetime NULL,
+        `v3` text NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES ( 'replication_num' = '1');
+    """
+
+    sql """
+        insert into `test_map_agg_datetime` values
+            ( 1 , '2012-01-02'    , '2012-01-02 01:01:01'    , 'j'    ),
+            ( 1 , '2012-02-02'    , '2012-01-07 22:01:01'    , 'a3'   ),
+            ( 1 , '2012-03-02'    , '2012-03-02 01:01:01'    , 'a5'   ),
+            ( 2 , '2012-01-02'    , '2012-03-02 01:01:01'    , 'ee'   ),
+            ( 2 , null            , null                     , 'a'    ),
+            ( 2 , '2012-01-02'    , '2012-01-07 22:01:01'    , 'a'    ),
+            ( 3 , '2012-07-02'    , '2012-01-07 22:01:01'    , 'c'    ),
+            ( 3 , null            , '2012-03-02 01:01:01'    , '3'    ),
+            ( 3 , '2012-08-02'    , null                     , 'e'    ),
+            ( 4 , '2012-01-02'    , '2012-01-02 01:01:01'    , 'a'    ),
+            ( 4 , '2012-04-02'    , '2012-03-02 01:01:01'    , 'b'    ),
+            ( 4 , null            , '2012-03-04 01:01:01'    , '2'    ),
+            ( 4 , null            , '2012-01-07 22:01:01'    , null   );
+    """
+
+    qt_test_datetimev2 """
+        select
+            k1
+            , m1[cast('2012-01-02' as date)] v1
+            , m1[cast('2012-02-02' as date)] v2
+            , m1[cast('2012-04-02' as date)] v3
+            , m2[cast('2012-03-02 01:01:01' as datetime)] v4
+            , m2[cast('2012-03-02 01:01:01' as datetime)] v5
+            , m2[cast('2012-01-07 22:01:01' as datetime)] v6
+            , m3[time(cast('2012-03-02 01:01:01' as datetime))] v7
+            , m3[time(cast('2012-01-07 22:01:01' as datetime))] v8
+        from (
+            select
+                k1
+                , map_agg(`v1`, `v3`) m1
+                , map_agg(`v2`, `v3`) m2
+                , map_agg(time(`v2`), `v3`) m3
+            from `test_map_agg_datetime` 
+            group  by k1
+        ) a order by k1; 
+    """
  }

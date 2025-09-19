@@ -19,11 +19,6 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.UnifiedLoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Database;
@@ -33,22 +28,24 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.annotation.LogException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.nereids.load.NereidsDataDescription;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.audit.LoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
@@ -62,7 +59,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -119,19 +115,20 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
-    public static BulkLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
+    public static BulkLoadJob fromLoadCommand(LoadCommand command, StmtExecutor executor, ConnectContext ctx)
+            throws Exception {
         // get db id
-        String dbName = stmt.getLabel().getDbName();
+        String dbName = command.getLabel().getDbName();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
 
         // create job
         BulkLoadJob bulkLoadJob;
         try {
-            switch (stmt.getEtlJobType()) {
+            switch (command.getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = EnvFactory.getInstance().createBrokerLoadJob(db.getId(),
-                            stmt.getLabel().getLabelName(), stmt.getBrokerDesc(), stmt.getOrigStmt(),
-                            stmt.getUserInfo());
+                            command.getLabel().getLabelName(), command.getBrokerDesc(), executor.getOriginStmt(),
+                            command.getUserIdentity());
                     break;
                 case DELETE:
                 case INSERT:
@@ -139,14 +136,38 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 default:
                     throw new DdlException("Unknown load job type.");
             }
-            bulkLoadJob.setComment(stmt.getComment());
-            bulkLoadJob.setJobProperties(stmt.getProperties());
-            bulkLoadJob.checkAndSetDataSourceInfo((Database) db, stmt.getDataDescriptions());
+            bulkLoadJob.setComment(command.getComment());
+            bulkLoadJob.setJobProperties(command.getProperties());
+            bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
             // In the construction method, there may not be table information yet
             bulkLoadJob.rebuildAuthorizationInfo();
             return bulkLoadJob;
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
+        }
+    }
+
+    public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,
+                                                       ConnectContext ctx) throws Exception {
+        // check data source info
+        db.readLock();
+        try {
+            LoadTask.MergeType mergeType = null;
+            for (NereidsDataDescription dataDescription : dataDescriptions) {
+                if (mergeType == null) {
+                    mergeType = dataDescription.getMergeType();
+                }
+                if (mergeType != dataDescription.getMergeType()) {
+                    throw new DdlException("merge type in all statement must be the same.");
+                }
+
+                DataDescription legacyDataDesc = dataDescription.toDataDescription(ctx);
+                BrokerFileGroup brokerFileGroup = new BrokerFileGroup(legacyDataDesc);
+                brokerFileGroup.parse(db, legacyDataDesc);
+                fileGroupAggInfo.addFileGroup(brokerFileGroup);
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
@@ -189,18 +210,22 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
                 .collect(Collectors.toSet());
     }
 
-    @LogException
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Set<String> result = Sets.newHashSet();
-        Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        // The database will not be locked in here.
-        // The getTable is a thread-safe method called without read lock of database
-        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
-            Table table = database.getTableOrMetaException(tableId);
-            result.add(table.getName());
+        try {
+            Set<String> result = Sets.newHashSet();
+            Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            // The database will not be locked in here.
+            // The getTable is a thread-safe method called without read lock of database
+            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
+                Table table = database.getTableOrMetaException(tableId);
+                result.add(table.getName());
+            }
+            return result;
+        } catch (Exception e) {
+            LOG.warn(e);
+            throw e;
         }
-        return result;
     }
 
     @Override
@@ -273,11 +298,15 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+        NereidsParser nereidsParser = new NereidsParser();
+        ConnectContext ctx = ConnectContext.get();
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            analyzeStmt(SqlParserUtils.getStmt(parser, originStmt.idx), db);
+            if (ctx == null) {
+                ctx = ConnectContextUtil.getDummyCtx(db.getName());
+            }
+            LoadCommand command = (LoadCommand) nereidsParser.parseSingle(originStmt.originStmt);
+            analyzeCommand(command, db, ctx);
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("origin_stmt", originStmt)
@@ -288,18 +317,15 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         }
     }
 
-    protected void analyzeStmt(StatementBase stmtBase, Database db) throws UserException {
-        LoadStmt stmt = null;
-        if (stmtBase instanceof UnifiedLoadStmt) {
-            stmt = (LoadStmt) ((UnifiedLoadStmt) stmtBase).getProxyStmt();
-        } else {
-            stmt = (LoadStmt) stmtBase;
+    protected void analyzeCommand(LoadCommand command, Database db, ConnectContext ctx) throws Exception {
+        if (command == null || db == null || ctx == null) {
+            return;
         }
 
-        for (DataDescription dataDescription : stmt.getDataDescriptions()) {
+        for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
         }
-        checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
+        checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
     }
 
     @Override

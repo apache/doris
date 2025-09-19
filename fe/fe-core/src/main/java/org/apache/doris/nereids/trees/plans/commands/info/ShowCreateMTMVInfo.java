@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -27,7 +29,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 
@@ -39,6 +42,12 @@ import java.util.Objects;
  * show create mtmv info
  */
 public class ShowCreateMTMVInfo {
+
+    private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+            .build();
+
     private final TableNameInfo mvName;
 
     public ShowCreateMTMVInfo(TableNameInfo mvName) {
@@ -70,17 +79,22 @@ public class ShowCreateMTMVInfo {
     /**
      * run show create materialized view
      *
-     * @param executor executor
      * @throws DdlException DdlException
      * @throws IOException IOException
      */
-    public void run(StmtExecutor executor) throws DdlException, IOException, org.apache.doris.common.AnalysisException {
+    public ShowResultSet getShowResultSet() throws DdlException, IOException,
+            org.apache.doris.common.AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl());
         String mtmvDdl = Env.getMTMVDdl(mtmv);
         rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl));
-        executor.handleShowCreateMTMVStmt(rows);
+        return new ShowResultSet(META_DATA, rows);
+
+    }
+
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
     }
 
     /**

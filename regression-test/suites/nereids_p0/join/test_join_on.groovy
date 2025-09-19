@@ -49,6 +49,6 @@ suite("test_join_on", "nereids_p0") {
 
     test {
         sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
-        exception "variant type could not in join equal conditions"
+        exception "could not used in ComparisonPredicate (a = a)"
     }
 }

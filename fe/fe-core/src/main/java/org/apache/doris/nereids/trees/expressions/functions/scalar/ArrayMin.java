@@ -51,10 +51,15 @@ public class ArrayMin extends ScalarFunction implements ExplicitlyCastableSignat
         super("array_min", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayMin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()) {
+        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
             throw new AnalysisException("array_min does not support complex types: " + toSql());
         }
     }
@@ -70,7 +75,7 @@ public class ArrayMin extends ScalarFunction implements ExplicitlyCastableSignat
     @Override
     public ArrayMin withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArrayMin(children.get(0));
+        return new ArrayMin(getFunctionParams(children));
     }
 
     @Override

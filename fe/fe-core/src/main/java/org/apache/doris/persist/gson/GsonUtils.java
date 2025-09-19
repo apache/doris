@@ -61,6 +61,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
@@ -117,6 +118,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
@@ -356,7 +358,8 @@ public class GsonUtils {
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
-            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName())
+            .registerSubtype(AIResource.class, AIResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;
@@ -579,7 +582,8 @@ public class GsonUtils {
             jobBackupTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.backup.AbstractJob.class, "clazz")
                     .registerSubtype(BackupJob.class, BackupJob.class.getSimpleName())
-                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName());
+                    .registerSubtype(RestoreJob.class, RestoreJob.class.getSimpleName())
+                    .registerSubtype(CloudRestoreJob.class, CloudRestoreJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<LoadJob> loadJobTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(LoadJob.class, "clazz")

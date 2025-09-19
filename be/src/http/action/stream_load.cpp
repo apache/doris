@@ -153,6 +153,9 @@ void StreamLoadAction::handle(HttpRequest* req) {
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
+    if (!ctx->data_saved_path.empty()) {
+        _exec_env->load_path_mgr()->clean_tmp_files(ctx->data_saved_path);
+    }
 }
 
 Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
@@ -213,7 +216,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
-              << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit;
+              << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit
+              << ", HTTP headers=" << req->get_all_headers();
     ctx->begin_receive_and_read_data_cost_nanos = MonotonicNanos();
 
     if (st.ok()) {
@@ -429,13 +433,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         ctx->pipe = pipe;
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
-        RETURN_IF_ERROR(_data_saved_path(http_req, &request.path));
+        RETURN_IF_ERROR(_data_saved_path(http_req, &request.path, ctx->body_bytes));
         auto file_sink = std::make_shared<MessageBodyFileSink>(request.path);
         RETURN_IF_ERROR(file_sink->open());
         request.__isset.path = true;
         request.fileType = TFileType::FILE_LOCAL;
         request.__set_file_size(ctx->body_bytes);
         ctx->body_sink = file_sink;
+        ctx->data_saved_path = request.path;
     }
     if (!http_req->header(HTTP_COLUMNS).empty()) {
         request.__set_columns(http_req->header(HTTP_COLUMNS));
@@ -741,6 +746,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_cloud_cluster(http_req->header(HTTP_CLOUD_CLUSTER));
     }
 
+    if (!http_req->header(HTTP_EMPTY_FIELD_AS_NULL).empty()) {
+        if (iequal(http_req->header(HTTP_EMPTY_FIELD_AS_NULL), "true")) {
+            request.__set_empty_field_as_null(true);
+        }
+    }
+
 #ifndef BE_TEST
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
@@ -783,10 +794,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 content_length *= 3;
             }
         }
-        ctx->put_result.params.__set_content_length(content_length);
+        ctx->put_result.pipeline_params.__set_content_length(content_length);
     }
 
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
+    VLOG_NOTICE << "params is "
+                << apache::thrift::ThriftDebugString(ctx->put_result.pipeline_params);
     // if we not use streaming, we must download total content before we begin
     // to process this load
     if (!ctx->use_streaming) {
@@ -796,9 +808,11 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx, mocked);
 }
 
-Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path) {
+Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_path,
+                                          int64_t file_bytes) {
     std::string prefix;
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix));
+    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(req->param(HTTP_DB_KEY), "", &prefix,
+                                                             file_bytes));
     timeval tv;
     gettimeofday(&tv, nullptr);
     struct tm tm;

@@ -18,9 +18,10 @@
 #include "io/cache/cache_lru_dumper.h"
 
 #include "io/cache/block_file_cache.h"
-#include "io/cache/cache_lru_dumper.h"
 #include "io/cache/lru_queue_recorder.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
+#include "vec/common/endian.h"
 
 namespace doris::io {
 
@@ -29,11 +30,13 @@ std::string CacheLRUDumper::Footer::serialize_as_string() const {
     result.reserve(sizeof(Footer));
 
     // Serialize meta_offset (convert to little-endian)
-    uint64_t meta_offset_le = htole64(meta_offset);
+    uint64_t meta_offset_le;
+    encode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le), meta_offset);
     result.append(reinterpret_cast<const char*>(&meta_offset_le), sizeof(meta_offset_le));
 
     // Serialize checksum (convert to little-endian)
-    uint32_t checksum_le = htole32(checksum);
+    uint32_t checksum_le;
+    encode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le), checksum);
     result.append(reinterpret_cast<const char*>(&checksum_le), sizeof(checksum_le));
 
     result.append(reinterpret_cast<const char*>(&version), sizeof(version));
@@ -52,13 +55,13 @@ bool CacheLRUDumper::Footer::deserialize_from_string(const std::string& data) {
     // Deserialize meta_offset (convert from little-endian)
     uint64_t meta_offset_le;
     std::memcpy(&meta_offset_le, ptr, sizeof(meta_offset_le));
-    meta_offset = le64toh(meta_offset_le);
+    meta_offset = decode_fixed64_le(reinterpret_cast<uint8_t*>(&meta_offset_le));
     ptr += sizeof(meta_offset_le);
 
     // Deserialize checksum (convert from little-endian)
     uint32_t checksum_le;
     std::memcpy(&checksum_le, ptr, sizeof(checksum_le));
-    checksum = le32toh(checksum_le);
+    checksum = decode_fixed32_le(reinterpret_cast<uint8_t*>(&checksum_le));
     ptr += sizeof(checksum_le);
 
     version = *((uint8_t*)ptr);
@@ -216,7 +219,7 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
 
     // Write footer
     Footer footer;
-    footer.meta_offset = htole64(meta_offset); // Explicitly convert to little-endian
+    footer.meta_offset = meta_offset;
     footer.checksum = 0;
     footer.version = 1;
     std::memcpy(footer.magic, "DOR", 3);
@@ -227,10 +230,55 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
 
     out.close();
 
+    if (_is_first_dump) [[unlikely]] {
+        // we back up two dumps (one for last before be restart, one for first after be restart)
+        // for later debug the restore process
+        try {
+            if (std::filesystem::exists(final_filename)) {
+                std::string backup_filename = final_filename + "_" + _start_time + "_last";
+                std::rename(final_filename.c_str(), backup_filename.c_str());
+            }
+            std::string timestamped_filename = final_filename + "_" + _start_time;
+            std::filesystem::copy_file(tmp_filename, timestamped_filename);
+
+            std::filesystem::path dir = std::filesystem::path(final_filename).parent_path();
+            std::string prefix = std::filesystem::path(final_filename).filename().string();
+            uint64_t total_size = 0;
+            std::vector<std::pair<std::filesystem::path, std::filesystem::file_time_type>> files;
+            for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                if (entry.path().filename().string().find(prefix) == 0) {
+                    total_size += entry.file_size();
+                    files.emplace_back(entry.path(), entry.last_write_time());
+                }
+            }
+            if (total_size > 5ULL * 1024 * 1024 * 1024) {
+                // delete oldest two files
+                std::sort(files.begin(), files.end(),
+                          [](const auto& a, const auto& b) { return a.second < b.second; });
+                if (!files.empty()) {
+                    auto remove_file = [](const std::filesystem::path& file_path) {
+                        std::error_code ec;
+                        bool removed = std::filesystem::remove(file_path, ec);
+                        LOG(INFO) << "Remove " << (removed ? "succeeded" : "failed")
+                                  << " for file: " << file_path
+                                  << (ec ? ", error: " + ec.message() : "");
+                        return removed;
+                    };
+
+                    remove_file(files[0].first);
+                    if (files.size() > 1) {
+                        remove_file(files[1].first);
+                    }
+                }
+            }
+        } catch (const std::filesystem::filesystem_error& e) {
+            LOG(WARNING) << "failed to handle first dump case: " << e.what();
+        }
+    }
+
     // Rename tmp to formal file
     try {
         std::rename(tmp_filename.c_str(), final_filename.c_str());
-        std::remove(tmp_filename.c_str());
         file_size = std::filesystem::file_size(final_filename);
     } catch (const std::filesystem::filesystem_error& e) {
         LOG(WARNING) << "failed to rename " << tmp_filename << " to " << final_filename
@@ -244,10 +292,10 @@ Status CacheLRUDumper::finalize_dump(std::ofstream& out, size_t entry_num,
     return Status::OK();
 }
 
-void CacheLRUDumper::dump_queue(const std::string& queue_name) {
+void CacheLRUDumper::dump_queue(const std::string& queue_name, bool force) {
     FileCacheType type = string_to_cache_type(queue_name);
-    if (_recorder->get_lru_queue_update_cnt_from_last_dump(type) >
-        config::file_cache_background_lru_dump_update_cnt_threshold) {
+    if (force || _recorder->get_lru_queue_update_cnt_from_last_dump(type) >
+                         config::file_cache_background_lru_dump_update_cnt_threshold) {
         LRUQueue& queue = _recorder->get_shadow_queue(type);
         do_dump_queue(queue, queue_name);
         _recorder->reset_lru_queue_update_cnt_from_last_dump(type);
@@ -321,9 +369,6 @@ Status CacheLRUDumper::parse_dump_footer(std::ifstream& in, std::string& filenam
         LOG(WARNING) << warn_msg;
         return Status::InternalError<false>(warn_msg);
     }
-
-    // Convert from little-endian to host byte order
-    footer.meta_offset = le64toh(footer.meta_offset);
 
     // Validate footer
     if (footer.version != 1 || std::string(footer.magic, 3) != "DOR") {

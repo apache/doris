@@ -49,16 +49,30 @@ using DecimalTestDataSet =
 // input, scale_arg, expectation
 using FloatTestDataSet = std::vector<std::tuple<Float64, int, Float64>>;
 
-using DecimalTruncateFunction = FunctionRounding<DecimalRoundTwoImpl<TruncateName>,
-                                                 RoundingMode::Trunc, TieBreakingMode::Auto>;
-using DecimalFloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName>, RoundingMode::Floor,
-                                              TieBreakingMode::Auto>;
-using DecimalCeilFunction =
-        FunctionRounding<DecimalRoundTwoImpl<CeilName>, RoundingMode::Ceil, TieBreakingMode::Auto>;
-using DecimalRoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName>, RoundingMode::Round,
-                                              TieBreakingMode::Auto>;
-using DecimalRoundBankersFunction = FunctionRounding<DecimalRoundTwoImpl<RoundBankersName>,
-                                                     RoundingMode::Round, TieBreakingMode::Bankers>;
+using Decimal32TruncateFunction =
+        FunctionRounding<DecimalRoundTwoImpl<TruncateName, TYPE_DECIMAL32>, RoundingMode::Trunc,
+                         TieBreakingMode::Auto>;
+using Decimal64TruncateFunction =
+        FunctionRounding<DecimalRoundTwoImpl<TruncateName, TYPE_DECIMAL64>, RoundingMode::Trunc,
+                         TieBreakingMode::Auto>;
+using Decimal32FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, TYPE_DECIMAL32>,
+                                                RoundingMode::Floor, TieBreakingMode::Auto>;
+using Decimal64FloorFunction = FunctionRounding<DecimalRoundTwoImpl<FloorName, TYPE_DECIMAL64>,
+                                                RoundingMode::Floor, TieBreakingMode::Auto>;
+using Decimal32CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL32>,
+                                               RoundingMode::Ceil, TieBreakingMode::Auto>;
+using Decimal64CeilFunction = FunctionRounding<DecimalRoundTwoImpl<CeilName, TYPE_DECIMAL64>,
+                                               RoundingMode::Ceil, TieBreakingMode::Auto>;
+using Decimal32RoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName, TYPE_DECIMAL32>,
+                                                RoundingMode::Round, TieBreakingMode::Auto>;
+using Decimal64RoundFunction = FunctionRounding<DecimalRoundTwoImpl<RoundName, TYPE_DECIMAL64>,
+                                                RoundingMode::Round, TieBreakingMode::Auto>;
+using Decimal32RoundBankersFunction =
+        FunctionRounding<DecimalRoundTwoImpl<RoundBankersName, TYPE_DECIMAL32>, RoundingMode::Round,
+                         TieBreakingMode::Bankers>;
+using Decimal64RoundBankersFunction =
+        FunctionRounding<DecimalRoundTwoImpl<RoundBankersName, TYPE_DECIMAL64>, RoundingMode::Round,
+                         TieBreakingMode::Bankers>;
 
 using FloatTruncateFunction = FunctionRounding<DoubleRoundTwoImpl<TruncateName>,
                                                RoundingMode::Trunc, TieBreakingMode::Auto>;
@@ -1061,38 +1075,38 @@ static void float_checker(const FloatTestDataSet& round_test_cases, bool float_c
 
 /// tests for func(Column, Column) with decimal input
 TEST(RoundFunctionTest, normal_decimal) {
-    decimal_checker<DecimalTruncateFunction, Decimal32>(trunc_floor_decimal32_cases, false);
-    decimal_checker<DecimalTruncateFunction, Decimal64>(trunc_floor_decimal64_cases, false);
+    decimal_checker<Decimal32TruncateFunction, Decimal32>(trunc_floor_decimal32_cases, false);
+    decimal_checker<Decimal64TruncateFunction, Decimal64>(trunc_floor_decimal64_cases, false);
 
-    decimal_checker<DecimalFloorFunction, Decimal32>(trunc_floor_decimal32_cases, false);
-    decimal_checker<DecimalFloorFunction, Decimal64>(trunc_floor_decimal64_cases, false);
+    decimal_checker<Decimal32FloorFunction, Decimal32>(trunc_floor_decimal32_cases, false);
+    decimal_checker<Decimal64FloorFunction, Decimal64>(trunc_floor_decimal64_cases, false);
 
-    decimal_checker<DecimalCeilFunction, Decimal32>(ceil_decimal32_cases, false);
-    decimal_checker<DecimalCeilFunction, Decimal64>(ceil_decimal64_cases, false);
+    decimal_checker<Decimal32CeilFunction, Decimal32>(ceil_decimal32_cases, false);
+    decimal_checker<Decimal64CeilFunction, Decimal64>(ceil_decimal64_cases, false);
 
-    decimal_checker<DecimalRoundFunction, Decimal32>(round_decimal32_cases, false);
-    decimal_checker<DecimalRoundFunction, Decimal64>(round_decimal64_cases, false);
+    decimal_checker<Decimal32RoundFunction, Decimal32>(round_decimal32_cases, false);
+    decimal_checker<Decimal64RoundFunction, Decimal64>(round_decimal64_cases, false);
 
-    decimal_checker<DecimalRoundBankersFunction, Decimal32>(round_decimal32_cases, false);
-    decimal_checker<DecimalRoundBankersFunction, Decimal64>(round_decimal64_cases, false);
+    decimal_checker<Decimal32RoundBankersFunction, Decimal32>(round_decimal32_cases, false);
+    decimal_checker<Decimal64RoundBankersFunction, Decimal64>(round_decimal64_cases, false);
 }
 
 /// tests for func(ColumnConst, Column) with decimal input
 TEST(RoundFunctionTest, normal_decimal_const) {
-    decimal_checker<DecimalTruncateFunction, Decimal32>(trunc_floor_decimal32_cases, true);
-    decimal_checker<DecimalTruncateFunction, Decimal64>(trunc_floor_decimal64_cases, true);
+    decimal_checker<Decimal32TruncateFunction, Decimal32>(trunc_floor_decimal32_cases, true);
+    decimal_checker<Decimal64TruncateFunction, Decimal64>(trunc_floor_decimal64_cases, true);
 
-    decimal_checker<DecimalFloorFunction, Decimal32>(trunc_floor_decimal32_cases, true);
-    decimal_checker<DecimalFloorFunction, Decimal64>(trunc_floor_decimal64_cases, true);
+    decimal_checker<Decimal32FloorFunction, Decimal32>(trunc_floor_decimal32_cases, true);
+    decimal_checker<Decimal64FloorFunction, Decimal64>(trunc_floor_decimal64_cases, true);
 
-    decimal_checker<DecimalCeilFunction, Decimal32>(ceil_decimal32_cases, true);
-    decimal_checker<DecimalCeilFunction, Decimal64>(ceil_decimal64_cases, true);
+    decimal_checker<Decimal32CeilFunction, Decimal32>(ceil_decimal32_cases, true);
+    decimal_checker<Decimal64CeilFunction, Decimal64>(ceil_decimal64_cases, true);
 
-    decimal_checker<DecimalRoundFunction, Decimal32>(round_decimal32_cases, true);
-    decimal_checker<DecimalRoundFunction, Decimal64>(round_decimal64_cases, true);
+    decimal_checker<Decimal32RoundFunction, Decimal32>(round_decimal32_cases, true);
+    decimal_checker<Decimal64RoundFunction, Decimal64>(round_decimal64_cases, true);
 
-    decimal_checker<DecimalRoundBankersFunction, Decimal32>(round_decimal32_cases, true);
-    decimal_checker<DecimalRoundBankersFunction, Decimal64>(round_decimal64_cases, true);
+    decimal_checker<Decimal32RoundBankersFunction, Decimal32>(round_decimal32_cases, true);
+    decimal_checker<Decimal64RoundBankersFunction, Decimal64>(round_decimal64_cases, true);
 }
 
 /// tests for func(Column, Column) with float input

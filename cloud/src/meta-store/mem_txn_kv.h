@@ -64,6 +64,15 @@ public:
         return mem_kv_.size();
     }
 
+    void update_commit_version(int64_t version) {
+        std::lock_guard<std::mutex> l(lock_);
+        committed_version_ = std::max(committed_version_, version);
+        read_version_ = std::max(committed_version_, read_version_);
+    }
+
+    int64_t get_bytes_ {};
+    int64_t put_bytes_ {};
+    int64_t del_bytes_ {};
     int64_t get_count_ {};
     int64_t put_count_ {};
     int64_t del_count_ {};
@@ -217,6 +226,10 @@ public:
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
     size_t num_get_keys() const override { return num_get_keys_; }
@@ -228,6 +241,12 @@ public:
     size_t delete_bytes() const override { return delete_bytes_; }
 
     size_t put_bytes() const override { return put_bytes_; }
+
+    size_t get_bytes() const override { return get_bytes_; }
+
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
 
 private:
     TxnErrorCode inner_get(const std::string& key, std::string* val, bool snapshot);
@@ -255,6 +274,10 @@ private:
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
     size_t put_bytes_ {0};
+    size_t get_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    Versionstamp versionstamp_result_;
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {
@@ -285,6 +308,12 @@ public:
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
+    }
+
+    int64_t get_kv_bytes() const override {
+        int64_t kv_bytes {};
+        for (auto& [k, v] : kvs_) kv_bytes += k.size() + v.size();
+        return kv_bytes;
     }
 
     int size() const override { return kvs_size_; }

@@ -1,10 +1,10 @@
-{"name": "Andy", "sports": "soccer", "scores": 100}
-{"name": "Betty", "sports": "pingpong ball", "scores": 90}
-{"name": "Cindy", "sports": "武术", "scores": 89}
-{"name": "David", "sports": ["volleyball"], "scores": [77]}
-{"name": "Emily", "sports": ["baseball", "golf", "hockey"], "scores": [56, 78, 99]}
-{"name": "Frank", "sports": ["rugby", "cricket", "boxing"], "scores": [45, 67, 88]}
-{"name": "Grace", "sports": ["table tennis", "badminton", "athletics"], "scores": [34, 56, 78]}
-{"name": "Henry", "sports": ["archery", "fencing", "weightlifting"], "scores": [23, 45, 67]}
-{"name": "Ivy", "sports": ["judo", "karate", "taekwondo"], "scores": [12, 34, 56]}
-{"name": "Jack", "sports": ["wrestling", "gymnastics", "surfing"], "scores": [1, 23, 45]}
+{"name": "Andy", "sports": "soccer", "scores": 100, "z_details": [{"position": "forward", "club": "Manchester", "salary": 50000}]}
+{"name": "Betty", "sports": "pingpong ball", "scores": 90, "z_details": [{"position": "attacker", "club": "Beijing", "salary": 30000}]}
+{"name": "Cindy", "sports": "武术", "scores": 89, "z_details": [{"position": "fighter", "club": "Shaolin", "salary": 25000}]}
+{"name": "David", "sports": ["volleyball"], "scores": [77], "z_details": [{"position": "spiker", "club": "Tokyo", "salary": 40000}]}
+{"name": "Emily", "sports": ["baseball", "golf", "hockey"], "scores": [56, 78, 99], "z_details": [{"position": "pitcher", "club": "Yankees", "salary": 80000}, {"position": "driver", "club": "PGA", "salary": 120000}, {"position": "center", "club": "Rangers", "salary": 90000}]}
+{"name": "Frank", "sports": ["rugby", "cricket", "boxing"], "scores": [45, 67, 88], "z_details": [{"position": "scrum-half", "club": "Leicester", "salary": 60000}, {"position": "batsman", "club": "Mumbai", "salary": 70000}, {"position": "heavyweight", "club": "Vegas", "salary": 150000}]}
+{"name": "Grace", "sports": ["table tennis", "badminton", "athletics"], "scores": [34, 56, 78], "z_details": [{"position": "attacker", "club": "China", "salary": 35000}, {"position": "singles", "club": "Denmark", "salary": 45000}, {"position": "sprinter", "club": "Jamaica", "salary": 85000}]}
+{"name": "Henry", "sports": ["archery", "fencing", "weightlifting"], "scores": [23, 45, 67], "z_details": [{"position": "recurve", "club": "Korea", "salary": 20000}, {"position": "epee", "club": "France", "salary": 30000}, {"position": "heavyweight", "club": "Bulgaria", "salary": 55000}]}
+{"name": "Ivy", "sports": ["judo", "karate", "taekwondo"], "scores": [12, 34, 56], "z_details": [{"position": "lightweight", "club": "Japan", "salary": 25000}, {"position": "kata", "club": "Okinawa", "salary": 22000}, {"position": "middleweight", "club": "Korea", "salary": 28000}]}
+{"name": "Jack", "sports": ["wrestling", "gymnastics", "surfing"], "scores": [1, 23, 45], "z_details": [{"position": "freestyle", "club": "Russia", "salary": 15000}, {"position": "rings", "club": "Romania", "salary": 35000}, {"position": "longboard", "club": "Hawaii", "salary": 50000}]}

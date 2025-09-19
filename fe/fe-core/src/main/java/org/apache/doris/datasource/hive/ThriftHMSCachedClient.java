@@ -20,11 +20,11 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
@@ -94,9 +94,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
-    private HadoopAuthenticator hadoopAuthenticator;
+    private ExecutionAuthenticator executionAuthenticator;
 
-    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
+    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
             HiveConf.setVar(hiveConf, ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT,
@@ -105,10 +105,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
-    }
-
-    public void setHadoopAuthenticator(HadoopAuthenticator hadoopAuthenticator) {
-        this.hadoopAuthenticator = hadoopAuthenticator;
+        this.executionAuthenticator = executionAuthenticator;
     }
 
     @Override
@@ -649,11 +646,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         private volatile Throwable throwable;
 
         private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
-            if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
+            String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
+            if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         ProxyMetaStoreClient.class.getName());
-            } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
+            } else if (HMSBaseProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
                 client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
                         AWSCatalogMetastoreClient.class.getName());
             } else {
@@ -711,7 +708,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     private <T> T ugiDoAs(PrivilegedExceptionAction<T> action) {
         try {
-            return hadoopAuthenticator.doAs(action);
+            return executionAuthenticator.execute(action::run);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

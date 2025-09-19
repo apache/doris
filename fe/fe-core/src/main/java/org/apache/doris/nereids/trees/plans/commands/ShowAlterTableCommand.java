@@ -89,6 +89,9 @@ public class ShowAlterTableCommand extends ShowCommand {
     private static String INDEX_NAME = "indexname";
     private static String CREATE_TIME = "createtime";
     private static String FINISH_TIME = "finishtime";
+    private static String BASE_INDEX_NAME = "baseindexname";
+    private static String ROLLUP_INDEX_NAME = "rollupindexname";
+
     private AlterType type;
     private String dbName;
     private Expression whereClause;
@@ -124,7 +127,8 @@ public class ShowAlterTableCommand extends ShowCommand {
             throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((UnboundSlot) subExpr.child(0)).getName().toLowerCase();
-        if (leftKey.equals(TABLE_NAME) || leftKey.equals(STATE) || leftKey.equals(INDEX_NAME)) {
+        if (leftKey.equals(TABLE_NAME) || leftKey.equals(STATE) || leftKey.equals(INDEX_NAME)
+                || leftKey.equals(BASE_INDEX_NAME) || leftKey.equals(ROLLUP_INDEX_NAME)) {
             if (!(subExpr.child(1) instanceof StringLikeLiteral) || !(binaryPredicate instanceof EqualTo)) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
@@ -140,7 +144,8 @@ public class ShowAlterTableCommand extends ShowCommand {
             subExpr = subExpr.withChildren(left, right);
         } else {
             throw new AnalysisException(
-                "The columns of TableName/IndexName/CreateTime/FinishTime/State are supported.");
+                "The columns of TableName/IndexName/CreateTime/FinishTime/State/BaseIndexName/RollupIndexName "
+                        + "are supported.");
         }
         filterMap.put(leftKey.toLowerCase(), isNotExpr ? new Not(subExpr) : subExpr);
     }

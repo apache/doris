@@ -76,6 +76,8 @@ public:
 
     void init_counters();
 
+    bool is_blockable() const override;
+
     friend class PartitionedHashJoinProbeOperatorX;
 
 private:

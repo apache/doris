@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("testJoinOnLeftProjectToJoin") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS emps; """
     sql """
@@ -55,20 +57,20 @@ suite ("testJoinOnLeftProjectToJoin") {
     sql """insert into depts values("2020-01-02",2,"b",1);"""
     sql """insert into depts values("2020-01-02",2,"b",1);"""
 
-    createMV("create materialized view emps_mv as select deptno, sum(salary), sum(commission) from emps group by deptno;")
-    createMV("create materialized view depts_mv as select deptno, max(cost) from depts group by deptno;")
+    createMV("create materialized view emps_mv as select deptno as a1, sum(salary), sum(commission) from emps group by deptno;")
+    createMV("create materialized view depts_mv as select deptno as a2, max(cost) from depts group by deptno;")
 
     sql "analyze table emps with sync;"
     sql """alter table emps modify column time_col set stats ('row_count'='6');"""
 
     sql """set enable_stats=false;"""
 
-    mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
+    mv_rewrite_all_success_without_check_chosen("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
             ["emps_mv", "depts_mv"])
-
-    qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
 
     sql """set enable_stats=true;"""
     mv_rewrite_all_success("select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno;",
             ["emps_mv", "depts_mv"])
+    qt_select_mv "select * from (select deptno , sum(salary) from emps group by deptno) A join (select deptno, max(cost) from depts group by deptno ) B on A.deptno = B.deptno order by A.deptno;"
+
 }

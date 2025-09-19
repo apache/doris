@@ -30,6 +30,13 @@ add_compile_options(-Wno-return-type)
 # each other
 add_library(DorisGen STATIC ${SRC_FILES})
 
+if (COMPILER_CLANG)
+    target_compile_options(DorisGen PRIVATE
+    -Wno-implicit-int-conversion
+    -Wno-shorten-64-to-32
+    )
+endif()
+
 # Setting these files as code-generated lets make clean and incremental builds work
 # correctly
 # set_source_files_properties(${SRC_FILES} PROPERTIES GENERATED TRUE)

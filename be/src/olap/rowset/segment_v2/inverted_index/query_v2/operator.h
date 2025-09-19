@@ -17,29 +17,8 @@
 
 #pragma once
 
-#include <vector>
+namespace doris::segment_v2::inverted_index::query_v2 {
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
+enum class OperatorType { OP_AND = 0, OP_OR = 1, OP_NOT = 2 };
 
-namespace doris::segment_v2::idx_query_v2 {
-
-enum class OperatorType { OP_AND = 0, OP_OR };
-
-class Operator;
-using OperatorPtr = std::shared_ptr<Operator>;
-
-class Operator {
-public:
-    Operator() = default;
-    virtual ~Operator() = default;
-
-    Status add_child(const Node& clause) {
-        _childrens.emplace_back(clause);
-        return Status::OK();
-    }
-
-protected:
-    std::vector<Node> _childrens;
-};
-
-} // namespace doris::segment_v2::idx_query_v2
+} // namespace doris::segment_v2::inverted_index::query_v2

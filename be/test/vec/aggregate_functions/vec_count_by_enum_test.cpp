@@ -53,6 +53,7 @@ public:
 TEST_F(VCountByEnumTest, testEmpty) {
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
+    Arena arena;
     agg_function->create(place);
 
     ColumnString buf;
@@ -61,13 +62,13 @@ TEST_F(VCountByEnumTest, testEmpty) {
     buf_writer.commit();
     LOG(INFO) << "buf size : " << buf.size();
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place, buf_reader, nullptr);
+    agg_function->deserialize(place, buf_reader, arena);
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place, place2, nullptr);
+    agg_function->merge(place, place2, arena);
     auto column_result = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place, *column_result);
     auto& result = assert_cast<ColumnString&>(*column_result);
@@ -85,6 +86,7 @@ TEST_F(VCountByEnumTest, testEmpty) {
 }
 
 TEST_F(VCountByEnumTest, testNotNullableSample) {
+    Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
@@ -98,14 +100,14 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
     agg_function->create(place);
     const IColumn* column[1] = {column_f1.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place2, place, nullptr);
+    agg_function->merge(place2, place, arena);
 
     auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
@@ -125,6 +127,7 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
 }
 
 TEST_F(VCountByEnumTest, testNullableSample) {
+    Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
@@ -144,14 +147,14 @@ TEST_F(VCountByEnumTest, testNullableSample) {
     agg_function->create(place);
     const IColumn* column[1] = {nullable_column_f1.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     std::unique_ptr<char[]> memory2(new char[agg_function->size_of_data()]);
     AggregateDataPtr place2 = memory2.get();
     agg_function->create(place2);
 
-    agg_function->merge(place2, place, nullptr);
+    agg_function->merge(place2, place, arena);
 
     auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);
@@ -171,6 +174,7 @@ TEST_F(VCountByEnumTest, testNullableSample) {
 }
 
 TEST_F(VCountByEnumTest, testNoMerge) {
+    Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
@@ -190,7 +194,7 @@ TEST_F(VCountByEnumTest, testNoMerge) {
     agg_function->create(place);
     const IColumn* column[1] = {nullable_column_f1.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     auto column_result = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
@@ -210,6 +214,7 @@ TEST_F(VCountByEnumTest, testNoMerge) {
 }
 
 TEST_F(VCountByEnumTest, testSerialize) {
+    Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
     column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
@@ -228,7 +233,7 @@ TEST_F(VCountByEnumTest, testSerialize) {
     agg_function->create(place);
     const IColumn* column[1] = {nullable_column_f1.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place, column, i, nullptr);
+        agg_function->add(place, column, i, arena);
     }
 
     ColumnString buf;
@@ -242,7 +247,7 @@ TEST_F(VCountByEnumTest, testSerialize) {
     agg_function->create(place2);
 
     VectorBufferReader buf_reader(buf.get_data_at(0));
-    agg_function->deserialize(place2, buf_reader, nullptr);
+    agg_function->deserialize(place2, buf_reader, arena);
 
     auto column_result1 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result1);
@@ -274,10 +279,10 @@ TEST_F(VCountByEnumTest, testSerialize) {
     agg_function->create(place3);
     const IColumn* column2[1] = {nullable_column_f1_2.get()};
     for (int i = 0; i < batch_size; i++) {
-        agg_function->add(place3, column2, i, nullptr);
+        agg_function->add(place3, column2, i, arena);
     }
 
-    agg_function->merge(place2, place3, nullptr);
+    agg_function->merge(place2, place3, arena);
 
     auto column_result2 = ((DataTypePtr)std::make_shared<DataTypeString>())->create_column();
     agg_function->insert_result_into(place2, *column_result2);

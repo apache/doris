@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
@@ -81,6 +82,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
     RETURN_IF_ERROR(_init(query_globals, params.query_options));
     // only after init operation, _mem_tracker is ready
     SCOPED_ATTACH_TASK(_mem_tracker);
+    signal::SignalTaskIdKeeper keeper(_query_id);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -160,15 +162,11 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TPlanFragmentExecParams params;
     params.fragment_instance_id = _query_id;
     params.query_id = _query_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("FoldConstant:query_id={}", print_id(_query_id)));
-    _runtime_state =
-            RuntimeState::create_unique(fragment_params.params, query_options, query_globals,
-                                        ExecEnv::GetInstance(), nullptr, _mem_tracker);
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance(), nullptr, _mem_tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);

@@ -158,6 +158,30 @@ public class LoadProcessor extends AbstractJobProcessor {
 
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
+        if (params.isSetLoadedRows() && jobId != -1) {
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
+        }
+
+        if (!fragmentTask.processReportExecStatus(params)) {
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
+                    params.getFragmentId(), params.toString());
+            return;
+        }
+
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
@@ -167,6 +191,9 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
         if (params.isSetTrackingUrl()) {
             loadContext.updateTrackingUrl(params.getTrackingUrl());
+        }
+        if (params.isSetFirstErrorMsg()) {
+            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
         }
         if (params.isSetTxnId()) {
             loadContext.updateTransactionId(params.getTxnId());
@@ -199,24 +226,6 @@ public class LoadProcessor extends AbstractJobProcessor {
                         DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
             }
             latch.get().markedCountDown(params.getFragmentId(), params.getBackendId());
-        }
-
-        if (params.isSetLoadedRows() && jobId != -1) {
-            if (params.isSetFragmentInstanceReports()) {
-                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
-                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
-                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
-                }
-            } else {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
-            }
         }
     }
 

@@ -221,11 +221,6 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
-    TabletSchemaSPtr flush_schema;
-    if (header.has_flush_schema()) {
-        flush_schema = std::make_shared<TabletSchema>();
-        flush_schema->init_from_pb(header.flush_schema());
-    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -252,9 +247,9 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+    auto add_segment_func = [this, new_segid, stat]() {
         signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
+        auto st = _load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
         if (!st.ok()) {
@@ -468,7 +463,7 @@ Status LoadStream::init(const POpenLoadStreamRequest* request) {
     return Status::OK();
 }
 
-void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
+bool LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                        std::vector<int64_t>* success_tablet_ids, FailedTablets* failed_tablets) {
     std::lock_guard<bthread::Mutex> lock_guard(_lock);
     SCOPED_TIMER(_close_wait_timer);
@@ -487,7 +482,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
 
     if (_close_load_cnt < _total_streams) {
         // do not return commit info if there is remaining streams.
-        return;
+        return false;
     }
 
     for (auto& [_, index_stream] : _index_streams_map) {
@@ -495,6 +490,7 @@ void LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_to_
     }
     LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
               << ", failed_tablet_num=" << failed_tablets->size();
+    return true;
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& status,
@@ -685,9 +681,25 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<int64_t> success_tablet_ids;
         FailedTablets failed_tablets;
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
-        close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
+        bool all_closed =
+                close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, Status::OK(), success_tablet_ids, failed_tablets, true);
-        brpc::StreamClose(id);
+        std::lock_guard<bthread::Mutex> lock_guard(_lock);
+        // if incremental stream, we need to wait for all non-incremental streams to be closed
+        // before closing incremental streams. We need a fencing mechanism to avoid use after closing
+        // across different be.
+        if (hdr.has_num_incremental_streams() && hdr.num_incremental_streams() > 0) {
+            _closing_stream_ids.push_back(id);
+        } else {
+            brpc::StreamClose(id);
+        }
+
+        if (all_closed) {
+            for (auto& closing_id : _closing_stream_ids) {
+                brpc::StreamClose(closing_id);
+            }
+            _closing_stream_ids.clear();
+        }
     } break;
     case PStreamHeader::GET_SCHEMA: {
         _report_schema(id, hdr);

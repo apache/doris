@@ -24,8 +24,6 @@
 
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <ostream>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -33,7 +31,6 @@
 #include "util/jni-util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -59,7 +56,6 @@ protected:
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
 
 private:
     execute_call_back callback_function;

@@ -25,12 +25,14 @@
 
 #include "CLucene.h"
 #include "CLucene/analysis/AnalysisHeader.h"
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/logging.h"
 
 using namespace lucene::analysis;
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 /**
  * All custom tokenizers and token_filters must use the following functions 
@@ -45,12 +47,12 @@ public:
     virtual ~DorisTokenStream() = default;
 
     void set(Token* t, const std::string_view& term, int32_t pos = 1) {
-        t->setTextNoCopy(term.data(), term.size());
+        t->setTextNoCopy(term.data(), cast_set<int32_t>(term.size()));
         t->setPositionIncrement(pos);
     }
 
     void set_text(Token* t, const std::string_view& term) {
-        t->setTextNoCopy(term.data(), term.size());
+        t->setTextNoCopy(term.data(), cast_set<int32_t>(term.size()));
     }
 
     int32_t get_position_increment(Token* t) { return t->getPositionIncrement(); }
@@ -58,3 +60,4 @@ public:
 };
 
 }; // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

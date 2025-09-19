@@ -47,7 +47,7 @@ suite('test_rename_compute_group', 'docker, p0') {
         }
     }
     def findToDropUniqueId = { clusterId, hostIP, metaServices ->
-            ret = get_instance(metaServices)
+            def ret = get_instance(metaServices)
             def toDropCluster = ret.clusters.find {
                 it.cluster_id.contains(clusterId)
             }
@@ -159,7 +159,7 @@ suite('test_rename_compute_group', 'docker, p0') {
 
         // tag = {"cloud_unique_id" : "compute_node_4", "compute_group_status" : "NORMAL", "private_endpoint" : "", "compute_group_name" : "newcluster1", "location" : "default", "public_endpoint" : "", "compute_group_id" : "newcluster1_id"}
         def toDropIP = cluster.getBeByIndex(4).host
-        toDropUniqueId = findToDropUniqueId.call(cloudClusterId, toDropIP, ms)
+        def toDropUniqueId = findToDropUniqueId.call(cloudClusterId, toDropIP, ms)
         drop_node(toDropUniqueId, toDropIP, 9050,
                 0, "", clusterName, cloudClusterId, ms)
         // check have empty compute group
@@ -168,7 +168,7 @@ suite('test_rename_compute_group', 'docker, p0') {
         get_instance_api(msHttpPort, "default_instance_id") {
             respCode, body ->
                 log.info("before drop node get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def clusters = json.result.clusters
                 assertTrue(clusters.any { cluster -> 
@@ -197,7 +197,7 @@ suite('test_rename_compute_group', 'docker, p0') {
         get_instance_api(msHttpPort, "default_instance_id") {
             respCode, body ->
                 log.info("after drop node get instance resp: ${body} ${respCode}".toString())
-                json = parseJson(body)
+                def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
                 def clusters = json.result.clusters
                 assertTrue(clusters.any { cluster -> 

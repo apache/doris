@@ -112,12 +112,18 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
         // Test LoadStreamStub _send_with_retry stream write failed
         load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed")
         // Test LoadStreamStub _handle_failure for different opcodes
-        load_with_injection("LoadStreamStub._handle_failure.append_data_failed")
-        load_with_injection("LoadStreamStub._handle_failure.add_segment_failed")
-        load_with_injection("LoadStreamStub._handle_failure.close_load_failed")
-        load_with_injection("LoadStreamStub._handle_failure.get_schema_failed")
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("LoadStreamStub._send_with_retry.stream_write_failed")
+            load_with_injection("LoadStreamStub._handle_failure.append_data_failed")
+            load_with_injection("LoadStreamStub._handle_failure.add_segment_failed")
+            load_with_injection("LoadStreamStub._handle_failure.close_load_failed")
+            load_with_injection("LoadStreamStub._handle_failure.get_schema_failed")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("LoadStreamStub._send_with_retry.stream_write_failed")
+        }
         // Test LoadStreamStub skip send segment
         load_with_injection("LoadStreamStub.skip_send_segment")
+        load_with_injection("VTabletWriterV2._check_streams_finish.close_stream_failed")
 
         sql """ set enable_memtable_on_sink_node=false """
     }

@@ -16,6 +16,8 @@
 // under the License.
 
 suite ("unique_mv") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql """set enable_fallback_to_original_planner=false"""
     sql """ DROP TABLE IF EXISTS c5816_t; """
@@ -38,7 +40,7 @@ suite ("unique_mv") {
             );
         """
 
-    createMV("""create materialized view mv_1 as select call_uuid,org_id,call_time,id,campaign_id,aa from c5816_t""")
+    createMV("""create materialized view mv_1 as select call_uuid as a1,org_id as a2,call_time as a3,id as a4,campaign_id as a5,aa as a6 from c5816_t""")
     sql """insert into c5816_t values (1,2,"2023-11-20 00:00:00",4,"adc",12);"""
 
     sql "analyze table c5816_t with sync;"

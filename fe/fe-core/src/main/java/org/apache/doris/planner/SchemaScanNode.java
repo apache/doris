@@ -21,10 +21,12 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticalType;
@@ -58,17 +60,19 @@ public class SchemaScanNode extends ScanNode {
     private String frontendIP;
     private int frontendPort;
     private String schemaCatalog;
+    private List<Expr> frontendConjuncts;
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc,
-                          String schemaCatalog, String schemaDb, String schemaTable) {
+            String schemaCatalog, String schemaDb, String schemaTable, List<Expr> frontendConjuncts) {
         super(id, desc, "SCAN SCHEMA", StatisticalType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
         this.schemaCatalog = schemaCatalog;
         this.schemaDb = schemaDb;
         this.schemaTable = schemaTable;
+        this.frontendConjuncts = frontendConjuncts;
     }
 
     public String getTableName() {
@@ -81,6 +85,10 @@ public class SchemaScanNode extends ScanNode {
 
     public String getSchemaCatalog() {
         return desc.getTable().getDatabase().getCatalog().getName();
+    }
+
+    public List<Expr> getFrontendConjuncts() {
+        return frontendConjuncts;
     }
 
     @Override
@@ -102,18 +110,25 @@ public class SchemaScanNode extends ScanNode {
     }
 
     private void setFeAddrList(TPlanNode msg) {
-        if (SchemaTable.isShouldFetchAllFe(tableName)) {
-            List<TNetworkAddress> feAddrList = new ArrayList();
-            if (ConnectContext.get().getSessionVariable().showAllFeConnection) {
+        List<TNetworkAddress> feAddrList = new ArrayList();
+        TableIf tableIf = desc.getTable();
+        // may be ExternalInfoSchemaTable
+        if (!(tableIf instanceof SchemaTable)) {
+            feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
+        } else {
+            SchemaTable table = (SchemaTable) tableIf;
+            if (table.shouldFetchAllFe()) {
                 List<Frontend> feList = Env.getCurrentEnv().getFrontends(null);
                 for (Frontend fe : feList) {
-                    feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    if (fe.isAlive()) {
+                        feAddrList.add(new TNetworkAddress(fe.getHost(), fe.getRpcPort()));
+                    }
                 }
             } else {
                 feAddrList.add(new TNetworkAddress(frontendIP, frontendPort));
             }
-            msg.schema_scan_node.setFeAddrList(feAddrList);
         }
+        msg.schema_scan_node.setFeAddrList(feAddrList);
     }
 
     @Override
@@ -148,6 +163,7 @@ public class SchemaScanNode extends ScanNode {
 
         TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
+        msg.schema_scan_node.setFrontendConjuncts(GsonUtils.GSON.toJson(frontendConjuncts));
         setFeAddrList(msg);
     }
 
@@ -176,6 +192,10 @@ public class SchemaScanNode extends ScanNode {
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
             output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+        }
+        if (!frontendConjuncts.isEmpty()) {
+            Expr expr = convertConjunctsToAndCompoundPredicate(frontendConjuncts);
+            output.append(prefix).append("FRONTEND PREDICATES: ").append(expr.toSql()).append("\n");
         }
         if (!runtimeFilters.isEmpty()) {
             output.append(prefix).append("runtime filters: ");

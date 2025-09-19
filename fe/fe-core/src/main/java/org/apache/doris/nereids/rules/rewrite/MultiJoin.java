@@ -69,14 +69,16 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
     // MultiJoin just contains one OUTER/SEMI/ANTI.
     private final JoinType joinType;
     // When contains one OUTER/SEMI/ANTI join, keep separately its condition.
-    private final List<Expression> notInnerJoinConditions;
+    private final List<Expression> notInnerJoinHashConditions;
+    private final List<Expression> notInnerJoinOtherConditions;
 
     public MultiJoin(List<Plan> inputs, List<Expression> joinFilter, JoinType joinType,
-            List<Expression> notInnerJoinConditions) {
+            List<Expression> notInnerJoinHashConditions, List<Expression> notInnerJoinOtherConditions) {
         super(PlanType.LOGICAL_MULTI_JOIN, inputs);
         this.joinFilter = Objects.requireNonNull(joinFilter);
         this.joinType = joinType;
-        this.notInnerJoinConditions = Objects.requireNonNull(notInnerJoinConditions);
+        this.notInnerJoinHashConditions = Objects.requireNonNull(notInnerJoinHashConditions);
+        this.notInnerJoinOtherConditions = Objects.requireNonNull(notInnerJoinOtherConditions);
     }
 
     public JoinType getJoinType() {
@@ -87,13 +89,17 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
         return joinFilter;
     }
 
-    public List<Expression> getNotInnerJoinConditions() {
-        return notInnerJoinConditions;
+    public List<Expression> getNotInnerHashJoinConditions() {
+        return notInnerJoinHashConditions;
+    }
+
+    public List<Expression> getNotInnerOtherJoinConditions() {
+        return notInnerJoinOtherConditions;
     }
 
     @Override
     public MultiJoin withChildren(List<Plan> children) {
-        return new MultiJoin(children, joinFilter, joinType, notInnerJoinConditions);
+        return new MultiJoin(children, joinFilter, joinType, notInnerJoinHashConditions, notInnerJoinOtherConditions);
     }
 
     @Override
@@ -160,7 +166,8 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
     public List<? extends Expression> getExpressions() {
         return new Builder<Expression>()
                 .addAll(joinFilter)
-                .addAll(notInnerJoinConditions)
+                .addAll(notInnerJoinHashConditions)
+                .addAll(notInnerJoinOtherConditions)
                 .build();
     }
 
@@ -180,7 +187,8 @@ public class MultiJoin extends AbstractLogicalPlan implements BlockFuncDepsPropa
         return Utils.toSqlString("MultiJoin",
                 "joinType", joinType,
                 "joinFilter", joinFilter,
-                "notInnerJoinConditions", notInnerJoinConditions
+                "notInnerHashJoinConditions", notInnerJoinHashConditions,
+                "notInnerOtherJoinConditions", notInnerJoinOtherConditions
         );
     }
 }

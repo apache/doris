@@ -27,7 +27,7 @@ public class UnsupportedStmt extends StatementBase implements NotFallbackInParse
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze() throws AnalysisException, UserException {
         // do nothing
     }
 

@@ -184,11 +184,44 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
         if (markJoinSlotReference.isPresent()) {
             builder.add(markJoinSlotReference.get());
         }
+        // only scalar apply can be needAddSubOutputToProjects = true
         if (needAddSubOutputToProjects) {
-            if (isScalar()) {
-                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
+            // correlated apply right child may contain multiple output slots
+            // in rule ScalarApplyToJoin, only '(isCorrelated() && correlationFilter.isPresent())'
+            // but at analyzed phase, the correlationFilter is empty, only after rule UnCorrelatedApplyAggregateFilter
+            // correlationFilter will be set, so we skip check correlationFilter here.
+            // correlated apply will change to a left outer join, then all the right child output will be nullable.
+            if (isCorrelated()) {
+                // for sql:
+                // `select t1.a,
+                //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2 where t1.a = t2.a)
+                // from t1`,
+                // its plan is:
+                // LogicalProject(t1.a, if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
+                //     |-- LogicalProject(..., if(sum(t2.a > 10), ifnull(count(t2.b), 0), max(t2.c)) as k)
+                //           |-- LogicalApply(correlationSlot = [t1.a])
+                //                  |-- LogicalOlapScan(t1)
+                //                  |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                for (Slot slot : right().getOutput()) {
+                    // in fact some slots may non-nullable, like count.
+                    // but after convert correlated apply to left outer join, all the join right child's slots
+                    // will become nullable, so we let all slots be nullable, then they wouldn't change nullable
+                    // even after convert to join.
+                    builder.add(slot.toSlot().withNullable(true));
+                }
             } else {
-                builder.add(right().getOutput().get(0));
+                // uncorrelated apply right child always contains one output slot.
+                // for sql:
+                // `select t1.a,
+                //         (select if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k from t2)
+                // from t1`,
+                // its plan is:
+                // LogicalProject(t1.a, k)
+                //      |--LogicalApply(correlationSlot = [])
+                //          |- LogicalOlapScan(t1)
+                //          |- LogicalProject(if(sum(t2.a) > 10, count(t2.b), max(t2.c)) as k)
+                //                 |-- LogicalAggregate(output = [sum(t2.a), count(t2.b), max(t2.c)])
+                builder.add(ScalarSubquery.getScalarQueryOutputAdjustNullable(right(), correlationSlot));
             }
         }
         return builder.build();

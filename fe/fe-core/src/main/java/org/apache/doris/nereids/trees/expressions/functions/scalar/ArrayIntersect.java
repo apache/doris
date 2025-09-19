@@ -18,11 +18,14 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -48,14 +51,50 @@ public class ArrayIntersect extends ScalarFunction implements ExplicitlyCastable
         super("array_intersect", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArrayIntersect(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
+    /**
+     * array_intersect needs to compare whether the sub-elements in the array are equal.
+     * so the sub-elements must be comparable. but now map and struct type is not comparable.
+     */
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType itemType = NullType.INSTANCE;
+        for (Expression child : children()) {
+            DataType argType = child.getDataType();
+            // nullsafe
+            if (argType == NullType.INSTANCE) {
+                continue;
+            }
+            if (!argType.isArrayType() || ((ArrayType) argType).getItemType().isComplexType()) {
+                throw new AnalysisException("array_intersect does not support complex types: " + toSql());
+            }
+            if (((ArrayType) argType).getItemType().isNullType()) {
+                continue;
+            }
+            if (itemType == NullType.INSTANCE) {
+                itemType = ((ArrayType) argType).getItemType();
+            }
+            if (itemType.equals(((ArrayType) argType).getItemType())) {
+                continue;
+            }
+            if (!itemType.isSameTypeForComplexTypeParam(((ArrayType) argType).getItemType())) {
+                throw new AnalysisException("array_intersect only supports arguments with the same item type, "
+                        + "but got " + toSql());
+            }
+        }
+    }
+
     /**
      * withChildren.
      */
     @Override
     public ArrayIntersect withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 2);
-        return new ArrayIntersect(children.get(0), children.get(1),
-                children.subList(2, children.size()).toArray(new Expression[0]));
+        return new ArrayIntersect(getFunctionParams(children));
     }
 
     @Override

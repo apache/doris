@@ -18,6 +18,8 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_user_activity") {
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true"""
     sql """ DROP TABLE IF EXISTS u_axx; """
 
@@ -39,7 +41,7 @@ suite ("test_user_activity") {
     qt_select_base " select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx; "
 
     sql """ drop materialized view IF EXISTS session_distribution_2 on u_axx;"""
-    createMV ("create materialized view session_distribution_2 as select n_dx, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;")
+    createMV ("create materialized view session_distribution_2 as select n_dx as a1, percentile_approx(n_duration, 0.5) as p50, percentile_approx(n_duration, 0.90) as p90 FROM u_axx GROUP BY n_dx;")
 
     sql """INSERT INTO u_axx VALUES (2, "2023-01-02", 600);"""
 

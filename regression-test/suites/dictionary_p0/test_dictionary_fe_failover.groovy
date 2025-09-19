@@ -71,7 +71,7 @@ suite('test_dictionary_fe_failover', 'docker') {
             )LAYOUT(HASH_MAP)
             properties('data_lifetime'='600');
         """
-        sql "REFRESH DICTIONARY dict1"
+        waitAllDictionariesReady()
         def dictResult = sql "SHOW DICTIONARIES"
         assertEquals(dictResult[0][1], "dict1")
 
@@ -85,7 +85,7 @@ suite('test_dictionary_fe_failover', 'docker') {
             )LAYOUT(IP_TRIE)
             properties('data_lifetime'='600');
         """
-        sql "REFRESH DICTIONARY dict_iptrie"
+        waitAllDictionariesReady()
         dictResult = sql "SHOW DICTIONARIES"
         assertEquals(dictResult.size(), 2)
 
@@ -123,7 +123,7 @@ suite('test_dictionary_fe_failover', 'docker') {
             )LAYOUT(HASH_MAP)
             properties('data_lifetime'='600');
         """
-        sql "REFRESH DICTIONARY dict3"
+        waitAllDictionariesReady()
         def finalDictResult = sql "SHOW DICTIONARIES"
         assertEquals(finalDictResult.size(), 3)
         waitAllDictionariesReady()

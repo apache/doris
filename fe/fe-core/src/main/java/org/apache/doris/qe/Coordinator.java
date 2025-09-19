@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.Env;
@@ -80,6 +79,7 @@ import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
+import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
@@ -241,6 +241,7 @@ public class Coordinator implements CoordInterface {
     private List<String> deltaUrls;
     private Map<String, String> loadCounters;
     private String trackingUrl;
+    private String firstErrorMsg;
     // related txnId and label of group commit
     private long txnId;
     private String label;
@@ -320,14 +321,14 @@ public class Coordinator implements CoordInterface {
     private boolean isAllExternalScan = true;
 
     // Used for query/insert
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner,
+    public Coordinator(ConnectContext context, Planner planner,
             StatsErrorEstimator statsErrorEstimator) {
-        this(context, analyzer, planner);
+        this(context, planner);
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
     // Used for query/insert/test
-    public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
+    public Coordinator(ConnectContext context, Planner planner) {
         this.context = context;
         this.queryId = context.queryId();
         this.fragments = planner.getFragments();
@@ -464,6 +465,10 @@ public class Coordinator implements CoordInterface {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     public long getTxnId() {
@@ -655,24 +660,25 @@ public class Coordinator implements CoordInterface {
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
-                List<TPipelineWorkloadGroup> wgList = context.getEnv().getWorkloadGroupMgr().getWorkloadGroup(context);
+                List<WorkloadGroup> wgs = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroup(context);
+                List<TPipelineWorkloadGroup> wgList = wgs.stream()
+                        .map(e -> e.toThrift())
+                        .collect(Collectors.toList());
                 this.setTWorkloadGroups(wgList);
-                boolean shouldQueue = this.shouldQueue();
-                if (shouldQueue) {
-                    Set<Long> wgIdSet = Sets.newHashSet();
-                    for (TPipelineWorkloadGroup twg : wgList) {
-                        wgIdSet.add(twg.getId());
-                    }
-                    queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(wgIdSet);
-                    if (queryQueue == null) {
+                if (this.shouldQueue()) {
+                    if (wgs.size() < 1) {
                         // This logic is actually useless, because when could not find query queue, it will
                         // throw exception during workload group manager.
                         throw new UserException("could not find query queue");
                     }
+                    // AllBackendComputeGroup may assocatiate with multiple workload groups
+                    queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     queueToken.get(DebugUtil.printId(queryId),
                             this.queryOptions.getExecutionTimeout() * 1000);
                 }
+                context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
                 context.setWorkloadGroupName("");
             }
@@ -1190,9 +1196,11 @@ public class Coordinator implements CoordInterface {
         }
 
         if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-            if (resultBatch.isEos()) {
-                numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
-            }
+            // In BE: vmysql_result_writer.cpp:GetResultBatchCtx::on_close()
+            //      statistics->set_returned_rows(returned_rows);
+            // In a multi-mysql_result_writer scenario, since each mysql_result_writer will set this rows, in order
+            // to avoid missing rows when dry_run_query = true, they should all be added up.
+            numReceivedRows += resultBatch.getQueryStatistics().getReturnedRows();
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
@@ -2389,8 +2397,28 @@ public class Coordinator implements CoordInterface {
 
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
+        if (params.isSetLoadedRows() && jobId != -1) {
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
+        }
+
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
+            LOG.debug("Fragment {} is not done, ignore report status: {}",
+                    params.getFragmentId(), params.toString());
             return;
         }
 
@@ -2425,6 +2453,10 @@ public class Coordinator implements CoordInterface {
             LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
             trackingUrl = params.getTrackingUrl();
         }
+        if (params.isSetFirstErrorMsg()) {
+            LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
+            firstErrorMsg = params.getFirstErrorMsg();
+        }
         if (params.isSetTxnId()) {
             txnId = params.getTxnId();
         }
@@ -2455,24 +2487,6 @@ public class Coordinator implements CoordInterface {
                         DebugUtil.printId(queryId), ctx.fragmentId);
             }
             fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-        }
-
-        if (params.isSetLoadedRows() && jobId != -1) {
-            if (params.isSetFragmentInstanceReports()) {
-                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
-                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
-                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
-                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
-                }
-            } else {
-                Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
-            }
         }
     }
 

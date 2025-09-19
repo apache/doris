@@ -29,6 +29,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_avoid_begin.h"
 
 constexpr std::uint8_t kIPv4Bits = 32;
 constexpr std::uint8_t kIPv6Bits = 128;
@@ -93,4 +94,5 @@ bool CIDR::contains(const CIDR& ip) const {
     return (_address[bytes] & mask) == (ip._address[bytes] & mask);
 }
 
+#include "common/compile_check_avoid_end.h"
 } // end namespace doris

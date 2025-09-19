@@ -392,7 +392,10 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
-        _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        // if parsed_values is 0, we don't need to decode levels
+        if (parsed_values != 0) {
+            _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
+        }
     } else {
         std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
@@ -802,6 +805,7 @@ Status MapColumnReader::read_column_data(
     // fill offset and null map
     fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
                       _key_reader->get_def_level());
+    RETURN_IF_ERROR(map.deduplicate_keys());
     DCHECK_EQ(key_column->size(), map.get_offsets().back());
 
     return Status::OK();

@@ -83,7 +83,10 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
 
     public static final ImmutableSet<String> RETURN_MULTI_COLUMNS_FUNCTIONS = new ImmutableSortedSet.Builder<String>(
             String.CASE_INSENSITIVE_ORDER).add("explode").add("explode_outer").add("explode_variant_array")
-            .add("explode_variant_array_outer").build();
+            .add("explode_variant_array_outer").add("explode_json_array_int").add("explode_json_array_double")
+            .add("explode_json_array_string").add("explode_json_array_json").add("explode_json_array_int_outer")
+            .add("explode_json_array_double_outer").add("explode_json_array_string_outer")
+            .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer").build();
 
     public Set<String> getReturnManyColumnFunctions() {
         return RETURN_MULTI_COLUMNS_FUNCTIONS;

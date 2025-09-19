@@ -15,7 +15,7 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[customer lazySlots:(customer.c_first_name)] apply RFs: RF4
 --------------------PhysicalProject
-----------------------hashAgg[LOCAL]
+----------------------hashAgg[GLOBAL]
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ss_addr_sk->[ca_address_sk]
 ----------------------------PhysicalProject
@@ -40,6 +40,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(customer_address { store_sales date_dim store household_demographics } ) leading(current_addr { customer dn } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

@@ -34,7 +34,7 @@ suite ("order_by") {
         """
 
     test {
-        sql "create materialized view mv1_2 as select k1, group_concat(cast(abs(k2) as varchar) order by abs(k2)) from d_table group by k1 order by k1;"
+        sql "create materialized view mv1_2 as select k1 as x, group_concat(cast(abs(k2) as varchar) order by abs(k2)) from d_table group by k1 order by k1;"
         exception "group_concat_state doesn't support order by expression"
     }
 }

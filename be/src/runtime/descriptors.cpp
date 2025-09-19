@@ -25,25 +25,28 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/descriptors.pb.h>
 #include <stddef.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
-#include <memory>
 
+#include "common/exception.h"
 #include "common/object_pool.h"
-#include "runtime/primitive_type.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_nothing.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 const int RowDescriptor::INVALID_IDX = -1;
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
@@ -61,7 +64,25 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
           _is_key(tdesc.is_key),
           _column_paths(tdesc.column_paths),
           _is_auto_increment(tdesc.__isset.is_auto_increment ? tdesc.is_auto_increment : false),
-          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {}
+          _col_default_value(tdesc.__isset.col_default_value ? tdesc.col_default_value : "") {
+    if (tdesc.__isset.virtual_column_expr) {
+        // Make sure virtual column is valid.
+        if (tdesc.virtual_column_expr.nodes.empty()) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is empty, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
+        const auto& node = tdesc.virtual_column_expr.nodes[0];
+        if (node.node_type == TExprNodeType::SLOT_REF) {
+            throw doris::Exception(doris::ErrorCode::FATAL_ERROR,
+                                   "Virtual column expr node is slot ref, col_name: {}, "
+                                   "col_unique_id: {}",
+                                   tdesc.colName, tdesc.col_unique_id);
+        }
+        this->virtual_column_expr = std::make_shared<doris::TExpr>(tdesc.virtual_column_expr);
+    }
+}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
@@ -118,6 +139,10 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
+    if (this->get_virtual_column_expr() != nullptr) {
+        return vectorized::ColumnNothing::create(0);
+    }
+
     return type()->create_column();
 }
 
@@ -130,10 +155,11 @@ PrimitiveType SlotDescriptor::col_type() const {
 }
 
 std::string SlotDescriptor::debug_string() const {
-    std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type->get_name() << " col=" << _col_pos
-        << ", colname=" << _col_name << ", nullable=" << is_nullable() << ")";
-    return out.str();
+    const bool is_virtual = this->get_virtual_column_expr() != nullptr;
+    return fmt::format(
+            "SlotDescriptor(id={}, type={}, col_name={}, col_unique_id={}, "
+            "is_virtual={})",
+            _id, _type->get_name(), _col_name, _col_unique_id, is_virtual);
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
@@ -397,7 +423,7 @@ RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
         : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
-    _num_slots = tuple_desc->slots().size();
+    _num_slots = static_cast<int32_t>(tuple_desc->slots().size());
 }
 
 RowDescriptor::RowDescriptor(const RowDescriptor& lhs_row_desc, const RowDescriptor& rhs_row_desc) {
@@ -592,7 +618,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             DCHECK(false) << "invalid table type: " << tdesc.tableType;
         }
 
-        (*tbl)->_tbl_desc_map[tdesc.id] = desc;
+        (*tbl)->_tbl_desc_map[static_cast<int32_t>(tdesc.id)] = desc;
     }
 
     for (const auto& tdesc : thrift_tbl.tupleDescriptors) {
@@ -600,7 +626,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
 
         // fix up table pointer
         if (tdesc.__isset.tableId) {
-            desc->_table_desc = (*tbl)->get_table_descriptor(tdesc.tableId);
+            desc->_table_desc = (*tbl)->get_table_descriptor(static_cast<int32_t>(tdesc.tableId));
             DCHECK(desc->_table_desc != nullptr);
         }
 
@@ -667,5 +693,5 @@ std::string DescriptorTbl::debug_string() const {
 
     return out.str();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris

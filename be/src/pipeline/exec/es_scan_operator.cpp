@@ -94,7 +94,7 @@ Status EsScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* scan
                 _state, this, p._limit, p._tuple_id, properties, p._docvalue_context,
                 doc_value_mode, _state->runtime_profile());
 
-        RETURN_IF_ERROR(scanner->prepare(_state, Base::_conjuncts));
+        RETURN_IF_ERROR(scanner->init(_state, Base::_conjuncts));
         scanners->push_back(scanner);
     }
 

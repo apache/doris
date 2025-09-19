@@ -19,6 +19,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_group_by_mv_abs") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -37,7 +40,7 @@ suite ("test_dup_group_by_mv_abs") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from d_table group by k1;")
+    createMV ("create materialized view k12sa as select k1 as a1,sum(abs(k2)) from d_table group by k1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
 

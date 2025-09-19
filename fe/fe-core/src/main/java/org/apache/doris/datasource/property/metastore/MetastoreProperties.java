@@ -45,9 +45,10 @@ public class MetastoreProperties extends ConnectionProperties {
 
     public enum Type {
         HMS("hms"),
+        ICEBERG("iceberg"),
+        PAIMON("paimon"),
         GLUE("glue"),
         DLF("dlf"),
-        ICEBERG_REST("rest"),
         DATAPROC("dataproc"),
         FILE_SYSTEM("filesystem", "hadoop"),
         UNKNOWN();
@@ -82,16 +83,8 @@ public class MetastoreProperties extends ConnectionProperties {
     static {
         //subclasses should be registered here
         register(Type.HMS, new HMSPropertiesFactory());
-        register(Type.ICEBERG_REST, props -> {
-            IcebergRestProperties inst = new IcebergRestProperties(props);
-            inst.initNormalizeAndCheckProps();
-            return inst;
-        });
-        register(Type.FILE_SYSTEM, props -> {
-            FileMetastoreProperties inst = new FileMetastoreProperties(props);
-            inst.initNormalizeAndCheckProps();
-            return inst;
-        });
+        register(Type.ICEBERG, new IcebergPropertiesFactory());
+        register(Type.PAIMON, new PaimonPropertiesFactory());
     }
 
     public static void register(Type type, MetastorePropertiesFactory factory) {

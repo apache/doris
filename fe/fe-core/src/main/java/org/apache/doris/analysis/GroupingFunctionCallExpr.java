@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,11 +27,6 @@ import java.util.List;
 public class GroupingFunctionCallExpr extends FunctionCallExpr {
     private boolean childrenReseted = false;
     private List<Expr> realChildren;
-
-    public GroupingFunctionCallExpr(String functionName, List<Expr> params) {
-        super(functionName, params);
-        childrenReseted = false;
-    }
 
     public GroupingFunctionCallExpr(FunctionName functionName, FunctionParams params) {
         super(functionName, params);
@@ -56,34 +47,6 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
     }
 
     @Override
-    public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        if (children.size() < 1) {
-            throw new AnalysisException("GROUPING functions required at least one parameters");
-        }
-        for (Expr expr : children) {
-            if (expr instanceof SlotRef) {
-                continue;
-            } else {
-               // throw new AnalysisException("GROUPING functions required columns as parameters");
-            }
-        }
-        Type[] childTypes = new Type[1];
-        childTypes[0] = Type.BIGINT;
-        fn = getBuiltinFunction(getFnName().getFunction(), childTypes, Function.CompareMode.IS_IDENTICAL);
-        this.type = fn.getReturnType();
-    }
-
-    // set child to virtual slot
-    public void resetChild(VirtualSlotRef virtualSlot) {
-        ArrayList<Expr> newChildren = new ArrayList<>();
-        newChildren.add(virtualSlot);
-        realChildren = new ArrayList<>();
-        realChildren.addAll(children);
-        children = newChildren;
-        childrenReseted = true;
-    }
-
-    @Override
     public Expr reset() {
         if (childrenReseted) {
             children = new ArrayList<>();
@@ -92,29 +55,6 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
         childrenReseted = false;
         realChildren = null;
         return super.reset();
-    }
-
-    // get the origin children of the expr
-    public List<Expr> getRealSlot() {
-        if (childrenReseted) {
-            List<Expr> result = new ArrayList<>();
-            for (Expr expr : realChildren) {
-                result.add(expr);
-            }
-            return result;
-        } else if (isAnalyzed()) {
-            List<Expr> result = new ArrayList<>();
-            for (Expr expr : children) {
-                result.add(expr);
-            }
-            return result;
-        } else {
-            return null;
-        }
-    }
-
-    public List<Expr> getRealChildren() {
-        return realChildren;
     }
 
     @Override

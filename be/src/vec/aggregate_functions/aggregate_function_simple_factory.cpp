@@ -32,7 +32,6 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
 void register_aggregate_function_combinator_foreachv2(AggregateFunctionSimpleFactory& factory);
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_sum0(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_max_by(AggregateFunctionSimpleFactory& factory);
@@ -77,15 +76,15 @@ void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& facto
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_approx_top_k(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_approx_top_sum(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_percentile_reservoir(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory);
 
 AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     static std::once_flag oc;
     static AggregateFunctionSimpleFactory instance;
     std::call_once(oc, [&]() {
         register_aggregate_function_sum(instance);
-        register_aggregate_function_sum0(instance);
         register_aggregate_function_minmax(instance);
         register_aggregate_function_min_by(instance);
         register_aggregate_function_max_by(instance);
@@ -133,8 +132,9 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_covar_samp(instance);
         register_aggregate_function_skewness(instance);
         register_aggregate_function_kurtosis(instance);
-        register_aggregate_function_approx_top_k(instance);
-        register_aggregate_function_approx_top_sum(instance);
+        register_aggregate_function_percentile_reservoir(instance);
+        register_aggregate_function_ai_agg(instance);
+        register_aggregate_function_bool_union(instance);
         // Register foreach and foreachv2 functions
         register_aggregate_function_combinator_foreach(instance);
         register_aggregate_function_combinator_foreachv2(instance);

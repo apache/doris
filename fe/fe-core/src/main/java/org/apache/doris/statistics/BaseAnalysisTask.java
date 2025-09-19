@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -103,14 +104,14 @@ public abstract class BaseAnalysisTask {
             + "cte3 AS ("
             +     "SELECT GROUP_CONCAT(CONCAT("
             +         "REPLACE(REPLACE(t.`column_key`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-            +         "\" :\", ROUND(t.`count` * 100.0 / ${rowCount2}, 2)), \" ;\") "
+            +         "\" :\", ROUND(t.`count` / ${rowCount2}, 2)), \" ;\") "
             +         "as `hot_value` "
             +     "FROM ("
             +         "SELECT ${subStringColName} as `hash_value`, "
             +         "MAX(`${colName}`) as `column_key`, "
             +         "COUNT(1) AS `count` "
             +         "FROM cte1 WHERE `${colName}` IS NOT NULL "
-            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 3) t) "
+            +         "GROUP BY `hash_value` ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String DUJ1_ANALYZE_TEMPLATE = "WITH cte1 AS ("
@@ -141,12 +142,12 @@ public abstract class BaseAnalysisTask {
             + "cte3 AS ("
             +     "SELECT GROUP_CONCAT(CONCAT("
             +         "REPLACE(REPLACE(t2.`col_value`, \":\", \"\\\\:\"), \";\", \"\\\\;\"), "
-            +         "\" :\", ROUND(t2.`count` * 100.0 / ${rowCount2}, 2)), \" ;\") "
+            +         "\" :\", ROUND(t2.`count` / ${rowCount2}, 2)), \" ;\") "
             +         "as `hot_value` "
             +     "FROM ("
             +         "SELECT `col_value`, `count` "
             +             "FROM cte1 "
-            +             "WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT 3) t2) "
+            +             "WHERE `col_value` IS NOT NULL ORDER BY `count` DESC LIMIT ${hotValueCollectCount}) t2) "
             + "SELECT * FROM cte2 CROSS JOIN cte3";
 
     protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = " SELECT "
@@ -196,7 +197,8 @@ public abstract class BaseAnalysisTask {
             + "MIN(${min}) AS `min`, "
             + "MAX(${max}) AS `max`, "
             + "SUM(data_size_in_bytes) AS `data_size`, "
-            + "NOW() AS `update_time` FROM "
+            + "NOW() AS `update_time`,"
+            + "null as `hot_value` FROM "
             + StatisticConstants.FULL_QUALIFIED_PARTITION_STATS_TBL_NAME
             + " WHERE `catalog_id` = ${catalogId} "
             + " AND `db_id` = ${dbId} "
@@ -512,6 +514,9 @@ public abstract class BaseAnalysisTask {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
+                }
                 String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
                 LOG.warn(message);
                 throw new RuntimeException(message);

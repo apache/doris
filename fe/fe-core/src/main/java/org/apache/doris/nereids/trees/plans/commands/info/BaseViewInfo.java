@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisit
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -70,6 +71,7 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -258,7 +260,7 @@ public class BaseViewInfo {
 
         public AnalyzerForCreateView(CascadesContext cascadesContext) {
             super(cascadesContext);
-            jobs = buildAnalyzeViewJobsForStar();
+            jobs = buildAnalyzeJobs();
         }
 
         public void analyze() {
@@ -270,16 +272,23 @@ public class BaseViewInfo {
             return jobs;
         }
 
-        private static List<RewriteJob> buildAnalyzeViewJobsForStar() {
+        private static List<RewriteJob> buildAnalyzeJobs() {
+            return notTraverseChildrenOf(
+                ImmutableSet.of(LogicalView.class, LogicalCTEAnchor.class),
+                AnalyzerForCreateView::buildAnalyzerJobs
+            );
+        }
+
+        private static List<RewriteJob> buildAnalyzerJobs() {
             return jobs(
-                    topDown(new EliminateLogicalSelectHint(),
-                            new EliminateLogicalPreAggOnHint()),
-                    topDown(new AnalyzeCTE()),
-                    bottomUp(
-                            new BindRelation(),
-                            new CheckPolicy(),
-                            new BindExpression()
-                    )
+                topDown(new EliminateLogicalSelectHint(),
+                    new EliminateLogicalPreAggOnHint()),
+                topDown(new AnalyzeCTE()),
+                bottomUp(
+                    new BindRelation(),
+                    new CheckPolicy(),
+                    new BindExpression()
+                )
             );
         }
     }

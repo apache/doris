@@ -156,4 +156,8 @@ MutableColumnPtr DataTypeFixedLengthObject::create_column() const {
     return ColumnType::create(0);
 }
 
+Status DataTypeFixedLengthObject::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnType>(column);
+}
+
 } // namespace doris::vectorized

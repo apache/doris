@@ -34,6 +34,7 @@ import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -167,6 +168,9 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
                 if (runningNum >= 2) {
                     LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
                             task);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_ASYNC_MATERIALIZED_VIEW_TASK_SKIP_NUM.increase(1L);
+                    }
                     return false;
                 }
             }

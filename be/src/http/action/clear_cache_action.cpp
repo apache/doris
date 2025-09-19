@@ -28,8 +28,6 @@
 
 namespace doris {
 
-const static std::string HEADER_JSON = "application/json";
-
 void ClearCacheAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
     std::string cache_type_str = req->param("type");

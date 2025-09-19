@@ -49,13 +49,18 @@ public class StAswkt extends ScalarFunction
         super("st_aswkt", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private StAswkt(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public StAswkt withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new StAswkt(children.get(0));
+        return new StAswkt(getFunctionParams(children));
     }
 
     @Override

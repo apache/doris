@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -40,7 +41,6 @@
 #include "vec/data_types/data_type_date_or_datetime_v2.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_date_or_datetime_computation.h"
 #include "vec/functions/simple_function_factory.h"
@@ -98,6 +98,10 @@ struct RangeImplUtil {
             if constexpr (std::is_same_v<TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::YEAR>>) {
                 return "array_range_year_unit";
+            } else if constexpr (std::is_same_v<
+                                         TimeUnitOrVoid,
+                                         std::integral_constant<TimeUnit, TimeUnit::QUARTER>>) {
+                return "array_range_quarter_unit";
             } else if constexpr (std::is_same_v<
                                          TimeUnitOrVoid,
                                          std::integral_constant<TimeUnit, TimeUnit::MONTH>>) {
@@ -227,9 +231,8 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2,
-                                                               TYPE_DATETIMEV2>(idx, step_row,
-                                                                                is_null);
+                        idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
+                                idx, step_row, is_null);
                     }
                     dest_offsets.push_back(offset);
                 }
@@ -308,6 +311,8 @@ void register_function_array_range(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayRange<RangeThreeImpl<TYPE_INT>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::YEAR>>>>();
+    factory.register_function<FunctionArrayRange<RangeThreeImpl<
+            TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::QUARTER>>>>();
     factory.register_function<FunctionArrayRange<
             RangeThreeImpl<TYPE_DATETIMEV2, std::integral_constant<TimeUnit, TimeUnit::MONTH>>>>();
     factory.register_function<FunctionArrayRange<

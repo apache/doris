@@ -53,7 +53,7 @@ TEST(function_money_format_test, money_format_with_decimalV2) {
             {std::string("-999999999999999999.995999999"),
              std::string("-1,000,000,000,000,000,000.00")}};
 
-    auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl>::create();
+    auto money_format = FunctionMoneyFormat<MoneyFormatDecimalImpl<TYPE_DECIMALV2>>::create();
     std::unique_ptr<RuntimeState> runtime_state = std::make_unique<RuntimeState>();
     auto return_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);

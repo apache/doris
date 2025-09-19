@@ -31,6 +31,18 @@ DORIS_HOME=$(
 )
 export DORIS_HOME
 
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    if ! command -v brew &>/dev/null; then
+        echo "Error: Homebrew is missing. Please install it first due to we use Homebrew to manage the tools which are needed to build the project."
+        exit 1
+    fi
+    if ! brew list llvm@16 > /dev/null 2>&1; then
+        echo "Error: Please install llvm@16 firt due to we use it to format code."
+        exit 1
+    fi
+    export PATH=$(brew --prefix llvm@16)/bin:$PATH
+fi
+
 if [[ -z $(command -v clang-format) ]]; then
     echo "clang-format not found, please install clang-format"
     exit 1

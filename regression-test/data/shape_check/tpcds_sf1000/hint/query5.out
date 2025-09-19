@@ -76,7 +76,7 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[web_site]
 
 Hint log:
-Used: leading(salesreturns broadcast date_dim broadcast store )  leading(salesreturns broadcast date_dim broadcast catalog_page )
+Used: leading(salesreturns broadcast date_dim broadcast store ) leading(salesreturns broadcast date_dim broadcast catalog_page )
 UnUsed: leading(salesreturns broadcast date_dim broadcast web_site)
 SyntaxError: leading(web_sales web_returns) Msg:one query block can only have one leading clause
 

@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((ss_items.item_id = ws_items.item_id)) otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * ws_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * ws_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE)) and (cast(ws_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE))) build RFs:RF13 item_id->[i_item_id]
+----------hashJoin[INNER_JOIN colocated] hashCondition=((ss_items.item_id = ws_items.item_id)) otherCondition=((cast(cs_item_rev as DECIMALV3(38, 3)) <= (1.1 * ws_items.ws_item_rev)) and (cast(cs_item_rev as DECIMALV3(38, 3)) >= (0.9 * ws_items.ws_item_rev)) and (cast(ss_item_rev as DECIMALV3(38, 3)) <= (1.1 * ws_items.ws_item_rev)) and (cast(ss_item_rev as DECIMALV3(38, 3)) >= (0.9 * ws_items.ws_item_rev)) and (cast(ws_item_rev as DECIMALV3(38, 3)) <= (1.1 * cs_items.cs_item_rev)) and (cast(ws_item_rev as DECIMALV3(38, 3)) <= (1.1 * ss_items.ss_item_rev)) and (cast(ws_item_rev as DECIMALV3(38, 3)) >= (0.9 * cs_items.cs_item_rev)) and (cast(ws_item_rev as DECIMALV3(38, 3)) >= (0.9 * ss_items.ss_item_rev))) build RFs:RF13 item_id->[i_item_id]
 ------------PhysicalProject
 --------------hashAgg[GLOBAL]
 ----------------PhysicalDistribute[DistributionSpecHash]
@@ -32,7 +32,7 @@ PhysicalResultSink
 ----------------------------------filter((date_dim.d_date = '2001-06-16'))
 ------------------------------------PhysicalOlapScan[date_dim]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN colocated] hashCondition=((ss_items.item_id = cs_items.item_id)) otherCondition=((cast(cs_item_rev as DOUBLE) <= cast((1.1 * ss_item_rev) as DOUBLE)) and (cast(cs_item_rev as DOUBLE) >= cast((0.9 * ss_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) <= cast((1.1 * cs_item_rev) as DOUBLE)) and (cast(ss_item_rev as DOUBLE) >= cast((0.9 * cs_item_rev) as DOUBLE))) build RFs:RF8 item_id->[i_item_id]
+--------------hashJoin[INNER_JOIN colocated] hashCondition=((ss_items.item_id = cs_items.item_id)) otherCondition=((cast(cs_item_rev as DECIMALV3(38, 3)) <= (1.1 * ss_items.ss_item_rev)) and (cast(cs_item_rev as DECIMALV3(38, 3)) >= (0.9 * ss_items.ss_item_rev)) and (cast(ss_item_rev as DECIMALV3(38, 3)) <= (1.1 * cs_items.cs_item_rev)) and (cast(ss_item_rev as DECIMALV3(38, 3)) >= (0.9 * cs_items.cs_item_rev))) build RFs:RF8 item_id->[i_item_id]
 ----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
@@ -86,6 +86,6 @@ PhysicalResultSink
 
 Hint log:
 Used: leading(store_sales date_dim item ) leading(catalog_sales date_dim item ) leading(web_sales date_dim item ) leading(ws_items { ss_items cs_items } )
-UnUsed: 
+UnUsed:
 SyntaxError:
 

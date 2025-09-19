@@ -19,8 +19,10 @@
 
 #include <foundationdb/fdb_c.h>
 #include <foundationdb/fdb_c_options.g.h>
+#include <gtest/gtest_prod.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -30,6 +32,7 @@
 #include <vector>
 
 #include "txn_kv_error.h"
+#include "versionstamp.h"
 
 // =============================================================================
 //
@@ -286,7 +289,13 @@ public:
         //
         // Default: 1000
         int concurrency;
+
+        // Used for `batch_scan`, if true, the underlying iterator will return keys in reverse order.
+        //
+        // Default: false
+        bool reverse = false;
     };
+
     /**
      * @brief batch get keys
      *
@@ -298,6 +307,56 @@ public:
     virtual TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                                    const std::vector<std::string>& keys,
                                    const BatchGetOptions& opts = BatchGetOptions()) = 0;
+
+    /**
+     * @brief Batch scan for the first key-value pair with each given key prefix.
+     *
+     * For each key prefix in the input key_prefixs, this function scans for keys that start with
+     * that prefix in the direction specified by `opts.reverse` (forward by default) and returns
+     * the first key-value pair encountered. If no key with the given prefix is found, the
+     * corresponding result is an empty optional.
+     *
+     * The function scans keys in batches and is more efficient than scanning each prefix individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input key_prefixs.
+     *                  If a key-value pair with the prefix is found, the element will contain the pair; otherwise, it will be std::nullopt.
+     * @param[in] key_prefixs The list of key prefixes to scan for.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
+     */
+    virtual TxnErrorCode batch_scan(
+            std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+            const std::vector<std::string>& key_prefixs,
+            const BatchGetOptions& opts = BatchGetOptions());
+
+    /**
+     * @brief Batch scan for the first key-value pairs within each given range.
+     *
+     * For each range in the input ranges, this function performs a range scan from the begin key
+     * (inclusive) to the end key (exclusive) in the direction specified by `opts.reverse` (forward
+     * by default) and returns all key-value pairs found within that range. If no keys are found
+     * within a range, the corresponding result is an empty optional.
+     *
+     * The function scans ranges in batches and is more efficient than scanning each range individually.
+     *
+     * @param[out] res The output vector of optionals. Each element corresponds to the same index as in the input ranges.
+     *                  If key-value pairs are found within the range, the element will contain a vector of pairs;
+     *                  otherwise, it will be std::nullopt.
+     * @param[in] ranges The list of ranges to scan. Each range is a pair of (begin_key, end_key) where
+     *                   begin_key is inclusive and end_key is exclusive.
+     * @param[in] opts Options such as `reverse` and `snapshot`. If `reverse` is true, the scan is in the backward direction.
+     *
+     * @return TXN_OK if all scans completed successfully. If any error occurs during the scanning,
+     *         the function stops immediately and returns the error code of the first error encountered.
+     *         Note: The output vector `res` may be partially filled when an error occurs.
+     */
+    virtual TxnErrorCode batch_scan(
+            std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+            const std::vector<std::pair<std::string, std::string>>& ranges,
+            const BatchGetOptions& opts = BatchGetOptions()) = 0;
 
     /**
      * @brief return the approximate bytes consumed by the underlying transaction buffer.
@@ -325,9 +384,31 @@ public:
     virtual size_t delete_bytes() const = 0;
 
     /**
+     * @brief return the bytes of the get values consumed.
+     **/
+    virtual size_t get_bytes() const = 0;
+
+    /**
      * @brief return the bytes of the put key and values consumed.
      **/
     virtual size_t put_bytes() const = 0;
+
+    /**
+     * @brief Enable getting versionstamp for this transaction.
+     * Must be called before commit() if you want to get versionstamp.
+     **/
+    virtual void enable_get_versionstamp() {}
+
+    /**
+     * @brief Get the versionstamp used by the transaction.
+     * Only available after a successful commit() and when enable_get_versionstamp() was called.
+     * @param versionstamp output parameter to store the versionstamp
+     * @return TXN_OK for success, TXN_INVALID_ARGUMENT if not enabled, 
+     *         TXN_KEY_NOT_FOUND if not available
+     **/
+    virtual TxnErrorCode get_versionstamp(Versionstamp* versionstamp) {
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
 };
 
 class RangeGetIterator {
@@ -376,6 +457,12 @@ public:
      * @return size
      */
     virtual int size() const = 0;
+
+    /**
+     * Get all FDBKeyValue's bytes include key's bytes
+     * RangeGetIterator created by get range, when get range the keys in the range too.
+     */
+    virtual int64_t get_kv_bytes() const = 0;
 
     /**
      * Get the remaining size of the range, some kinds of iterators may not support this function.
@@ -557,6 +644,14 @@ public:
 
     int size() const override { return kvs_size_; }
 
+    int64_t get_kv_bytes() const override {
+        int64_t total_bytes {};
+        for (int i = 0; i < kvs_size_; i++) {
+            total_bytes += kvs_[i].key_length + kvs_[i].value_length;
+        }
+        return total_bytes;
+    }
+
     int remaining() const override {
         if (idx_ < 0 || idx_ >= kvs_size_) return 0;
         return kvs_size_ - idx_;
@@ -593,6 +688,9 @@ private:
 };
 
 class Transaction : public cloud::Transaction {
+    FRIEND_TEST(TxnKvTest, ReportConflictingRange);
+    FRIEND_TEST(TxnKvTest, VersionedGetConflictRange);
+
 public:
     friend class Database;
     friend class FullRangeGetIterator;
@@ -697,9 +795,17 @@ public:
 
     TxnErrorCode abort() override;
 
+    void enable_get_versionstamp() override;
+
+    TxnErrorCode get_versionstamp(Versionstamp* versionstamp) override;
+
     TxnErrorCode batch_get(std::vector<std::optional<std::string>>* res,
                            const std::vector<std::string>& keys,
                            const BatchGetOptions& opts = BatchGetOptions()) override;
+
+    TxnErrorCode batch_scan(std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+                            const std::vector<std::pair<std::string, std::string>>& ranges,
+                            const BatchGetOptions& opts = BatchGetOptions()) override;
 
     size_t approximate_bytes() const override { return approximate_bytes_; }
 
@@ -713,7 +819,16 @@ public:
 
     size_t put_bytes() const override { return put_bytes_; }
 
+    size_t get_bytes() const override { return get_bytes_; }
+
 private:
+    // Return the conflicting range when the transaction commit returns TXN_CONFLICT.
+    //
+    // It only works when the report_conflicting_ranges option is enabled.
+    TxnErrorCode get_conflicting_range(
+            std::vector<std::pair<std::string, std::string>>* key_values);
+    TxnErrorCode report_conflicting_range();
+
     std::shared_ptr<Database> db_ {nullptr};
     bool commited_ = false;
     bool aborted_ = false;
@@ -723,8 +838,12 @@ private:
     size_t num_del_keys_ {0};
     size_t num_put_keys_ {0};
     size_t delete_bytes_ {0};
+    size_t get_bytes_ {0};
     size_t put_bytes_ {0};
     size_t approximate_bytes_ {0};
+
+    bool versionstamp_enabled_ {false};
+    Versionstamp versionstamp_result_;
 };
 
 class FullRangeGetIterator final : public cloud::FullRangeGetIterator {
@@ -770,4 +889,5 @@ private:
 };
 
 } // namespace fdb
+
 } // namespace doris::cloud

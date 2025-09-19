@@ -50,11 +50,18 @@ public class ArraySort extends ScalarFunction
         super("array_sort", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private ArraySort(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (((ArrayType) argType).getItemType().isComplexType()) {
-            throw new AnalysisException("array_sort does not support complex types: " + toSql());
+        DataType argType = child(0).getDataType();
+        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                    || ((ArrayType) argType).getItemType().isVariantType()
+                    || ((ArrayType) argType).getItemType().isJsonType())) {
+            throw new AnalysisException("array_sort does not support types: " + argType.toSql());
         }
     }
 
@@ -64,7 +71,7 @@ public class ArraySort extends ScalarFunction
     @Override
     public ArraySort withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ArraySort(children.get(0));
+        return new ArraySort(getFunctionParams(children));
     }
 
     @Override

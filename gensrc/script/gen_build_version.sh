@@ -27,18 +27,20 @@
 
 set -eo pipefail
 
-build_version_prefix="doris"
-build_version_major=0
-build_version_minor=0
-build_version_patch=0
-build_version_hotfix=0
-build_version_rc_version=""
+build_version_prefix="${DORIS_BUILD_VERSION_PREFIX-doris}"
+build_version_major="${DORIS_BUILD_VERSION_MAJOR-0}"
+build_version_minor="${DORIS_BUILD_VERSION_MINOR-0}"
+build_version_patch="${DORIS_BUILD_VERSION_PATCH-0}"
+build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
+build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-""}"
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
 fi
-build_version+="-${build_version_rc_version}"
+if [[ -n "${build_version_rc_version}" ]]; then
+    build_version+="-${build_version_rc_version}"
+fi
 
 # This version is used to check FeMetaVersion is not changed during release
 build_fe_meta_version=0

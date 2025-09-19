@@ -38,8 +38,18 @@ public abstract class TableGeneratingFunction extends BoundFunction implements C
         super(name, arguments);
     }
 
+    /** constructor for withChildren and reuse signature */
+    protected TableGeneratingFunction(GeneratorFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTableGeneratingFunction(this, context);
+    }
+
+    @Override
+    protected GeneratorFunctionParams getFunctionParams(List<Expression> arguments) {
+        return new GeneratorFunctionParams(this, getName(), arguments, isInferred());
     }
 }

@@ -53,13 +53,18 @@ public class FormatRound extends ScalarFunction
         super("format_round", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private FormatRound(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public FormatRound withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new FormatRound(children.get(0), children.get(1));
+        return new FormatRound(getFunctionParams(children));
     }
 
     @Override

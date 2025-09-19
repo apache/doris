@@ -67,6 +67,7 @@ public class OlapScanNodeTest {
         filterMap.put("COLUMNA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,
@@ -111,6 +112,7 @@ public class OlapScanNodeTest {
         filterMap.put("columnA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
+                null,
                 partitions,
                 columns,
                 filterMap,

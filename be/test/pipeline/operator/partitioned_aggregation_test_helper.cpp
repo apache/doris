@@ -205,9 +205,6 @@ PartitionedAggLocalState* PartitionedAggregationTestHelper::create_source_local_
     local_state->_copy_shared_spill_profile = false;
     local_state->_internal_runtime_profile = std::make_unique<RuntimeProfile>("inner_test");
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinProbeOperatorTestSpillDep", true);
-
     state->emplace_local_state(probe_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
 }
@@ -228,8 +225,6 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
             sink_operator->dests_id().front(), sink_operator->operator_id(),
             "PartitionedHashJoinTestDep");
 
-    local_state->_spill_dependency =
-            Dependency::create_shared(0, 0, "PartitionedHashJoinSinkOperatorTestSpillDep", true);
     shared_state->setup_shared_profile(local_state->custom_profile());
 
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));

@@ -41,6 +41,7 @@
 
 namespace doris {
 namespace segment_v2 {
+#include "common/compile_check_begin.h"
 
 template <FieldType Type>
 class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
@@ -75,12 +76,12 @@ public:
                 }
             }
             size_t offset = _buffer.size();
-            _offsets.push_back(offset);
+            _offsets.push_back(cast_set<uint32_t>(offset));
             // This may need a large memory, should return error if could not allocated
             // successfully, to avoid BE OOM.
             RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
 
-            _last_value_size = src->size;
+            _last_value_size = cast_set<uint32_t>(src->size);
             _size_estimate += src->size;
             _size_estimate += sizeof(uint32_t);
 
@@ -100,7 +101,7 @@ public:
             for (uint32_t _offset : _offsets) {
                 put_fixed32_le(&_buffer, _offset);
             }
-            put_fixed32_le(&_buffer, _offsets.size());
+            put_fixed32_le(&_buffer, cast_set<uint32_t>(_offsets.size()));
             if (_offsets.size() > 0) {
                 _copy_value_at(0, &_first_value);
                 _copy_value_at(_offsets.size() - 1, &_last_value);
@@ -202,7 +203,7 @@ public:
 
         // Decode trailer
         _num_elems = decode_fixed32_le((const uint8_t*)&_data[_data.get_size() - sizeof(uint32_t)]);
-        _offsets_pos = _data.get_size() - (_num_elems + 1) * sizeof(uint32_t);
+        _offsets_pos = cast_set<uint32_t>(_data.get_size() - ((_num_elems + 1) * sizeof(uint32_t)));
 
         if (_offsets_pos > _data.get_size() - sizeof(uint32_t)) {
             return Status::Corruption(
@@ -365,10 +366,11 @@ private:
     std::vector<StringRef> _binary_data;
 
     // Index of the currently seeked element in the page.
-    uint32_t _cur_idx;
+    size_t _cur_idx;
     friend class BinaryDictPageDecoder;
     friend class FileColumnIterator;
 };
 
+#include "common/compile_check_end.h"
 } // namespace segment_v2
 } // namespace doris

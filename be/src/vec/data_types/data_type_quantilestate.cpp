@@ -158,6 +158,10 @@ MutableColumnPtr DataTypeQuantileState::create_column() const {
     return ColumnQuantileState::create();
 }
 
+Status DataTypeQuantileState::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnQuantileState>(column);
+}
+
 void DataTypeQuantileState::serialize_as_stream(const QuantileState& cvalue, BufferWritable& buf) {
     auto& value = const_cast<QuantileState&>(cvalue);
     std::string memory_buffer;

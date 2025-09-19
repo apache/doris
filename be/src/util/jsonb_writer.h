@@ -36,17 +36,16 @@
 #ifndef JSONB_JSONBWRITER_H
 #define JSONB_JSONBWRITER_H
 
+#include <glog/logging.h>
+
 #include <cstdint>
 #include <limits>
 #include <stack>
 #include <string>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/primitive_type.h"
 #include "vec/core/types.h"
 
 namespace doris {
@@ -70,6 +69,24 @@ public:
         if (alloc_) {
             delete os_;
         }
+    }
+
+    JsonbWriterT<OS_TYPE>& operator=(JsonbWriterT<OS_TYPE>&& other) {
+        if (this != &other) {
+            if (alloc_) {
+                delete os_;
+            }
+            os_ = other.os_;
+            other.os_ = nullptr;
+            alloc_ = other.alloc_;
+            other.alloc_ = false;
+            hasHdr_ = other.hasHdr_;
+            kvState_ = other.kvState_;
+            str_pos_ = other.str_pos_;
+            first_ = other.first_;
+            stack_ = std::move(other.stack_);
+        }
+        return *this;
     }
 
     void reset() {
@@ -104,6 +121,10 @@ public:
     }
 
     bool writeValue(const JsonbValue* value) {
+        if (!value) {
+            return writeNull();
+        }
+
         if ((first_ && stack_.empty()) || (!stack_.empty() && verifyValueState())) {
             if (!writeFirstHeader()) {
                 return false;
@@ -113,6 +134,18 @@ public:
             return true;
         }
         return false;
+    }
+
+    bool writeValueSimple(const JsonbValue* value) {
+        DCHECK(value) << "value should not be nullptr";
+        DCHECK(first_) << "only called at the beginning";
+        DCHECK(stack_.empty()) << "only called at the beginning";
+        DCHECK(!hasHdr_) << "only called at the beginning";
+        first_ = false;
+        writeHeader();
+        os_->write((char*)value, value->numPackedBytes());
+        kvState_ = WS_Value;
+        return true;
     }
 
     // write a key id

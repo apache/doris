@@ -62,10 +62,6 @@ public:
         return Status::OK();
     }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == T || (is_string_type(input_type) && is_string_type(T));
-    }
-
     void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
                           bool* flags) const override;
 
@@ -144,9 +140,8 @@ private:
             }
         }
     }
-
-    __attribute__((flatten)) std::vector<bool> _find_code_from_dictionary_column(
-            const vectorized::ColumnDictI32& column) const {
+    std::vector<bool> __attribute__((flatten))
+    _find_code_from_dictionary_column(const vectorized::ColumnDictI32& column) const {
         std::vector<bool> res;
         if (_segment_id_to_cached_res_flags.if_contains(
                     column.get_rowset_segment_id(),

@@ -17,25 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-
-import java.util.ArrayList;
 
 /**
  * cancel warm up job command
@@ -43,7 +35,6 @@ import java.util.ArrayList;
 public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
     private Expression whereClause;
     private long jobId;
-    private Expr legacyWhereClause;
 
     public CancelWarmUpJobCommand(Expression whereClause) {
         super(PlanType.CANCEL_WARM_UP_JOB_COMMAND);
@@ -79,14 +70,6 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
         if (!analyzeWhereClause()) {
             throw new AnalysisException("Where clause should looks like one of them: id = 123");
         }
-
-        LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
-                PhysicalProperties.ANY);
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        legacyWhereClause = ExpressionTranslator.translate(whereClause, planTranslatorContext);
     }
 
     private boolean analyzeWhereClause() {
@@ -100,8 +83,8 @@ public class CancelWarmUpJobCommand extends Command implements ForwardWithSync {
         }
 
         String leftKey = ((UnboundSlot) whereClause.child(0)).getName();
-        if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLiteral)) {
-            jobId = ((IntegerLiteral) whereClause.child(1)).getLongValue();
+        if (leftKey.equalsIgnoreCase("id") && (whereClause.child(1) instanceof IntegerLikeLiteral)) {
+            jobId = ((IntegerLikeLiteral) whereClause.child(1)).getLongValue();
         } else {
             return false;
         }

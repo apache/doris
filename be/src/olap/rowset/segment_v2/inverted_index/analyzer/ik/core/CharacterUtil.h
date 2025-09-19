@@ -27,6 +27,7 @@
 #include "CLucene/analysis/jieba/Unicode.hpp"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class CharacterUtil {
 public:
@@ -47,7 +48,9 @@ public:
         TypedRune() : RuneStr(), char_type(0) {}
         TypedRune(int32_t in_rune, size_t in_offset, size_t in_len, size_t in_unicode_offset,
                   size_t in_unicode_length)
-                : RuneStr(in_rune, in_offset, in_len, in_unicode_offset, in_unicode_length),
+                : RuneStr(in_rune, static_cast<uint32_t>(in_offset), static_cast<uint32_t>(in_len),
+                          static_cast<uint32_t>(in_unicode_offset),
+                          static_cast<uint32_t>(in_unicode_length)),
                   char_type(CharacterUtil::identifyCharType(rune)) {}
 
         void init(const RuneStr& runeStr) {
@@ -85,4 +88,5 @@ public:
     static void regularizeString(std::string& input, bool use_lowercase = true);
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::segment_v2

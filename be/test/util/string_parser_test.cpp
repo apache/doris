@@ -462,10 +462,10 @@ TEST(StringToFloat, Basic) {
     test_float_value_is_nan<float>("nnaN", StringParser::PARSE_FAILURE);
 
     // Overflow.
-    test_float_value<float>(float_max + "11111", StringParser::PARSE_OVERFLOW);
-    test_float_value<double>(double_max + "11111", StringParser::PARSE_OVERFLOW);
-    test_float_value<float>("-" + float_max + "11111", StringParser::PARSE_OVERFLOW);
-    test_float_value<double>("-" + double_max + "11111", StringParser::PARSE_OVERFLOW);
+    test_float_value<float>(float_max + "11111", StringParser::PARSE_SUCCESS);
+    test_float_value<double>(double_max + "11111", StringParser::PARSE_SUCCESS);
+    test_float_value<float>("-" + float_max + "11111", StringParser::PARSE_SUCCESS);
+    test_float_value<double>("-" + double_max + "11111", StringParser::PARSE_SUCCESS);
 
     // Precision limits
     // Regression test for IMPALA-1622 (make sure we get correct result with many digits

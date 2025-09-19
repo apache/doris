@@ -157,6 +157,61 @@ public:
         }
         return true;
     }
+
+    // SIMD helper: find the first not null in the null map
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+#ifdef __AVX2__
+        // search by simd
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i null_vec = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&null_map[pos]));
+            __m256i zero_vec = _mm256_setzero_si256();
+            __m256i cmp_result = _mm256_cmpeq_epi8(null_vec, zero_vec);
+
+            int mask = _mm256_movemask_epi8(cmp_result);
+            if (mask != 0) {
+                // find the first not null
+                return pos + __builtin_ctz(mask);
+            }
+        }
+
+        // handle the rest elements
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            if (!null_map[pos]) {
+                return pos;
+            }
+        }
+#endif
+        return end_pos;
+    }
+
+    // SIMD helper: batch set non-null value with [start, end) to 1
+    static void range_set_nullmap_to_true_simd(NullMap& null_map, size_t start_pos,
+                                               size_t end_pos) {
+#ifdef __AVX2__
+        // batch set null map to 1 using SIMD (32 bytes at a time)
+        for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
+            __m256i ones_vec = _mm256_set1_epi8(1);
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(&null_map[pos]), ones_vec);
+        }
+
+        // handle the rest elements (less than 32 bytes)
+        for (size_t pos = start_pos + ((end_pos - start_pos) / 32) * 32; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#else
+        // standard implementation
+        for (size_t pos = start_pos; pos < end_pos; ++pos) {
+            null_map[pos] = 1;
+        }
+#endif
+    }
 };
 
 inline bool match_suffix(const std::string& name, const std::string& suffix) {
@@ -192,11 +247,11 @@ inline void change_null_to_true(ColumnPtr column, ColumnPtr argument = nullptr) 
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
                                         ->get_data()
                                         .data();
-        auto* __restrict null_map = const_cast<uint8_t*>(nullable->get_null_map_data().data());
+        const NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }
-        memset(null_map, 0, rows);
+        nullable->fill_false_to_nullmap(rows);
     } else if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
@@ -228,6 +283,17 @@ inline size_t calculate_false_number(ColumnPtr column) {
         const auto* data = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
         return simd::count_zero_num(reinterpret_cast<const int8_t* __restrict>(data), rows);
     }
+}
+
+template <typename T>
+T read_from_json(const std::string& json_str) {
+    auto memBufferIn = std::make_shared<apache::thrift::transport::TMemoryBuffer>(
+            reinterpret_cast<uint8_t*>(const_cast<char*>(json_str.data())),
+            static_cast<uint32_t>(json_str.size()));
+    auto jsonProtocolIn = std::make_shared<apache::thrift::protocol::TJSONProtocol>(memBufferIn);
+    T params;
+    params.read(jsonProtocolIn.get());
+    return params;
 }
 
 } // namespace doris::vectorized

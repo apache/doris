@@ -30,4 +30,9 @@ public abstract class EncodeString extends ScalarFunction implements UnaryExpres
     public EncodeString(String name, Expression arg0) {
         super(name, arg0);
     }
+
+    /** constructor for withChildren and reuse signature */
+    protected EncodeString(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
 }

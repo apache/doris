@@ -16,10 +16,6 @@
 // under the License.
 
 suite("regression_test_variant_desc", "p0"){
-    // if (isCloudMode()) {
-    //     return
-    // }
-
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -80,20 +76,8 @@ suite("regression_test_variant_desc", "p0"){
         """
     }
 
-    def set_be_config = { key, value ->
-        // String backend_id;
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        // backend_id = backendId_to_backendIP.keySet()[0]
-        for (backend_id in  backendId_to_backendIP.keySet()) {
-            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
-            logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
-        }
-    }
-
     try {
+        sql """set default_variant_max_subcolumns_count = 2"""
         // sparse columns
         def table_name = "sparse_columns"
         create_table table_name
@@ -110,6 +94,7 @@ suite("regression_test_variant_desc", "p0"){
         qt_sql_2 """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
+        sql """set default_variant_max_subcolumns_count = 0"""
         // no sparse columns
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")

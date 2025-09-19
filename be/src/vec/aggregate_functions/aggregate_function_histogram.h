@@ -166,7 +166,9 @@ private:
 template <typename Data, bool has_input_param>
 class AggregateFunctionHistogram final
         : public IAggregateFunctionDataHelper<Data,
-                                              AggregateFunctionHistogram<Data, has_input_param>> {
+                                              AggregateFunctionHistogram<Data, has_input_param>>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionHistogram() = default;
     AggregateFunctionHistogram(const DataTypes& argument_types_)
@@ -179,14 +181,15 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         if constexpr (has_input_param) {
             Int32 input_max_num_buckets =
                     assert_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
-            if (input_max_num_buckets <= 0) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid max_num_buckets {}, row_num {}",
-                                       input_max_num_buckets, row_num);
+            if (input_max_num_buckets <= 0 || input_max_num_buckets > 1000000) {
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "Invalid max_num_buckets {}, row_num {}, should be in (0, 1000000]",
+                        input_max_num_buckets, row_num);
             }
             this->data(place).set_parameters(input_max_num_buckets);
         } else {
@@ -208,7 +211,7 @@ public:
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -217,7 +220,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

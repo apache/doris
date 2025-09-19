@@ -36,7 +36,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -379,7 +378,9 @@ private:
 
 template <typename Impl>
 class AggFunctionOrthBitmapFunc final
-        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>> {
+        : public IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 public:
     String get_name() const override { return Impl::name; }
 
@@ -393,13 +394,13 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena*) const override {
+             Arena&) const override {
         this->data(place).init_add_key(columns, row_num, _argument_size);
         this->data(place).add(columns, row_num);
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
@@ -408,7 +409,7 @@ public:
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
+                     Arena&) const override {
         this->data(place).read(buf);
     }
 

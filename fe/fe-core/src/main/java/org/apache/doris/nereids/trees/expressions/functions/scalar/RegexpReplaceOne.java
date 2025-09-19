@@ -67,6 +67,11 @@ public class RegexpReplaceOne extends ScalarFunction
         super("regexp_replace_one", arg0, arg1, arg2, arg3);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private RegexpReplaceOne(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
@@ -74,11 +79,7 @@ public class RegexpReplaceOne extends ScalarFunction
     public RegexpReplaceOne withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3 || children.size() == 4,
                 "RegexpReplaceOne should have 3 or 4 children");
-        if (children.size() == 3) {
-            return new RegexpReplaceOne(children.get(0), children.get(1), children.get(2));
-        } else {
-            return new RegexpReplaceOne(children.get(0), children.get(1), children.get(2), children.get(3));
-        }
+        return new RegexpReplaceOne(getFunctionParams(children));
     }
 
     @Override

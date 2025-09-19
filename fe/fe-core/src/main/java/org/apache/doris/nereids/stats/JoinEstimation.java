@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -33,6 +34,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.HashMap;
 import java.util.List;
@@ -445,10 +447,6 @@ public class JoinEstimation {
             EqualPredicate equalTo = (EqualPredicate) expr;
             ColumnStatistic leftColStats = ExpressionEstimation.estimate(equalTo.left(), inputStats);
             ColumnStatistic rightColStats = ExpressionEstimation.estimate(equalTo.right(), inputStats);
-            double leftNdv = 1.0;
-            double rightNdv = 1.0;
-            boolean updateLeft = false;
-            boolean updateRight = false;
             Expression eqLeft = equalTo.left();
             if (eqLeft instanceof Cast) {
                 eqLeft = eqLeft.child(0);
@@ -458,42 +456,78 @@ public class JoinEstimation {
                 eqRight = eqRight.child(0);
             }
             if (joinType == JoinType.INNER_JOIN) {
-                leftNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                rightNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                updateLeft = true;
-                updateRight = true;
+                ColumnStatisticBuilder builder = new ColumnStatisticBuilder(leftColStats);
+                builder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
+                // update hot values
+                if (leftColStats.getHotValues() != null && rightColStats.getHotValues() != null) {
+                    Map<Literal, Float> newHotValues = Maps.newHashMap();
+                    for (Literal literal : leftColStats.getHotValues().keySet()) {
+                        if (rightColStats.getHotValues().containsKey(literal)) {
+                            newHotValues.put(literal, Math.min(leftColStats.getHotValues().get(literal),
+                                    rightColStats.getHotValues().get(literal)));
+                        }
+                    }
+                    if (newHotValues.isEmpty()) {
+                        builder.setHotValues(null);
+                    } else {
+                        builder.setHotValues(newHotValues);
+                    }
+                }
+                updatedCols.put(eqLeft, builder.build());
+                updatedCols.put(eqRight, builder.build());
             } else if (joinType == JoinType.LEFT_OUTER_JOIN) {
-                leftNdv = leftColStats.ndv;
-                rightNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                updateLeft = true;
-                updateRight = true;
+                ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
+                rightBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
+                // update hot values
+                if (leftColStats.getHotValues() != null && rightColStats.getHotValues() != null) {
+                    Map<Literal, Float> newHotValues = Maps.newHashMap();
+                    for (Literal literal : leftColStats.getHotValues().keySet()) {
+                        if (rightColStats.getHotValues().containsKey(literal)) {
+                            newHotValues.put(literal, Math.min(leftColStats.getHotValues().get(literal),
+                                    rightColStats.getHotValues().get(literal)));
+                        }
+                    }
+                    if (newHotValues.isEmpty()) {
+                        rightBuilder.setHotValues(null);
+                    } else {
+                        rightBuilder.setHotValues(newHotValues);
+                    }
+                }
+                updatedCols.put(eqRight, rightBuilder.build());
             } else if (joinType == JoinType.LEFT_SEMI_JOIN
                     || joinType == JoinType.LEFT_ANTI_JOIN
                     || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
-                leftNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                updateLeft = true;
+                ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
+                leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
+                updatedCols.put(eqLeft, leftBuilder.build());
             } else if (joinType == JoinType.RIGHT_OUTER_JOIN) {
-                leftNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                rightNdv = rightColStats.ndv;
+                ColumnStatisticBuilder leftBuilder = new ColumnStatisticBuilder(leftColStats);
+                leftBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
+                // update hot values
+                if (leftColStats.getHotValues() != null && rightColStats.getHotValues() != null) {
+                    Map<Literal, Float> newHotValues = Maps.newHashMap();
+                    for (Literal literal : rightColStats.getHotValues().keySet()) {
+                        if (leftColStats.getHotValues().containsKey(literal)) {
+                            newHotValues.put(literal, Math.min(leftColStats.getHotValues().get(literal),
+                                    rightColStats.getHotValues().get(literal)));
+                        }
+                    }
+                    if (newHotValues.isEmpty()) {
+                        leftBuilder.setHotValues(null);
+                    } else {
+                        leftBuilder.setHotValues(newHotValues);
+                    }
+                }
+                updatedCols.put(eqLeft, leftBuilder.build());
             } else if (joinType == JoinType.RIGHT_SEMI_JOIN
                     || joinType == JoinType.RIGHT_ANTI_JOIN) {
-                rightNdv = Math.min(leftColStats.ndv, rightColStats.ndv);
-                updateRight = true;
+                ColumnStatisticBuilder rightBuilder = new ColumnStatisticBuilder(rightColStats);
+                rightBuilder.setNdv(Math.min(leftColStats.ndv, rightColStats.ndv));
+                updatedCols.put(eqRight, rightBuilder.build());
             } else if (joinType == JoinType.FULL_OUTER_JOIN || joinType == JoinType.CROSS_JOIN) {
-                leftNdv = leftColStats.ndv;
-                rightNdv = rightColStats.ndv;
-                updateLeft = true;
-                updateRight = true;
+                // ignore
             }
 
-            if (updateLeft) {
-                leftColStats = new ColumnStatisticBuilder(leftColStats).setNdv(leftNdv).build();
-                updatedCols.put(eqLeft, leftColStats);
-            }
-            if (updateRight) {
-                rightColStats = new ColumnStatisticBuilder(rightColStats).setNdv(rightNdv).build();
-                updatedCols.put(eqRight, rightColStats);
-            }
         }
         updatedCols.entrySet().stream().forEach(
                 entry -> inputStats.addColumnStats(entry.getKey(), entry.getValue())

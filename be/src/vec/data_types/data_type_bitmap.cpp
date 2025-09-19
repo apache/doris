@@ -156,6 +156,10 @@ MutableColumnPtr DataTypeBitMap::create_column() const {
     return ColumnBitmap::create();
 }
 
+Status DataTypeBitMap::check_column(const IColumn& column) const {
+    return check_column_non_nested_type<ColumnBitmap>(column);
+}
+
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
     auto& value = const_cast<BitmapValue&>(cvalue);
     std::string memory_buffer;
@@ -181,17 +185,5 @@ void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWrit
     std::string buffer(data.getSizeInBytes(), '0');
     data.write_to(const_cast<char*>(buffer.data()));
     ostr.write(buffer.c_str(), buffer.size());
-}
-
-Status DataTypeBitMap::from_string(ReadBuffer& rb, IColumn* column) const {
-    auto& data_column = assert_cast<ColumnBitmap&>(*column);
-    auto& data = data_column.get_data();
-
-    BitmapValue value;
-    if (!value.deserialize(rb.to_string().c_str())) {
-        return Status::InternalError("deserialize BITMAP from string fail!");
-    }
-    data.push_back(std::move(value));
-    return Status::OK();
 }
 } // namespace doris::vectorized

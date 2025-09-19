@@ -17,6 +17,8 @@
 
 suite ("test_dup_mv_useless") {
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     def testTable = "test_dup_mv_useless_table"
@@ -42,14 +44,14 @@ suite ("test_dup_mv_useless") {
     sql "insert into ${testTable} select 3,3,3;"
 
     test {
-        sql "create materialized view k1_k2_k3 as select k1,k2,k3 from ${testTable};"
+        sql "create materialized view k1_k2_k3 as select k1 as a1,k2 as a2,k3 as a3 from ${testTable};"
         exception "errCode = 2,"
     }
 
-    create_sync_mv(db, testTable, "k1_u1", "select k1 from ${testTable} group by k1;")
-    create_sync_mv(db, testTable, "k1_k2_u12", "select k1,k2 from ${testTable} group by k1,k2;")
-    create_sync_mv(db, testTable, "k1_k2_u21", "select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
-    create_sync_mv(db, testTable, "k1_k2_sumk3", "select k1,k2,sum(k3) from ${testTable} group by k1,k2;")
+    create_sync_mv(db, testTable, "k1_u1", "select k1 as a1 from ${testTable} group by k1;")
+    create_sync_mv(db, testTable, "k1_k2_u12", "select k1 as a2,k2 as a3 from ${testTable} group by k1,k2;")
+    create_sync_mv(db, testTable, "k1_k2_u21", "select k2 as a4,k1 as a5 from ${testTable} group by k2,k1 order by k2,k1;")
+    create_sync_mv(db, testTable, "k1_k2_sumk3", "select k1 as a6,k2 as a7,sum(k3) as a8 from ${testTable} group by k1,k2;")
     sql "insert into ${testTable} select 4,4,4;"
 
     test {

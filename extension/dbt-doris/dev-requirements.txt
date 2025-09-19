@@ -2,13 +2,13 @@
 git+https://github.com/dbt-labs/dbt-core.git#egg=dbt-core&subdirectory=core
 git+https://github.com/dbt-labs/dbt-core.git#egg=dbt-tests-adapter&subdirectory=tests/adapter
 
-black==22.3.0
+mypy
+freezegun
+black
 bumpversion
 flake8
 flaky
-freezegun==0.3.12
 ipdb
-mypy==0.782
 pip-tools
 pre-commit
 pytest
@@ -20,4 +20,4 @@ pytz
 tox>=3.13
 twine
 wheel
-mysql-connector-python>=8.0.0,<8.1
+mysql-connector-python>=8.0.0,<8.3

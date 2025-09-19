@@ -72,9 +72,6 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::TIMEV2:
         return TYPE_TIMEV2;
 
-    case TPrimitiveType::TIME:
-        return TYPE_TIMEV2;
-
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
 
@@ -137,7 +134,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::VARIANT:
         return TYPE_VARIANT;
-
+    case TPrimitiveType::VARBINARY:
+        return TYPE_VARBINARY;
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -251,7 +249,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::LAMBDA_FUNCTION;
     case TYPE_AGG_STATE:
         return TPrimitiveType::AGG_STATE;
-
+    case TYPE_VARBINARY:
+        return TPrimitiveType::VARBINARY;
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -366,6 +365,8 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_VARIANT:
         return "VARIANT";
 
+    case TYPE_VARBINARY:
+        return "VARBINARY";
     default:
         return "";
     };

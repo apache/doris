@@ -19,13 +19,44 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.encryption.EncryptionKey;
+import org.apache.doris.encryption.RootKeyInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class KeyOperationInfo implements Writable {
+    public enum KeyOPType {
+        SET_ROOT_KEY;
+    }
+
+    @Setter
+    @Getter
+    @SerializedName(value = "opType")
+    private KeyOPType opType;
+
+    @Setter
+    @Getter
+    @SerializedName(value = "rootKeyInfo")
+    private RootKeyInfo rootKeyInfo;
+
+    @Setter
+    @Getter
+    @SerializedName(value = "masterKey")
+    private List<EncryptionKey> masterKeys = new ArrayList<>();
+
+    public void addMasterKey(EncryptionKey key) {
+        masterKeys.add(key);
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));

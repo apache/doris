@@ -24,6 +24,7 @@
 #include <ostream>
 #include <string>
 
+#include "common/cast_set.h"
 #include "io/fs/file_writer.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
@@ -33,6 +34,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 
@@ -112,7 +114,7 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     IndexPageReader reader;
     RETURN_IF_ERROR(reader.parse(body, footer.index_page_footer()));
 
-    _num_pages = reader.count();
+    _num_pages = cast_set<int>(reader.count());
     _ordinals.resize(_num_pages + 1);
     _pages.resize(_num_pages);
 
@@ -157,4 +159,5 @@ OrdinalPageIndexIterator OrdinalIndexReader::seek_at_or_before(ordinal_t ordinal
 OrdinalIndexReader::~OrdinalIndexReader() = default;
 
 } // namespace segment_v2
+#include "common/compile_check_end.h"
 } // namespace doris

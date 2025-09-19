@@ -36,7 +36,11 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// clang-format off
+#include "common/compile_check_avoid_begin.h"
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
+#include "common/compile_check_avoid_end.h"
+// clang-format on
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -168,8 +172,19 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         roaring::Roaring result;
         std::vector<std::string> terms = split(token, '|');
 
-        doris::TQueryOptions queryOptions;
-        ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
+        doris::OlapReaderStatistics stats;
+        doris::RuntimeState runtime_state;
+        doris::TQueryOptions query_options;
+        query_options.inverted_index_max_expansions = 50;
+        runtime_state.set_query_options(query_options);
+        doris::io::IOContext io_ctx;
+
+        IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+        context->runtime_state = &runtime_state;
+        context->stats = &stats;
+        context->io_ctx = &io_ctx;
+
+        ConjunctionQuery conjunct_query(s, context);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = field_ws;
         for (auto& term : terms) {

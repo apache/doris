@@ -49,7 +49,7 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginInsert((IcebergExternalTable) table);
+        transaction.beginInsert((IcebergExternalTable) table, insertCtx);
     }
 
     @Override
@@ -60,7 +60,7 @@ public class IcebergInsertExecutor extends BaseExternalTableInsertExecutor {
                 dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         this.loadedRows = transaction.getUpdateCnt();
-        transaction.finishInsert(nameMapping, insertCtx);
+        transaction.finishInsert(nameMapping);
     }
 
     @Override

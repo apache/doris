@@ -38,7 +38,8 @@ const Status TableSchemaChangeHelper::BuildTableInfoUtil::SCHEMA_ERROR = Status:
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const TupleDescriptor* table_tuple_descriptor, const FieldDescriptor& parquet_field_desc,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+        const std::set<TSlotId>* is_file_slot) {
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
     auto parquet_fields_schema = parquet_field_desc.get_fields_schema();
     std::map<std::string, size_t> file_column_name_idx_map;
@@ -48,8 +49,9 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
 
     for (const auto& slot : table_tuple_descriptor->slots()) {
         const auto& table_column_name = slot->col_name();
-
-        if (file_column_name_idx_map.contains(table_column_name)) {
+        // https://github.com/apache/doris/pull/23369/files
+        if ((is_file_slot == nullptr || is_file_slot->contains(slot->id())) &&
+            file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
             RETURN_IF_ERROR(by_parquet_name(slot->type(), parquet_fields_schema[file_column_idx],
@@ -159,7 +161,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
 
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
         const TupleDescriptor* table_tuple_descriptor, const orc::Type* orc_type_ptr,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node,
+        const std::set<TSlotId>* is_file_slot) {
     auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
 
     std::map<std::string, uint64_t> file_column_name_idx_map;
@@ -170,7 +173,8 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
 
     for (const auto& slot : table_tuple_descriptor->slots()) {
         const auto& table_column_name = slot->col_name();
-        if (file_column_name_idx_map.contains(table_column_name)) {
+        if ((is_file_slot == nullptr || is_file_slot->contains(slot->id())) &&
+            file_column_name_idx_map.contains(table_column_name)) {
             auto file_column_idx = file_column_name_idx_map[table_column_name];
             std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
             RETURN_IF_ERROR(by_orc_name(slot->type(), orc_type_ptr->getSubtype(file_column_idx),
@@ -623,17 +627,16 @@ std::string TableSchemaChangeHelper::debug(const std::shared_ptr<Node>& root, si
         ans += prefix + "ScalarNode\n";
     } else if (auto struct_node = std::dynamic_pointer_cast<StructNode>(root)) {
         ans += prefix + "StructNode\n";
-        for (const auto& [table_col_name, value] : struct_node->get_childrens()) {
-            const auto& [child_node, file_col_name, exist] = value;
+        for (const auto& [table_col_name, value] : struct_node->get_children()) {
             ans += indent(level + 1) + table_col_name;
-            if (exist) {
-                ans += " (file: " + file_col_name + ")";
+            if (value.exists) {
+                ans += " (file: " + value.column_name + ")";
             } else {
                 ans += " (not exists)";
             }
             ans += "\n";
-            if (child_node) {
-                ans += debug(child_node, level + 2);
+            if (value.node) {
+                ans += debug(value.node, level + 2);
             }
         }
     } else if (auto array_node = std::dynamic_pointer_cast<ArrayNode>(root)) {
