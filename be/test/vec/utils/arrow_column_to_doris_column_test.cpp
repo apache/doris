@@ -183,9 +183,14 @@ void test_datetime(std::shared_ptr<ArrowType> type, const std::vector<std::strin
     DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, true);
     MutableColumnPtr data_column = data_type->create_column();
     ColumnWithTypeAndName column(std::move(data_column), data_type, "test_datatime_column");
-    for (auto& value : test_cases) {
+    for (const auto& value : test_cases) {
         ArrowCppType arrow_datetime = string_to_arrow_datetime<ArrowType>(type, value);
         VecDateTimeValue tv;
+        if constexpr (std::is_same_v<ArrowType, arrow::Date32Type>) {
+            tv.set_type(TimeType::TIME_DATE);
+        } else {
+            tv.set_type(TimeType::TIME_DATETIME);
+        }
         tv.from_date_str(value.c_str(), value.size());
         test_arrow_to_datetime_column<ArrowType, ColumnType, is_nullable>(
                 type, column, num_elements, arrow_datetime, tv, counter);

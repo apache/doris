@@ -44,6 +44,7 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 

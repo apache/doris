@@ -71,19 +71,20 @@ Status BetaRowset::init() {
     return Status::OK(); // no op
 }
 
-Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows) {
+Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
+                                        OlapReaderStatistics* read_stats) {
     // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
     // So here `ROWSET_UNLOADING` is allowed.
     DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, read_stats] {
         auto segment_count = num_segments();
         _segments_rows.resize(segment_count);
         for (int64_t i = 0; i != segment_count; ++i) {
             SegmentCacheHandle segment_cache_handle;
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
                     std::static_pointer_cast<BetaRowset>(shared_from_this()), i,
-                    &segment_cache_handle, false, false));
+                    &segment_cache_handle, false, false, read_stats));
             const auto& tmp_segments = segment_cache_handle.get_segments();
             _segments_rows[i] = tmp_segments[0]->num_rows();
         }

@@ -37,6 +37,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/functions/cast/cast_to_decimal.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -485,6 +486,29 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_one_cell_to_jsonb with type " + column.get_name());
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num,
+                                        BufferWritable& bw) const {
+    auto& data =
+            assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    CastToString::push_decimal(data[row_num], scale, bw);
+}
+
+template <PrimitiveType T>
+void DataTypeDecimalSerDe<T>::to_string_batch(const IColumn& column,
+                                              ColumnString& column_to) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    for (size_t i = 0; i < size; ++i) {
+        CastToString::push_decimal(data[i], scale, bw);
+        bw.commit();
     }
 }
 

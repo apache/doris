@@ -162,6 +162,12 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
     return Status::OK();
 }
 
+void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num,
+                                     BufferWritable& bw) const {
+    const auto& var = assert_cast<const ColumnVariant&>(column);
+    var.serialize_one_row_to_string(row_num, bw);
+}
+
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,

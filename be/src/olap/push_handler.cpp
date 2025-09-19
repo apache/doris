@@ -383,9 +383,6 @@ Status PushBrokerReader::init() {
     TPlanFragmentExecParams params;
     params.fragment_instance_id = dummy_id;
     params.query_id = dummy_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     std::shared_ptr<MemTrackerLimiter> tracker = MemTrackerLimiter::create_shared(

@@ -192,6 +192,9 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetTrackingUrl()) {
             loadContext.updateTrackingUrl(params.getTrackingUrl());
         }
+        if (params.isSetFirstErrorMsg()) {
+            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
+        }
         if (params.isSetTxnId()) {
             loadContext.updateTransactionId(params.getTxnId());
         }

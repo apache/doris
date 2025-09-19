@@ -95,22 +95,48 @@ suite("test_json_function", "arrow_flight_sql") {
     sql "drop table if exists d_table;"
     sql """
         create table d_table (
-            k1 varchar(100) null,
-            k2 varchar(100) not null
+            k1 varchar(255) null,
+            k2 varchar(100) not null,
+            path string,
+            path_n string not null
         )
         duplicate key (k1)
         distributed BY hash(k1) buckets 3
         properties("replication_num" = "1");
     """
     sql """insert into d_table values
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}'),
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}'),
-    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}'),
-    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}');
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '\$', '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}', null, '\$.c.d'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}', '\$', '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 5}}', null, '\$'),
+    ('{\"a\": 1, \"b\": 2, \"c\": {\"d\": 4}}', '{\"a\": 1, \"b\": 2, \"c\": {\"d\": 6}}', '\$.', '\$.'),
+    (null,'{\"name\": \"John\", \"age\": 30, \"city\": \"New York\", \"hobbies\": [\"reading\", \"travelling\"]}', null, '\$');
     """
-    qt_test """
-      SELECT k1,k2,JSON_CONTAINS(k1, '\$'),JSON_CONTAINS(k2, '\$') from d_table order by k1,k2;
+
+    sql """
+      insert into d_table values
+      ('{"name": "John", "age": 30, "city": "New York", "hobbies": ["reading", "travelling"]}', '"reading"', '\$.hobbies[0]', '\$.hobbies[0]'),
+      ('{"name": "John", "age": 30, "projects": [{"name": "Project A", "year": 2020}, {"name": "Project B", "year": 2021}]}', '{"name": "Project B", "year": 2021}', '\$.projects[1]', '\$.projects[1]'),
+      ('{"name": "John", "age": 30, "address": {"city": "New York", "country": "USA"}}', '"USA"', '\$.address.country', '\$.address.country');
     """
+
+    qt_test2 """
+      select 
+        k1, k2, path, path_n, JSON_CONTAINS(k1, k2, path), JSON_CONTAINS(k1, k2, path_n)
+      from d_table
+      where (path != '\$.' or path is null) and path_n != '\$.'
+      order by k1,k2;
+    """
+
+    test {
+      sql """
+        select 
+          k1,k2,JSON_CONTAINS(k1, k2, path), JSON_CONTAINS(k1, k2, path_n)
+        from d_table
+        order by k1,k2;
+      """
+      exception "Json path error: Invalid Json Path for value: \$."
+    }
 
     qt_json_contains1 """
       SELECT JSON_CONTAINS('{"age": 30, "name": "John", "hobbies": ["reading", "swimming"]}', '{"invalid": "format"}');
@@ -130,6 +156,13 @@ suite("test_json_function", "arrow_flight_sql") {
     qt_json_contains6 """
       SELECT JSON_CONTAINS(NULL, '"music"', '{"age": 25}');
     """
+
+    test {
+      sql """
+        select json_contains(k1, k2, '\$.') from d_table order by k1,k2;
+      """
+      exception "Json path error: Invalid Json Path for value: \$."
+    }
 
     qt_json_keys """
       SELECT JSON_KEYS('{"name": "John", "age": 30, "city": "New York"}');

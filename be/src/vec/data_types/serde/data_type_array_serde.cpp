@@ -527,4 +527,23 @@ void DataTypeArraySerDe::write_one_cell_to_binary(const IColumn& src_column,
     }
 }
 
+void DataTypeArraySerDe::to_string(const IColumn& column, size_t row_num,
+                                   BufferWritable& bw) const {
+    const auto& data_column = assert_cast<const ColumnArray&>(column);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    bw.write("[", 1);
+    for (size_t i = offset; i < next_offset; ++i) {
+        if (i != offset) {
+            bw.write(", ", 2);
+        }
+        nested_serde->to_string(nested_column, i, bw);
+    }
+    bw.write("]", 1);
+}
+
 } // namespace doris::vectorized

@@ -281,7 +281,8 @@ protected:
             EXPECT_EQ(num_rows_read, expect_total_rows - rows_mark_deleted);
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_num_rows;
-            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows).ok());
+            OlapReaderStatistics stats;
+            EXPECT_TRUE(beta_rowset->get_segment_num_rows(&segment_num_rows, &stats).ok());
             size_t total_num_rows = 0;
             for (const auto& i : segment_num_rows) {
                 total_num_rows += i;

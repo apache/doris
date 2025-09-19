@@ -29,6 +29,12 @@ void MetaServiceImpl::begin_snapshot(::google::protobuf::RpcController* controll
                                      BeginSnapshotResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(begin_snapshot, get, put, del);
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id not set";
+        return;
+    }
+
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -38,6 +44,8 @@ void MetaServiceImpl::begin_snapshot(::google::protobuf::RpcController* controll
     RPC_RATE_LIMIT(begin_snapshot);
 
     snapshot_manager_->begin_snapshot(instance_id, *request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* controller,
@@ -45,6 +53,12 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
                                       CommitSnapshotResponse* response,
                                       ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(commit_snapshot, get, put, del);
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id not set";
+        return;
+    }
+
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -54,6 +68,8 @@ void MetaServiceImpl::commit_snapshot(::google::protobuf::RpcController* control
     RPC_RATE_LIMIT(commit_snapshot);
 
     snapshot_manager_->commit_snapshot(instance_id, *request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 void MetaServiceImpl::abort_snapshot(::google::protobuf::RpcController* controller,
@@ -61,6 +77,12 @@ void MetaServiceImpl::abort_snapshot(::google::protobuf::RpcController* controll
                                      AbortSnapshotResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(abort_snapshot, get, put, del);
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id not set";
+        return;
+    }
+
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -70,6 +92,8 @@ void MetaServiceImpl::abort_snapshot(::google::protobuf::RpcController* controll
     RPC_RATE_LIMIT(abort_snapshot);
 
     snapshot_manager_->abort_snapshot(instance_id, *request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 void MetaServiceImpl::list_snapshot(::google::protobuf::RpcController* controller,
@@ -77,6 +101,12 @@ void MetaServiceImpl::list_snapshot(::google::protobuf::RpcController* controlle
                                     ListSnapshotResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(list_snapshot, get, put, del);
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id not set";
+        return;
+    }
+
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -86,6 +116,8 @@ void MetaServiceImpl::list_snapshot(::google::protobuf::RpcController* controlle
     RPC_RATE_LIMIT(list_snapshot);
 
     snapshot_manager_->list_snapshot(instance_id, *request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 void MetaServiceImpl::clone_instance(::google::protobuf::RpcController* controller,
@@ -95,7 +127,9 @@ void MetaServiceImpl::clone_instance(::google::protobuf::RpcController* controll
     RPC_PREPROCESS(clone_instance, get, put, del);
     RPC_RATE_LIMIT(clone_instance);
 
-    snapshot_manager_->clone_instance(instance_id, *request, response);
+    snapshot_manager_->clone_instance(*request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 void MetaServiceImpl::drop_snapshot(::google::protobuf::RpcController* controller,
@@ -103,6 +137,12 @@ void MetaServiceImpl::drop_snapshot(::google::protobuf::RpcController* controlle
                                     DropSnapshotResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(drop_snapshot, get, put, del);
+    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cloud_unique_id not set";
+        return;
+    }
+
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -112,6 +152,8 @@ void MetaServiceImpl::drop_snapshot(::google::protobuf::RpcController* controlle
     RPC_RATE_LIMIT(clone_instance);
 
     snapshot_manager_->drop_snapshot(instance_id, *request, response);
+    code = response->status().code();
+    msg = response->status().msg();
 }
 
 } // namespace doris::cloud

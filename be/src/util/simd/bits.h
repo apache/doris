@@ -164,7 +164,7 @@ inline T count_zero_num(const int8_t* __restrict data, const uint8_t* __restrict
     const __m128i zero16 = _mm_setzero_si128();
     const int8_t* end64 = data + (size / 64 * 64);
 
-    for (; data < end64; data += 64) {
+    for (; data < end64; data += 64, null_map += 64) {
         num += __builtin_popcountll(
                 static_cast<uint64_t>(_mm_movemask_epi8(_mm_or_si128(
                         _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(data)),

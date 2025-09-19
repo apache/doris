@@ -167,13 +167,16 @@ public class BrokerMgr {
     }
 
     public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+        if (brokerName == null) {
+            throw new AnalysisException("Unknown broker name(" + brokerName + ")");
+        }
         if (brokerName.equalsIgnoreCase(BrokerDesc.MULTI_LOAD_BROKER)) {
             return new FsBroker("127.0.0.1", 0);
         }
         lock.lock();
         try {
             ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
+            if (brokerAddsMap == null || brokerAddsMap.isEmpty()) {
                 throw new AnalysisException("Unknown broker name(" + brokerName + ")");
             }
             List<FsBroker> brokers = brokerAddsMap.get(host);
