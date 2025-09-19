@@ -152,7 +152,7 @@ public class MetadataScanNodeTest {
     private void mockBackendPolicy(MetadataScanNode scanNode) throws Exception {
         // Create a mock backend policy
         Object mockBackendPolicy = Mockito
-                .mock(Class.forName("org.apache.doris.datasource.ExternalScanNode$BackendPolicy"));
+                .mock(Class.forName("org.apache.doris.datasource.FederationBackendPolicy"));
 
         // Set up the mock to return our mock backend
         Mockito.when(mockBackendPolicy.getClass().getMethod("getNextBe").invoke(mockBackendPolicy))
