@@ -262,19 +262,19 @@ suite("test_disable_move_memtable", "nonConcurrent") {
             }
         }
 
+        sql """ set enable_insert_strict = false """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-        sql """ set enable_insert_strict = false """
         sql """ set group_commit = sync_mode """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
-        sql """ set enable_insert_strict = true """
         sql """ set group_commit = sync_mode """
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_value_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
         sql """ set group_commit = off_mode """
         insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test", "unknown destination tuple descriptor")
         insert_into_select_with_injection("VTabletWriterV2._init._output_tuple_desc_null", "test1", "success")
+        sql """ set enable_insert_strict = true """
 
         if (isGroupCommitMode()) {
             def ret = sql "SHOW FRONTEND CONFIG like '%stream_load_default_memtable_on_sink_node%';"

@@ -347,6 +347,7 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
             [&request, ctx](FrontendServiceConnection& client) {
                 client->streamLoadPut(ctx->put_result, request);
             }));
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
     Status plan_status(Status::create(ctx->put_result.status));
     if (!plan_status.ok()) {

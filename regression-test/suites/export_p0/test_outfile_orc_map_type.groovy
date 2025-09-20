@@ -406,7 +406,9 @@ suite("test_outfile_orc_map_type", "p0") {
         sql """ insert into ${export_table_name} values (6, null, null); """
         sql """ insert into ${export_table_name} values (7, 'doris7', null); """
         sql """ insert into ${export_table_name} values (8, 'doris8', {'2025-12-31 12:01:41': 'min_largeint', '2006-02-19 09:01:02': 'max_largeint'}); """
+        sql "set enable_insert_strict = false;"
         sql """ insert into ${export_table_name} values (9, 'doris9', {'209-04-20 00:00:00': 'min_largeint', '102-03-21 00:00:00':'b'}); """
+        sql "set enable_insert_strict = true;"
         sql """ insert into ${export_table_name} values (10, 'doris10', {'2003-04-29 01:02:03':'a', '2006-02-22 02:01:04': 'max_largeint', '2020-03-21 19:21:23':'b'}); """
 
         // test base data

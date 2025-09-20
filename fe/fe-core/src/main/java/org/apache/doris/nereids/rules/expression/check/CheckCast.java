@@ -56,6 +56,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -302,8 +303,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     Cast cast = ctx.expr;
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
-                    if (!check(originalType, targetType, ctx.cascadesContext.getConnectContext()
-                            .getSessionVariable().enableStrictCast)) {
+                    if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }

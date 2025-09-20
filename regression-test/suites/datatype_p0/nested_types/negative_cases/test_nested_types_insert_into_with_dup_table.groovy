@@ -107,6 +107,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<DATETIMEV2(0)>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_nested_types_dup (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -121,6 +122,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         sql "insert into tbl_array_nested_types_dup (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_dup_c """select count() from tbl_array_nested_types_dup;"""
 
@@ -190,6 +192,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<ARRAY<DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_nested_types_dup2 (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -204,6 +207,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         sql "insert into tbl_array_nested_types_dup2 (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_dup2_c """select count() from tbl_array_nested_types_dup2;"""
 
@@ -274,6 +278,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),DATETIMEV2(0)>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_map_types_dup (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -288,6 +293,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         sql "insert into tbl_map_types_dup (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_map_dup_c """select count() from tbl_map_types_dup;"""
 
@@ -357,6 +363,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=ARRAY<MAP<DATETIMEV2(0),DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_array_map_types_dup (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -371,6 +378,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         sql "insert into tbl_array_map_types_dup (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_array_map_dup_c """select count() from tbl_array_map_types_dup;"""
 
@@ -441,6 +449,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         exception("java.sql.SQLException: errCode = 2, detailMessage = can not cast from origin type DATETIMEV2(0) to target type=MAP<DATETIMEV2(0),ARRAY<DATETIMEV2(0)>>")
     }
 
+    sql "set enable_insert_strict = false"
     test {
         sql "insert into tbl_map_array_types_dup (c_char) select c_char from tbl_scalar_types_dup"
         exception null
@@ -455,6 +464,7 @@ suite("test_nested_types_insert_into_with_dup_table", "p0") {
         sql "insert into tbl_map_array_types_dup (c_string) select c_string from tbl_scalar_types_dup"
         exception null
     }
+    sql "set enable_insert_strict = true"
 
     qt_sql_nested_table_map_array_dup_c """select count() from tbl_map_array_types_dup;"""
 

@@ -131,7 +131,7 @@ public:
     // v2 needs index,tablet->rowids
     Status generate_rows_distribution(vectorized::Block& input_block,
                                       std::shared_ptr<vectorized::Block>& block,
-                                      int64_t& filtered_rows, bool& has_filtered_rows,
+                                      int64_t& filtered_rows,
                                       std::vector<RowPartTabletIds>& row_part_tablet_ids,
                                       int64_t& rows_stat_val);
     bool need_deal_batching() const { return _deal_batched && _batching_rows > 0; }
