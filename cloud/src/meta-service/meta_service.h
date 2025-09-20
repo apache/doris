@@ -63,6 +63,11 @@ static void* run_bthread_work(void* arg) {
            lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
 }
 
+[[maybe_unused]] void record_txn_commit_stats(doris::cloud::Transaction* txn,
+                                              const std::string& instance_id,
+                                              int64_t partition_count, int64_t tablet_count,
+                                              int64_t txn_id);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
