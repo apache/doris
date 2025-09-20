@@ -108,7 +108,7 @@ public:
                 RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
                                                  array_builder->type()->name()));
             } else {
-                auto& quantile_state_value = const_cast<QuantileState&>(col.get_element(string_i));
+                auto& quantile_state_value = col.get_element(string_i);
                 std::string memory_buffer(quantile_state_value.get_serialized_size(), '0');
                 quantile_state_value.serialize((uint8_t*)memory_buffer.data());
                 RETURN_IF_ERROR(
@@ -146,7 +146,7 @@ public:
         size_t total_size = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                auto quantilestate_value = col_data.get_element(row_id);
                 size_t len = quantilestate_value.get_serialized_size();
                 total_size += len;
             }
@@ -162,7 +162,7 @@ public:
         size_t offset = 0;
         for (size_t row_id = start; row_id < end; row_id++) {
             if (cur_batch->notNull[row_id] == 1) {
-                auto quantilestate_value = const_cast<QuantileState&>(col_data.get_element(row_id));
+                auto quantilestate_value = col_data.get_element(row_id);
                 size_t len = quantilestate_value.get_serialized_size();
                 if (offset + len > total_size) {
                     return Status::InternalError(
@@ -198,7 +198,7 @@ Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
 
     if (_return_object_as_string) {
         const auto col_index = index_check_const(row_idx, col_const);
-        auto& quantile_value = const_cast<QuantileState&>(data_column.get_element(col_index));
+        auto& quantile_value = data_column.get_element(col_index);
         size_t size = quantile_value.get_serialized_size();
         std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
         quantile_value.serialize((uint8_t*)buf.get());

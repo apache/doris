@@ -418,27 +418,27 @@ protected:
         auto& operator*() const {
             switch (sub_table_index) {
             case 0: {
-                const_cast<iterator_base*>(this)->cell = *(container->m0.zero_value());
+                this = *(container->m0.zero_value());
                 break;
             }
             case 1: {
-                const_cast<iterator_base*>(this)->cell = *iterator1;
+                this->cell = *iterator1;
                 break;
             }
             case 2: {
-                const_cast<iterator_base*>(this)->cell = *iterator2;
+                this->cell = *iterator2;
                 break;
             }
             case 3: {
-                const_cast<iterator_base*>(this)->cell = *iterator3;
+                this->cell = *iterator3;
                 break;
             }
             case 4: {
-                const_cast<iterator_base*>(this)->cell = *iterator4;
+                this->cell = *iterator4;
                 break;
             }
             case 5: {
-                const_cast<iterator_base*>(this)->cell = *iterator5;
+                this->cell = *iterator5;
                 break;
             }
             }

@@ -34,9 +34,8 @@ public:
     ~AzureObjStorageClient() override = default;
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override;
-    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                     std::string_view stream) override;
-    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, std::string_view,
+    ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts, Slice stream) override;
+    ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts, Slice,
                                             int partNum) override;
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,

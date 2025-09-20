@@ -59,7 +59,7 @@ public:
     void add_value(const double& value);
     void clear();
     bool is_valid(const Slice& slice);
-    size_t get_serialized_size();
+    size_t get_serialized_size() const;
     double get_value_by_percentile(float percentile) const;
     double get_explicit_value_by_percentile(float percentile) const;
 #ifdef BE_TEST

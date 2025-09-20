@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
+#include "util/slice.h"
 namespace doris {
 class Status;
 struct S3ClientConf;
@@ -93,13 +94,13 @@ public:
     // To directly upload a piece of data to object storage and generate a user-visible file.
     // You need to clearly specify the bucket and key
     virtual ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
-                                             std::string_view stream) = 0;
+                                             Slice stream) = 0;
     // To upload a part of a large file to object storage as a temporary file, which is not visible to the user
     // The temporary file's ID is the value of the part_num passed in
     // You need to specify the bucket and key along with the upload_id if it's AWS-compatible system
     // For the same bucket and key, as well as the same part_num, it will directly replace the original temporary file.
     virtual ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
-                                                    std::string_view stream, int part_num) = 0;
+                                                    Slice stream, int part_num) = 0;
     // To combine the previously uploaded multiple file parts into a complete file, the file name is the name of the key passed in.
     // If it is an AWS-compatible system, the upload_id needs to be included.
     // After a successful execution, the large file can be accessed in the object storage
