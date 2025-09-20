@@ -129,10 +129,6 @@ public:
 
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
-
-    // Cache for sparse column data to avoid redundant reads
-    // col_unique_id -> cached column_ptr
-    std::unordered_map<int32_t, vectorized::ColumnPtr> sparse_column_cache;
 };
 
 struct CompactionSampleInfo {
