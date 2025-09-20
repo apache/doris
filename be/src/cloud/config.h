@@ -150,6 +150,8 @@ DECLARE_mInt64(warmup_tablet_replica_info_cache_ttl_sec);
 
 DECLARE_mInt64(warm_up_rowset_slow_log_ms);
 
+DECLARE_mInt32(warm_up_manager_thread_pool_size);
+
 // When event driven warm-up is enabled by the user, turning on this option can help
 // avoid file cache misses in the read cluster caused by compaction.
 // If enabled, compaction will wait for the warm-up to complete before committing.
