@@ -46,6 +46,9 @@ public:
     virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
+    virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
+            std::string_view instance_id, std::string_view cloud_unique_id,
+            MultiVersionStatus multi_version_status);
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.
     virtual int recycle_snapshots(InstanceRecycler* recycler);
