@@ -67,6 +67,8 @@ namespace doris::vectorized {
 class ParquetThriftReaderTest : public testing::Test {
 public:
     ParquetThriftReaderTest() = default;
+    void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
+    void TearDown() override { TimezoneUtils::clear_timezone_caches(); }
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
