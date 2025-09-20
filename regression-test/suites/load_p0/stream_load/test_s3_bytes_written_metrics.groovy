@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_s3_bytes_written_metrics", "p0") {
+    if (!context.config.isCloudMode()) {
+        return
+    }
+
     def tableName = "test_s3_bytes_written_metrics"
 
     def getBeMetrics = {ip, port, metricName ->
@@ -23,8 +27,10 @@ suite("test_s3_bytes_written_metrics", "p0") {
         def metrics = new URL(url).text
         def matcher = metrics =~ ~"${metricName}\\s+(\\d+)"
         if (matcher.find()) {
+            logger.info("getBeMetrics, ${url}, name:${metricName}, value:${matcher[0][1]}")
             return matcher[0][1] as long
         } else {
+            logger.info("not found metric, ${url}, name:${metricName}, value:0")
             return 0L
         }
     }
