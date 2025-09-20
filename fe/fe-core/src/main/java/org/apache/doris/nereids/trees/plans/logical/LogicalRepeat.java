@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * LogicalRepeat.
@@ -51,6 +52,7 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
 
     private final List<List<Expression>> groupingSets;
     private final List<NamedExpression> outputExpressions;
+    private boolean withInProjection = true;
 
     /**
      * Desc: Constructor for LogicalRepeat.
@@ -98,6 +100,36 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                 "groupingSets", groupingSets,
                 "outputExpressions", outputExpressions
         );
+    }
+
+    public void setWithInProjection(boolean withInProjection) {
+        this.withInProjection = withInProjection;
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (!withInProjection) {
+            sb.append("SELECT ");
+            sb.append(
+                    outputExpressions.stream().map(Expression::toDigest)
+                            .collect(Collectors.joining(", "))
+            );
+            sb.append(" FROM ");
+        }
+        sb.append(child().toDigest());
+        sb.append(" GROUP BY GROUPING SETS (");
+        for (int i = 0; i < groupingSets.size(); i++) {
+            List<Expression> groupingSet = groupingSets.get(i);
+            String subSet = groupingSet.stream().map(Expression::toDigest)
+                    .collect(Collectors.joining(",", "(", ")"));
+            sb.append(subSet);
+            if (i != groupingSets.size() - 1) {
+                sb.append(", ");
+            }
+        }
+        sb.append(")");
+        return sb.toString();
     }
 
     @Override

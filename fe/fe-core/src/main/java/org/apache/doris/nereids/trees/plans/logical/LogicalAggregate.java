@@ -77,6 +77,7 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
     private final boolean ordinalIsResolved;
     private final boolean generated;
     private final boolean hasPushed;
+    private boolean withInProjection = true;
 
     /**
      * Desc: Constructor for LogicalAggregate.
@@ -197,6 +198,30 @@ public class LogicalAggregate<CHILD_TYPE extends Plan>
                 "hasRepeat", sourceRepeat.isPresent(),
                 "stats", statistics
         );
+    }
+
+    public void setWithInProjection(boolean withInProjection) {
+        this.withInProjection = withInProjection;
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        if (!withInProjection) {
+            sb.append("SELECT ");
+            sb.append(
+                    outputExpressions.stream().map(Expression::toDigest)
+                            .collect(Collectors.joining(", "))
+            );
+            sb.append(" FROM ");
+        }
+        sb.append(child().toDigest());
+        sb.append(" GROUP BY ");
+        sb.append(
+                groupByExpressions.stream().map(Expression::toDigest)
+                        .collect(Collectors.joining(", "))
+        );
+        return sb.toString();
     }
 
     @Override

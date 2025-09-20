@@ -78,6 +78,13 @@ public class OrderKey {
         return expr.toString() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
     }
 
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder(expr.toDigest());
+        sb.append(isAsc ? " ASC" : " DESC");
+        sb.append(nullFirst ? " NULLS FIRST" : "");
+        return sb.toString();
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(expr, isAsc, nullFirst);
