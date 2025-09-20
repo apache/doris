@@ -94,12 +94,12 @@ protected:
 };
 
 int32_t tokenize(const CustomAnalyzerPtr& custom_analyzer, const std::vector<std::string>& lines) {
-    lucene::util::SStringReader<char> reader;
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     size_t total_count = 0;
     Token t;
     for (size_t i = 0; i < lines.size(); ++i) {
-        reader.init(lines[i].data(), lines[i].size(), false);
-        auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
+        reader->init(lines[i].data(), lines[i].size(), false);
+        auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
         token_stream->reset();
         while (token_stream->next(&t)) {
             total_count++;
@@ -120,9 +120,9 @@ struct ExpectedToken {
 std::vector<ExpectedToken> tokenize1(const CustomAnalyzerPtr& custom_analyzer,
                                      const std::string line) {
     std::vector<ExpectedToken> results;
-    lucene::util::SStringReader<char> reader;
-    reader.init(line.data(), line.size(), false);
-    auto* token_stream = custom_analyzer->reusableTokenStream(L"", &reader);
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(line.data(), line.size(), false);
+    auto* token_stream = custom_analyzer->reusableTokenStream(L"", reader);
     token_stream->reset();
     Token t;
     while (token_stream->next(&t)) {
@@ -196,162 +196,174 @@ TEST_F(CustomAnalyzerTest, CustomNgramAnalyzer) {
     }
 }
 
-// TEST_F(CustomAnalyzerTest, test) {
-//     std::string name = "name";
-//     std::string path = "/mnt/disk2/yangsiyu/clucene/index";
+TEST_F(CustomAnalyzerTest, test) {
+    std::string name = "name";
+    std::string path = "/mnt/disk3/yangsiyu/clucene";
 
-//     std::vector<std::string> lines;
+    std::vector<std::string> lines;
 
-//     // std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
-//     // std::string line;
-//     // while (getline(ifs, line)) {
-//     //     lines.emplace_back(line);
-//     // }
-//     // ifs.close();
+    // std::ifstream ifs("/mnt/disk2/yangsiyu/httplogs/wikipedia/wikipedia.json000");
+    // std::string line;
+    // while (getline(ifs, line)) {
+    //     lines.emplace_back(line);
+    // }
+    // ifs.close();
 
-//     lines.emplace_back("A Super_Duper b c d");
+    lines.emplace_back("A Super_Duper b c d");
 
-//     std::cout << "lines size: " << lines.size() << std::endl;
+    std::cout << "lines size: " << lines.size() << std::endl;
 
-//     Settings word_delimiter_params;
-//     word_delimiter_params.set("preserve_original", "true");
+    Settings char_replace_params;
+    char_replace_params.set("char_filter_pattern", "_");
+    char_replace_params.set("char_filter_replacement", " ");
 
-//     CustomAnalyzerConfig::Builder builder;
-//     builder.with_tokenizer_config("standard", {});
-//     builder.add_token_filter_config("word_delimiter", word_delimiter_params);
-//     // builder.add_token_filter_config("asciifolding", {});
-//     // builder.add_token_filter_config("lowercase", {});
-//     auto custom_analyzer_config = builder.build();
+    Settings word_delimiter_params;
+    word_delimiter_params.set("preserve_original", "true");
 
-//     auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("standard", {});
+    builder.add_char_filter_config("char_replace", char_replace_params);
+    // builder.add_token_filter_config("word_delimiter", word_delimiter_params);
+    // builder.add_token_filter_config("asciifolding", {});
+    builder.add_token_filter_config("lowercase", {});
+    auto custom_analyzer_config = builder.build();
 
-//     {
-//         TimeGuard t("load time");
+    auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
 
-//         lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
-//         indexwriter.setRAMBufferSizeMB(512);
-//         indexwriter.setMaxFieldLength(0x7FFFFFFFL);
-//         indexwriter.setMergeFactor(1000000000);
-//         indexwriter.setUseCompoundFile(false);
+    auto result = tokenize1(custom_analyzer, lines[0]);
+    for (const auto& token : result) {
+        std::cout << token.term << " " << token.pos << std::endl;
+    }
 
-//         lucene::util::SStringReader<char> reader;
+    // {
+    //     TimeGuard t("load time");
 
-//         lucene::document::Document doc;
-//         int32_t field_config = lucene::document::Field::STORE_NO;
-//         field_config |= lucene::document::Field::INDEX_NONORMS;
-//         field_config |= lucene::document::Field::INDEX_TOKENIZED;
-//         auto field_name = std::wstring(name.begin(), name.end());
-//         auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
-//         field->setOmitTermFreqAndPositions(false);
-//         doc.add(*field);
+    //     lucene::index::IndexWriter indexwriter(path.c_str(), custom_analyzer.get(), true);
+    //     indexwriter.setRAMBufferSizeMB(512);
+    //     indexwriter.setMaxFieldLength(0x7FFFFFFFL);
+    //     indexwriter.setMergeFactor(1000000000);
+    //     indexwriter.setUseCompoundFile(false);
 
-//         for (int32_t j = 0; j < 1; j++) {
-//             for (size_t k = 0; k < lines.size(); k++) {
-//                 reader.init(lines[k].data(), lines[k].size(), false);
-//                 auto* stream = custom_analyzer->reusableTokenStream(field->name(), &reader);
-//                 field->setValue(stream);
+    //     auto reader = std::make_shared<lucene::util::SStringReader<char>>();
 
-//                 indexwriter.addDocument(&doc);
-//             }
-//         }
+    //     lucene::document::Document doc;
+    //     int32_t field_config = lucene::document::Field::STORE_NO;
+    //     field_config |= lucene::document::Field::INDEX_NONORMS;
+    //     field_config |= lucene::document::Field::INDEX_TOKENIZED;
+    //     auto field_name = std::wstring(name.begin(), name.end());
+    //     auto* field = _CLNEW lucene::document::Field(field_name.c_str(), field_config);
+    //     field->setOmitTermFreqAndPositions(false);
+    //     doc.add(*field);
 
-//         std::cout << "---------------------" << std::endl;
+    //     for (int32_t j = 0; j < 1; j++) {
+    //         for (size_t k = 0; k < lines.size(); k++) {
+    //             reader->init(lines[k].data(), lines[k].size(), false);
+    //             auto* stream = custom_analyzer->reusableTokenStream(field->name(), reader);
+    //             field->setValue(stream);
 
-//         indexwriter.close();
-//     }
+    //             indexwriter.addDocument(&doc);
+    //         }
+    //     }
 
-//     std::cout << "-----------" << std::endl;
+    //     std::cout << "---------------------" << std::endl;
 
-//     try {
-//         {
-//             auto* dir = FSDirectory::getDirectory(path.c_str());
-//             auto* reader = IndexReader::open(dir, 1024 * 1024, true);
-//             auto searcher = std::make_shared<IndexSearcher>(reader);
+    //     indexwriter.close();
+    // }
 
-//             // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
+    // std::cout << "-----------" << std::endl;
 
-//             {
-//                 TimeGuard time("query time");
+    // try {
+    //     {
+    //         auto* dir = FSDirectory::getDirectory(path.c_str());
+    //         auto* reader = IndexReader::open(dir, 1024 * 1024, true);
+    //         auto searcher = std::make_shared<IndexSearcher>(reader);
 
-//                 {
-//                     TQueryOptions query_options;
-//                     doris::segment_v2::PhraseQuery query(searcher, query_options, nullptr);
+    //         // std::cout << "macDoc: " << reader->maxDoc() << std::endl;
 
-//                     InvertedIndexQueryInfo query_info;
-//                     query_info.field_name = L"name";
-//                     {
-//                         doris::segment_v2::TermInfo t;
-//                         t.term = "Super_Duper";
-//                         t.position = 1;
-//                         query_info.term_infos.emplace_back(std::move(t));
-//                     }
-//                     {
-//                         doris::segment_v2::TermInfo t;
-//                         t.term = "Super";
-//                         t.position = 1;
-//                         query_info.term_infos.emplace_back(std::move(t));
-//                     }
-//                     {
-//                         doris::segment_v2::TermInfo t;
-//                         t.term = "Duper";
-//                         t.position = 2;
-//                         query_info.term_infos.emplace_back(std::move(t));
-//                     }
-//                     {
-//                         doris::segment_v2::TermInfo t;
-//                         t.term = "c";
-//                         t.position = 3;
-//                         query_info.term_infos.emplace_back(std::move(t));
-//                     }
-//                     query_info.slop = 1;
-//                     query_info.ordered = true;
-//                     query.add(query_info);
+    //         {
+    //             TimeGuard time("query time");
 
-//                     roaring::Roaring result;
-//                     query.search(result);
+    //             {
+    //                 IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
 
-//                     std::cout << "phrase_query count: " << result.cardinality() << std::endl;
-//                 }
-//                 // {
-//                 //     TQueryOptions query_options;
-//                 //     doris::segment_v2::PhrasePrefixQuery query(searcher, query_options, nullptr);
+    //                 TQueryOptions query_options;
+    //                 doris::segment_v2::PhraseQuery query(searcher, context);
 
-//                 //     InvertedIndexQueryInfo query_info;
-//                 //     query_info.field_name = L"name";
-//                 //     {
-//                 //         doris::segment_v2::TermInfo t;
-//                 //         t.term = "Super_Duper";
-//                 //         t.position = 1;
-//                 //         query_info.term_infos.emplace_back(std::move(t));
-//                 //     }
-//                 //     {
-//                 //         doris::segment_v2::TermInfo t;
-//                 //         t.term = "Super";
-//                 //         t.position = 1;
-//                 //         query_info.term_infos.emplace_back(std::move(t));
-//                 //     }
-//                 //     {
-//                 //         doris::segment_v2::TermInfo t;
-//                 //         t.term = "Dup";
-//                 //         t.position = 2;
-//                 //         query_info.term_infos.emplace_back(std::move(t));
-//                 //     }
-//                 //     query.add(query_info);
+    //                 InvertedIndexQueryInfo query_info;
+    //                 query_info.field_name = L"name";
+    //                 {
+    //                     doris::segment_v2::TermInfo t;
+    //                     t.term = "Super_Duper";
+    //                     t.position = 1;
+    //                     query_info.term_infos.emplace_back(std::move(t));
+    //                 }
+    //                 {
+    //                     doris::segment_v2::TermInfo t;
+    //                     t.term = "Super";
+    //                     t.position = 1;
+    //                     query_info.term_infos.emplace_back(std::move(t));
+    //                 }
+    //                 {
+    //                     doris::segment_v2::TermInfo t;
+    //                     t.term = "Duper";
+    //                     t.position = 2;
+    //                     query_info.term_infos.emplace_back(std::move(t));
+    //                 }
+    //                 {
+    //                     doris::segment_v2::TermInfo t;
+    //                     t.term = "c";
+    //                     t.position = 3;
+    //                     query_info.term_infos.emplace_back(std::move(t));
+    //                 }
+    //                 query_info.slop = 1;
+    //                 query_info.ordered = true;
+    //                 query.add(query_info);
 
-//                 //     roaring::Roaring result;
-//                 //     query.search(result);
+    //                 roaring::Roaring result;
+    //                 query.search(result);
 
-//                 //     std::cout << "phrase_prefix_query count: " << result.cardinality() << std::endl;
-//                 // }
-//             }
+    //                 std::cout << "phrase_query count: " << result.cardinality() << std::endl;
+    //             }
+    //             // {
+    //             //     TQueryOptions query_options;
+    //             //     doris::segment_v2::PhrasePrefixQuery query(searcher, query_options, nullptr);
 
-//             reader->close();
-//             _CLLDELETE(reader);
-//             _CLDECDELETE(dir);
-//         }
-//     } catch (const CLuceneError& e) {
-//         std::cout << e.number() << ": " << e.what() << std::endl;
-//     }
-// }
+    //             //     InvertedIndexQueryInfo query_info;
+    //             //     query_info.field_name = L"name";
+    //             //     {
+    //             //         doris::segment_v2::TermInfo t;
+    //             //         t.term = "Super_Duper";
+    //             //         t.position = 1;
+    //             //         query_info.term_infos.emplace_back(std::move(t));
+    //             //     }
+    //             //     {
+    //             //         doris::segment_v2::TermInfo t;
+    //             //         t.term = "Super";
+    //             //         t.position = 1;
+    //             //         query_info.term_infos.emplace_back(std::move(t));
+    //             //     }
+    //             //     {
+    //             //         doris::segment_v2::TermInfo t;
+    //             //         t.term = "Dup";
+    //             //         t.position = 2;
+    //             //         query_info.term_infos.emplace_back(std::move(t));
+    //             //     }
+    //             //     query.add(query_info);
+
+    //             //     roaring::Roaring result;
+    //             //     query.search(result);
+
+    //             //     std::cout << "phrase_prefix_query count: " << result.cardinality() << std::endl;
+    //             // }
+    //         }
+
+    //         reader->close();
+    //         _CLLDELETE(reader);
+    //         _CLDECDELETE(dir);
+    //     }
+    // } catch (const CLuceneError& e) {
+    //     std::cout << e.number() << ": " << e.what() << std::endl;
+    // }
+}
 
 } // namespace doris::segment_v2::inverted_index

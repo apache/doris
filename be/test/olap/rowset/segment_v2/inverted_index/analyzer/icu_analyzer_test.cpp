@@ -35,11 +35,11 @@ protected:
             analyzer.initDict("./be/dict/icu");
             analyzer.set_lowercase(false);
 
-            lucene::util::SStringReader<char> reader;
-            reader.init(s.data(), s.size(), false);
+            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+            reader->init(s.data(), s.size(), false);
 
-            std::unique_ptr<ICUTokenizer> tokenizer;
-            tokenizer.reset((ICUTokenizer*)analyzer.tokenStream(L"", &reader));
+            std::unique_ptr<inverted_index::ICUTokenizer> tokenizer;
+            tokenizer.reset((inverted_index::ICUTokenizer*)analyzer.tokenStream(L"", reader));
 
             Token t;
             while (tokenizer->next(&t)) {
