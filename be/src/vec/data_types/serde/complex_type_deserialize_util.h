@@ -33,16 +33,24 @@ struct ComplexTypeDeserializeUtil {
     };
 
     template <typename Func>
-    static std::vector<SplitResult> split_by_delimiter(StringRef& str, Func func) {
+    static std::vector<SplitResult> split_by_delimiter(StringRef& str, char escape_char,
+                                                       Func func) {
         char quote_char = 0;
         int last_pos = 0;
         int nested_level = 0;
         bool has_quote = false;
         char delimiter = 0;
         std::vector<SplitResult> elements;
+        bool escaped = false;
         for (int pos = 0; pos < str.size; ++pos) {
             char c = str.data[pos];
-            if (c == '"' || c == '\'') {
+            if (escaped) {
+                escaped = false;
+            } else if (c == escape_char && pos + 1 < str.size &&
+                       DataTypeSerDe::should_escape_sequence(escape_char, str.data[pos + 1])) {
+                // skip the escape character
+                escaped = true;
+            } else if (c == '"' || c == '\'') {
                 if (!has_quote) {
                     quote_char = c;
                     has_quote = !has_quote;
