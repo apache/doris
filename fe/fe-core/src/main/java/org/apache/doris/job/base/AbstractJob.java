@@ -31,6 +31,7 @@ import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.persist.AlterStreamingJobOperationLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -99,13 +100,13 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
 
     @SerializedName(value = "stc")
-    private AtomicLong succeedTaskCount = new AtomicLong(0);
+    protected AtomicLong succeedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ftc")
-    private AtomicLong failedTaskCount = new AtomicLong(0);
+    protected AtomicLong failedTaskCount = new AtomicLong(0);
 
     @SerializedName(value = "ctc")
-    private AtomicLong canceledTaskCount = new AtomicLong(0);
+    protected AtomicLong canceledTaskCount = new AtomicLong(0);
 
     public AbstractJob() {
     }
@@ -249,6 +250,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 return currentJobStatus.equals(JobStatus.RUNNING);
             case MANUAL:
                 return currentJobStatus.equals(JobStatus.RUNNING) || currentJobStatus.equals(JobStatus.PAUSED);
+            case STREAMING:
+                return !jobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.FINISHED);
             default:
                 throw new IllegalArgumentException("Unsupported TaskType: " + taskType);
         }
@@ -294,7 +297,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         String errorMsg = String.format("Can't update job %s status to the %s status",
                 jobStatus.name(), newJobStatus.name());
-        if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
+        if (newJobStatus.equals(JobStatus.RUNNING)
+                && (!jobStatus.equals(JobStatus.PAUSED) && !jobStatus.equals(JobStatus.PENDING))) {
             throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
@@ -474,7 +478,15 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
     }
 
+    public void onReplayUpdateStreaming(AlterStreamingJobOperationLog operationLog) {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay update streaming job").build());
+    }
+
     public boolean needPersist() {
         return true;
+    }
+
+    public boolean isFinalStatus() {
+        return jobStatus.equals(JobStatus.STOPPED) || jobStatus.equals(JobStatus.FINISHED);
     }
 }

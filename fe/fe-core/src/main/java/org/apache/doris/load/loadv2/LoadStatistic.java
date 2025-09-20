@@ -123,6 +123,14 @@ public class LoadStatistic {
         return counters;
     }
 
+    public int getFileNumber() {
+        return fileNum;
+    }
+
+    public long getTotalFileSizeB() {
+        return totalFileSizeB;
+    }
+
     public synchronized String toJson() {
         long total = 0;
         for (long rows : counterTbl.values()) {

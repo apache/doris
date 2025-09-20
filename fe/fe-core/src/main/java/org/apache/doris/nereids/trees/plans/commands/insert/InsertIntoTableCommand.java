@@ -38,6 +38,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -78,6 +79,7 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -101,6 +103,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
     private Optional<LogicalPlan> logicalQuery;
     private Optional<String> labelName;
     private Optional<String> branchName;
+    private Optional<Plan> parsedPlan;
     /**
      * When source it's from job scheduler,it will be set.
      */
@@ -149,6 +152,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    public Optional<Plan> getParsedPlan() {
+        return parsedPlan;
     }
 
     protected void setLogicalQuery(LogicalPlan logicalQuery) {
@@ -231,6 +238,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                 throw new IllegalStateException(e.getMessage(), e);
             }
             insertExecutor = buildResult.executor;
+            parsedPlan = Optional.ofNullable(buildResult.planner.getParsedPlan());
             if (!needBeginTransaction) {
                 return insertExecutor;
             }
@@ -533,6 +541,26 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         } else {
             throw new AnalysisException(
                     "the root of plan should be [UnboundTableSink], but it is " + originLogicalQuery.getType());
+        }
+    }
+
+    // todo: add ut
+    public List<UnboundTVFRelation> getAllTVFRelation() {
+        List<UnboundTVFRelation> tvfs = new ArrayList<>();
+        findAllTVFInPlan(getLogicalQuery(), tvfs);
+        return tvfs;
+    }
+
+    private void findAllTVFInPlan(LogicalPlan plan, List<UnboundTVFRelation> tvfs) {
+        if (plan instanceof UnboundTVFRelation) {
+            UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
+            tvfs.add(tvfRelation);
+        }
+
+        for (Plan child : plan.children()) {
+            if (child instanceof LogicalPlan) {
+                findAllTVFInPlan((LogicalPlan) child, tvfs);
+            }
         }
     }
 

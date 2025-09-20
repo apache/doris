@@ -18,7 +18,7 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.JobUtils;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 
 import io.netty.util.Timeout;
@@ -40,7 +40,7 @@ public class TimerJobSchedulerTask<T extends AbstractJob> implements TimerTask {
     @Override
     public void run(Timeout timeout) {
         try {
-            if (!JobStatus.RUNNING.equals(job.getJobStatus())) {
+            if (!JobUtils.checkNeedSchedule(job)) {
                 log.info("job status is not running, job id is {}, skip dispatch", this.job.getJobId());
                 return;
             }

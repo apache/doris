@@ -67,6 +67,7 @@ import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.AlterStreamingJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.AnalyzeDeletionLog;
@@ -547,6 +548,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_SCHEDULER_JOB: {
                 AbstractJob job = AbstractJob.readFields(in);
                 data = job;
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_STREAMING_JOB: {
+                data = AlterStreamingJobOperationLog.read(in);
                 isRead = true;
                 break;
             }

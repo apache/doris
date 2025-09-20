@@ -218,6 +218,9 @@ using MetaPendingDeleteBitmapInfo = BasicKeyInfo<24 , std::tuple<std::string, in
 //                                                      0:instance_id 1:db_id  2:job_id
 using RLJobProgressKeyInfo = BasicKeyInfo<25, std::tuple<std::string, int64_t, int64_t>>;
 
+//                                                      0:instance_id 1:db_id  2:job_id
+using StreamingJobMetaKeyInfo = BasicKeyInfo<52, std::tuple<std::string, int64_t, int64_t>>;
+
 //                                                      0:instance_id 1:vault_id
 using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string>>;
 
@@ -407,6 +410,8 @@ void job_tablet_key(const JobTabletKeyInfo& in, std::string* out);
 static inline std::string job_tablet_key(const JobTabletKeyInfo& in) { std::string s; job_tablet_key(in, &s); return s; }
 void rl_job_progress_key_info(const RLJobProgressKeyInfo& in, std::string* out);
 static inline std::string rl_job_progress_key_info(const RLJobProgressKeyInfo& in) { std::string s; rl_job_progress_key_info(in, &s); return s; }
+void streaming_job_meta_key_info(const StreamingJobMetaKeyInfo& in, std::string* out);
+static inline std::string streaming_job_meta_key_info(const StreamingJobMetaKeyInfo& in) { std::string s; streaming_job_meta_key_info(in, &s); return s; }
 
 std::string copy_key_prefix(std::string_view instance_id);
 void copy_job_key(const CopyJobKeyInfo& in, std::string* out);
