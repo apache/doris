@@ -70,6 +70,11 @@ public class Properties extends Expression implements LeafExpression {
     }
 
     @Override
+    public String toDigest() {
+        return "?";
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;
