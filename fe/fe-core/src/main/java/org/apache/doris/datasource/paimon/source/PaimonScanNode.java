@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.data.BinaryRow;
@@ -286,7 +287,26 @@ public class PaimonScanNode extends FileQueryScanNode {
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
         // if applyCountPushdown is true, we can't split the DataSplit
-        long realFileSplitSize = getRealFileSplitSize(applyCountPushdown ? Long.MAX_VALUE : 0);
+        long realFileSplitSize = applyCountPushdown ? Long.MAX_VALUE : getRealFileSplitSize(0);
+
+        long maxExternalSplitNum = sessionVariable.getMaxExternalSplitNum();
+        Preconditions.checkState(maxExternalSplitNum > 0,
+                "max_external_split_num must be greater than 0, but got: " + maxExternalSplitNum);
+        long totalRawFileSize = dataSplits.stream()
+                .mapToLong(split -> split.rawConvertible()
+                        ? split.convertToRawFiles().get().stream().mapToLong(RawFile::fileSize).sum()
+                        : 0)
+                .sum();
+        if (totalRawFileSize > 0 && realFileSplitSize > 0) {
+            long estimatedSplitNum = totalRawFileSize / realFileSplitSize;
+            if (estimatedSplitNum > maxExternalSplitNum) {
+                realFileSplitSize = totalRawFileSize / maxExternalSplitNum;
+                LOG.info("The estimated split num is {} which exceeds the limit {}, "
+                                + "so we adjust the file split size to {}",
+                        estimatedSplitNum, maxExternalSplitNum, realFileSplitSize);
+            }
+        }
+
         for (DataSplit dataSplit : dataSplits) {
             SplitStat splitStat = new SplitStat();
             splitStat.setRowCount(dataSplit.rowCount());
@@ -376,7 +396,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // We need to set the target size for all splits so that we can calculate the
         // proportion of each split later.
-        splits.forEach(s -> s.setTargetSplitSize(realFileSplitSize));
+        for (Split split : splits) {
+            split.setTargetSplitSize(realFileSplitSize);
+        }
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
