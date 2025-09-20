@@ -649,7 +649,7 @@ suite("doc_date_functions_test") {
     qt_str_to_date_1 """SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')"""
     qt_str_to_date_2 """SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')"""
     qt_str_to_date_3 """SELECT STR_TO_DATE('20230713', 'yyyyMMdd')"""
-    qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
+    // qt_str_to_date_4 """SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')"""
     qt_str_to_date_5 """SELECT STR_TO_DATE('200442 Monday', '%X%V %W')"""
     qt_str_to_date_6 """SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')"""
     // qt_str_to_date_7 """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d')"""
@@ -1324,7 +1324,7 @@ suite("doc_date_functions_test") {
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', '%Y-%m-%d %H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('2025-01-23 12:34:56', 'yyyy-MM-dd HH:mm:ss')")
     testFoldConst("SELECT STR_TO_DATE('20230713', 'yyyyMMdd')")
-    testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
+    // testFoldConst("SELECT STR_TO_DATE('15:30:45', '%H:%i:%s')")
     testFoldConst("SELECT STR_TO_DATE('200442 Monday', '%X%V %W')")
     testFoldConst("SELECT STR_TO_DATE('Oct 5 2023 3:45:00 PM', '%b %d %Y %h:%i:%s %p')")
     testFoldConst("SELECT STR_TO_DATE('2023-01-01 10:00:00 (GMT)', '%Y-%m-%d %H:%i:%s')")

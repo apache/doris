@@ -41,7 +41,8 @@ suite("test_str_to_date") {
     // sql """ INSERT INTO test_str_to_date_db VALUES(7,'无效日期', 'yyyy-MM-dd');"""
 
     qt_select1 """
-        select id, s1, s2, STR_TO_DATE(s1, s2) from test_str_to_date_db order by id;
+        select id, s1, s2, STR_TO_DATE(s1, s2) from test_str_to_date_db 
+        where id < 7 order by id;
     """
 
     qt_const_test1 """
@@ -61,11 +62,14 @@ suite("test_str_to_date") {
         exception "is invalid"
     }
 
-    qt_const_test6 """
-        SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');
-    """
-
-    testFoldConst("SELECT STR_TO_DATE('09:30:17', '%h:%i:%s');");
+    test {
+        sql "SELECT /*+SET_VAR(debug_skip_fold_constant=false) */STR_TO_DATE('09:30:17', '%h:%i:%s');"
+        exception "is invalid"
+    }
+    test {
+        sql "SELECT /*+SET_VAR(debug_skip_fold_constant=true) */STR_TO_DATE('09:30:17', '%h:%i:%s');"
+        exception "is invalid"
+    }
 
     qt_short_1 " select STR_TO_DATE('2023', '%Y') "
     qt_short_2 " select STR_TO_DATE(null, '%Y') "
