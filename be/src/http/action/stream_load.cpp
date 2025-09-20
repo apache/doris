@@ -541,8 +541,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_read_json_by_line(false);
     }
 
-    if (!request.read_json_by_line && !request.strip_outer_array) {
+    if (http_req->header(HTTP_READ_JSON_BY_LINE).empty() &&
+        http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
         request.__set_read_json_by_line(true);
+        request.__set_strip_outer_array(false);
     }
 
     if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
