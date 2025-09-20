@@ -358,6 +358,8 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     // Date and DateTime are deprecated and not supported.
     switch (logical_type) {
+        //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
+        // should add check otherwise it may break some of our assumption now.
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
     case TYPE_INDEX:                                             \
         return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \

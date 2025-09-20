@@ -285,8 +285,7 @@ DataTypes remove_nullable(const DataTypes& types) {
 }
 
 bool have_nullable(const DataTypes& types) {
-    return std::any_of(types.begin(), types.end(),
-                       [](const DataTypePtr& type) { return type->is_nullable(); });
+    return std::ranges::any_of(types, [](const DataTypePtr& type) { return type->is_nullable(); });
 }
 
 } // namespace doris::vectorized
