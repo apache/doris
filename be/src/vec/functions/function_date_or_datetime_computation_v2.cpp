@@ -21,6 +21,10 @@
 
 namespace doris::vectorized {
 
+using FunctionAddTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_DATETIMEV2, AddTimeImpl>>;
+using FunctionSubTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_DATETIMEV2, SubTimeImpl>>;
+using FunctionDateTimeAddTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_TIMEV2, AddTimeImpl>>;
+using FunctionDateTimeSubTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_TIMEV2, SubTimeImpl>>;
 using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATEV2>>;
 using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATEV2>>;
 using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATEV2>>;
@@ -157,6 +161,10 @@ void register_function_date_time_computation_v2(SimpleFunctionFactory& factory) 
     factory.register_function<FunctionToWeekTwoArgsV2>();
     factory.register_function<FunctionDatetimeV2ToYearWeekTwoArgs>();
     factory.register_function<FunctionDatetimeV2ToWeekTwoArgs>();
+    factory.register_function<FunctionAddTimeV2>();
+    factory.register_function<FunctionSubTimeV2>();
+    factory.register_function<FunctionDateTimeAddTimeV2>();
+    factory.register_function<FunctionDateTimeSubTimeV2>();
 }
 
 } // namespace doris::vectorized
