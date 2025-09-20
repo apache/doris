@@ -80,7 +80,8 @@ public class MTMVPlanUtil {
             RuleType.ADD_DEFAULT_LIMIT,
             RuleType.ELIMINATE_JOIN_BY_FK,
             RuleType.ELIMINATE_JOIN_BY_UK,
-            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM
+            RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+            RuleType.ELIMINATE_GROUP_BY
     );
     // The rules should be disabled when run MTMV task
     public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = ImmutableList.of(

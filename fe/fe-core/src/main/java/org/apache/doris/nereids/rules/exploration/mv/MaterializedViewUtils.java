@@ -70,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -369,26 +370,32 @@ public class MaterializedViewUtils {
     /**
      * Normalize expression such as nullable property and output slot id when plan is on the top of tree
      */
-    public static Plan normalizeSinkExpressions(LogicalSink<Plan> rewrittenPlan, LogicalSink<Plan> originPlan) {
-        if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
-            return null;
-        }
-        if (rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
-            return rewrittenPlan;
-        }
-        List<NamedExpression> rewrittenPlanOutputExprList = rewrittenPlan.getOutputExprs();
-        List<NamedExpression> originPlanOutputExprList = originPlan.getOutputExprs();
-        if (rewrittenPlanOutputExprList.size() != originPlanOutputExprList.size()) {
-            return null;
-        }
-        List<NamedExpression> normalizedOutputExprList = new ArrayList<>();
-        for (int i = 0; i < rewrittenPlanOutputExprList.size(); i++) {
-            NamedExpression rewrittenExpression = rewrittenPlanOutputExprList.get(i);
-            NamedExpression originalExpression = originPlanOutputExprList.get(i);
-            normalizedOutputExprList.add(MaterializedViewUtils.normalizeExpression(originalExpression,
-                    rewrittenExpression, true));
-        }
-        return rewrittenPlan.withOutputExprs(normalizedOutputExprList);
+    public static Plan normalizeSinkExpressions(Plan rewrittenPlan, Plan originPlan) {
+        return rewrittenPlan.accept(new DefaultPlanRewriter<Void>() {
+            @Override
+            public Plan visitLogicalSink(LogicalSink<? extends Plan> rewrittenPlan, Void context) {
+                if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
+                    return null;
+                }
+                if (rewrittenPlan.getLogicalProperties().equals(originPlan.getLogicalProperties())) {
+                    return rewrittenPlan;
+                }
+                List<NamedExpression> rewrittenPlanOutputExprList = rewrittenPlan.getOutputExprs();
+                List<? extends NamedExpression> originPlanOutputExprList = originPlan.getOutput();
+                if (rewrittenPlanOutputExprList.size() != originPlanOutputExprList.size()) {
+                    return null;
+                }
+                List<NamedExpression> normalizedOutputExprList = new ArrayList<>();
+                for (int i = 0; i < rewrittenPlanOutputExprList.size(); i++) {
+                    NamedExpression rewrittenExpression = rewrittenPlanOutputExprList.get(i);
+                    NamedExpression originalExpression = originPlanOutputExprList.get(i);
+                    normalizedOutputExprList.add(MaterializedViewUtils.normalizeExpression(originalExpression,
+                            rewrittenExpression, true));
+                }
+                return rewrittenPlan.withOutputExprs(normalizedOutputExprList);
+            }
+        }, null);
+
     }
 
     /**

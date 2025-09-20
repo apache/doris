@@ -455,7 +455,7 @@ public class NereidsPlanner extends Planner {
                 }
                 // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
                 Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
-                        (LogicalSink<Plan>) ruleOptimizedPlan, (LogicalSink<Plan>) originalPlan);
+                        (LogicalSink<Plan>) ruleOptimizedPlan, originalPlan);
                 if (normalizedPlan != null) {
                     plansWhichContainMv.add(normalizedPlan);
                 }
