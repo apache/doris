@@ -151,7 +151,8 @@ public class ShowTableCommand extends ShowCommand {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
         for (TableIf tbl : dbIf.getTables()) {
-            if (type.equals(PlanType.SHOW_VIEWS) && !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName())) {
+            if (type.equals(PlanType.SHOW_VIEWS) && (tbl.getEngine() == null
+                    || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName()))) {
                 continue;
             }
             if (matcher != null && !matcher.match(tbl.getName())) {
