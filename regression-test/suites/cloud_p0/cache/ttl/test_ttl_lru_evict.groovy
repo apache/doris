@@ -150,235 +150,191 @@ suite("test_ttl_lru_evict") {
         }
     }
 
-    def enable_be_injection = {
-        for (String id in backendIdToBackendIP.keySet()) {
-            def beIp = backendIdToBackendIP.get(id)
-            def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/enable", beIp, bePort))
-            assertTrue(out.contains("OK"))
-        }
-    }
-
-    def clear_be_injection = {
-        for (String id in backendIdToBackendIP.keySet()) {
-            def beIp = backendIdToBackendIP.get(id)
-            def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/clear", beIp, bePort))
-            assertTrue(out.contains("OK"))
-        }
-    }
-
-    def disable_be_injection = {
-        for (String id in backendIdToBackendIP.keySet()) {
-            def beIp = backendIdToBackendIP.get(id)
-            def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/disable", beIp, bePort))
-            assertTrue(out.contains("OK"))
-        }
-    }
-
-    def injection_limit_for_all_be = {
-        for (String id in backendIdToBackendIP.keySet()) {
-            def beIp = backendIdToBackendIP.get(id)
-            def bePort = backendIdToBackendHttpPort.get(id)
-            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/apply_suite?name=test_ttl_lru_evict", beIp, bePort))
-            assertTrue(out.contains("OK"))
-        }
-    }
-
-    try {
-        def tables = [customer_ttl: 15000000]
-        def s3BucketName = getS3BucketName()
-        def s3WithProperties = """WITH S3 (
-            |"AWS_ACCESS_KEY" = "${getS3AK()}",
-            |"AWS_SECRET_KEY" = "${getS3SK()}",
-            |"AWS_ENDPOINT" = "${getS3Endpoint()}",
-            |"AWS_REGION" = "${getS3Region()}",
-            |"provider" = "${getS3Provider()}")
-            |PROPERTIES(
-            |"exec_mem_limit" = "8589934592",
-            |"load_parallelism" = "3")""".stripMargin()
+    def tables = [customer_ttl: 15000000]
+    def s3BucketName = getS3BucketName()
+    def s3WithProperties = """WITH S3 (
+        |"AWS_ACCESS_KEY" = "${getS3AK()}",
+        |"AWS_SECRET_KEY" = "${getS3SK()}",
+        |"AWS_ENDPOINT" = "${getS3Endpoint()}",
+        |"AWS_REGION" = "${getS3Region()}",
+        |"provider" = "${getS3Provider()}")
+        |PROPERTIES(
+        |"exec_mem_limit" = "8589934592",
+        |"load_parallelism" = "3")""".stripMargin()
 
 
-        sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
-        def load_customer_once =  { String table ->
-            def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
-            sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
-            def loadLabel = table + "_" + uniqueID
-            // load data from cos
-            def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
-            loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
-            sql loadSql
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
+    def load_customer_once =  { String table ->
+        def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
+        sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
+        def loadLabel = table + "_" + uniqueID
+        // load data from cos
+        def loadSql = new File("""${context.file.parent}/../ddl/${table}_load.sql""").text.replaceAll("\\\$\\{s3BucketName\\}", s3BucketName)
+        loadSql = loadSql.replaceAll("\\\$\\{loadLabel\\}", loadLabel) + s3WithProperties
+        sql loadSql
 
-            // check load state
-            while (true) {
-                def stateResult = sql "show load where Label = '${loadLabel}'"
-                def loadState = stateResult[stateResult.size() - 1][2].toString()
-                if ("CANCELLED".equalsIgnoreCase(loadState)) {
-                    throw new IllegalStateException("load ${loadLabel} failed.")
-                } else if ("FINISHED".equalsIgnoreCase(loadState)) {
-                    break
-                }
-                sleep(5000)
+        // check load state
+        while (true) {
+            def stateResult = sql "show load where Label = '${loadLabel}'"
+            def loadState = stateResult[stateResult.size() - 1][2].toString()
+            if ("CANCELLED".equalsIgnoreCase(loadState)) {
+                throw new IllegalStateException("load ${loadLabel} failed.")
+            } else if ("FINISHED".equalsIgnoreCase(loadState)) {
+                break
             }
+            sleep(5000)
         }
+    }
 
-        def getMetricsMethod = { check_func ->
-            httpTest {
-                endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
-                uri "/brpc_metrics"
-                op "get"
-                check check_func
+    def getMetricsMethod = { check_func ->
+        httpTest {
+            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            uri "/brpc_metrics"
+            op "get"
+            check check_func
+        }
+    }
+
+    clearFileCache.call() {
+        respCode, body -> {}
+    }
+
+    long ttl_cache_evict_size_begin = 0;
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag1 = false;
+            for (String line in strs) {
+                if (flag1) break;
+                if (line.contains("ttl_cache_evict_size")) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    def i = line.indexOf(' ')
+                    ttl_cache_evict_size_begin = line.substring(i).toLong()
+                    flag1 = true
+                }
             }
-        }
+            assertTrue(flag1)
+    }
 
-        clearFileCache.call() {
-            respCode, body -> {}
-        }
+    // load for MANY times to this dup table to make cache full enough to evict
+    // It will takes huge amount of time, so it should be p1/p2 level case.
+    // But someone told me it is the right place. Never mind just do it!
 
-        long ttl_cache_evict_size_begin = 0;
-        getMetricsMethod.call() {
-            respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-                String out = "${body}".toString()
-                def strs = out.split('\n')
-                Boolean flag1 = false;
-                for (String line in strs) {
-                    if (flag1) break;
-                    if (line.contains("ttl_cache_evict_size")) {
-                        if (line.startsWith("#")) {
-                            continue
-                        }
-                        def i = line.indexOf(' ')
-                        ttl_cache_evict_size_begin = line.substring(i).toLong()
-                        flag1 = true
+    for (int i = 0; i < 10; i++) {
+        load_customer_once("customer_ttl")
+    }
+    sleep(10000) // 10s
+    // first, we test whether ttl evict actively
+    long ttl_cache_evict_size_end = 0;
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag1 = false;
+            for (String line in strs) {
+                if (flag1) break;
+                if (line.contains("ttl_cache_evict_size")) {
+                    if (line.startsWith("#")) {
+                        continue
                     }
+                    def i = line.indexOf(' ')
+                    ttl_cache_evict_size_end = line.substring(i).toLong()
+                    flag1 = true
                 }
-                assertTrue(flag1)
-        }
+            }
+            assertTrue(flag1)
+    }
+    // Note: this only applies when the case is run
+    // sequentially, coz we don't know what other cases are
+    // doing with TTL cache
+    logger.info("ttl evict diff:" + (ttl_cache_evict_size_end - ttl_cache_evict_size_begin).toString())
+    assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 1073741824)
 
-        // load for MANY times to this dup table to make cache full enough to evict
-        // It will takes huge amount of time, so it should be p1/p2 level case.
-        // But someone told me it is the right place. Never mind just do it!
-
-        enable_be_injection()
-        injection_limit_for_all_be()
-
-        for (int i = 0; i < 10; i++) {
-            load_customer_once("customer_ttl")
-        }
-        sleep(10000) // 10s
-        // first, we test whether ttl evict actively
-        long ttl_cache_evict_size_end = 0;
-        getMetricsMethod.call() {
-            respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-                String out = "${body}".toString()
-                def strs = out.split('\n')
-                Boolean flag1 = false;
-                for (String line in strs) {
-                    if (flag1) break;
-                    if (line.contains("ttl_cache_evict_size")) {
-                        if (line.startsWith("#")) {
-                            continue
-                        }
-                        def i = line.indexOf(' ')
-                        ttl_cache_evict_size_end = line.substring(i).toLong()
-                        flag1 = true
+    // then we test skip_cache count when doing query when ttl cache is full
+    // we expect it to be rare
+    long skip_cache_count_begin = 0
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag1 = false;
+            for (String line in strs) {
+                if (flag1) break;
+                if (line.contains("cached_remote_reader_skip_cache_sum")) {
+                    if (line.startsWith("#")) {
+                        continue
                     }
+                    def i = line.indexOf(' ')
+                    skip_cache_count_begin = line.substring(i).toLong()
+                    flag1 = true
                 }
-                assertTrue(flag1)
-        }
-        // Note: this only applies when the case is run
-        // sequentially, coz we don't know what other cases are
-        // doing with TTL cache
-        logger.info("ttl evict diff:" + (ttl_cache_evict_size_end - ttl_cache_evict_size_begin).toString())
-        assertTrue((ttl_cache_evict_size_end - ttl_cache_evict_size_begin) > 1073741824)
+            }
+            assertTrue(flag1)
+    }
 
-        // then we test skip_cache count when doing query when ttl cache is full
-        // we expect it to be rare
-        long skip_cache_count_begin = 0
-        getMetricsMethod.call() {
-            respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-                String out = "${body}".toString()
-                def strs = out.split('\n')
-                Boolean flag1 = false;
-                for (String line in strs) {
-                    if (flag1) break;
-                    if (line.contains("cached_remote_reader_skip_cache_sum")) {
-                        if (line.startsWith("#")) {
-                            continue
-                        }
-                        def i = line.indexOf(' ')
-                        skip_cache_count_begin = line.substring(i).toLong()
-                        flag1 = true
+    // another wave of load to flush the current TTL away
+    for (int i = 0; i < 10; i++) {
+        load_customer_once("customer_ttl")
+    }
+    // then we do query and hopefully, we should not run into too many SKIP_CACHE
+    sql """ select count(*) from customer_ttl where C_ADDRESS like '%ea%' and C_NAME like '%a%' and C_COMMENT like '%b%' """
+
+    long skip_cache_count_end = 0
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag1 = false;
+            for (String line in strs) {
+                if (flag1) break;
+                if (line.contains("cached_remote_reader_skip_cache_sum")) {
+                    if (line.startsWith("#")) {
+                        continue
                     }
+                    def i = line.indexOf(' ')
+                    skip_cache_count_end = line.substring(i).toLong()
+                    flag1 = true
                 }
-                assertTrue(flag1)
-        }
+            }
+            assertTrue(flag1)
+    }
+    // Note: this only applies when the case is run
+    // sequentially, coz we don't know what other cases are
+    // doing with TTL cache
+    logger.info("skip cache diff:" + (skip_cache_count_end - skip_cache_count_begin).toString())
+    assertTrue((skip_cache_count_end - skip_cache_count_begin) < 1000000)
 
-        // another wave of load to flush the current TTL away
-        for (int i = 0; i < 10; i++) {
-            load_customer_once("customer_ttl")
-        }
-        // then we do query and hopefully, we should not run into too many SKIP_CACHE
-        sql """ select count(*) from customer_ttl where C_ADDRESS like '%ea%' and C_NAME like '%a%' and C_COMMENT like '%b%' """
-
-        long skip_cache_count_end = 0
-        getMetricsMethod.call() {
-            respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-                String out = "${body}".toString()
-                def strs = out.split('\n')
-                Boolean flag1 = false;
-                for (String line in strs) {
-                    if (flag1) break;
-                    if (line.contains("cached_remote_reader_skip_cache_sum")) {
-                        if (line.startsWith("#")) {
-                            continue
-                        }
-                        def i = line.indexOf(' ')
-                        skip_cache_count_end = line.substring(i).toLong()
-                        flag1 = true
+    // finally, we test whether LRU queue clean itself up when all ttl
+    // cache evict after expiration
+    sleep(200000)
+    getMetricsMethod.call() {
+        respCode, body ->
+            assertEquals("${respCode}".toString(), "200")
+            String out = "${body}".toString()
+            def strs = out.split('\n')
+            Boolean flag1 = false;
+            for (String line in strs) {
+                if (flag1) break;
+                if (line.contains("ttl_cache_lru_queue_size")) {
+                    if (line.startsWith("#")) {
+                        continue
                     }
+                    def i = line.indexOf(' ')
+                    // all ttl will expire, so the ttl LRU queue set to 0
+                    // Note: this only applies when the case is run
+                    // sequentially, coz we don't know what other cases are
+                    // doing with TTL cache
+                    assertEquals(line.substring(i).toLong(), 0)
+                    flag1 = true
                 }
-                assertTrue(flag1)
-        }
-        // Note: this only applies when the case is run
-        // sequentially, coz we don't know what other cases are
-        // doing with TTL cache
-        logger.info("skip cache diff:" + (skip_cache_count_end - skip_cache_count_begin).toString())
-        assertTrue((skip_cache_count_end - skip_cache_count_begin) < 1000000)
-
-        // finally, we test whether LRU queue clean itself up when all ttl
-        // cache evict after expiration
-        sleep(200000)
-        getMetricsMethod.call() {
-            respCode, body ->
-                assertEquals("${respCode}".toString(), "200")
-                String out = "${body}".toString()
-                def strs = out.split('\n')
-                Boolean flag1 = false;
-                for (String line in strs) {
-                    if (flag1) break;
-                    if (line.contains("ttl_cache_lru_queue_size")) {
-                        if (line.startsWith("#")) {
-                            continue
-                        }
-                        def i = line.indexOf(' ')
-                        // all ttl will expire, so the ttl LRU queue set to 0
-                        // Note: this only applies when the case is run
-                        // sequentially, coz we don't know what other cases are
-                        // doing with TTL cache
-                        assertEquals(line.substring(i).toLong(), 0)
-                        flag1 = true
-                    }
-                }
-                assertTrue(flag1)
-        }
-    } finally {
-        clear_be_injection()
-        disable_be_injection()
+            }
+            assertTrue(flag1)
     }
 }

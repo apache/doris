@@ -329,5 +329,17 @@ void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
            sizeof(size_t));
     memcpy(chars.data() + old_size + sizeof(uint8_t) + sizeof(size_t), data_ref.data, data_size);
 }
+
+void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num,
+                                   BufferWritable& bw) const {
+    const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    const auto& data_ref = col.get_data_at(row_num);
+    if (data_ref.size > 0) {
+        std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+        bw.write(str.c_str(), str.size());
+    } else {
+        bw.write("NULL", 4);
+    }
+}
 } // namespace vectorized
 } // namespace doris

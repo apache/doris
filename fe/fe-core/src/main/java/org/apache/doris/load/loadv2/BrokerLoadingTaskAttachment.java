@@ -28,15 +28,17 @@ public class BrokerLoadingTaskAttachment extends TaskAttachment {
 
     private Map<String, String> counters;
     private String trackingUrl;
+    private String firstErrorMsg;
     private List<TabletCommitInfo> commitInfoList;
     List<ErrorTabletInfo> errorTabletInfos;
     private Status status = new Status();
 
     public BrokerLoadingTaskAttachment(long taskId, Map<String, String> counters, String trackingUrl,
-                                       List<TabletCommitInfo> commitInfoList,
+                                       String firstErrorMsg, List<TabletCommitInfo> commitInfoList,
                                        List<ErrorTabletInfo> errorTabletInfos, Status status) {
         super(taskId);
         this.trackingUrl = trackingUrl;
+        this.firstErrorMsg = firstErrorMsg;
         this.counters = counters;
         this.commitInfoList = commitInfoList;
         this.errorTabletInfos = errorTabletInfos;
@@ -49,6 +51,10 @@ public class BrokerLoadingTaskAttachment extends TaskAttachment {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     public List<TabletCommitInfo> getCommitInfoList() {

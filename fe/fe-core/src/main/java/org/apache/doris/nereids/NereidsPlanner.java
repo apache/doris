@@ -31,6 +31,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -100,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -110,6 +112,7 @@ public class NereidsPlanner extends Planner {
     // private static final AtomicInteger executeCount = new AtomicInteger(0);
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
+    public static AtomicLong runningPlanNum = new AtomicLong(0L);
     protected Plan parsedPlan;
     protected Plan analyzedPlan;
     protected Plan rewrittenPlan;
@@ -153,6 +156,7 @@ public class NereidsPlanner extends Planner {
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
         statementContext.getStopwatch().reset().start();
+        NereidsPlanner.runningPlanNum.incrementAndGet();
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
             planWithLock(parsedPlan, requireProperties, explainLevel, showPlanProcess, plan -> {
@@ -164,6 +168,7 @@ public class NereidsPlanner extends Planner {
             });
         } finally {
             statementContext.getStopwatch().stop();
+            NereidsPlanner.runningPlanNum.decrementAndGet();
         }
 
         if (LOG.isDebugEnabled()) {
@@ -380,7 +385,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("End collect and lock table");
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsLockTableFinishTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsLockTableFinishTime(TimeUtils.getStartTimeMs());
         }
     }
 
@@ -395,7 +401,8 @@ public class NereidsPlanner extends Planner {
         }
 
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsAnalysisTime(TimeUtils.getStartTimeMs());
         }
     }
 
@@ -414,7 +421,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("End rewrite plan");
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsRewriteTime(TimeUtils.getStartTimeMs());
         }
         statementContext.setNeedPreMvRewrite(PreMaterializedViewRewriter.needPreRewrite(cascadesContext));
         // init materialization context for mv rewrite
@@ -467,7 +475,7 @@ public class NereidsPlanner extends Planner {
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsPreRewriteByMvFinishTime();
+                    .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
         }
     }
 
@@ -497,7 +505,8 @@ public class NereidsPlanner extends Planner {
             LOG.debug("End optimize plan");
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsOptimizeTime(TimeUtils.getStartTimeMs());
         }
     }
 
@@ -541,9 +550,6 @@ public class NereidsPlanner extends Planner {
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsTranslateTime();
-        }
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
         if (sessionVariable.isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
@@ -552,6 +558,10 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
+        }
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
         if (StatisticsUtil.isEnableHboInfoCollection()) {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
@@ -673,7 +683,8 @@ public class NereidsPlanner extends Planner {
 
         distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsDistributeTime();
+            statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                    .setNereidsDistributeTime(TimeUtils.getStartTimeMs());
         }
     }
 
@@ -972,7 +983,7 @@ public class NereidsPlanner extends Planner {
         return PhysicalProperties.GATHER;
     }
 
-    private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
+    protected ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
         if (explainOptions == null) {
             return ExplainLevel.NONE;
         }

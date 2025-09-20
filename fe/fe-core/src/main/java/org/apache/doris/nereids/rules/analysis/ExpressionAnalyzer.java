@@ -39,7 +39,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
@@ -75,13 +74,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.PreparePlaceholder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -146,7 +143,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     private final boolean enableExactMatch;
     private final boolean bindSlotInOuterScope;
     private final boolean wantToParseSqlFromSqlCache;
-    private boolean hasNondeterministic;
 
     /** ExpressionAnalyzer */
     public ExpressionAnalyzer(Plan currentPlan, Scope scope,
@@ -177,32 +173,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        hasNondeterministic = false;
-        Expression analyzeResult = expression.accept(this, context);
-        if (wantToParseSqlFromSqlCache && hasNondeterministic
-                && context.cascadesContext.getStatementContext().getSqlCacheContext().isPresent()) {
-            hasNondeterministic = false;
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().get();
-            Expression foldNondeterministic = new FoldConstantRuleOnFE(true) {
-                @Override
-                public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
-                    Expression fold = super.visitBoundFunction(boundFunction, context);
-                    boolean unfold = !fold.isDeterministic();
-                    if (unfold) {
-                        sqlCacheContext.setCannotProcessExpression(true);
-                    }
-                    if (!boundFunction.isDeterministic() && !unfold) {
-                        sqlCacheContext.addFoldNondeterministicPair(boundFunction, fold);
-                    }
-                    return fold;
-                }
-            }.rewrite(analyzeResult, context);
-
-            sqlCacheContext.addFoldFullNondeterministicPair(analyzeResult, foldNondeterministic);
-            return foldNondeterministic;
-        }
-        return analyzeResult;
+        return expression.accept(this, context);
     }
 
     @Override
@@ -494,11 +465,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             statementContext.setHasNondeterministic(true);
         }
         if (wantToParseSqlFromSqlCache) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            if (!buildResult.second.isDeterministic()) {
-                hasNondeterministic = true;
-            }
-            sqlCacheContext = statementContext.getSqlCacheContext();
+            sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
             if (builder instanceof AliasUdfBuilder
                     || buildResult.second instanceof JavaUdf || buildResult.second instanceof JavaUdaf) {
                 if (sqlCacheContext.isPresent()) {
@@ -683,7 +650,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // In prepare stage, the realExpr has not been set, set it to StringLiteral so that we can plan the statement
         // and get the output slots in prepare stage, which is required by Mysql api definition.
         if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
-            realExpr = new PreparePlaceholder(new IntegerLiteral(1));
+            realExpr = new StringLiteral(String.valueOf(placeholder.getPlaceholderId().asInt()));
         }
         return visit(realExpr, context);
     }

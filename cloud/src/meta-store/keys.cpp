@@ -823,6 +823,16 @@ void snapshot_reference_key(const SnapshotReferenceKeyInfo& in, std::string* out
     encode_bytes(std::get<2>(in), out);              // ref_instance_id
 }
 
+std::string snapshot_reference_key_prefix(std::string_view instance_id, Versionstamp timestamp) {
+    std::string out;
+    out.push_back(CLOUD_VERSIONED_KEY_SPACE03);
+    encode_bytes(SNAPSHOT_KEY_PREFIX, &out);          // "snapshot"
+    encode_bytes(instance_id, &out);                  // instance_id
+    encode_bytes(SNAPSHOT_REFERENCE_KEY_INFIX, &out); // "reference"
+    encode_versionstamp(timestamp, &out);             // timestamp
+    return out;
+}
+
 //==============================================================================
 // Log keys
 //==============================================================================
