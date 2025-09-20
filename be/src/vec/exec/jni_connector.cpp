@@ -386,34 +386,44 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
 
 Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
                                             MutableColumnPtr& doris_column, size_t num_rows) {
-    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
-    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
-    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
     if (num_rows == 0) {
         return Status::OK();
     }
+    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
+    char* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
+
+    // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
     for (size_t i = 0; i < num_rows; ++i) {
-        int start_offset = (i == 0) ? 0 : offsets[i - 1];
-        int end_offset = offsets[i];
-        varbinary_col.insert_data(chars + start_offset, end_offset - start_offset);
+        // Read length (first 8 bytes)
+        int64_t len = 0;
+        memcpy(&len, meta_base + 16 * i, sizeof(len));
+        if (len <= 0) {
+            varbinary_col.insert_default();
+        } else {
+            // Read address (next 8 bytes)
+            uint64_t addr_u = 0;
+            memcpy(&addr_u, meta_base + 16 * i + 8, sizeof(addr_u));
+            const char* src = reinterpret_cast<const char*>(addr_u);
+            varbinary_col.insert_data(src, static_cast<size_t>(len));
+        }
     }
     return Status::OK();
 }
 
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
-    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
-    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
-
     // This judgment is necessary, otherwise the following statement `offsets[num_rows - 1]` out of bounds
     // What's more, This judgment must be placed after `address.next_meta_as_ptr()`
     // because `address.next_meta_as_ptr` will make `address._meta_index` plus 1
     if (num_rows == 0) {
         return Status::OK();
     }
+
+    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
+    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
+    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
+    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
     size_t origin_chars_size = string_chars.size();
     string_chars.resize(origin_chars_size + offsets[num_rows - 1]);
@@ -782,12 +792,9 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         break;
     }
     case PrimitiveType::TYPE_VARBINARY: {
-        // TODO, here is maybe not efficient, need optimize later
         const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
-        auto string_column_ptr = varbinary_col.convert_to_string_column();
-        const auto& string_col = assert_cast<const ColumnString&>(*string_column_ptr);
-        meta_data.emplace_back((long)string_col.get_offsets().data());
-        meta_data.emplace_back((long)string_col.get_chars().data());
+        meta_data.emplace_back(
+                (long)assert_cast<const ColumnVarbinary&>(varbinary_col).get_data().data());
         break;
     }
     default:
