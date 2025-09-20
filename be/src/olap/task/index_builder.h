@@ -83,7 +83,7 @@ private:
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // "<segment_id, index_id>" -> IndexColumnWriter
     std::unordered_map<std::pair<int64_t, int64_t>, std::unique_ptr<segment_v2::IndexColumnWriter>>
-            _inverted_index_builders;
+            _index_column_writers;
     std::unordered_map<int64_t, std::unique_ptr<IndexFileWriter>> _index_file_writers;
     // <rowset_id, segment_id>
     std::unordered_map<std::pair<std::string, int64_t>, std::unique_ptr<IndexFileReader>>
