@@ -560,6 +560,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
     bthread::ConditionVariable cv;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
         _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
         cv.notify_one();
     });
@@ -707,11 +708,21 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
 
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
                                        const std::vector<RecycledRowsets>& rowsets) {
-    auto st = _thread_pool_token->submit_func([=, this]() { _recycle_cache(tablet_id, rowsets); });
+    bthread::Mutex mu;
+    bthread::ConditionVariable cv;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
+        _recycle_cache(tablet_id, rowsets);
+        cv.notify_one();
+    });
     if (!st.ok()) {
         LOG(WARNING) << "Failed to submit recycle cache task, tablet_id=" << tablet_id
                      << ", error=" << st;
+    } else {
+        cv.wait(lock);
     }
+    
 }
 
 void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
