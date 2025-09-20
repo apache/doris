@@ -381,7 +381,12 @@ public class LoadAction extends RestBaseController {
     }
 
     private String getCloudClusterName(HttpServletRequest request) {
-        String cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
+        String cloudClusterName = request.getHeader(SessionVariable.COMPUTE_GROUP);
+        if (!Strings.isNullOrEmpty(cloudClusterName)) {
+            return cloudClusterName;
+        }
+
+        cloudClusterName = request.getHeader(SessionVariable.CLOUD_CLUSTER);
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
