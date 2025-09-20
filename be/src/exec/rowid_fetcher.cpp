@@ -316,6 +316,30 @@ struct IteratorKey {
     }
 };
 
+struct SegKey {
+    int64_t tablet_id;
+    RowsetId rowset_id;
+    uint64_t segment_id;
+
+    // unordered map std::equal_to
+    bool operator==(const SegKey& rhs) const {
+        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
+               segment_id == rhs.segment_id;
+    }
+};
+
+struct HashOfSegKey {
+    size_t operator()(const SegKey& key) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
+        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
+        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
+        return seed;
+    }
+};
+
 struct HashOfIteratorKey {
     size_t operator()(const IteratorKey& key) const {
         size_t seed = 0;
@@ -331,10 +355,16 @@ struct HashOfIteratorKey {
 
 struct IteratorItem {
     std::unique_ptr<ColumnIterator> iterator;
-    // for holding the reference of segment to avoid use after release
     SegmentSharedPtr segment;
     // for holding the reference of storage read options to avoid use after release
     StorageReadOptions storage_read_options;
+};
+
+struct SegItem {
+    BaseTabletSPtr tablet;
+    BetaRowsetSharedPtr rowset;
+    // for holding the reference of segment to avoid use after release
+    SegmentSharedPtr segment;
 };
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
@@ -617,12 +647,13 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     if (result_block.is_empty_column()) [[likely]] {
         result_block = vectorized::Block(slots, request_block_desc.row_id_size());
     }
-
     TabletSchema full_read_schema;
     for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
         full_read_schema.append_column(TabletColumn(column_pb));
     }
+
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+    std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
     std::string row_store_buffer;
     RowStoreReadStruct row_store_read_struct(row_store_buffer);
     if (request_block_desc.fetch_row_store()) {
@@ -633,20 +664,36 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         }
     }
 
-    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
+    std::vector<uint32_t> row_ids;
+    int k = 1;
+    auto max_k = 0;
+    for (int j = 0; j < request_block_desc.row_id_size();) {
         auto file_id = request_block_desc.file_id(j);
+        row_ids.emplace_back(request_block_desc.row_id(j));
         auto file_mapping = id_file_map->get_file_mapping(file_id);
         if (!file_mapping) {
             return Status::InternalError(
                     "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
                     BackendOptions::get_localhost(), print_id(query_id), file_id);
         }
+        for (k = 1; j + k < request_block_desc.row_id_size(); ++k) {
+            if (request_block_desc.file_id(j + k) == file_id) {
+                row_ids.emplace_back(request_block_desc.row_id(j + k));
+            } else {
+                break;
+            }
+        }
 
         RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, file_mapping, request_block_desc.row_id(j), slots, full_read_schema,
-                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
-                acquire_segments_ms, lookup_row_data_ms, iterator_map, result_block));
+                id_file_map, file_mapping, row_ids, slots, full_read_schema, row_store_read_struct,
+                stats, acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
+                lookup_row_data_ms, seg_map, iterator_map, result_block));
+
+        j += k;
+        max_k = std::max(max_k, k);
+        row_ids.clear();
     }
+
     return Status::OK();
 }
 
@@ -968,77 +1015,93 @@ Status RowIdStorageReader::read_batch_external_row(
 
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
-        const std::shared_ptr<FileMapping>& file_mapping, int64_t row_id,
+        const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_ids,
         std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
         RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-        int64_t* lookup_row_data_ms,
+        int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
         vectorized::Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
-    BaseTabletSPtr tablet = scope_timer_run(
-            [&]() {
-                auto res = ExecEnv::get_tablet(tablet_id);
-                return !res.has_value() ? nullptr
-                                        : std::dynamic_pointer_cast<BaseTablet>(res.value());
-            },
-            acquire_tablet_ms);
-    if (!tablet) {
-        return Status::InternalError(
-                "Backend:{} tablet not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
-    }
+    SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
-    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-            scope_timer_run([&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
-                            acquire_rowsets_ms));
-    if (!rowset) {
-        return Status::InternalError(
-                "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
-    }
+    BaseTabletSPtr tablet;
+    BetaRowsetSharedPtr rowset;
+    SegmentSharedPtr segment;
+    if (seg_map.find(seg_key) == seg_map.end()) {
+        tablet = scope_timer_run(
+                [&]() {
+                    auto res = ExecEnv::get_tablet(tablet_id);
+                    return !res.has_value() ? nullptr
+                                            : std::dynamic_pointer_cast<BaseTablet>(res.value());
+                },
+                acquire_tablet_ms);
+        if (!tablet) {
+            return Status::InternalError(
+                    "Backend:{} tablet not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
 
-    SegmentCacheHandle segment_cache;
-    RETURN_IF_ERROR(scope_timer_run(
-            [&]() {
-                return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
-            },
-            acquire_segments_ms));
+        rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
+                [&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
+                acquire_rowsets_ms));
+        if (!rowset) {
+            return Status::InternalError(
+                    "Backend:{} rowset_id not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
 
-    auto it =
-            std::find_if(segment_cache.get_segments().cbegin(), segment_cache.get_segments().cend(),
-                         [segment_id](const segment_v2::SegmentSharedPtr& seg) {
-                             return seg->id() == segment_id;
-                         });
-    if (it == segment_cache.get_segments().end()) {
-        return Status::InternalError(
-                "Backend:{} segment not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
-                "row_id: {}",
-                BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
-                row_id);
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(scope_timer_run(
+                [&]() {
+                    return SegmentLoader::instance()->load_segments(rowset, &segment_cache, true);
+                },
+                acquire_segments_ms));
+
+        auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                               segment_cache.get_segments().cend(),
+                               [segment_id](const segment_v2::SegmentSharedPtr& seg) {
+                                   return seg->id() == segment_id;
+                               });
+        if (it == segment_cache.get_segments().end()) {
+            return Status::InternalError(
+                    "Backend:{} segment not found, tablet_id: {}, rowset_id: {}, segment_id: {}, "
+                    "row_id: {}",
+                    BackendOptions::get_localhost(), tablet_id, rowset_id.to_string(), segment_id,
+                    row_ids[0]);
+        }
+        segment = *it;
+        seg_map[seg_key] = SegItem {.tablet = tablet, .rowset = rowset, .segment = segment};
+    } else {
+        auto& seg_item = seg_map[seg_key];
+        tablet = seg_item.tablet;
+        rowset = seg_item.rowset;
+        segment = seg_item.segment;
     }
-    segment_v2::SegmentSharedPtr segment = *it;
 
     // if row_store_read_struct not empty, means the line we should read from row_store
     if (!row_store_read_struct.default_values.empty()) {
         CHECK(tablet->tablet_schema()->has_row_store_for_all_columns());
-        RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
-        row_store_read_struct.row_store_buffer.clear();
-        RETURN_IF_ERROR(scope_timer_run(
-                [&]() {
-                    return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                   row_store_read_struct.row_store_buffer);
-                },
-                lookup_row_data_ms));
+        for (auto row_id : row_ids) {
+            RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
+            row_store_read_struct.row_store_buffer.clear();
+            RETURN_IF_ERROR(scope_timer_run(
+                    [&]() {
+                        return tablet->lookup_row_data({}, loc, rowset, stats,
+                                                       row_store_read_struct.row_store_buffer);
+                    },
+                    lookup_row_data_ms));
 
-        RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
-                row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
-                row_store_read_struct.row_store_buffer.size(), row_store_read_struct.col_uid_to_idx,
-                result_block, row_store_read_struct.default_values, {}));
+            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+                    row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
+                    row_store_read_struct.row_store_buffer.size(),
+                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.default_values, {}));
+        }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
             vectorized::MutableColumnPtr column =
@@ -1053,13 +1116,13 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
-            segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], cast_set<uint32_t>(row_id), column,
-                    iterator_item.storage_read_options, iterator_item.iterator));
+            for (auto row_id : row_ids) {
+                RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                        full_read_schema, &slots[x], row_id, column,
+                        iterator_item.storage_read_options, iterator_item.iterator));
+            }
         }
     }
-
     return Status::OK();
 }
 
