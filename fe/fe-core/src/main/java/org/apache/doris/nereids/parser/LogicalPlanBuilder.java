@@ -537,6 +537,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
+import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
@@ -2990,6 +2991,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public Expression visitTryCast(DorisParser.TryCastContext ctx) {
+        return ParserUtils.withOrigin(ctx, () -> processTryCast(getExpression(ctx.expression()), ctx.castDataType()));
+    }
+
+    @Override
     public UnboundFunction visitExtract(DorisParser.ExtractContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String functionName = ctx.field.getText();
@@ -3046,6 +3052,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     private Expression processCast(Expression expression, CastDataTypeContext castDataTypeContext) {
         DataType dataType = visitCastDataType(castDataTypeContext);
         Expression cast = new Cast(expression, dataType, true);
+        if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
+            if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
+                return cast;
+            }
+            List<Expression> args = ImmutableList.of(
+                    cast,
+                    new TinyIntLiteral((byte) 1),
+                    Literal.of(((CharacterType) dataType).getLen())
+            );
+            return new UnboundFunction("substr", args);
+        } else {
+            return cast;
+        }
+    }
+
+    private Expression processTryCast(Expression expression, CastDataTypeContext castDataTypeContext) {
+        DataType dataType = visitCastDataType(castDataTypeContext);
+        Expression cast = new TryCast(expression, dataType, true);
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
             if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
                 return cast;

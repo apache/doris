@@ -45,9 +45,9 @@ import java.util.Objects;
 public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     // CAST can be from SQL Query or Type Coercion.
-    private final boolean isExplicitType;
+    protected final boolean isExplicitType;
 
-    private final DataType targetType;
+    protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
         this(child, targetType, false);
@@ -57,7 +57,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         this(ImmutableList.of(child), targetType, isExplicitType);
     }
 
-    private Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
