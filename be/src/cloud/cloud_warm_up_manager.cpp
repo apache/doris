@@ -722,7 +722,6 @@ void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
     } else {
         cv.wait(lock);
     }
-    
 }
 
 void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
