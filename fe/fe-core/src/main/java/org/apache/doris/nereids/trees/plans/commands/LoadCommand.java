@@ -497,7 +497,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     /**
      * check endpoint
      */
-    private void checkEndpoint(String endpoint) throws UserException {
+    public static void checkEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
             String urlStr = endpoint;

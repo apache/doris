@@ -43,10 +43,12 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
@@ -150,6 +152,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         LOG.info("Refrain parseFile in ExternalFileTVF strat, path: {}", path);
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
+            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+                String endpoint = storageProperties.getEndpoint();
+                LoadCommand.checkEndpoint(endpoint);
+            }
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
             LOG.info("Refrain parseFile in ExternalFileTVF error, path: {}", path);
