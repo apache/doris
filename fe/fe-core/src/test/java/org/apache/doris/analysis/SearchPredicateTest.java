@@ -23,16 +23,13 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchParam;
 
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for SearchPredicate
@@ -51,14 +48,24 @@ public class SearchPredicateTest {
         SlotRef slotRef = new SlotRef(null, columnName);
         // Mock basic properties for testing
         try {
-            java.lang.reflect.Field typeField = SlotRef.class.getDeclaredField("type");
+            // Set type field from parent class Expr
+            java.lang.reflect.Field typeField = Expr.class.getDeclaredField("type");
             typeField.setAccessible(true);
             typeField.set(slotRef, Type.STRING);
-            
-            // Set a dummy SlotId to prevent getSlotId() from throwing
-            java.lang.reflect.Field slotIdField = SlotRef.class.getDeclaredField("slotId");
-            slotIdField.setAccessible(true);
-            slotIdField.set(slotRef, new org.apache.doris.analysis.SlotId(0));
+
+            // Set analyzed flag to true from parent class Expr
+            java.lang.reflect.Field analyzedField = Expr.class.getDeclaredField("isAnalyzed");
+            analyzedField.setAccessible(true);
+            analyzedField.set(slotRef, true);
+
+            // Create a mock SlotDescriptor and set it
+            java.lang.reflect.Field descField = SlotRef.class.getDeclaredField("desc");
+            descField.setAccessible(true);
+
+            // Create a mock SlotDescriptor
+            SlotDescriptor mockDesc = new SlotDescriptor(new SlotId(0), null);
+            descField.set(slotRef, mockDesc);
+
         } catch (Exception e) {
             // Ignore reflection errors in test - tests may fail but won't crash
             System.out.println("Warning: Could not set SlotRef properties: " + e.getMessage());
@@ -74,9 +81,9 @@ public class SearchPredicateTest {
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
 
-        assertNotNull(predicate);
-        assertEquals(Type.BOOLEAN, predicate.getType());
-        assertEquals(1, predicate.getChildren().size());
+        Assertions.assertNotNull(predicate);
+        Assertions.assertEquals(Type.BOOLEAN, predicate.getType());
+        Assertions.assertEquals(1, predicate.getChildren().size());
     }
 
     @Test
@@ -88,7 +95,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children);
 
         String sql = predicate.toSqlImpl(false, false, null, null);
-        assertEquals("search('title:hello')", sql);
+        Assertions.assertEquals("search('title:hello')", sql);
     }
 
     @Test
@@ -103,11 +110,11 @@ public class SearchPredicateTest {
         TExprNode thriftNode = new TExprNode();
         predicate.toThrift(thriftNode);
 
-        assertEquals(TExprNodeType.SEARCH_EXPR, thriftNode.node_type);
-        assertNotNull(thriftNode.search_param);
-        assertEquals(dsl, thriftNode.search_param.original_dsl);
-        assertEquals(1, thriftNode.search_param.field_bindings.size());
-        assertEquals("title", thriftNode.search_param.field_bindings.get(0).field_name);
+        Assertions.assertEquals(TExprNodeType.SEARCH_EXPR, thriftNode.node_type);
+        Assertions.assertNotNull(thriftNode.search_param);
+        Assertions.assertEquals(dsl, thriftNode.search_param.original_dsl);
+        Assertions.assertEquals(1, thriftNode.search_param.field_bindings.size());
+        Assertions.assertEquals("title", thriftNode.search_param.field_bindings.get(0).field_name);
     }
 
     @Test
@@ -137,14 +144,14 @@ public class SearchPredicateTest {
         predicate.toThrift(thriftNode);
 
         TSearchParam param = thriftNode.search_param;
-        assertEquals(dsl, param.original_dsl);
-        assertEquals("AND", param.root.clause_type);
-        assertEquals(2, param.root.children.size());
-        assertEquals(2, param.field_bindings.size());
+        Assertions.assertEquals(dsl, param.original_dsl);
+        Assertions.assertEquals("AND", param.root.clause_type);
+        Assertions.assertEquals(2, param.root.children.size());
+        Assertions.assertEquals(2, param.field_bindings.size());
 
         // Verify field bindings
-        assertEquals("title", param.field_bindings.get(0).field_name);
-        assertEquals("content", param.field_bindings.get(1).field_name);
+        Assertions.assertEquals("title", param.field_bindings.get(0).field_name);
+        Assertions.assertEquals("content", param.field_bindings.get(1).field_name);
     }
 
     @Test
@@ -156,10 +163,10 @@ public class SearchPredicateTest {
         SearchPredicate original = new SearchPredicate(dsl, plan, children);
         SearchPredicate cloned = (SearchPredicate) original.clone();
 
-        assertNotNull(cloned);
-        assertEquals(original.toSqlImpl(false, false, null, null),
+        Assertions.assertNotNull(cloned);
+        Assertions.assertEquals(original.toSqlImpl(false, false, null, null),
                 cloned.toSqlImpl(false, false, null, null));
-        assertEquals(original.getChildren().size(), cloned.getChildren().size());
+        Assertions.assertEquals(original.getChildren().size(), cloned.getChildren().size());
     }
 
     @Test
@@ -175,8 +182,8 @@ public class SearchPredicateTest {
         SearchPredicate pred2 = new SearchPredicate(dsl2, plan, children);
         SearchPredicate pred3 = new SearchPredicate(dsl3, plan, children);
 
-        assertTrue(pred1.equals(pred2));
-        assertTrue(!pred1.equals(pred3));
+        Assertions.assertTrue(pred1.equals(pred2));
+        Assertions.assertTrue(!pred1.equals(pred3));
     }
 
     @Test
@@ -216,22 +223,22 @@ public class SearchPredicateTest {
         predicate.toThrift(thriftNode);
 
         TSearchParam param = thriftNode.search_param;
-        assertEquals(dsl, param.original_dsl);
-        assertEquals("AND", param.root.clause_type);
-        assertEquals(2, param.root.children.size());
+        Assertions.assertEquals(dsl, param.original_dsl);
+        Assertions.assertEquals("AND", param.root.clause_type);
+        Assertions.assertEquals(2, param.root.children.size());
 
         // Verify OR clause
-        assertEquals("OR", param.root.children.get(0).clause_type);
-        assertEquals(2, param.root.children.get(0).children.size());
-        assertEquals("PHRASE", param.root.children.get(0).children.get(0).clause_type);
-        assertEquals("TERM", param.root.children.get(0).children.get(1).clause_type);
+        Assertions.assertEquals("OR", param.root.children.get(0).clause_type);
+        Assertions.assertEquals(2, param.root.children.get(0).children.size());
+        Assertions.assertEquals("PHRASE", param.root.children.get(0).children.get(0).clause_type);
+        Assertions.assertEquals("TERM", param.root.children.get(0).children.get(1).clause_type);
 
         // Verify NOT clause
-        assertEquals("NOT", param.root.children.get(1).clause_type);
-        assertEquals(1, param.root.children.get(1).children.size());
-        assertEquals("TERM", param.root.children.get(1).children.get(0).clause_type);
+        Assertions.assertEquals("NOT", param.root.children.get(1).clause_type);
+        Assertions.assertEquals(1, param.root.children.get(1).children.size());
+        Assertions.assertEquals("TERM", param.root.children.get(1).children.get(0).clause_type);
 
-        assertEquals(3, param.field_bindings.size());
+        Assertions.assertEquals(3, param.field_bindings.size());
     }
 
     @Test
@@ -242,12 +249,12 @@ public class SearchPredicateTest {
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, emptyChildren);
 
-        assertEquals(0, predicate.getChildren().size());
+        Assertions.assertEquals(0, predicate.getChildren().size());
 
         TExprNode thriftNode = new TExprNode();
         predicate.toThrift(thriftNode);
 
-        assertNotNull(thriftNode.search_param);
-        assertEquals(dsl, thriftNode.search_param.original_dsl);
+        Assertions.assertNotNull(thriftNode.search_param);
+        Assertions.assertEquals(dsl, thriftNode.search_param.original_dsl);
     }
 }

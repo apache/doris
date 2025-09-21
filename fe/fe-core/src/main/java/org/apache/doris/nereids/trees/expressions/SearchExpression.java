@@ -64,7 +64,19 @@ public class SearchExpression extends Expression {
     }
 
     @Override
+    public boolean foldable() {
+        // SearchExpression should never be foldable to prevent constant evaluation
+        return false;
+    }
+
+    @Override
     public SearchExpression withChildren(List<Expression> children) {
+        // Validate that all children are SlotReference
+        for (Expression child : children) {
+            if (!(child instanceof SlotReference)) {
+                throw new IllegalArgumentException("SearchExpression children must be SlotReference instances");
+            }
+        }
         return new SearchExpression(dslString, qsPlan, children);
     }
 

@@ -34,6 +34,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -70,8 +71,26 @@ public class SearchDslParser {
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             SearchParser parser = new SearchParser(tokens);
 
+            // Add error listener to detect parsing errors
+            parser.removeErrorListeners();
+            parser.addErrorListener(new org.antlr.v4.runtime.BaseErrorListener() {
+                @Override
+                public void syntaxError(org.antlr.v4.runtime.Recognizer<?, ?> recognizer,
+                                        Object offendingSymbol,
+                                        int line, int charPositionInLine,
+                                        String msg, org.antlr.v4.runtime.RecognitionException e) {
+                    throw new RuntimeException("Invalid search DSL syntax at line " + line
+                            + ":" + charPositionInLine + " " + msg);
+                }
+            });
+
             // Parse the search query
             ParseTree tree = parser.search();
+
+            // Check if parsing was successful
+            if (tree == null) {
+                throw new RuntimeException("Invalid search DSL syntax");
+            }
 
             // Build AST using visitor pattern
             QsAstBuilder visitor = new QsAstBuilder();
@@ -125,18 +144,30 @@ public class SearchDslParser {
 
         @Override
         public QsNode visitSearch(SearchParser.SearchContext ctx) {
-            return visit(ctx.clause());
+            QsNode result = visit(ctx.clause());
+            if (result == null) {
+                throw new RuntimeException("Invalid search clause");
+            }
+            return result;
         }
 
         @Override
         public QsNode visitOrClause(SearchParser.OrClauseContext ctx) {
             if (ctx.andClause().size() == 1) {
-                return visit(ctx.andClause(0));
+                QsNode result = visit(ctx.andClause(0));
+                if (result == null) {
+                    throw new RuntimeException("Invalid OR clause operand");
+                }
+                return result;
             }
 
             List<QsNode> children = new ArrayList<>();
             for (SearchParser.AndClauseContext andCtx : ctx.andClause()) {
-                children.add(visit(andCtx));
+                QsNode child = visit(andCtx);
+                if (child == null) {
+                    throw new RuntimeException("Invalid OR clause operand");
+                }
+                children.add(child);
             }
             return new QsNode(QsClauseType.OR, children);
         }
@@ -144,12 +175,20 @@ public class SearchDslParser {
         @Override
         public QsNode visitAndClause(SearchParser.AndClauseContext ctx) {
             if (ctx.notClause().size() == 1) {
-                return visit(ctx.notClause(0));
+                QsNode result = visit(ctx.notClause(0));
+                if (result == null) {
+                    throw new RuntimeException("Invalid AND clause operand");
+                }
+                return result;
             }
 
             List<QsNode> children = new ArrayList<>();
             for (SearchParser.NotClauseContext notCtx : ctx.notClause()) {
-                children.add(visit(notCtx));
+                QsNode child = visit(notCtx);
+                if (child == null) {
+                    throw new RuntimeException("Invalid AND clause operand");
+                }
+                children.add(child);
             }
             return new QsNode(QsClauseType.AND, children);
         }
@@ -158,24 +197,45 @@ public class SearchDslParser {
         public QsNode visitNotClause(SearchParser.NotClauseContext ctx) {
             if (ctx.NOT() != null) {
                 QsNode child = visit(ctx.atomClause());
+                if (child == null) {
+                    throw new RuntimeException("Invalid NOT clause: missing operand");
+                }
                 List<QsNode> children = new ArrayList<>();
                 children.add(child);
                 return new QsNode(QsClauseType.NOT, children);
             }
-            return visit(ctx.atomClause());
+            QsNode result = visit(ctx.atomClause());
+            if (result == null) {
+                throw new RuntimeException("Invalid atom clause");
+            }
+            return result;
         }
 
         @Override
         public QsNode visitAtomClause(SearchParser.AtomClauseContext ctx) {
             if (ctx.clause() != null) {
                 // Parenthesized clause
-                return visit(ctx.clause());
+                QsNode result = visit(ctx.clause());
+                if (result == null) {
+                    throw new RuntimeException("Invalid parenthesized clause");
+                }
+                return result;
             }
-            return visit(ctx.fieldQuery());
+            if (ctx.fieldQuery() == null) {
+                throw new RuntimeException("Invalid atom clause: missing field query");
+            }
+            QsNode result = visit(ctx.fieldQuery());
+            if (result == null) {
+                throw new RuntimeException("Invalid field query");
+            }
+            return result;
         }
 
         @Override
         public QsNode visitFieldQuery(SearchParser.FieldQueryContext ctx) {
+            if (ctx.fieldName() == null) {
+                throw new RuntimeException("Invalid field query: missing field name");
+            }
             String fieldName = ctx.fieldName().getText();
             if (fieldName.startsWith("\"") && fieldName.endsWith("\"")) {
                 fieldName = fieldName.substring(1, fieldName.length() - 1);
@@ -187,7 +247,14 @@ public class SearchDslParser {
             currentFieldName = fieldName;
 
             try {
-                return visit(ctx.searchValue());
+                if (ctx.searchValue() == null) {
+                    throw new RuntimeException("Invalid field query: missing search value");
+                }
+                QsNode result = visit(ctx.searchValue());
+                if (result == null) {
+                    throw new RuntimeException("Invalid search value");
+                }
+                return result;
             } finally {
                 // Restore previous context
                 currentFieldName = previousFieldName;
@@ -220,11 +287,11 @@ public class SearchDslParser {
             }
 
             if (ctx.rangeValue() != null) {
-                return createRangeNode(fieldName, ctx.rangeValue().getText());
+                return createRangeNode(fieldName, ctx.rangeValue());
             }
 
             if (ctx.listValue() != null) {
-                return createListNode(fieldName, ctx.listValue().getText());
+                return createListNode(fieldName, ctx.listValue());
             }
 
             if (ctx.anyAllValue() != null) {
@@ -265,12 +332,28 @@ public class SearchDslParser {
             return new QsNode(QsClauseType.PHRASE, fieldName, quoted);
         }
 
-        private QsNode createRangeNode(String fieldName, String rangeText) {
+        private QsNode createRangeNode(String fieldName, SearchParser.RangeValueContext ctx) {
+            // Reconstruct the original range text with spaces preserved
+            String rangeText;
+            if (ctx.LBRACKET() != null) {
+                rangeText = "[" + ctx.rangeEndpoint(0).getText() + " TO " + ctx.rangeEndpoint(1).getText() + "]";
+            } else {
+                rangeText = "{" + ctx.rangeEndpoint(0).getText() + " TO " + ctx.rangeEndpoint(1).getText() + "}";
+            }
             return new QsNode(QsClauseType.RANGE, fieldName, rangeText);
         }
 
-        private QsNode createListNode(String fieldName, String listText) {
-            return new QsNode(QsClauseType.LIST, fieldName, listText);
+        private QsNode createListNode(String fieldName, SearchParser.ListValueContext ctx) {
+            // Reconstruct the original list text with spaces preserved
+            StringBuilder listText = new StringBuilder("IN(");
+            for (int i = 0; i < ctx.LIST_TERM().size(); i++) {
+                if (i > 0) {
+                    listText.append(" ");
+                }
+                listText.append(ctx.LIST_TERM(i).getText());
+            }
+            listText.append(")");
+            return new QsNode(QsClauseType.LIST, fieldName, listText.toString());
         }
 
         private QsNode createAnyAllNode(String fieldName, String anyAllText) {
@@ -316,7 +399,7 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsPlan(@JsonProperty("root") QsNode root,
-                @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
+                      @JsonProperty("fieldBindings") List<QsFieldBinding> fieldBindings) {
             this.root = root;
             this.fieldBindings = fieldBindings != null ? fieldBindings : new ArrayList<>();
         }
@@ -344,6 +427,24 @@ public class SearchDslParser {
                 return "{}";
             }
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            QsPlan qsPlan = (QsPlan) o;
+            return Objects.equals(root, qsPlan.root)
+                    && Objects.equals(fieldBindings, qsPlan.fieldBindings);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(root, fieldBindings);
+        }
     }
 
     /**
@@ -364,18 +465,45 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsNode(@JsonProperty("type") QsClauseType type,
-                @JsonProperty("field") String field,
-                @JsonProperty("value") String value) {
+                      @JsonProperty("field") String field,
+                      @JsonProperty("value") String value,
+                      @JsonProperty("children") List<QsNode> children) {
+            this.type = type;
+            this.field = field;
+            this.value = value;
+            this.children = children != null ? children : new ArrayList<>();
+        }
+
+        public QsNode(QsClauseType type, String field, String value) {
             this.type = type;
             this.field = field;
             this.value = value;
             this.children = new ArrayList<>();
         }
 
-        public QsNode(@JsonProperty("type") QsClauseType type,
-                @JsonProperty("children") List<QsNode> children) {
+        public QsNode(QsClauseType type, List<QsNode> children) {
             this.type = type;
             this.children = children != null ? children : new ArrayList<>();
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            QsNode qsNode = (QsNode) o;
+            return type == qsNode.type
+                    && Objects.equals(field, qsNode.field)
+                    && Objects.equals(value, qsNode.value)
+                    && Objects.equals(children, qsNode.children);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, field, value, children);
         }
     }
 
@@ -391,9 +519,27 @@ public class SearchDslParser {
 
         @JsonCreator
         public QsFieldBinding(@JsonProperty("fieldName") String fieldName,
-                @JsonProperty("slotIndex") int slotIndex) {
+                              @JsonProperty("slotIndex") int slotIndex) {
             this.fieldName = fieldName;
             this.slotIndex = slotIndex;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            QsFieldBinding that = (QsFieldBinding) o;
+            return slotIndex == that.slotIndex
+                    && Objects.equals(fieldName, that.fieldName);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(fieldName, slotIndex);
         }
     }
 }

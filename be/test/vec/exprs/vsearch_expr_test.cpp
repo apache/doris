@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/vsearch.h"
-
 #include <gtest/gtest.h>
 
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exprs/vsearch.h"
 
 namespace doris::vectorized {
 
@@ -36,7 +35,7 @@ public:
 protected:
     void createTestExprNode() {
         test_node.node_type = TExprNodeType::SEARCH_EXPR;
-        
+
         // Properly set up TTypeDesc for BOOLEAN type
         TTypeDesc type_desc;
         TTypeNode type_node;
@@ -46,7 +45,7 @@ protected:
         type_node.__set_scalar_type(scalar_type);
         type_desc.types.push_back(type_node);
         test_node.__set_type(type_desc);
-        
+
         test_node.num_children = 1;
 
         // Create search param

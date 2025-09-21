@@ -22,17 +22,12 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Unit tests for SearchExpression
@@ -60,12 +55,12 @@ public class SearchExpressionTest {
 
         SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
 
-        assertNotNull(searchExpr);
-        assertEquals(dsl, searchExpr.getDslString());
-        assertEquals(plan, searchExpr.getQsPlan());
-        assertEquals(slotChildren, searchExpr.getSlotChildren());
-        assertEquals(1, searchExpr.children().size());
-        assertEquals(titleSlot, searchExpr.children().get(0));
+        Assertions.assertNotNull(searchExpr);
+        Assertions.assertEquals(dsl, searchExpr.getDslString());
+        Assertions.assertEquals(plan, searchExpr.getQsPlan());
+        Assertions.assertEquals(slotChildren, searchExpr.getSlotChildren());
+        Assertions.assertEquals(1, searchExpr.children().size());
+        Assertions.assertEquals(titleSlot, searchExpr.children().get(0));
     }
 
     @Test
@@ -77,7 +72,7 @@ public class SearchExpressionTest {
 
         SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
 
-        assertEquals(BooleanType.INSTANCE, searchExpr.getDataType());
+        Assertions.assertEquals(BooleanType.INSTANCE, searchExpr.getDataType());
     }
 
     @Test
@@ -90,7 +85,7 @@ public class SearchExpressionTest {
         SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
 
         // SearchExpression should never be foldable to prevent constant evaluation
-        assertFalse(searchExpr.foldable());
+        Assertions.assertFalse(searchExpr.foldable());
     }
 
     @Test
@@ -105,11 +100,11 @@ public class SearchExpressionTest {
         SearchExpression originalExpr = new SearchExpression(dsl, plan, originalChildren);
         SearchExpression newExpr = originalExpr.withChildren(newChildren);
 
-        assertEquals(dsl, newExpr.getDslString());
-        assertEquals(plan, newExpr.getQsPlan());
-        assertEquals(newChildren, newExpr.getSlotChildren());
-        assertEquals(1, newExpr.children().size());
-        assertEquals(contentSlot, newExpr.children().get(0));
+        Assertions.assertEquals(dsl, newExpr.getDslString());
+        Assertions.assertEquals(plan, newExpr.getQsPlan());
+        Assertions.assertEquals(newChildren, newExpr.getSlotChildren());
+        Assertions.assertEquals(1, newExpr.children().size());
+        Assertions.assertEquals(contentSlot, newExpr.children().get(0));
     }
 
     @Test
@@ -125,7 +120,7 @@ public class SearchExpressionTest {
         Expression nonSlotExpr = new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("test");
         List<Expression> invalidChildren = Arrays.asList(nonSlotExpr);
 
-        assertThrows(IllegalArgumentException.class, () -> {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> {
             searchExpr.withChildren(invalidChildren);
         });
     }
@@ -140,7 +135,7 @@ public class SearchExpressionTest {
         SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
 
         String str = searchExpr.toString();
-        assertEquals("search('title:hello')", str);
+        Assertions.assertEquals("search('title:hello')", str);
     }
 
     @Test
@@ -159,10 +154,10 @@ public class SearchExpressionTest {
         SearchExpression expr2 = new SearchExpression(dsl2, plan2, slotChildren);
         SearchExpression expr3 = new SearchExpression(dsl3, plan1, slotChildren);
 
-        assertEquals(expr1, expr2);
-        assertEquals(expr1.hashCode(), expr2.hashCode());
+        Assertions.assertEquals(expr1, expr2);
+        Assertions.assertEquals(expr1.hashCode(), expr2.hashCode());
 
-        assertFalse(expr1.equals(expr3));
+        Assertions.assertFalse(expr1.equals(expr3));
     }
 
     @Test
@@ -180,7 +175,7 @@ public class SearchExpressionTest {
             public Integer visit(org.apache.doris.nereids.trees.expressions.Expression expr, Void context) {
                 return expr.accept(this, context);
             }
-            
+
             @Override
             public Integer visitSearchExpression(SearchExpression searchExpression, Void context) {
                 return 1;
@@ -188,7 +183,7 @@ public class SearchExpressionTest {
         };
 
         Integer result = searchExpr.accept(visitor, null);
-        assertEquals(Integer.valueOf(1), result);
+        Assertions.assertEquals(Integer.valueOf(1), result);
     }
 
     @Test
@@ -214,10 +209,10 @@ public class SearchExpressionTest {
 
         SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
 
-        assertEquals(2, searchExpr.children().size());
-        assertEquals(titleSlot, searchExpr.children().get(0));
-        assertEquals(contentSlot, searchExpr.children().get(1));
-        assertEquals(2, searchExpr.getQsPlan().fieldBindings.size());
+        Assertions.assertEquals(2, searchExpr.children().size());
+        Assertions.assertEquals(titleSlot, searchExpr.children().get(0));
+        Assertions.assertEquals(contentSlot, searchExpr.children().get(1));
+        Assertions.assertEquals(2, searchExpr.getQsPlan().fieldBindings.size());
     }
 
     @Test
@@ -226,17 +221,17 @@ public class SearchExpressionTest {
         List<Expression> slotChildren = Arrays.asList(titleSlot);
 
         // Null DSL string should throw exception
-        assertThrows(NullPointerException.class, () -> {
+        Assertions.assertThrows(NullPointerException.class, () -> {
             new SearchExpression(null, createTestPlan(), slotChildren);
         });
 
         // Null QsPlan should throw exception
-        assertThrows(NullPointerException.class, () -> {
+        Assertions.assertThrows(NullPointerException.class, () -> {
             new SearchExpression("title:hello", null, slotChildren);
         });
 
         // Null slot children should throw exception
-        assertThrows(NullPointerException.class, () -> {
+        Assertions.assertThrows(NullPointerException.class, () -> {
             new SearchExpression("title:hello", createTestPlan(), null);
         });
     }
@@ -249,7 +244,7 @@ public class SearchExpressionTest {
 
         SearchExpression searchExpr = new SearchExpression(dsl, plan, emptyChildren);
 
-        assertEquals(0, searchExpr.children().size());
-        assertTrue(searchExpr.getSlotChildren().isEmpty());
+        Assertions.assertEquals(0, searchExpr.children().size());
+        Assertions.assertTrue(searchExpr.getSlotChildren().isEmpty());
     }
 }
