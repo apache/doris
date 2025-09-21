@@ -398,7 +398,7 @@ struct TTableFormatFileDesc {
     6: optional TMaxComputeFileDesc max_compute_params
     7: optional TTrinoConnectorFileDesc trino_connector_params
     8: optional TLakeSoulFileDesc lakesoul_params
-    9: optional i64 table_level_row_count
+    9: optional i64 table_level_row_count = -1
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
