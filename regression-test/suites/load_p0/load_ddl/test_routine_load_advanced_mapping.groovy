@@ -22,7 +22,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_advanced_mapping","p0") {
     def kafkaCsvTpoics = [
-                  "basic_data_json_by_line",
+                  "load_ddl_basic_data_json_by_line",
                 ]
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
