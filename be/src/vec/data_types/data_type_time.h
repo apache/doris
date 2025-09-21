@@ -49,6 +49,9 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_TIMEV2;
+    }
 
     std::string to_string(const IColumn& column, size_t row_num) const override;
     std::string to_string(double int_val) const;
