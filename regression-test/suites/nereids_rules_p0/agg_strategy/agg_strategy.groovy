@@ -139,4 +139,6 @@ suite("agg_strategy") {
 
     qt_group_concat_distinct_key_is_varchar_and_distribute_key """explain shape plan
     select group_concat(distinct dst_key1 ,' ') from t_gbykey_10_dstkey_10_1000_dst_key1;"""
+
+    // multi_distinct and count distinct multi expr
 }
