@@ -181,6 +181,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
         if (tableLevelPushDownCount) {
             tableFormatFileDesc.setTableLevelRowCount(icebergSplit.getTableLevelRowCount());
+        } else {
+            // MUST explicitly set to -1, to be distinct from valid row count >= 0
+            tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
@@ -621,3 +624,4 @@ public class IcebergScanNode extends FileQueryScanNode {
         return Optional.empty();
     }
 }
+

@@ -75,7 +75,6 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         // the base compacton would report -808, which means the base compaction is not triggered.
         // so we need to insert a row to make sure the base compaction happens.
         sql "insert into ${table1} values(60,60,60);"
-        trigger_and_wait_compaction(table1, "cumulative")
 
         def tablets = sql_return_maparray """ show tablets from ${table1}; """
         logger.info("tablets: ${tablets}")
@@ -94,7 +93,13 @@ suite("test_config_prune_delete_sign", "nonConcurrent") {
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
         assert code == 0
         def tabletJson = parseJson(out.trim())
-        assert tabletJson.rowsets.size() == 1
-        assert tabletJson.rowsets[0].contains("[0-62]")
+        if (isCloudMode()) {
+            assert tabletJson.rowsets.size() == 2
+            assert tabletJson.rowsets[0].contains("[0-1]")
+            assert tabletJson.rowsets[1].contains("[2-62]")
+        } else {
+            assert tabletJson.rowsets.size() == 2
+            assert tabletJson.rowsets[0].contains("[0-61]")
+        }
     }
 }

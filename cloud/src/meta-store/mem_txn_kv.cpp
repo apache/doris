@@ -649,12 +649,7 @@ TxnErrorCode Transaction::commit() {
     if (versionstamp_enabled_) {
         // For MemTxnKv, generate a fake versionstamp based on committed_version_
         // In real FDB, this would be the actual 10-byte versionstamp
-        versionstamp_result_.resize(10);
-        uint64_t version_be = __builtin_bswap64(static_cast<uint64_t>(committed_version_));
-        std::memcpy(versionstamp_result_.data(), &version_be, 8);
-        // Last 2 bytes set to 0 (batch order in FDB)
-        versionstamp_result_[8] = 0;
-        versionstamp_result_[9] = 0;
+        versionstamp_result_ = Versionstamp(static_cast<uint64_t>(committed_version_), 0);
     }
 
     op_list_.clear();
@@ -687,13 +682,13 @@ void Transaction::enable_get_versionstamp() {
     versionstamp_enabled_ = true;
 }
 
-TxnErrorCode Transaction::get_versionstamp(std::string* versionstamp) {
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
     if (!versionstamp_enabled_) {
         LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
     }
 
-    if (versionstamp_result_.empty()) {
+    if (versionstamp_result_ == Versionstamp()) {
         LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
         return TxnErrorCode::TXN_KEY_NOT_FOUND;
     }

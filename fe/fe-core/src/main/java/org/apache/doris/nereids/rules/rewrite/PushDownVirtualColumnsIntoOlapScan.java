@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -267,9 +268,10 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         for (Expression expr : allExpressions) {
             // Skip expressions that contain lambda functions anywhere in the tree
-            if (expr.anyMatch(e -> e instanceof Lambda)) {
+            if (expr.anyMatch(e -> e instanceof Lambda)
+                    || expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Skipping expression containing lambda: {}", expr.toSql());
+                    LOG.debug("Skipping expression containing lambda/grouping: {}", expr.toSql());
                 }
                 continue;
             }
@@ -348,6 +350,11 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * @return SkipResult indicating how to handle this expression
      */
     private SkipResult shouldSkipExpression(Expression expr) {
+        // Grouping scalar functions can't be materialized into project/virtual columns.
+        // If an expression tree contains any grouping function, skip it entirely.
+        if (expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+            return SkipResult.TERMINATE;
+        }
         // Skip simple slots and literals as they don't benefit from being pushed down
         if (expr instanceof Slot || expr.isConstant()) {
             return SkipResult.TERMINATE;

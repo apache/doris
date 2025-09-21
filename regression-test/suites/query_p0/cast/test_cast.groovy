@@ -137,7 +137,7 @@ suite('test_cast', "arrow_flight_sql") {
     }
 
     test {
-        sql "select * from ${tbl} where case when k0 = 101 then 'false' else 0 end"
+        sql "select * from ${tbl} where case when k0 = 101 then false else 0 end"
         result([])
     }
 

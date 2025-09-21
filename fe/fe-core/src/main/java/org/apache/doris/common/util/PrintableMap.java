@@ -19,7 +19,6 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
 import org.apache.doris.datasource.property.constants.MCProperties;
-import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
@@ -29,6 +28,7 @@ import org.apache.doris.datasource.property.storage.MinioProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
 import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
+import org.apache.doris.datasource.property.storage.S3Properties;
 
 import com.google.common.collect.Sets;
 
@@ -61,10 +61,8 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("jdbc.password");
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.addAll(Arrays.asList(
-                S3Properties.SECRET_KEY,
-                S3Properties.Env.SECRET_KEY,
                 MCProperties.SECRET_KEY));
-
+        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
@@ -74,7 +72,6 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(COSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OBSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(MinioProperties.class));
-
         HIDDEN_KEY = Sets.newHashSet();
         HIDDEN_KEY.addAll(S3Properties.Env.FS_KEYS);
     }

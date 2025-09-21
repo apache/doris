@@ -112,6 +112,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
                     .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
                     .addColumn(new Column("User", ScalarType.createVarchar(50)))
+                    .addColumn(new Column("FirstErrorMsg", ScalarType.createVarchar(200)))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
@@ -517,6 +518,21 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
             // comment
             jobInfo.add(getComment());
+            // first error message
+            List<String> firstErrorMsg = insertTaskQueue.stream()
+                    .map(task -> {
+                        if (StringUtils.isNotEmpty(task.getFirstErrorMsg())) {
+                            return task.getFirstErrorMsg();
+                        } else {
+                            return FeConstants.null_string;
+                        }
+                    })
+                    .collect(Collectors.toList());
+            if (firstErrorMsg.isEmpty()) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(firstErrorMsg.toString());
+            }
             return jobInfo;
         } catch (DdlException e) {
             throw new RuntimeException(e);

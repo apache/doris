@@ -725,7 +725,11 @@ TxnErrorCode Transaction::commit() {
             return cast_as_txn_code(err);
         }
 
-        versionstamp_result_ = std::string((char*)versionstamp_data, versionstamp_length);
+        if (versionstamp_length == 10) {
+            versionstamp_result_ = Versionstamp(versionstamp_data);
+        } else {
+            LOG(WARNING) << "unexpected versionstamp length: " << versionstamp_length;
+        }
     }
 
     return TxnErrorCode::TXN_OK;
@@ -773,13 +777,13 @@ void Transaction::enable_get_versionstamp() {
     versionstamp_enabled_ = true;
 }
 
-TxnErrorCode Transaction::get_versionstamp(std::string* versionstamp) {
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
     if (!versionstamp_enabled_) {
         LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
         return TxnErrorCode::TXN_INVALID_ARGUMENT;
     }
 
-    if (versionstamp_result_.empty()) {
+    if (versionstamp_result_ == Versionstamp()) {
         LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
         return TxnErrorCode::TXN_KEY_NOT_FOUND;
     }

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.operations;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -100,23 +99,7 @@ public interface ExternalMetadataOps {
         return res;
     }
 
-    /**
-     *
-     * @param stmt
-     * @return return false means table does not exist and is created this time
-     * @throws UserException
-     */
-    default boolean createTable(CreateTableStmt stmt) throws UserException {
-        boolean res = createTableImpl(stmt);
-        if (!res) {
-            afterCreateTable(stmt.getDbName(), stmt.getTableName());
-        }
-        return res;
-    }
-
     boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException;
-
-    boolean createTableImpl(CreateTableStmt stmt) throws UserException;
 
     default void afterCreateTable(String dbName, String tblName) {
     }

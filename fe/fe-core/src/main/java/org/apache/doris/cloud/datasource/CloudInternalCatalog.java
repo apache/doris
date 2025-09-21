@@ -167,13 +167,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Cloud.CreateTabletsRequest.Builder requestBuilder = Cloud.CreateTabletsRequest.newBuilder();
             List<String> rowStoreColumns =
                     tbl.getTableProperty().getCopiedRowStoreColumns();
-            TInvertedIndexFileStorageFormat effectiveIndexStorageFormat =
-                        (Config.enable_new_partition_inverted_index_v2_format
-                                && tbl.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1)
-                                ? TInvertedIndexFileStorageFormat.V2
-                                : tbl.getInvertedIndexFileStorageFormat();
             for (Tablet tablet : index.getTablets()) {
-                // Use resolved format that considers global override for new partitions
                 OlapFile.TabletMetaCloudPB.Builder builder = createTabletMetaBuilder(tbl.getId(), indexId,
                         partitionId, tablet, tabletType, schemaHash, keysType, shortKeyColumnCount,
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
@@ -186,7 +180,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getTimeSeriesCompactionLevelThreshold(),
                         tbl.disableAutoCompaction(),
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                        effectiveIndexStorageFormat,
+                        tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
                         tbl.variantEnableFlattenNested(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),

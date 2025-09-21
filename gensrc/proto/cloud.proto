@@ -768,6 +768,8 @@ enum SnapshotStatus {
     SNAPSHOT_NORMAL = 1;
     // This snapshot was aborted due to an error.
     SNAPSHOT_ABORTED = 2;
+    // This snapshot was recycled.
+    SNAPSHOT_RECYCLED = 3;
 }
 
 // A cluster snapshot.
@@ -797,6 +799,9 @@ message SnapshotPB {
     optional string reason = 12;
     // The label of the snapshot, which is not guaranteed to be unique.
     optional string label = 13;
+
+    // The resource id of the object store where snapshot image stored.
+    optional string resource_id = 14;
 
     // TODO: add the referenced resources
 }
@@ -1774,6 +1779,7 @@ message GetDeleteBitmapRequest {
     optional int64 cumulative_compaction_cnt = 8;
     optional int64 cumulative_point = 9;
     optional string request_ip = 10;
+    optional int64 dbm_bytes_threshold = 11;
     optional int64 store_version = 50;
 }
 
@@ -1789,6 +1795,11 @@ message GetDeleteBitmapResponse {
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
+
+    // indicates whether the reponse contains all request rowsets' delete bitmap
+    // when `has_more` is `true`, BE should launch RPC again to get the results for remaining rowsets
+    optional bool has_more = 100;
+    repeated string returned_rowset_ids = 101;
 }
 
 message RemoveDeleteBitmapRequest {
@@ -1912,6 +1923,7 @@ message BeginSnapshotResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string snapshot_id = 2;
     optional string image_url = 3;
+    optional ObjectStoreInfoPB obj_info = 4;
 }
 
 message CommitSnapshotRequest {
@@ -1990,15 +2002,17 @@ message CloneInstanceRequest {
     optional string new_instance_id = 3;
     optional string snapshot_name = 4;      // only used for clone
     optional CloneType clone_type = 5;
+    optional string request_ip = 6;
 
     // Below fields are required for WRITABLE clone.
-    optional ObjectStoreInfoPB obj_info = 6;
-    optional StorageVaultPB storage_vault = 7;
-    optional string request_ip = 8;
+    optional ObjectStoreInfoPB obj_info = 7;
+    optional StorageVaultPB storage_vault = 8;
 }
 
 message CloneInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
+    // The info of the object store where snapshot images stored
+    optional ObjectStoreInfoPB obj_info = 2;
 }
 
 service MetaService {

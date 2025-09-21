@@ -520,8 +520,12 @@ Status PointQueryExecutor::_lookup_row_data() {
                         _result_block->get_by_position(pos).column->assume_mutable();
                 std::unique_ptr<ColumnIterator> iter;
                 SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                StorageReadOptions storage_read_options;
+                storage_read_options.stats = &_read_stats;
+                storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                row_id, column, _read_stats, iter));
+                                                                row_id, column,
+                                                                storage_read_options, iter));
                 if (_tablet->tablet_schema()
                             ->column_by_uid(slot->col_unique_id())
                             .has_char_type()) {

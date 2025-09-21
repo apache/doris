@@ -89,7 +89,7 @@ private:
                 EXPECT_EQ(e.code(), ErrorCode::FATAL_ERROR);
                 EXPECT_THAT(
                         e.to_string().c_str(),
-                        ::testing::EndsWith("only LLM aggregate functions implement this method"));
+                        ::testing::HasSubstr("only LLM aggregate functions implement this method"));
             }
         }
 

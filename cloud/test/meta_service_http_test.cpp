@@ -3084,4 +3084,37 @@ TEST(MetaServiceHttpTest, VirtualClusterTest) {
 
     } // namespace doris::cloud
 }
+
+TEST(MetaServiceHttpTest, ShortGetTabletStatsDebugStringTest) {
+    config::enable_idempotent_request_injection = true;
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+    };
+
+    HttpContext ctx(true);
+    auto& meta_service = ctx.meta_service_;
+    constexpr auto table_id = 10001, index_id = 11001, partition_id = 12001;
+    int64_t tablet_id = 10001;
+    GetTabletStatsRequest req;
+    GetTabletStatsResponse res;
+
+    brpc::Controller cntl;
+    for (size_t i = 0; i < 50; i++) {
+        auto* idx = req.add_tablet_idx();
+        idx->set_table_id(table_id);
+        idx->set_index_id(index_id);
+        idx->set_partition_id(partition_id);
+        idx->set_tablet_id(tablet_id + i);
+    }
+
+    meta_service->get_tablet_stats(&cntl, &req, &res, nullptr);
+
+    sp->set_call_back("idempotent_injection_short_debug_string_for_get_stats", [](auto&& args) {
+        GetTabletStatsRequest debug_req = *try_any_cast<GetTabletStatsRequest*>(args.back());
+        ASSERT_EQ(10, debug_req.tablet_idx_size());
+    });
+}
+
 } // namespace doris::cloud

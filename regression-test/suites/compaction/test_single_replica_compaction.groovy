@@ -114,7 +114,7 @@ suite("test_single_compaction_p2", "p2") {
 
         String command = sb.toString()
         logger.info(command)
-        process = command.execute()
+        def process = command.execute()
         code = process.waitFor()
         out = process.getText()
         logger.info("Get compaction status: code=" + code + ", out=" + out)

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -47,6 +48,7 @@ import com.google.common.collect.Multimap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -172,31 +174,64 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected void assignLocalShuffleJobs(ScanSource scanSource, int instanceNum, List<AssignedJob> instances,
             ConnectContext context, DistributedPlanWorker worker) {
-        // only generate one instance to scan all data, in this step
-        List<ScanSource> assignJoinBuckets = scanSource.parallelize(
-                scanNodes, instanceNum
-        );
+        /*
+         * Split scan ranges evenly into `parallelExecInstanceNum` instances.
+         *
+         * For a fragment contains co-located join,
+         *
+         *      scan (id = 0) -> join build (id = 2)
+         *                          |
+         *      scan (id = 1) -> join probe (id = 2)
+         *
+         * If both of `scan (id = 0)` and `scan (id = 1)` are serial operators, we will plan local exchanger
+         * after them:
+         *
+         *      scan (id = 0) -> local exchange -> join build (id = 2)
+         *                                               |
+         *      scan (id = 1) -> local exchange -> join probe (id = 2)
+         *
+         *
+         * And there is another more complicated scenario, for example, `scan (id = 0)` has 10 partitions and
+         * 3 buckets which means 3 * 10 tablets and `scan (id = 1)` has 3 buckets and no partition which means
+         * 3 tablets totally. If expected parallelism is 8, we will get a serial scan (id = 0) and a
+         * non-serial scan (id = 1). For this case, we will plan another plan with local exchange:
+         *
+         *      scan (id = 0) -> local exchange -> join build (id = 2)
+         *                                               |
+         *      scan (id = 1)          ->         join probe (id = 2)
+         */
+        Pair<BucketScanSource, BucketScanSource> split = splitSerialScanSource((BucketScanSource) scanSource);
+        BucketScanSource serialScanSource = split.key();
+        BucketScanSource nonSerialScanSource = split.value();
 
-        // one scan range generate multiple instances,
-        // different instances reference the same scan source
+        List<BucketScanSource> parallelizedSources = (List) nonSerialScanSource.parallelize(scanNodes, instanceNum);
+        BucketScanSource firstInstanceScanSource = serialScanSource;
+        if (!parallelizedSources.isEmpty()) {
+            firstInstanceScanSource = serialScanSource.newMergeBucketScanSource(parallelizedSources.get(0));
+        }
         int shareScanId = shareScanIdGenerator.getAndIncrement();
+        LocalShuffleBucketJoinAssignedJob firstInstance = new LocalShuffleBucketJoinAssignedJob(
+                instances.size(), shareScanId, context.nextInstanceId(),
+                this, worker,
+                firstInstanceScanSource,
+                Utils.fastToImmutableSet(firstInstanceScanSource.bucketIndexToScanNodeToTablets.keySet())
+        );
+        instances.add(firstInstance);
 
-        BucketScanSource shareScanSource = (BucketScanSource) scanSource;
-        ScanSource emptyShareScanSource = shareScanSource.newEmpty();
-
-        for (int i = 0; i < assignJoinBuckets.size(); i++) {
-            Set<Integer> assignedJoinBuckets
-                    = ((BucketScanSource) assignJoinBuckets.get(i)).bucketIndexToScanNodeToTablets.keySet();
+        for (int i = 1; i < parallelizedSources.size(); i++) {
+            BucketScanSource nonFirstInstanceScanSource = parallelizedSources.get(i);
             LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
                     instances.size(), shareScanId, context.nextInstanceId(),
                     this, worker,
-                    i == 0 ? shareScanSource : emptyShareScanSource,
-                    Utils.fastToImmutableSet(assignedJoinBuckets)
+                    nonFirstInstanceScanSource,
+                    Utils.fastToImmutableSet(nonFirstInstanceScanSource.bucketIndexToScanNodeToTablets.keySet())
             );
             instances.add(instance);
         }
 
-        for (int i = assignJoinBuckets.size(); i < instanceNum; ++i) {
+        BucketScanSource shareScanSource = (BucketScanSource) scanSource;
+        ScanSource emptyShareScanSource = shareScanSource.newEmpty();
+        for (int i = instances.size(); i < instanceNum; ++i) {
             LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
                     instances.size(), shareScanId, context.nextInstanceId(),
                     this, worker, emptyShareScanSource,
@@ -204,6 +239,40 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                     ImmutableSet.of()
             );
             instances.add(instance);
+        }
+    }
+
+    private Pair<BucketScanSource, BucketScanSource> splitSerialScanSource(BucketScanSource totalScanSource) {
+        Map<Integer, Map<ScanNode, ScanRanges>> serialScanRanges = Maps.newLinkedHashMap();
+        Map<Integer, Map<ScanNode, ScanRanges>> nonSerialScanRanges = Maps.newLinkedHashMap();
+        for (ScanNode scanNode : scanNodes) {
+            if (scanNode.isSerialOperator()) {
+                collectScanRanges(totalScanSource, scanNode, serialScanRanges);
+            } else {
+                collectScanRanges(totalScanSource, scanNode, nonSerialScanRanges);
+            }
+        }
+        return Pair.of(new BucketScanSource(serialScanRanges), new BucketScanSource(nonSerialScanRanges));
+    }
+
+    private void collectScanRanges(
+            BucketScanSource totalScanSource, ScanNode findScanNode, Map<Integer, Map<ScanNode, ScanRanges>> result) {
+        Map<Integer, Map<ScanNode, ScanRanges>> bucketIndexToScanNodeToTablets
+                = totalScanSource.bucketIndexToScanNodeToTablets;
+        for (Entry<Integer, Map<ScanNode, ScanRanges>> kv : bucketIndexToScanNodeToTablets.entrySet()) {
+            Integer bucketIndex = kv.getKey();
+            Map<ScanNode, ScanRanges> scanNodeToRanges = kv.getValue();
+            ScanRanges scanRanges = scanNodeToRanges.get(findScanNode);
+            if (scanRanges != null) {
+                Map<ScanNode, ScanRanges> newScanNodeToRanges
+                        = result.computeIfAbsent(bucketIndex, k -> {
+                            LinkedHashMap<ScanNode, ScanRanges> mergedRanges = new LinkedHashMap<>();
+                            mergedRanges.put(findScanNode, new ScanRanges());
+                            return mergedRanges;
+                        });
+                newScanNodeToRanges.computeIfAbsent(findScanNode, scanNode -> new ScanRanges())
+                        .addScanRanges(scanRanges);
+            }
         }
     }
 

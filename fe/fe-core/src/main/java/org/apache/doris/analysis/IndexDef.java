@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Strings;
@@ -46,7 +47,7 @@ public class IndexDef {
     private String comment;
     private Map<String, String> properties;
     private boolean isBuildDeferred = false;
-    private PartitionNames partitionNames;
+    private PartitionNamesInfo partitionNamesInfo;
     public static final int MIN_NGRAM_SIZE = 1;
     public static final int MAX_NGRAM_SIZE = 255;
     public static final int MIN_BF_SIZE = 64;
@@ -84,10 +85,11 @@ public class IndexDef {
         }
     }
 
-    public IndexDef(String indexName, PartitionNames partitionNames, IndexType indexType, boolean isBuildDeferred) {
+    public IndexDef(String indexName, PartitionNamesInfo partitionNamesInfo,
+                        IndexType indexType, boolean isBuildDeferred) {
         this.indexName = indexName;
         this.indexType = indexType;
-        this.partitionNames = partitionNames;
+        this.partitionNamesInfo = partitionNamesInfo;
         this.isBuildDeferred = isBuildDeferred;
     }
 
@@ -199,12 +201,8 @@ public class IndexDef {
         return ifNotExists;
     }
 
-    public boolean isBuildDeferred() {
-        return isBuildDeferred;
-    }
-
-    public List<String> getPartitionNames() {
-        return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
+    public List<String> getPartitionNamesInfo() {
+        return partitionNamesInfo == null ? Lists.newArrayList() : partitionNamesInfo.getPartitionNames();
     }
 
     public enum IndexType {

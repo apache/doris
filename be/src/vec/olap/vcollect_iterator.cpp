@@ -94,6 +94,10 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
     } else {
         _topn_limit = 0;
     }
+    DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
+        LOG(INFO) << "topn_limit: " << _topn_limit << ", read_orderby_key_limit: "
+                  << _reader->_reader_context.read_orderby_key_limit;
+    })
 }
 
 Status VCollectIterator::add_child(const RowSetSplits& rs_splits) {

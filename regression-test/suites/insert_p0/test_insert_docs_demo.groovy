@@ -107,5 +107,5 @@ suite("test_insert_docs_demo") {
                 (NULL, "Alexander", 60),
                 (5, "Ava", 17);
         """
-    }, "Insert has too many filtered data 1/5 insert_max_filter_ratio is 0.1")
+    }, "Insert has too many filtered data 1/5 insert_max_filter_ratio is 0.1", "first_error_msg")
 }

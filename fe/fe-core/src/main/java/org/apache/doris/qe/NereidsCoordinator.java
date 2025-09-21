@@ -322,6 +322,11 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
+    public String getFirstErrorMsg() {
+        return coordinatorContext.asLoadProcessor().loadContext.getFirstErrorMsg();
+    }
+
+    @Override
     public List<TErrorTabletInfo> getErrorTabletInfos() {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }

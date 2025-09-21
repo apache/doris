@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
@@ -30,6 +29,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.UserPropertyProcNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -110,7 +110,7 @@ public class ShowUserPropertyCommand extends ShowCommand {
         PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
                 CaseSensibility.USER.getCaseSensibility());
         for (List<String> row : rows) {
-            String key = row.get(0).split("\\" + SetUserPropertyVar.DOT_SEPARATOR)[0];
+            String key = row.get(0).split("\\" + SetUserPropertyVarOp.DOT_SEPARATOR)[0];
             if (matcher.match(key)) {
                 result.add(row);
             }
@@ -143,7 +143,7 @@ public class ShowUserPropertyCommand extends ShowCommand {
         }
 
         for (List<String> row : userProperties) {
-            String key = row.get(0).split("\\" + SetUserPropertyVar.DOT_SEPARATOR)[0];
+            String key = row.get(0).split("\\" + SetUserPropertyVarOp.DOT_SEPARATOR)[0];
             if (matcher == null || matcher.match(key)) {
                 result.put(row.get(0), row.get(1));
             }

@@ -105,6 +105,7 @@ public class TimeRoundSeries {
                 return null;
             }
         }
+        trivialPart = (trivialPart == 0 ? dt.getMicroSecond() - start.getMicroSecond() : trivialPart);
         if (getCeil) {
             diff = diff + (trivialPart > 0 ? 1 : 0);
         } else {

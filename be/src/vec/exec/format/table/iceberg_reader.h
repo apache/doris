@@ -173,9 +173,6 @@ public:
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 
-    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) final;
-
     void set_delete_rows() final {
         auto* parquet_reader = (ParquetReader*)(_file_format_reader.get());
         parquet_reader->set_delete_rows(&_iceberg_delete_rows);
@@ -189,6 +186,10 @@ protected:
                                             const_cast<cctz::time_zone*>(&_state->timezone_obj()),
                                             _io_ctx, _state, _meta_cache);
     }
+
+private:
+    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
+                                      DeleteFile* position_delete) final;
 };
 class IcebergOrcReader final : public IcebergTableReader {
 public:
