@@ -144,4 +144,8 @@ qt_sql_base9 """ select cast(cast('800:00:00.000999' as time(6)) as time(4)) """
 testFoldConst("select cast(cast('800:00:00.000999' as time(6)) as time(4))")
 qt_sql_base10 """ select cast(cast('800:00:00.000049' as time(6)) as time(4)) """
 testFoldConst("select cast(cast('800:00:00.000999' as time(6)) as time(4))")
+qt_sql_base11 """ select cast(cast("1:34:56.99999" as time(6)) as time(4)) """
+testFoldConst(""" select cast(cast("1:34:56.99999" as time(6)) as time(4)) """)
+qt_sql_base12 """ select cast(cast("838:59:59" as time(6)) as time(4)) """
+testFoldConst(""" select cast(cast("838:59:59" as time(6)) as time(4)) """)
 }

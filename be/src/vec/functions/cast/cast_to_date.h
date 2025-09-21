@@ -156,6 +156,9 @@ public:
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
             if constexpr (IsDateType<FromDataType> && IsDateV2Type<ToDataType>) {
                 // from Date to Date
                 auto dtv1 = binary_cast<Int64, VecDateTimeValue>(col_from->get_data()[i]);
@@ -313,6 +316,9 @@ public:
                                             to_type->get_name());
                                 } else {
                                     col_nullmap->get_data()[i] = true;
+                                    //TODO: maybe we can remove all set operations on nested of null cell.
+                                    // the correctness should be keep by downstream user with replace_... or manually
+                                    // process null data if need.
                                     col_to->get_data()[i] =
                                             binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(
                                                     MIN_DATETIME_V2);
@@ -361,17 +367,9 @@ public:
                             time = ((int64_t)time / TimeValue::ONE_SECOND_MICROSECONDS + 1) *
                                    TimeValue::ONE_SECOND_MICROSECONDS;
 
-                            if (!TimeValue::valid(time)) {
-                                if constexpr (CastMode == CastModeType::StrictMode) {
-                                    return Status::InvalidArgument(
-                                            "TimeV2 overflow when casting {} from {} to {}",
-                                            type->to_string(*col_from, i), type->get_name(),
-                                            to_type->get_name());
-                                } else {
-                                    col_nullmap->get_data()[i] = true;
-                                    col_to->get_data()[i] = 0;
-                                }
-                            }
+                            // the input data must be valid, so max to '838:59:59.0'. this value won't carry on
+                            // to second.
+                            DCHECK(TimeValue::valid(time)) << col_from->get_data()[i];
                         } else {
                             time = TimeValue::reset_microsecond(time, rounded_microseconds);
                         }
