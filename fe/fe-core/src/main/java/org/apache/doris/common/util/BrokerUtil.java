@@ -85,14 +85,12 @@ public class BrokerUtil {
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
         List<RemoteFile> rfiles = new ArrayList<>();
-        LOG.info("Refrain parseFile in BrokerUtil strat");
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
             Status st = fileSystem.globList(path, rfiles, false);
             if (!st.ok()) {
                 throw new UserException(st.getErrMsg());
             }
         } catch (Exception e) {
-            LOG.info("Refrain parseFile in BrokerUtil error");
             LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
             throw new UserException(brokerDesc.getName() +  " list path exception. path="
                     + path + ", err: " + e.getMessage());
