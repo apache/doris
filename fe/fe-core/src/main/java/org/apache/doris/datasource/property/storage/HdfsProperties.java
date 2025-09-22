@@ -106,7 +106,6 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
             return true;
         }
-
         return HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey);
     }
 
