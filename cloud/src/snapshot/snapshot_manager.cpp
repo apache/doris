@@ -17,6 +17,7 @@
 
 #include "snapshot/snapshot_manager.h"
 
+#include "recycler/checker.h"
 #include "recycler/recycler.h"
 
 namespace doris::cloud {
@@ -69,6 +70,14 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::set_multi_version_statu
 }
 
 int SnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
+    return 0;
+}
+
+int SnapshotManager::check_snapshots(InstanceChecker* checker) {
+    return 0;
+}
+
+int SnapshotManager::inverted_check_snapshots(InstanceChecker* checker) {
     return 0;
 }
 
