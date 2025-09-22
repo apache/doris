@@ -69,6 +69,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                                                  const TPipelineFragmentParamsList& parent) {
 // submit this params
 #ifndef BE_TEST
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;

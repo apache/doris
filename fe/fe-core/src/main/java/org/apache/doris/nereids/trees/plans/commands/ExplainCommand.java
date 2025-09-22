@@ -25,6 +25,8 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
@@ -80,6 +82,11 @@ public class ExplainCommand extends Command implements NoForward {
             throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
         }
         Explainable explainable = (Explainable) logicalPlan;
+        if (explainable instanceof InsertIntoTableCommand
+                || explainable instanceof InsertOverwriteTableCommand
+                || explainable instanceof UpdateCommand) {
+            ctx.getStatementContext().setIsInsert(true);
+        }
         explainPlan = ((LogicalPlan) explainable.getExplainPlan(ctx));
         NereidsPlanner planner = explainable.getExplainPlanner(explainPlan, ctx.getStatementContext()).orElseGet(() ->
             new NereidsPlanner(ctx.getStatementContext())

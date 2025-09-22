@@ -45,7 +45,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigDecimal;
@@ -548,7 +547,7 @@ public class DateTimeExtractAndTransform {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
         if (second.getValue() < 0) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
 
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
@@ -559,7 +558,7 @@ public class DateTimeExtractAndTransform {
         DateTimeV2Literal datetime = new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
         if (datetime.checkRange()) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
         return dateFormat(datetime, format);
     }
@@ -572,7 +571,7 @@ public class DateTimeExtractAndTransform {
         format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
 
         if (second.getValue().signum() < 0) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
 
         ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
@@ -585,7 +584,7 @@ public class DateTimeExtractAndTransform {
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
                 dateTime.getNano() / 1000);
         if (datetime.checkRange()) {
-            return new NullLiteral(VarcharType.SYSTEM_DEFAULT);
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
         return dateFormat(datetime, format);
     }
@@ -700,9 +699,14 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "makedate")
     public static Expression makeDate(IntegerLiteral year, IntegerLiteral dayOfYear) {
-        int day = dayOfYear.getValue();
-        return day > 0 ? DateLiteral.fromJavaDateType(LocalDateTime.of(year.getValue(), 1, 1, 0, 0, 0)
-                .plusDays(day - 1)) : new NullLiteral(DateType.INSTANCE);
+        int yearValue = year.getValue();
+        int dayValue = dayOfYear.getValue();
+        if (yearValue < 0 || yearValue > 9999 || dayValue <= 0) {
+            throw new AnalysisException("Operation makedate of " + yearValue + ", " + dayValue + " out of range");
+        }
+        return dayValue > 0
+                ? DateLiteral.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
+                : new NullLiteral(DateType.INSTANCE);
     }
 
     /**
@@ -1059,7 +1063,7 @@ public class DateTimeExtractAndTransform {
 
     private static Expression fromMicroSecond(long microSecond) {
         if (microSecond < 0 || microSecond > 253402271999999999L) {
-            return new NullLiteral(DateTimeV2Type.SYSTEM_DEFAULT);
+            throw new AnalysisException("Operation from_microsecond of " + microSecond + " out of range");
         }
         LocalDateTime dateTime = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(microSecond / 1000).plusNanos(microSecond % 1000 * 1000),
