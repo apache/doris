@@ -224,7 +224,8 @@ public class ReportHandler extends Daemon {
 
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
-                request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy());
+                request.getPipelineExecutorSize(), numTablets, request.getIndexPolicy(),
+                request.isSetRunningFragments() ? request.getRunningFragments() : -1);
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -314,6 +315,7 @@ public class ReportHandler extends Daemon {
         private List<TStorageResource> storageResources;
         private int cpuCores;
         private int pipelineExecutorSize;
+        private long runningFragments;
         private long numTablets;
         private List<TIndexPolicy> indexPolicys;
 
@@ -321,7 +323,7 @@ public class ReportHandler extends Daemon {
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys) {
+                int pipelineExecutorSize, long numTablets, List<TIndexPolicy> indexPolicys, long runningFragments) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -335,12 +337,13 @@ public class ReportHandler extends Daemon {
             this.pipelineExecutorSize = pipelineExecutorSize;
             this.numTablets = numTablets;
             this.indexPolicys = indexPolicys;
+            this.runningFragments = runningFragments;
         }
 
         @Override
         protected void exec() {
             if (tasks != null) {
-                ReportHandler.taskReport(beId, tasks);
+                ReportHandler.taskReport(beId, tasks, runningFragments);
             }
             if (disks != null) {
                 ReportHandler.diskReport(beId, disks);
@@ -704,7 +707,8 @@ public class ReportHandler extends Daemon {
         }
     }
 
-    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks,
+            long runningFragments) {
         debugBlock();
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
@@ -728,6 +732,7 @@ public class ReportHandler extends Daemon {
                 ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         if (be != null) {
             be.setPublishTaskLastTimeAccumulated((long) publishTaskSize);
+            be.setRunningFragments(runningFragments);
         }
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);

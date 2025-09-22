@@ -121,6 +121,7 @@ struct TReportRequest {
     // tablet num in be, in cloud num_tablets may not eq tablet_list.size()
     14: optional i64 num_tablets
     15: optional list<AgentService.TIndexPolicy> index_policy
+    16: optional i64 running_fragments
 }
 
 struct TMasterResult {
