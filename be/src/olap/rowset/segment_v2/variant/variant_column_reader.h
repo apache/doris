@@ -98,6 +98,7 @@ struct SparseColumnCache {
     }
 
     Status seek_to_ordinal(ordinal_t ord) {
+        // in the different batch, we need to reset the state to SEEKED_NEXT_BATCHED
         if (state == State::SEEKED_NEXT_BATCHED && offset == ord) {
             return Status::OK();
         }
@@ -108,6 +109,7 @@ struct SparseColumnCache {
     }
 
     Status next_batch(size_t* _n, bool* _has_null) {
+        // length is 0, means data is not cached, need to read from iterator
         if (length != 0) {
             DCHECK(state == State::SEEKED_NEXT_BATCHED);
             *_n = length;
@@ -116,18 +118,20 @@ struct SparseColumnCache {
         sparse_column->clear();
         DCHECK(state == State::SEEKED_NEXT_BATCHED);
         RETURN_IF_ERROR(sparse_column_iterator->next_batch(_n, sparse_column, _has_null));
-        length = *_n;
+        length = *_n; // update length
         return Status::OK();
     }
 
     Status read_by_rowids(const rowid_t* _rowids, const size_t _count) {
+        // if rowsids or count is different from cached data, need to read from iterator
+        // in the different batch, we need to reset the state to READ_BY_ROWIDS
         if (is_read_by_rowids(_rowids, _count)) {
             return Status::OK();
         }
         reset(State::READ_BY_ROWIDS);
         RETURN_IF_ERROR(sparse_column_iterator->read_by_rowids(_rowids, _count, sparse_column));
-        length = _count;
-        rowids = std::make_unique<rowid_t[]>(_count);
+        length = _count;                              // update length
+        rowids = std::make_unique<rowid_t[]>(_count); // update rowids
         std::copy(_rowids, _rowids + _count, rowids.get());
         return Status::OK();
     }
@@ -152,6 +156,9 @@ struct SparseColumnCache {
 };
 
 using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
+
+// key is column path, value is the sparse column cache
+// now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
 using PathToSparseColumnCacheUPtr =
         std::unique_ptr<std::unordered_map<std::string, SparseColumnCacheSPtr>>;
 

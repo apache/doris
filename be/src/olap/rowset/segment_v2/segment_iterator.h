@@ -504,6 +504,7 @@ private:
 
     IndexQueryContextPtr _index_query_context;
 
+    // key is column uid, value is the sparse column cache
     std::unordered_map<int32_t, PathToSparseColumnCacheUPtr> _variant_sparse_column_cache;
 };
 

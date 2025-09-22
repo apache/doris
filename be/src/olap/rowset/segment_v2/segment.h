@@ -111,6 +111,7 @@ public:
 
     uint32_t num_rows() const { return _num_rows; }
 
+    // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
                                std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*

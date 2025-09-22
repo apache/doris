@@ -235,6 +235,7 @@ Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
                 vectorized::ColumnVariant::create_sparse_column_fn();
         auto sparse_column_cache = std::make_shared<SparseColumnCache>(std::move(inner_iter),
                                                                        std::move(sparse_column));
+        // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
         if (sparse_column_cache_ptr) {
             (*sparse_column_cache_ptr)->emplace(path, sparse_column_cache);
         }

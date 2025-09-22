@@ -754,6 +754,7 @@ Status Segment::new_column_iterator(
         } else if (variant_sparse_column_cache) {
             sparse_column_cache_ptr = &(*variant_sparse_column_cache)[unique_id];
         }
+        // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
         RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
                                 ->new_iterator(iter, &tablet_column, opt,
                                                _column_reader_cache.get(),
