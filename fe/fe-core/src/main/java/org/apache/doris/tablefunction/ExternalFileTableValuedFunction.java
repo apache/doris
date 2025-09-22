@@ -151,7 +151,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+            if (brokerDesc.getFileType() != null && !brokerDesc.getFileType().equals(TFileType.FILE_LOCAL)) {
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
                 LoadCommand.checkEndpoint(endpoint);
