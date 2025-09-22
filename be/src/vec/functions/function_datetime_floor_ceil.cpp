@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/assert_cast.h"
-#if !defined(__APPLE__)
-#include <experimental/bits/simd.h>
-#endif
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -28,19 +24,23 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#if !defined(__APPLE__)
+#include <experimental/bits/simd.h>
+#endif
 #include <memory>
 #include <type_traits>
 #include <utility>
 
 #include "common/compiler_util.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/binary_cast.hpp"
-#include "util/datetype_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -95,12 +95,12 @@ struct YearFloor;
 #define CEIL 1
 #endif
 
-template <typename Flag, typename DateType, int ArgNum, bool UseDelta = false>
+template <typename Flag, PrimitiveType PType, int ArgNum, bool UseDelta = false>
 class FunctionDateTimeFloorCeil : public IFunction {
 public:
-    using DateValueType = date_cast::TypeToValueTypeV<DateType>;
-    using NativeType = DateType::FieldType;
-    static constexpr PrimitiveType PType = DateType::PType;
+    using DateType = PrimitiveTypeTraits<PType>::DataType;
+    using DateValueType = PrimitiveTypeTraits<PType>::CppType;
+    using NativeType = PrimitiveTypeTraits<PType>::CppNativeType;
     using DeltaDataType = DataTypeInt32;
     // return date type = DateType
     static constexpr auto name = Flag::name;
@@ -894,34 +894,32 @@ private:
 
 #define TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, DELTA)                                 \
     using FunctionOneArg##IMPL##DELTA =                                                           \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime,                                     \
-                                      1>; /*DateTime and Date is same here*/                      \
-    using FunctionTwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 2>;     \
-    using FunctionThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 3>;   \
-    using FunctionDateV2OneArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 1>; \
-    using FunctionDateV2TwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 2>; \
-    using FunctionDateV2ThreeArg##IMPL##DELTA =                                                   \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 3>;                                   \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 1>; /*DateTime and Date is same here*/ \
+    using FunctionTwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 2>;        \
+    using FunctionThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 3>;      \
+    using FunctionDateV2OneArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 1>;    \
+    using FunctionDateV2TwoArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2>;    \
+    using FunctionDateV2ThreeArg##IMPL##DELTA = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 3>;  \
     using FunctionDateTimeV2OneArg##IMPL##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 1>;                               \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 1>;                                  \
     using FunctionDateTimeV2TwoArg##IMPL##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 2>;                               \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2>;                                  \
     using FunctionDateTimeV2ThreeArg##IMPL##DELTA =                                               \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 3>;
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 3>;
 
-#define TIME_ROUND_DECLARE(IMPL, NAME, UNIT, TYPE)                                               \
-    struct IMPL {                                                                                \
-        static constexpr auto name = #NAME;                                                      \
-        static constexpr TimeUnit Unit = UNIT;                                                   \
-        static constexpr auto Type = TYPE;                                                       \
-    };                                                                                           \
-                                                                                                 \
-    TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, Int32)                                    \
-    using FunctionDateV2TwoArg##IMPL = FunctionDateTimeFloorCeil<IMPL, DataTypeDateV2, 2, true>; \
-    using FunctionDateTimeV2TwoArg##IMPL =                                                       \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTimeV2, 2, true>;                        \
-    using FunctionDateTimeTwoArg##IMPL =                                                         \
-            FunctionDateTimeFloorCeil<IMPL, DataTypeDateTime, 2,                                 \
+#define TIME_ROUND_DECLARE(IMPL, NAME, UNIT, TYPE)                                            \
+    struct IMPL {                                                                             \
+        static constexpr auto name = #NAME;                                                   \
+        static constexpr TimeUnit Unit = UNIT;                                                \
+        static constexpr auto Type = TYPE;                                                    \
+    };                                                                                        \
+                                                                                              \
+    TIME_ROUND_WITH_DELTA_TYPE(IMPL, NAME, UNIT, TYPE, Int32)                                 \
+    using FunctionDateV2TwoArg##IMPL = FunctionDateTimeFloorCeil<IMPL, TYPE_DATEV2, 2, true>; \
+    using FunctionDateTimeV2TwoArg##IMPL =                                                    \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIMEV2, 2, true>;                        \
+    using FunctionDateTimeTwoArg##IMPL =                                                      \
+            FunctionDateTimeFloorCeil<IMPL, TYPE_DATETIME, 2,                                 \
                                       true>; /*DateTime and Date is same here*/
 
 TIME_ROUND_DECLARE(YearFloor, year_floor, YEAR, FLOOR);
