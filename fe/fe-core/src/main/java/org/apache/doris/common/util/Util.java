@@ -625,7 +625,7 @@ public class Util {
             throw new AnalysisException("Unknown compression type: " + compressType);
         }
     }
-    
+
     /**
      * Pass through the compressType if it is not {@link TFileCompressType#UNKNOWN}. Otherwise, return the
      * inferred type from path.
