@@ -98,7 +98,7 @@ PhysicalResultSink
 1	d2
 
 -- !except_number_and_string_res --
-1	2.000000
+1	2
 
 -- !intersect_res --
 1	d2

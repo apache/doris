@@ -234,6 +234,10 @@ int64_t Rowset::approximate_cache_index_size() {
     return total_cache_size;
 }
 
+std::chrono::time_point<std::chrono::system_clock> Rowset::visible_timestamp() const {
+    return _rowset_meta->visible_timestamp();
+}
+
 #include "common/compile_check_end.h"
 
 } // namespace doris

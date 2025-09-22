@@ -94,7 +94,7 @@ public class Array extends ScalarFunction
             return SIGNATURES;
         }
         Optional<DataType> commonDataType = TypeCoercionUtils.findWiderCommonTypeByVariable(
-                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()), true);
+                children.stream().map(ExpressionTrait::getDataType).collect(Collectors.toList()), true, true);
         if (commonDataType.isPresent()) {
             return ImmutableList.of(
                     FunctionSignature.ret(ArrayType.of(commonDataType.get())).varArgs(commonDataType.get()));
