@@ -17,6 +17,7 @@
 
 suite("create_view_with_aggregation") {
     sql "set enable_fallback_to_original_planner = false;"
+    sql "set enable_unicode_name_support = true;"
 
     sql """
         DROP TABLE IF EXISTS `test_tbl_src_01`;
