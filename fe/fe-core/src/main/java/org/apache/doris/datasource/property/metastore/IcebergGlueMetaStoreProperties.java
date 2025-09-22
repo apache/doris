@@ -109,6 +109,5 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
                 props.put(AwsProperties.CLIENT_ASSUME_ROLE_EXTERNAL_ID, glueProperties.glueExternalId);
             }
         }
-        //CLIENT_ASSUME_ROLE_ARN
     }
 }

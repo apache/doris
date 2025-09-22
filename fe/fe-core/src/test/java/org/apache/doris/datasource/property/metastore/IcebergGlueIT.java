@@ -26,7 +26,9 @@ import org.apache.iceberg.catalog.SupportsNamespaces;
 import java.util.List;
 import java.util.Map;
 
-
+/*
+ * This is for local development and testing only. Use actual environment settings in production
+ */
 public class IcebergGlueIT {
     public static void main(String[] args) throws UserException {
 

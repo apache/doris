@@ -25,6 +25,9 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
+/*
+ * This is for local development and testing only. Use actual environment settings in production
+ */
 public class HMSGlueIT {
 
     public static void main(String[] args) throws UserException {
