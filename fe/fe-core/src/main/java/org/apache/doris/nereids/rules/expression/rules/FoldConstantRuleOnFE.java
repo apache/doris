@@ -170,6 +170,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(ConnectionId.class, this::visitConnectionId),
                 matches(And.class, this::visitAnd),
                 matches(Or.class, this::visitOr),
+                matches(TryCast.class, this::visitTryCast),
                 matches(Cast.class, this::visitCast),
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),

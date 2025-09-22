@@ -65,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
@@ -801,11 +800,6 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             TypeCoercionUtils.checkCanCastTo(cast.child().getDataType(), cast.getDataType());
         }
         return cast;
-    }
-
-    @Override
-    public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
-        return visitCast(cast, context);
     }
 
     private BoundStar bindQualifiedStar(List<String> qualifierStar, List<Slot> boundSlots) {

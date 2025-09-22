@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -254,11 +253,6 @@ public class InferPredicateByReplace {
                 }
             }
             return cast;
-        }
-
-        @Override
-        public Expression visitTryCast(TryCast cast, ExpressionRewriteContext context) {
-            return visitCast(cast, context);
         }
     }
 }

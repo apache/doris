@@ -364,8 +364,9 @@ public abstract class ExpressionVisitor<R, C>
         return visit(cast, context);
     }
 
+    // By default, use visitCast for TryCast.
     public R visitTryCast(TryCast tryCast, C context) {
-        return visit(tryCast, context);
+        return visitCast(tryCast, context);
     }
 
     public R visitUnaryArithmetic(UnaryArithmetic unaryArithmetic, C context) {

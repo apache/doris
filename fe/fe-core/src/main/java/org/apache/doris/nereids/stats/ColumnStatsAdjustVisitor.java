@@ -20,7 +20,6 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.TryCast;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -92,10 +91,5 @@ public class ColumnStatsAdjustVisitor extends DefaultExpressionVisitor<ColumnSta
             }
         }
         return null;
-    }
-
-    @Override
-    public ColumnStatistic visitTryCast(TryCast cast, Statistics context) {
-        return visitCast(cast, context);
     }
 }

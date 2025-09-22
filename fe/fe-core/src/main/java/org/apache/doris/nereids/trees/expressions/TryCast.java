@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,7 +33,7 @@ import java.util.Objects;
 /**
  * cast function.
  */
-public class TryCast extends Cast implements UnaryExpression, Monotonic {
+public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysNullable {
 
     public TryCast(Expression child, DataType targetType) {
         this(child, targetType, false);
@@ -49,11 +50,6 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic {
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTryCast(this, context);
-    }
-
-    @Override
-    public boolean nullable() {
-        return true;
     }
 
     public boolean parentNullable() {
