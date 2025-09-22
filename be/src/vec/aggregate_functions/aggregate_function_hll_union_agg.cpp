@@ -34,6 +34,7 @@ void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& f
             "hll_union", creator_without_type::creator<AggregateFunctionHLLUnion<
                                  AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData>>>);
     factory.register_alias("hll_union", "hll_raw_agg");
+    factory.register_alias("hll_union", "merge");
 }
 
 } // namespace doris::vectorized
