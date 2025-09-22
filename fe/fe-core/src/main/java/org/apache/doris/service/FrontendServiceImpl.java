@@ -3265,9 +3265,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TableSnapshot tableSnapshot = tableRef.getTableSnapshot();
             TableScanParams tableScanParams = tableRef.getScanParams();
 
-            TableNameInfo tableNameInfo = null;
+            TableNameInfo tableNameInfo;
             if (tableName != null) {
                 tableNameInfo = new TableNameInfo(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
+            } else {
+                tableNameInfo = new TableNameInfo();
             }
 
             String tableAlias = aliases.length >= 1 ? aliases[0] : null;
