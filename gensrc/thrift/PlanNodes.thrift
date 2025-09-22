@@ -1446,6 +1446,7 @@ struct TPlanNode {
   36: optional list<TRuntimeFilterDesc> runtime_filters
   37: optional TGroupCommitScanNode group_commit_scan_node
   38: optional TMaterializationNode materialization_node
+  39: optional TRecCTENode rec_cte_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct
