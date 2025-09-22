@@ -66,12 +66,12 @@ suite("column_authorization") {
         }
         sql "use ${db}"
         test {
-            sql "create materialized view mv_xyz as select id, name from ${db}.${baseTable}"
+            sql "create materialized view mv_xyz as select id as a1, name as a2 from ${db}.${baseTable}"
             exception "Permission denied"
         }
 
         test {
-            sql "create materialized view mv_xyz as select id from ${db}.${baseTable}"
+            sql "create materialized view mv_xyz as select id as a3 from ${db}.${baseTable}"
             exception "Access denied; you need (at least one of) the (ALTER) privilege(s) for this operation"
         }
 

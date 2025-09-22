@@ -49,15 +49,18 @@ namespace doris::vectorized {
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-#ifndef BE_TEST
-    // This is a known problem.
-    // We often do not consider the nullable attribute of array's data column in beut.
-    // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
-    if (!data->is_nullable()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "nested_column must be nullable, but got {}", data->get_name());
-    }
-#endif
+    // TODO(lihangyu) : we need to check the nullable attribute of array's data column.
+    // but currently ColumnMap<ColumnString, ColumnString> is used to store sparse data of variant type,
+    // so I temporarily disable this check.
+    // #ifndef BE_TEST
+    //     // This is a known problem.
+    //     // We often do not consider the nullable attribute of array's data column in beut.
+    //     // Considering that beut is just a test, it will not be checked at present, but this problem needs to be considered in the future.
+    //     if (!data->is_nullable() && check_nullable) {
+    //         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+    //                                "nested_column must be nullable, but got {}", data->get_name());
+    //     }
+    // #endif
 
     data = data->convert_to_full_column_if_const();
     offsets = offsets->convert_to_full_column_if_const();
@@ -443,14 +446,11 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
     size_t size = src.size_at(n);
     size_t offset = src.offset_at(n);
 
-    if (!get_data().is_nullable() && src.get_data().is_nullable()) {
-        // Note: we can't process the case of 'Array(Nullable(nest))'
+    if ((!get_data().is_nullable() && src.get_data().is_nullable()) ||
+        (get_data().is_nullable() && !src.get_data().is_nullable())) {
+        // Note: we can't process the case of 'Array(Nullable(nest))' or 'Array(NotNullable(nest))'
         throw Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
                         get_name());
-    } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
-        // Note: here we should process the case of 'Array(NotNullable(nest))'
-        reinterpret_cast<ColumnNullable*>(&get_data())
-                ->insert_range_from_not_nullable(src.get_data(), offset, size);
     } else {
         get_data().insert_range_from(src.get_data(), offset, size);
     }
@@ -952,6 +952,10 @@ void ColumnArray::erase(size_t start, size_t length) {
     for (auto i = start; i < size(); ++i) {
         get_offsets()[i] -= data_length;
     }
+}
+
+void ColumnArray::replace_float_special_values() {
+    get_data().replace_float_special_values();
 }
 
 } // namespace doris::vectorized

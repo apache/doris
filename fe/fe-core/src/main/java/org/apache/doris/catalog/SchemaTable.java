@@ -19,6 +19,15 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TSchemaTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -493,18 +502,19 @@ public class SchemaTable extends Table {
                             .column("QUEUE_START_TIME", ScalarType.createVarchar(256))
                             .column("QUEUE_END_TIME", ScalarType.createVarchar(256))
                             .column("QUERY_STATUS", ScalarType.createVarchar(256))
+                            .column("USER", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
                     builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("NAME", ScalarType.createVarchar(256))
-                            .column("CPU_SHARE", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("MEMORY_LIMIT", ScalarType.createVarchar(256))
-                            .column("ENABLE_MEMORY_OVERCOMMIT", ScalarType.createVarchar(256))
+                            .column("MIN_CPU_PERCENT", ScalarType.createVarchar(256))
+                            .column("MAX_CPU_PERCENT", ScalarType.createVarchar(256))
+                            .column("MIN_MEMORY_PERCENT", ScalarType.createVarchar(256))
+                            .column("MAX_MEMORY_PERCENT", ScalarType.createVarchar(256))
                             .column("MAX_CONCURRENCY", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_QUEUE_SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("QUEUE_TIMEOUT", ScalarType.createType(PrimitiveType.BIGINT))
-                            .column("CPU_HARD_LIMIT", ScalarType.createVarchar(256))
                             .column("SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MAX_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
                             .column("MIN_REMOTE_SCAN_THREAD_NUM", ScalarType.createType(PrimitiveType.BIGINT))
@@ -587,7 +597,6 @@ public class SchemaTable extends Table {
                                     .column("CPU_USAGE_PERCENT", ScalarType.createType(PrimitiveType.DOUBLE))
                                     .column("LOCAL_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("REMOTE_SCAN_BYTES_PER_SECOND", ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("WRITE_BUFFER_USAGE_BYTES", ScalarType.createType(PrimitiveType.BIGINT))
                                     .build())
             )
             .put("file_cache_statistics",
@@ -694,6 +703,25 @@ public class SchemaTable extends Table {
                             .column("CTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .column("MTIME", ScalarType.createType(PrimitiveType.DATETIMEV2))
                             .build()))
+            .put("sql_block_rule_status",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "sql_block_rule_status", TableType.SCHEMA,
+                            builder().column("NAME", ScalarType.createStringType(), null, true)
+                                    .column("PATTERN", ScalarType.createStringType())
+                                    .column("SQL_HASH", ScalarType.createStringType())
+                                    .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("TABLET_NUM", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("CARDINALITY", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("GLOBAL", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("ENABLE", ScalarType.createType(PrimitiveType.BOOLEAN))
+                                    .column("BLOCKS", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.SUM, false)
+                                    .column("AVERAGE_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.AVG, false)
+                                    .column("LONGEST_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .column("P99_DURATION", ScalarType.createType(PrimitiveType.BIGINT),
+                                            SchemaTableAggregateType.MAX, false)
+                                    .build(), true))
             .build();
 
     private boolean fetchAllFe = false;
@@ -716,12 +744,44 @@ public class SchemaTable extends Table {
         return new Builder();
     }
 
-    public static boolean isShouldFetchAllFe(String schemaTableName) {
-        Table table = TABLE_MAP.get(schemaTableName);
-        if (table != null && table instanceof SchemaTable) {
-            return ((SchemaTable) table).fetchAllFe;
+    public boolean shouldFetchAllFe() {
+        return ConnectContext.get().getSessionVariable().isFetchAllFeForSystemTable() && fetchAllFe;
+    }
+
+    public boolean shouldAddAgg() {
+        if (!shouldFetchAllFe()) {
+            return false;
+        }
+        List<Column> columns = getColumns();
+        for (Column column : columns) {
+            SchemaColumn schemaColumn = (SchemaColumn) column;
+            if (schemaColumn.isKey() || schemaColumn.getSchemaTableAggregateType() != null) {
+                return true;
+            }
         }
         return false;
+    }
+
+    public enum SchemaTableAggregateType {
+        SUM,
+        AVG,
+        MAX,
+        MIN
+    }
+
+    public static class SchemaColumn extends Column {
+        private SchemaTableAggregateType schemaTableAggregateType;
+
+        public SchemaColumn(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                boolean isKey) {
+            super(name, type, true);
+            this.schemaTableAggregateType = schemaTableAggregateType;
+            setIsKey(isKey);
+        }
+
+        public SchemaTableAggregateType getSchemaTableAggregateType() {
+            return schemaTableAggregateType;
+        }
     }
 
     /**
@@ -735,13 +795,35 @@ public class SchemaTable extends Table {
         }
 
         public Builder column(String name, ScalarType type) {
-            columns.add(new Column(name, type, true));
+            columns.add(new SchemaColumn(name, type, null, false));
+            return this;
+        }
+
+        public Builder column(String name, ScalarType type, SchemaTableAggregateType schemaTableAggregateType,
+                boolean isKey) {
+            columns.add(new SchemaColumn(name, type, schemaTableAggregateType, isKey));
             return this;
         }
 
         public List<Column> build() {
             return columns;
         }
+    }
+
+    public static Expression generateAggBySchemaAggType(Slot slot, SchemaTableAggregateType schemaTableAggregateType) {
+        Expression res;
+        if (schemaTableAggregateType == SchemaTableAggregateType.AVG) {
+            res = new Avg(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.MAX) {
+            res = new Max(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.MIN) {
+            res = new Min(slot);
+        } else if (schemaTableAggregateType == SchemaTableAggregateType.SUM) {
+            res = new Sum(slot);
+        } else {
+            res = new AnyValue(slot);
+        }
+        return TypeCoercionUtils.castIfNotSameType(res, slot.getDataType());
     }
 
     @Override

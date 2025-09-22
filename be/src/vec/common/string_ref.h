@@ -32,7 +32,7 @@
 #include <string_view>
 #include <vector>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 #include "util/sse_util.hpp"

@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.analysis.IndexDef.IndexType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -25,6 +26,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 
 import com.google.common.collect.Maps;
 
@@ -42,9 +45,9 @@ public class BuildIndexClause extends AlterTableClause {
     // index internal class
     private Index index;
     private String indexName;
-    private PartitionNames partitionNames;
+    private PartitionNamesInfo partitionNames;
 
-    public BuildIndexClause(TableName tableName, String indexName, PartitionNames partitionNames, boolean alter) {
+    public BuildIndexClause(TableName tableName, String indexName, PartitionNamesInfo partitionNames, boolean alter) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexName = indexName;
@@ -116,13 +119,14 @@ public class BuildIndexClause extends AlterTableClause {
         }
 
         IndexDef.IndexType indexType = existedIdx.getIndexType();
-        if (indexType == IndexDef.IndexType.NGRAM_BF
+        if ((Config.isNotCloudMode() && indexType == IndexDef.IndexType.NGRAM_BF)
+                || (Config.isCloudMode() && indexType == IndexType.INVERTED & !existedIdx.isInvertedIndexParserNone())
                 || indexType == IndexDef.IndexType.BLOOMFILTER) {
-            throw new AnalysisException("ngram bloomfilter or bloomfilter index is not needed to build.");
+            throw new AnalysisException("bloomfilter index is not needed to build.");
         }
         indexDef = new IndexDef(indexName, partitionNames, indexType, true);
         if (!table.isPartitionedTable()) {
-            List<String> specifiedPartitions = indexDef.getPartitionNames();
+            List<String> specifiedPartitions = indexDef.getPartitionNamesInfo();
             if (!specifiedPartitions.isEmpty()) {
                 throw new AnalysisException("table " + table.getName()
                     + " is not partitioned, cannot build index with partitions.");

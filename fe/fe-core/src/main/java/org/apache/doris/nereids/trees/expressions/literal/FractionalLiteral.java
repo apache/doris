@@ -20,10 +20,10 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
 import org.apache.doris.nereids.types.DataType;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
 import java.math.RoundingMode;
 
 /**
@@ -106,38 +106,13 @@ public abstract class FractionalLiteral extends NumericLiteral {
         return super.uncheckedCastTo(targetType);
     }
 
-    @Override
-    public String getStringValue() {
+    protected String castToString() {
         Object object = getValue();
         if (object instanceof BigDecimal) {
-            return super.getStringValue();
+            return getStringValue();
         }
-        double num = object instanceof Double ? (Double) object : new Double((Float) object);
-        if (Double.isNaN(num)) {
-            return "NaN";
-        }
-        if (Double.isInfinite(num)) {
-            return num > 0 ? "Infinity" : "-Infinity";
-        }
-        if (Double.compare(num, 0.0) == 0) {
-            return "0";
-        }
-        if (Double.compare(num, -0.0) == 0) {
-            return "-0";
-        }
-        int precision = this instanceof DoubleLiteral ? 17 : 9;
-        int expUpper = this instanceof DoubleLiteral ? 17 : 9;
-        String decimalFormat = this instanceof DoubleLiteral ? "%.17f" : "%.9f";
-        String sciFormat = this instanceof DoubleLiteral ? "%.16E" : "%.5E";
-        MathContext mc = new MathContext(precision, RoundingMode.HALF_UP);
-        BigDecimal bd = new BigDecimal(String.valueOf(num)).round(mc);
-        double value = bd.doubleValue();
-        int exponent = (int) Math.floor(Math.log10(Math.abs(value)));
-        if (exponent < expUpper && exponent >= -4) {
-            return String.format(decimalFormat, bd).replaceAll("0+$", "").replaceAll("\\.$", "");
-        } else {
-            return String.format(sciFormat, bd).replaceAll("(\\.\\d*?[1-9])0*E", "$1E")
-                    .replaceAll("\\.0*E", "E").replaceAll("E", "e");
-        }
+        double value = object instanceof Double ? (Double) object : new Double(String.valueOf(object));
+        return FractionalFormat.getFormatStringValue(value, this instanceof DoubleLiteral ? 16 : 7,
+                this instanceof DoubleLiteral ? "%.15E" : "%.6E");
     }
 }

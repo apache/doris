@@ -29,8 +29,8 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
                                                   const bool result_is_nullable,
                                                   const AggregateFunctionAttr& attr) {
-    return creator_with_numeric_type::create<Function, Data>(argument_types, result_is_nullable,
-                                                             attr);
+    return creator_with_type_list<TYPE_DOUBLE>::create<Function, Data>(argument_types,
+                                                                       result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,

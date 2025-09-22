@@ -32,7 +32,6 @@ suite("test_unique_schema_key_change_multi_tablets","docker") {
      options.msConfigs.add('enable_retry_txn_conflict=false')
 
      def tbName = "test_unique_schema_key_change_multi_tablets"
-     sql """ DROP TABLE IF EXISTS ${tbName} """
      def initTable = " CREATE TABLE `${tbName}` (\n" +
              "  `source` int NOT NULL,\n" +
              "  `data_region` varchar(6) NULL,\n" +
@@ -372,6 +371,7 @@ suite("test_unique_schema_key_change_multi_tablets","docker") {
              "PROPERTIES (\"enable_unique_key_merge_on_write\" = \"true\");"
 
      docker(options) {
+          sql """ DROP TABLE IF EXISTS ${tbName} """
           sql initTable
           sql """  alter table ${tbName} add column p_order_ivr_version varchar(200) KEY NULL after p_open_ivr_version """
 

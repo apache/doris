@@ -178,7 +178,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate(ctx);
-        handleMysqlLoadComand(ctx);
+        handleMysqlLoadCommand(ctx);
     }
 
     /**
@@ -216,7 +216,7 @@ public class MysqlLoadCommand extends Command implements NoForward {
         }
     }
 
-    private void handleMysqlLoadComand(ConnectContext ctx) {
+    private void handleMysqlLoadCommand(ConnectContext ctx) {
         try {
             LoadManager loadManager = ctx.getEnv().getLoadManager();
             if (!ctx.getCapability().supportClientLocalFile()) {

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -48,13 +49,16 @@ public class Lcm extends ScalarFunction
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE));
 
-    private FunctionSignature processedSignature;
-
     /**
      * constructor with 2 arguments.
      */
     public Lcm(Expression arg0, Expression arg1) {
         super("lcm", arg0, arg1);
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private Lcm(ScalarFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -83,9 +87,7 @@ public class Lcm extends ScalarFunction
     @Override
     public Lcm withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        Lcm newLcm = new Lcm(children.get(0), children.get(1));
-        newLcm.processedSignature = this.processedSignature;
-        return newLcm;
+        return MoreFieldsThread.keepFunctionSignature(() -> new Lcm(getFunctionParams(children)));
     }
 
     @Override
@@ -94,17 +96,7 @@ public class Lcm extends ScalarFunction
     }
 
     @Override
-    public FunctionSignature getSignature() {
-        if (processedSignature == null) {
-            // pass the completed search and get of boundFunction
-            processedSignature = super.getSignature();
-        }
-        return processedSignature;
-    }
-
-    @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitLcm(this, context);
     }
-
 }

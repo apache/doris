@@ -53,6 +53,7 @@ public class AWSGlueMetaStoreBaseProperties {
 
     @ConnectorProperty(names = {"glue.secret_key",
             "aws.glue.secret-key", "client.credentials-provider.glue.secret_key"},
+            sensitive = true,
             description = "The secret key of the AWS Glue.")
     protected String glueSecretKey = "";
 
@@ -73,6 +74,7 @@ public class AWSGlueMetaStoreBaseProperties {
     public static AWSGlueMetaStoreBaseProperties of(Map<String, String> properties) {
         AWSGlueMetaStoreBaseProperties propertiesObj = new AWSGlueMetaStoreBaseProperties();
         ConnectorPropertiesUtils.bindConnectorProperties(propertiesObj, properties);
+        propertiesObj.checkAndInit();
         return propertiesObj;
     }
 
@@ -96,13 +98,13 @@ public class AWSGlueMetaStoreBaseProperties {
 
         return new ParamRules()
                 .require(glueAccessKey,
-                        "glue.access_key or aws.glue.access-key or client.credentials-provider.glue.access_key")
+                        "glue.access_key is required")
                 .require(glueSecretKey,
-                        "glue.secret_key or aws.glue.secret-key or client.credentials-provider.glue.secret_key")
-                .require(glueEndpoint, "glue.endpoint or aws.endpoint or aws.glue.endpoint is required");
+                        "glue.secret_key is required")
+                .require(glueEndpoint, "glue.endpoint is required");
     }
 
-    public void checkAndInit() {
+    private void checkAndInit() {
         buildRules().validate();
 
         Matcher matcher = ENDPOINT_PATTERN.matcher(glueEndpoint.toLowerCase());

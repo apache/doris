@@ -18,13 +18,15 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.aliyun.odps.table.utils.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,7 +80,7 @@ public class CatalogProperty {
 
     public void modifyCatalogProps(Map<String, String> props) {
         synchronized (this) {
-            properties.putAll(PropertyConverter.convertToMetaProperties(props));
+            properties.putAll(props);
             resetAllCaches();
         }
     }
@@ -127,12 +129,32 @@ public class CatalogProperty {
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
-                        throw new RuntimeException("Failed to initialize storage properties for catalog", e);
+                        throw new RuntimeException("Failed to initialize storage properties, error: "
+                                + ExceptionUtils.getRootCauseMessage(e), e);
                     }
                 }
             }
         }
         return storagePropertiesMap;
+    }
+
+    public void checkMetaStoreAndStorageProperties(Class msClass) {
+        MetastoreProperties msProperties;
+        List<StorageProperties> storageProperties;
+        try {
+            msProperties = MetastoreProperties.create(getProperties());
+            storageProperties = StorageProperties.createAll(getProperties());
+        } catch (UserException e) {
+            throw new RuntimeException("Failed to initialize Catalog properties, error: "
+                    + ExceptionUtils.getRootCauseMessage(e), e);
+        }
+        Preconditions.checkNotNull(storageProperties,
+                "Storage properties are not configured properly");
+        Preconditions.checkNotNull(msProperties, "Metastore properties are not configured properly");
+        Preconditions.checkArgument(
+                msClass.isInstance(msProperties),
+                String.format("Metastore properties type is not correct. Expected %s but got %s",
+                        msClass.getName(), msProperties.getClass().getName()));
     }
 
     /**
@@ -150,7 +172,8 @@ public class CatalogProperty {
                         metastoreProperties = MetastoreProperties.create(getProperties());
                     } catch (UserException e) {
                         LOG.warn("Failed to create metastore properties", e);
-                        throw new RuntimeException("Failed to create metastore properties", e);
+                        throw new RuntimeException("Failed to create metastore properties, error: "
+                                + ExceptionUtils.getRootCauseMessage(e), e);
                     }
                 }
             }
@@ -170,9 +193,10 @@ public class CatalogProperty {
 
                     for (StorageProperties sp : storageMap.values()) {
                         Map<String, String> backendProps = sp.getBackendConfigProperties();
-                        if (backendProps != null) {
-                            result.putAll(backendProps);
-                        }
+                        // the backend property's value can not be null, because it will be serialized to thrift,
+                        // which does not support null value.
+                        backendProps.entrySet().stream().filter(e -> e.getValue() != null)
+                                .forEach(e -> result.put(e.getKey(), e.getValue()));
                     }
 
                     this.backendStorageProperties = result;
@@ -189,9 +213,21 @@ public class CatalogProperty {
         if (hadoopProperties == null) {
             synchronized (this) {
                 if (hadoopProperties == null) {
-                    Map<String, String> result = getProperties();
-                    result.putAll(PropertyConverter.convertToHadoopFSProperties(getProperties()));
-                    this.hadoopProperties = result;
+                    hadoopProperties = new HashMap<>();
+                    Map<StorageProperties.Type, StorageProperties> storageMap = getStoragePropertiesMap();
+
+                    for (StorageProperties sp : storageMap.values()) {
+                        Configuration configuration = sp.getHadoopStorageConfig();
+                        if (configuration != null) {
+                            configuration.forEach(entry -> {
+                                String key = entry.getKey();
+                                String value = entry.getValue();
+                                if (value != null) {
+                                    hadoopProperties.put(key, value);
+                                }
+                            });
+                        }
+                    }
                 }
             }
         }

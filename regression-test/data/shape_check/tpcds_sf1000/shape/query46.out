@@ -13,7 +13,7 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[customer] apply RFs: RF4
 ----------------PhysicalProject
-------------------hashAgg[LOCAL]
+------------------hashAgg[GLOBAL]
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ss_addr_sk->[ca_address_sk]
 ------------------------PhysicalProject

@@ -45,18 +45,18 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 class MetaScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(MetaScanner);
 
 public:
-    MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t tuple_id,
+    MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, TupleId tuple_id,
                 const TScanRangeParams& scan_range, int64_t limit, RuntimeProfile* profile,
                 TUserIdentity user_identity);
 
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
+    Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
@@ -64,8 +64,6 @@ protected:
 private:
     Status _fill_block_with_remote_data(const std::vector<MutableColumnPtr>& columns);
     Status _fetch_metadata(const TMetaScanRange& meta_scan_range);
-    Status _build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
-                                           TFetchSchemaTableDataRequest* request);
     Status _build_hudi_metadata_request(const TMetaScanRange& meta_scan_range,
                                         TFetchSchemaTableDataRequest* request);
     Status _build_backends_metadata_request(const TMetaScanRange& meta_scan_range,
@@ -100,4 +98,5 @@ private:
     // for reading metadata using reader from be
     std::unique_ptr<GenericReader> _reader;
 };
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

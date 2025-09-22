@@ -88,6 +88,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
@@ -289,6 +290,10 @@ public class BindSink implements AnalysisRuleFactory {
 
         // add cast project
         List<NamedExpression> castExprs = Lists.newArrayList();
+        ConnectContext connCtx = ConnectContext.get();
+        final boolean truncateString = needTruncateStringWhenInsert
+                && (connCtx == null || connCtx.getSessionVariable().enableInsertValueAutoCast)
+                && !SessionVariable.enableStrictCast();
         for (int i = 0; i < tableSchema.size(); ++i) {
             Column col = tableSchema.get(i);
             NamedExpression expr = columnToOutput.get(col.getName()); // relative outputExpr
@@ -308,7 +313,7 @@ public class BindSink implements AnalysisRuleFactory {
                 int targetLength = ((CharacterType) targetType).getLen();
                 if (sourceLength == targetLength) {
                     castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
-                } else if (needTruncateStringWhenInsert && sourceLength > targetLength && targetLength >= 0) {
+                } else if (truncateString && sourceLength > targetLength && targetLength >= 0) {
                     castExpr = new Substring(castExpr, Literal.of(1), Literal.of(targetLength));
                 } else if (targetType.isStringType()) {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);

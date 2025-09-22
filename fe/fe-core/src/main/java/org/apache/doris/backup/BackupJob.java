@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -38,6 +37,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -97,7 +97,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
     // all objects which need backup
     @SerializedName("ref")
-    private List<TableRef> tableRefs = Lists.newArrayList();
+    private List<TableRefInfo> tableRefs = Lists.newArrayList();
 
     @SerializedName("st")
     private volatile BackupJobState state;
@@ -149,7 +149,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         assert jobType == JobType.BACKUP || jobType == JobType.BACKUP_COMPRESSED;
     }
 
-    public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
+    public BackupJob(String label, long dbId, String dbName, List<TableRefInfo> tableRefs, long timeoutMs,
                      BackupContent content, Env env, long repoId, long commitSeq) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
@@ -549,8 +549,8 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         // Track if we have any valid tables for backup
         boolean hasValidTables = false;
-        for (TableRef tableRef : tableRefs) {
-            String tblName = tableRef.getName().getTbl();
+        for (TableRefInfo tableRef : tableRefs) {
+            String tblName = tableRef.getTableNameInfo().getTbl();
             Table tbl = db.getTableNullable(tblName);
             if (tbl == null) {
                 // Table was dropped, skip it and continue with other tables
@@ -623,16 +623,16 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         LOG.info("finished to send snapshot tasks to backend. {}", this);
     }
 
-    private void checkOlapTable(OlapTable olapTable, TableRef backupTableRef) {
+    private void checkOlapTable(OlapTable olapTable, TableRefInfo backupTableRef) {
         olapTable.readLock();
         try {
             // check backup table again
-            if (backupTableRef.getPartitionNames() != null) {
-                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+            if (backupTableRef.getPartitionNamesInfo() != null) {
+                for (String partName : backupTableRef.getPartitionNamesInfo().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                                + " does not exist  in table" + backupTableRef.getTableNameInfo().getTbl());
                         return;
                     }
                 }
@@ -643,7 +643,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
-            TableRef backupTableRef, AgentBatchTask batchTask) {
+            TableRefInfo backupTableRef, AgentBatchTask batchTask) {
         // Add barrier editlog for barrier commit seq
         long dbId = db.getId();
         String dbName = db.getFullName();
@@ -656,16 +656,16 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         properties.put(tableKey, String.valueOf(commitSeq));
 
         // check backup table again
-        if (backupTableRef.getPartitionNames() != null) {
-            for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+        if (backupTableRef.getPartitionNamesInfo() != null) {
+            for (String partName : backupTableRef.getPartitionNamesInfo().getPartitionNames()) {
                 Partition partition = olapTable.getPartition(partName, false); // exclude tmp partitions
                 if (partition == null) {
                     if (olapTable.getPartition(partName, true) != null) {
                         status = new Status(ErrCode.NOT_FOUND, "backup tmp partition " + partName
-                                + " in table " + backupTableRef.getName().getTbl() + " is not supported");
+                                + " in table " + backupTableRef.getTableNameInfo().getTbl() + " is not supported");
                     } else {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist in table " + backupTableRef.getName().getTbl());
+                                + " does not exist in table " + backupTableRef.getTableNameInfo().getTbl());
                     }
                     return;
                 }
@@ -674,10 +674,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // create snapshot tasks
         List<Partition> partitions = Lists.newArrayList();
-        if (backupTableRef.getPartitionNames() == null) {
+        if (backupTableRef.getPartitionNamesInfo() == null) {
             partitions.addAll(olapTable.getPartitions()); // no temp partitions in OlapTable.getPartitions()
         } else {
-            for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+            for (String partName : backupTableRef.getPartitionNamesInfo().getPartitionNames()) {
                 Partition partition = olapTable.getPartition(partName, false);  // exclude tmp partitions
                 partitions.add(partition);
             }
@@ -728,11 +728,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private void prepareBackupMetaForOlapTableWithoutLock(TableRefInfo tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables) {
         // only copy visible indexes
-        List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
-                : tableRef.getPartitionNames().getPartitionNames();
+        List<String> reservedPartitions = tableRef.getPartitionNamesInfo() == null ? null
+                : tableRef.getPartitionNamesInfo().getPartitionNames();
         OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
         if (copiedTbl == null) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
@@ -1025,7 +1025,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                    info.getTabletId(), info.getPath(), false/* no used */);
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
@@ -1163,20 +1163,12 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // Avoid loading expired meta.
         long expiredAt = createTime + timeoutMs;
         if (System.currentTimeMillis() >= expiredAt) {
-            return new Snapshot(label, new byte[0], new byte[0], expiredAt, commitSeq);
+            return new Snapshot(label, null, null, expiredAt, commitSeq);
         }
 
-        try {
-            File metaInfoFile = new File(localMetaInfoFilePath);
-            File jobInfoFile = new File(localJobInfoFilePath);
-            byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
-            byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
-            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt, commitSeq);
-        } catch (IOException e) {
-            LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
-                    localMetaInfoFilePath, localJobInfoFilePath, e);
-            return null;
-        }
+        File metaInfoFile = new File(localMetaInfoFilePath);
+        File jobInfoFile = new File(localJobInfoFilePath);
+        return new Snapshot(label, metaInfoFile, jobInfoFile, expiredAt, commitSeq);
     }
 
     public synchronized List<String> getInfo() {

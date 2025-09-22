@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <rapidjson/document.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,6 +26,7 @@
 #include "arrow/status.h"
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "util/jsonb_document.h"
 #include "util/mysql_row_buffer.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/string_buffer.hpp"
@@ -240,6 +239,12 @@ public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
 
+    Status default_from_string(StringRef& str, IColumn& column) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
+
+    virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw) const;
+
     // All types can override this function
     // When this function is called, column should be of the corresponding type
     // everytime call this, should insert new cell to the end of column
@@ -353,6 +358,15 @@ public:
                                     get_name());
     }
 
+    // if jsonb is invalid, return nullptr
+    // if josnb is null json , return nullptr
+    // else return jsonb_value
+    static JsonbValue* handle_jsonb_value(const StringRef& val);
+
+    virtual Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
+                                                        const ColumnString& from_column,
+                                                        CastParameters& castParms) const;
+
     Status parse_column_from_jsonb_string(IColumn& column, const JsonbValue* jsonb_value,
                                           CastParameters& castParms) const;
     // Protobuf serializer and deserializer
@@ -397,15 +411,14 @@ public:
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
-    // rapidjson
-    virtual Status write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
-                                          rapidjson::Document::AllocatorType& allocator,
-                                          Arena& mem_pool, int64_t row_num) const;
-    virtual Status read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const;
-
     virtual DataTypeSerDeSPtrs get_nested_serdes() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_nested_serdes is not supported for this serde");
+    }
+
+    virtual void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                          int64_t row_num) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "write_one_cell_to_binary");
     }
 
 protected:
@@ -416,14 +429,6 @@ protected:
     // The _nesting_level of StructSerde is 1
     // The _nesting_level of StringSerde is 2
     int _nesting_level = 1;
-
-    static void convert_field_to_rapidjson(const vectorized::Field& field, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_array_to_rapidjson(const vectorized::Array& array, rapidjson::Value& target,
-                                           rapidjson::Document::AllocatorType& allocator);
-    static void convert_variant_map_to_rapidjson(const vectorized::VariantMap& array,
-                                                 rapidjson::Value& target,
-                                                 rapidjson::Document::AllocatorType& allocator);
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
@@ -449,6 +454,25 @@ inline Status checkArrowStatus(const arrow::Status& status, const std::string& c
                                   format_name, column, status.ToString());
     }
     return Status::OK();
+}
+
+inline JsonbValue* DataTypeSerDe::handle_jsonb_value(const StringRef& val) {
+    JsonbDocument* doc = nullptr;
+    if (val.size == 0) {
+        return nullptr;
+    }
+    auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
+    if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
+        return nullptr;
+    }
+    JsonbValue* value = doc->getValue();
+    if (UNLIKELY(!value)) {
+        return nullptr;
+    }
+    if (value->isNull()) {
+        return nullptr;
+    }
+    return value;
 }
 
 DataTypeSerDeSPtrs create_data_type_serdes(

@@ -52,6 +52,7 @@
 #include "util/types.h"
 #include "vec/common/arena.h"
 #include "vec/core/extended_types.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/runtime/ipv4_value.h"
 #include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -1046,11 +1047,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_FLOAT_STR_LENGTH, buf);
-        DCHECK(length >= 0) << "gcvt float failed, float value="
-                            << *reinterpret_cast<const CppType*>(src);
-        return std::string(buf);
+        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
     }
 };
 
@@ -1067,11 +1064,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        char buf[1024] = {'\0'};
-        int length = to_buffer(*reinterpret_cast<const CppType*>(src), MAX_DOUBLE_STR_LENGTH, buf);
-        DCHECK(length >= 0) << "gcvt float failed, float value="
-                            << *reinterpret_cast<const CppType*>(src);
-        return std::string(buf);
+        return vectorized::CastToString::from_number(*reinterpret_cast<const CppType*>(src));
     }
 };
 
@@ -1231,15 +1224,11 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
+        // uint24_t
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         DateV2Value<DateV2ValueType> value =
                 binary_cast<CppType, DateV2Value<DateV2ValueType>>(tmp);
-        std::string format = "%Y-%m-%d";
-        std::string res;
-        res.resize(12 + SAFE_FORMAT_STRING_MARGIN);
-        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
-                                            12 + SAFE_FORMAT_STRING_MARGIN);
-        return res;
+        return value.to_string();
     }
 
     static void set_to_max(void* buf) {
@@ -1269,16 +1258,12 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
 
         return Status::OK();
     }
+    // only used in Field so we dont know the scale, use max scale 6 as default
     static std::string to_string(const void* src) {
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         DateV2Value<DateTimeV2ValueType> value =
                 binary_cast<CppType, DateV2Value<DateTimeV2ValueType>>(tmp);
-        std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        std::string res;
-        res.resize(30 + SAFE_FORMAT_STRING_MARGIN);
-        value.to_format_string_conservative(format.c_str(), format.size(), res.data(),
-                                            30 + SAFE_FORMAT_STRING_MARGIN);
-        return res;
+        return value.to_string(6);
     }
 
     static void set_to_max(void* buf) {
@@ -1313,26 +1298,24 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
         return Status::OK();
     }
     static std::string to_string(const void* src) {
-        tm time_tm;
         CppType tmp = *reinterpret_cast<const CppType*>(src);
         CppType part1 = (tmp / 1000000L);
         CppType part2 = (tmp - part1 * 1000000L);
 
-        time_tm.tm_year = static_cast<int>((part1 / 10000L) % 10000) - 1900;
-        time_tm.tm_mon = static_cast<int>((part1 / 100) % 100) - 1;
-        time_tm.tm_mday = static_cast<int>(part1 % 100);
+        int year = (part1 / 10000L) % 10000;
+        int mon = (part1 / 100) % 100;
+        int mday = part1 % 100;
 
-        time_tm.tm_hour = static_cast<int>((part2 / 10000L) % 10000);
-        time_tm.tm_min = static_cast<int>((part2 / 100) % 100);
-        time_tm.tm_sec = static_cast<int>(part2 % 100);
+        int hour = (part2 / 10000L) % 10000;
+        int min = (part2 / 100) % 100;
+        int sec = part2 % 100;
 
-        char buf[20] = {'\0'};
-        strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
-        return std::string(buf);
+        return fmt::format(FMT_COMPILE("{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}"), year, mon,
+                           mday, hour, min, sec);
     }
 
     static void set_to_max(void* buf) {
-        // 设置为最大时间，其含义为：9999-12-31 23:59:59
+        // 9999-12-31 23:59:59
         *reinterpret_cast<CppType*>(buf) = 99991231235959L;
     }
     static void set_to_min(void* buf) { *reinterpret_cast<CppType*>(buf) = 101000000; }

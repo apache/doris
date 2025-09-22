@@ -87,7 +87,9 @@ struct AggregateFunctionAvgWeightedData {
 template <PrimitiveType type>
 class AggregateFunctionAvgWeight final
         : public IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<type>,
-                                              AggregateFunctionAvgWeight<type>> {
+                                              AggregateFunctionAvgWeight<type>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using T = typename PrimitiveTypeTraits<type>::CppType;
     using ColVecType = typename PrimitiveTypeTraits<type>::ColumnType;

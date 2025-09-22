@@ -25,6 +25,10 @@ if [[ -z "${DORIS_HOME}" ]]; then
     exit 1
 fi
 
+TARGET_SYSTEM="$(uname -s)"
+TARGET_ARCH="$(uname -m)"
+echo "Target system: ${TARGET_SYSTEM}; Target arch: ${TARGET_ARCH}"
+
 # check OS type
 if [[ -n "${OSTYPE}" ]]; then
     if [[ "${OSTYPE}" != "linux-gnu" ]] && [[ "${OSTYPE:0:6}" != "darwin" ]]; then
@@ -95,6 +99,15 @@ fi
 # set DORIS_THIRDPARTY
 if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
+fi
+
+# set DISABLE_BUILD_AZURE
+if [[ -z "${DISABLE_BUILD_AZURE}" ]]; then
+    if [[ "${TARGET_ARCH}" == *arm* || "${TARGET_ARCH}" == "aarch64" || "${TARGET_SYSTEM}" == 'Darwin' ]]; then
+        export DISABLE_BUILD_AZURE='ON'
+    else
+        export DISABLE_BUILD_AZURE='OFF'
+    fi
 fi
 
 # check python

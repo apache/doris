@@ -19,7 +19,7 @@
 
 namespace doris::vectorized {
 TEST_F(FunctionCastToDecimalTest, test_to_decimal128_from_int) {
-    from_int_test_func<Decimal128V2>();
+    // from_int_test_func<Decimal128V2>();
     from_int_test_func<Decimal128V3>();
 }
 } // namespace doris::vectorized

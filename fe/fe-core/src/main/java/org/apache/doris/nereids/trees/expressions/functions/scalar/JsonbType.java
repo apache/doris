@@ -48,13 +48,18 @@ public class JsonbType extends ScalarFunction
         super("jsonb_type", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonbType(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public JsonbType withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new JsonbType(children.get(0), children.get(1));
+        return new JsonbType(getFunctionParams(children));
     }
 
     @Override

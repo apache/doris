@@ -32,10 +32,10 @@ suite("test_nereids_show_alter_table") {
         CREATE  TABLE IF NOT EXISTS test_show_alter_table_db.test_show_alter_table_tbl2(id int, name int) ENGINE = olap duplicate key(id) DISTRIBUTED BY HASH(`id`) BUCKETS 2 PROPERTIES ('replication_num' = '1');
     """
     sql """insert into test_show_alter_table_db.test_show_alter_table_tbl values (1,1),(1,2),(1,3);"""
-    sql """create materialized view test_show_alter_table_db.a_mv as select id, sum(name) from test_show_alter_table_db.test_show_alter_table_tbl group by id;
+    sql """create materialized view test_show_alter_table_db.a_mv as select id as a1, sum(name) as a2 from test_show_alter_table_db.test_show_alter_table_tbl group by id;
     """
     sleep(10000)
-    sql """create materialized view test_show_alter_table_db.b_mv as select id from test_show_alter_table_db.test_show_alter_table_tbl group by id;
+    sql """create materialized view test_show_alter_table_db.b_mv as select id as a3 from test_show_alter_table_db.test_show_alter_table_tbl group by id;
     """
     sleep(10000)
     sql """ALTER TABLE test_show_alter_table_db.test_show_alter_table_tbl1  MODIFY COLUMN name BIGINT AFTER id;"""

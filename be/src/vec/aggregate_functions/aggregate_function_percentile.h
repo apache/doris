@@ -23,6 +23,7 @@
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,6 +43,7 @@
 #include "vec/data_types/data_type_number.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Arena;
 class BufferReadable;
@@ -59,7 +61,7 @@ struct PercentileApproxState {
     PercentileApproxState() = default;
     ~PercentileApproxState() = default;
 
-    void init(double quantile, double compression = 10000) {
+    void init(double quantile, float compression = 10000) {
         if (!init_flag) {
             //https://doris.apache.org/zh-CN/sql-reference/sql-functions/aggregate-functions/percentile_approx.html#description
             //The compression parameter setting range is [2048, 10000].
@@ -108,7 +110,7 @@ struct PercentileApproxState {
 
     double get() const {
         if (init_flag) {
-            return digest->quantile(target_quantile);
+            return digest->quantile(static_cast<float>(target_quantile));
         } else {
             return std::nan("");
         }
@@ -131,14 +133,14 @@ struct PercentileApproxState {
         }
     }
 
-    void add(double source) { digest->add(source); }
+    void add(double source) { digest->add(static_cast<float>(source)); }
 
     void add_with_weight(double source, double weight) {
         // the weight should be positive num, as have check the value valid use DCHECK_GT(c._weight, 0);
         if (weight <= 0) {
             return;
         }
-        digest->add(source, weight);
+        digest->add(static_cast<float>(source), static_cast<float>(weight));
     }
 
     void reset() {
@@ -150,7 +152,7 @@ struct PercentileApproxState {
     bool init_flag = false;
     std::unique_ptr<TDigest> digest;
     double target_quantile = INIT_QUANTILE;
-    double compressions = 10000;
+    float compressions = 10000;
 };
 
 class AggregateFunctionPercentileApprox
@@ -183,7 +185,9 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxTwoParams final : public AggregateFunctionPercentileApprox,
+                                                         public MultiExpression,
+                                                         public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -211,7 +215,9 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxThreeParams final : public AggregateFunctionPercentileApprox,
+                                                           public MultiExpression,
+                                                           public NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -224,7 +230,8 @@ public:
         const auto& compression =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[2]);
 
-        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).init(quantile.get_element(0),
+                               static_cast<float>(compression.get_element(0)));
         this->data(place).add(sources.get_element(row_num));
     }
 
@@ -242,8 +249,10 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedThreeParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedThreeParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -276,8 +285,10 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedFourParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedFourParams final
+        : public AggregateFunctionPercentileApprox,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
@@ -292,7 +303,8 @@ public:
         const auto& compression =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[3]);
 
-        this->data(place).init(quantile.get_element(0), compression.get_element(0));
+        this->data(place).init(quantile.get_element(0),
+                               static_cast<float>(compression.get_element(0)));
         this->data(place).add_with_weight(sources.get_element(row_num),
                                           weight.get_element(row_num));
     }
@@ -322,7 +334,7 @@ struct PercentileState {
         if (!inited_flag) {
             return;
         }
-        int size_num = vec_quantile.size();
+        int size_num = cast_set<int>(vec_quantile.size());
         buf.write_binary(size_num);
         for (const auto& quantile : vec_quantile) {
             buf.write_binary(quantile);
@@ -353,7 +365,7 @@ struct PercentileState {
     }
 
     void add(typename PrimitiveTypeTraits<T>::ColumnItemType source,
-             const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps, int arg_size) {
+             const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps, int64_t arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
@@ -389,7 +401,7 @@ struct PercentileState {
         if (!rhs.inited_flag) {
             return;
         }
-        int size_num = rhs.vec_quantile.size();
+        int size_num = cast_set<int>(rhs.vec_quantile.size());
         if (!inited_flag) {
             vec_counts.resize(size_num);
             vec_quantile.resize(size_num, -1);
@@ -424,7 +436,9 @@ struct PercentileState {
 
 template <PrimitiveType T>
 class AggregateFunctionPercentile final
-        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>> {
+        : public IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base = IAggregateFunctionDataHelper<PercentileState<T>, AggregateFunctionPercentile<T>>;
@@ -482,7 +496,9 @@ public:
 template <PrimitiveType T>
 class AggregateFunctionPercentileArray final
         : public IAggregateFunctionDataHelper<PercentileState<T>,
-                                              AggregateFunctionPercentileArray<T>> {
+                                              AggregateFunctionPercentileArray<T>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using Base =
@@ -550,4 +566,5 @@ public:
     }
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

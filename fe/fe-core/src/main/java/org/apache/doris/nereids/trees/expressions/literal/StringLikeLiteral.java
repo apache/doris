@@ -60,7 +60,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
-            + "(?:[ T]"
+            + "(?:[ T:]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
@@ -437,6 +437,24 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         }
         StringLikeLiteral that = (StringLikeLiteral) o;
         return Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int fastChildrenHashCode() {
+        return doComputeHashCode();
+    }
+
+    @Override
+    protected int computeHashCode() {
+        return doComputeHashCode();
+    }
+
+    private int doComputeHashCode() {
+        if (value != null && value.length() > 36) {
+            return value.substring(0, 36).hashCode();
+        } else {
+            return Objects.hashCode(getValue());
+        }
     }
 
     @Override

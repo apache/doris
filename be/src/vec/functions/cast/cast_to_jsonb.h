@@ -26,7 +26,6 @@
 #include "vec/data_types/serde/data_type_serde.h"
 #include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized::CastWrapper {
 #include "common/compile_check_begin.h"
@@ -36,6 +35,13 @@ struct ConvertImplGenericFromJsonb {
                           uint32_t result, size_t input_rows_count,
                           const NullMap::value_type* null_map = nullptr) {
         auto data_type_to = block.get_by_position(result).type;
+        auto data_type_serde_to = data_type_to->get_serde();
+
+        DataTypeSerDe::FormatOptions options;
+        options.converted_from_string = true;
+        options.escape_char = '\\';
+        options.timezone = &context->state()->timezone_obj();
+
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
@@ -94,8 +100,8 @@ struct ConvertImplGenericFromJsonb {
                     (*vec_null_map_to)[i] = 1;
                     continue;
                 }
-                ReadBuffer read_buffer((char*)(input_str.data()), input_str.size());
-                st = data_type_to->from_string(read_buffer, col_to.get());
+                StringRef read_buffer((char*)(input_str.data()), input_str.size());
+                st = data_type_serde_to->from_string(read_buffer, *col_to, options);
                 // if parsing failed, will return null
                 (*vec_null_map_to)[i] = !st.ok();
                 if (!st.ok()) {
@@ -130,32 +136,20 @@ WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
               uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
         CastParameters params;
         params.is_strict = context->enable_strict_mode();
-        auto data_type_to = make_nullable(block.get_by_position(result).type);
+
+        auto data_type_to = remove_nullable(block.get_by_position(result).type);
         auto serde_to = data_type_to->get_serde();
+
         const auto& col_from_json =
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
-        size_t size = col_from_json.size();
-        auto col_to = data_type_to->create_column();
-        for (size_t i = 0; i < size; ++i) {
-            const auto& val = col_from_json.get_data_at(i);
-            JsonbDocument* doc = nullptr;
-            auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
-            if (!st.ok() || !doc || !doc->getValue()) [[unlikely]] {
-                col_to->insert_default();
-                continue;
-            }
-            JsonbValue* value = doc->getValue();
-            if (UNLIKELY(!value)) {
-                col_to->insert_default();
-                continue;
-            }
-            if (val.size == 0) {
-                col_to->insert_default();
-                continue;
-            }
-            RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb(*col_to, value, params));
-        }
-        block.get_by_position(result).column = std::move(col_to);
+
+        auto column_to = make_nullable(data_type_to)->create_column();
+        auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);
+
+        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(column_to_nullable,
+                                                                       col_from_json, params));
+
+        block.get_by_position(result).column = std::move(column_to);
         return Status::OK();
     };
 }

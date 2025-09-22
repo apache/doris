@@ -38,7 +38,14 @@ public class LocationPathTest {
 
     static {
         Map<String, String> props = new HashMap<>();
-        props.put("dfs.nameservices", "namenode:8020");
+        props.put("dfs.nameservices", "ns1");
+        // NameNodes for this nameservice
+        props.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        // RPC addresses for each NameNode
+        props.put("dfs.namenode.rpc-address.ns1.nn1", "127.0.0.1:8020");
+        props.put("dfs.namenode.rpc-address.ns1.nn2", "127.0.0.2:8020");
+        props.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         props.put("s3.endpoint", "s3.us-east-2.amazonaws.com");
         props.put("s3.access_key", "access_key");
         props.put("s3.secret_key", "secret_key");
@@ -74,7 +81,14 @@ public class LocationPathTest {
 
         // HA props
         Map<String, String> props = new HashMap<>();
-        props.put("dfs.nameservices", "ns");
+        props.put("dfs.nameservices", "ns1");
+        // NameNodes for this nameservice
+        props.put("dfs.ha.namenodes.ns1", "nn1,nn2");
+        // RPC addresses for each NameNode
+        props.put("dfs.namenode.rpc-address.ns1.nn1", "127.0.0.1:8020");
+        props.put("dfs.namenode.rpc-address.ns1.nn2", "127.0.0.2:8020");
+        props.put("dfs.client.failover.proxy.provider.ns1",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
         //HdfsProperties hdfsProperties = (HdfsProperties) StorageProperties.createPrimary( props);
         Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = StorageProperties.createAll(props).stream()
                 .collect(java.util.stream.Collectors.toMap(StorageProperties::getType, Function.identity()));
@@ -231,7 +245,7 @@ public class LocationPathTest {
         assertNormalize("cosn://bucket/path/to/file", "s3://bucket/path/to/file");
         assertNormalize("viewfs://cluster/path/to/file", "viewfs://cluster/path/to/file");
         assertNormalize("/path/to/file", "hdfs://namenode:8020/path/to/file");
-        assertNormalize("hdfs:///path/to/file", "hdfs://namenode:8020/path/to/file");
+        assertNormalize("hdfs:///path/to/file", "hdfs://ns1/path/to/file");
     }
 
     private void assertNormalize(String input, String expected) {

@@ -267,7 +267,7 @@ Status DataTypeNullableSerDe::write_column_to_pb(const IColumn& column, PValues&
     auto row_count = cast_set<int>(end - start);
     const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
     const auto& null_col = nullable_col.get_null_map_column();
-    if (nullable_col.has_null(row_count)) {
+    if (nullable_col.has_null(start, end)) {
         result.set_has_null(true);
         auto* null_map = result.mutable_null_map();
         null_map->Reserve(row_count);
@@ -407,35 +407,33 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column,
-                                                     rapidjson::Value& result,
-                                                     rapidjson::Document::AllocatorType& allocator,
-                                                     Arena& mem_pool, int64_t row_num) const {
-    const auto& col = static_cast<const ColumnNullable&>(column);
-    const auto& nested_col = col.get_nested_column();
-    if (col.is_null_at(row_num)) {
-        result.SetNull();
+void DataTypeNullableSerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                     ColumnString::Chars& chars,
+                                                     int64_t row_num) const {
+    auto& col = assert_cast<const ColumnNullable&>(src_column);
+    if (col.is_null_at(row_num)) [[unlikely]] {
+        const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_NONE);
+        const size_t old_size = chars.size();
+        const size_t new_size = old_size + sizeof(uint8_t);
+        chars.resize(new_size);
+        memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
     } else {
-        RETURN_IF_ERROR(nested_serde->write_one_cell_to_json(nested_col, result, allocator,
-                                                             mem_pool, row_num));
+        auto& nested_col = col.get_nested_column();
+        nested_serde->write_one_cell_to_binary(nested_col, chars, row_num);
     }
-    return Status::OK();
 }
 
-Status DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
-                                                      const rapidjson::Value& result) const {
-    auto& col = static_cast<ColumnNullable&>(column);
-    auto& nested_col = col.get_nested_column();
-    if (result.IsNull()) {
-        col.insert_default();
+void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num,
+                                      BufferWritable& bw) const {
+    const auto& col_null = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    if (col_null.is_null_at(row_num)) {
+        bw.write("NULL", 4);
     } else {
-        // TODO sanitize data
-        RETURN_IF_ERROR(nested_serde->read_one_cell_from_json(nested_col, result));
-        col.get_null_map_column().get_data().push_back(0);
+        nested_serde->to_string(col_null.get_nested_column(), row_num, bw);
     }
-    return Status::OK();
 }
 
+// In non-strict mode, from string will handle errors by inserting a null value.
 Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
                                           const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);
@@ -450,10 +448,7 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-// Note that the difference between the strict mode and the non-strict mode here is that in the non-strict mode,
-// if an error occurs, a null value will be inserted.
-// But the problem is that in fact, only some nested complex types need to "inject an error and insert a null value".
-// Maybe it's better to leave this processing to the complex type's own from string processing?
+// In strict mode, from string will directly return an error.
 Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                       const FormatOptions& options) const {
     auto& null_column = assert_cast<ColumnNullable&>(column);

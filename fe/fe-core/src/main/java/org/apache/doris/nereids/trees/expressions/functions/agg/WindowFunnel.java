@@ -24,9 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
-import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -46,9 +44,7 @@ public class WindowFunnel extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT,
-                            BooleanType.INSTANCE),
-            FunctionSignature.ret(IntegerType.INSTANCE)
-                    .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeType.INSTANCE, BooleanType.INSTANCE)
+                            BooleanType.INSTANCE)
 
     );
 
@@ -71,6 +67,11 @@ public class WindowFunnel extends NullableAggregateFunction
             Expression arg3, Expression... varArgs) {
         super("window_funnel", distinct, alwaysNullable,
                 ExpressionUtils.mergeArguments(arg0, arg1, arg2, arg3, varArgs));
+    }
+
+    /** constructor for withChildren and reuse signature */
+    private WindowFunnel(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
     }
 
     @Override
@@ -96,11 +97,7 @@ public class WindowFunnel extends NullableAggregateFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         FunctionSignature functionSignature = super.computeSignature(signature);
-        if (functionSignature.getArgType(2) instanceof DateType) {
-            return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
-                (index == 2) ? DateTimeType.INSTANCE : originType
-            );
-        } else if (functionSignature.getArgType(2) instanceof DateV2Type) {
+        if (functionSignature.getArgType(2) instanceof DateV2Type) {
             return functionSignature.withArgumentTypes(getArguments(), (index, originType, arg) ->
                     (index == 2) ? DateTimeV2Type.SYSTEM_DEFAULT : originType
             );
@@ -114,16 +111,12 @@ public class WindowFunnel extends NullableAggregateFunction
     @Override
     public WindowFunnel withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 4);
-        return new WindowFunnel(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.get(3),
-                children.subList(4, children.size()).toArray(new Expression[0]));
+        return new WindowFunnel(getFunctionParams(distinct, children));
     }
 
     @Override
     public WindowFunnel withAlwaysNullable(boolean alwaysNullable) {
-        return new WindowFunnel(distinct, alwaysNullable, children.get(0), children.get(1),
-                children.get(2), children.get(3),
-                children.subList(4, children.size()).toArray(new Expression[0]));
+        return new WindowFunnel(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

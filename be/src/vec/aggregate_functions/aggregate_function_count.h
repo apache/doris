@@ -50,7 +50,9 @@ struct AggregateFunctionCountData {
 
 /// Simply count number of calls.
 class AggregateFunctionCount final
-        : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
+        : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount>,
+          VarargsExpression,
+          NotNullableAggregateFunction {
 public:
     AggregateFunctionCount(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper(argument_types_) {}

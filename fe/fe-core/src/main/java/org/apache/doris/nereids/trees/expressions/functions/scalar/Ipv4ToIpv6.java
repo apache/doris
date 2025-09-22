@@ -44,13 +44,18 @@ public class Ipv4ToIpv6 extends ScalarFunction
         super("ipv4_to_ipv6", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Ipv4ToIpv6(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public Ipv4ToIpv6 withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "ipv4_to_ipv6 accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4ToIpv6(children.get(0));
+        return new Ipv4ToIpv6(getFunctionParams(children));
     }
 
     @Override

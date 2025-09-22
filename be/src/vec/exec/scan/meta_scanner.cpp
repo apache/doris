@@ -28,6 +28,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "runtime/client_cache.h"
 #include "runtime/define_primitive_type.h"
@@ -52,9 +53,10 @@ class VExprContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-                         int64_t tuple_id, const TScanRangeParams& scan_range, int64_t limit,
+                         TupleId tuple_id, const TScanRangeParams& scan_range, int64_t limit,
                          RuntimeProfile* profile, TUserIdentity user_identity)
         : Scanner(state, local_state, limit, profile),
           _meta_eos(false),
@@ -67,14 +69,14 @@ Status MetaScanner::open(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::open(state));
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
-        auto reader = IcebergSysTableJniReader::create_unique(
-                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.iceberg_params);
+        auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                              _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);
     } else if (_scan_range.meta_scan_range.metadata_type == TMetadataType::PAIMON) {
-        auto reader = PaimonSysTableJniReader::create_unique(
-                _tuple_desc->slots(), state, _profile, _scan_range.meta_scan_range.paimon_params);
+        auto reader = PaimonSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,
+                                                             _scan_range.meta_scan_range);
         const std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
         RETURN_IF_ERROR(reader->init_reader(&colname_to_value_range));
         _reader = std::move(reader);
@@ -84,9 +86,9 @@ Status MetaScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    VLOG_CRITICAL << "MetaScanner::prepare";
-    RETURN_IF_ERROR(Scanner::prepare(_state, conjuncts));
+Status MetaScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
+    VLOG_CRITICAL << "MetaScanner::init";
+    RETURN_IF_ERROR(Scanner::init(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     return Status::OK();
 }
@@ -197,7 +199,7 @@ Status MetaScanner::_fill_block_with_remote_data(const std::vector<MutableColumn
                     break;
                 }
                 case TYPE_FLOAT: {
-                    double data = cell.doubleVal;
+                    auto data = static_cast<float>(cell.doubleVal);
                     assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(data);
                     break;
                 }
@@ -242,9 +244,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
     VLOG_CRITICAL << "MetaScanner::_fetch_metadata";
     TFetchSchemaTableDataRequest request;
     switch (meta_scan_range.metadata_type) {
-    case TMetadataType::ICEBERG:
-        RETURN_IF_ERROR(_build_iceberg_metadata_request(meta_scan_range, &request));
-        break;
     case TMetadataType::HUDI:
         RETURN_IF_ERROR(_build_hudi_metadata_request(meta_scan_range, &request));
         break;
@@ -307,26 +306,6 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         return status;
     }
     _batch_data = std::move(result.data_batch);
-    return Status::OK();
-}
-
-Status MetaScanner::_build_iceberg_metadata_request(const TMetaScanRange& meta_scan_range,
-                                                    TFetchSchemaTableDataRequest* request) {
-    VLOG_CRITICAL << "MetaScanner::_build_iceberg_metadata_request";
-    if (!meta_scan_range.__isset.iceberg_params) {
-        return Status::InternalError("Can not find TIcebergMetadataParams from meta_scan_range.");
-    }
-
-    // create request
-    request->__set_cluster_name("");
-    request->__set_schema_table_name(TSchemaTableName::METADATA_TABLE);
-
-    // create TMetadataTableRequestParams
-    TMetadataTableRequestParams metadata_table_params;
-    metadata_table_params.__set_metadata_type(TMetadataType::ICEBERG);
-    metadata_table_params.__set_iceberg_metadata_params(meta_scan_range.iceberg_params);
-
-    request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
 }
 
@@ -549,4 +528,5 @@ Status MetaScanner::close(RuntimeState* state) {
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

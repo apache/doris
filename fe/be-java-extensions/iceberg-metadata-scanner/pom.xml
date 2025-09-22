@@ -53,6 +53,11 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-aws</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>auth</artifactId>
             <version>${awssdk.version}</version>

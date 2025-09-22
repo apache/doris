@@ -3,8 +3,7 @@
 PhysicalResultSink
 --filter((min(value1) < 20))
 ----hashAgg[GLOBAL]
-------hashAgg[LOCAL]
---------PhysicalEmptyRelation
+------PhysicalEmptyRelation
 
 -- !min --
 PhysicalResultSink
@@ -221,7 +220,7 @@ PhysicalResultSink
 
 -- !char100_cmp_num_cannot_rewrite --
 PhysicalResultSink
---filter((cast(min(d_char100) as DOUBLE) < 10.0))
+--filter((cast(min(d_char100) as DECIMALV3(38, 6)) < 10.000000))
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[max_min_filter_push_down2]

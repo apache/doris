@@ -20,6 +20,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/factory_helpers.h"
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
@@ -128,6 +129,7 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const bool result_is_nullable,
                                                        const AggregateFunctionAttr& attr) {
+    assert_arity_range(name, argument_types, 1, 2);
     if (argument_types.size() == 1) {
         return create_aggregate_function_collect_impl<false>(name, argument_types,
                                                              result_is_nullable, attr);
@@ -136,8 +138,7 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
         return create_aggregate_function_collect_impl<true>(name, argument_types,
                                                             result_is_nullable, attr);
     }
-    throw Exception(ErrorCode::INTERNAL_ERROR,
-                    "unexpected type for collect, please check the input");
+    return nullptr;
 }
 
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory) {

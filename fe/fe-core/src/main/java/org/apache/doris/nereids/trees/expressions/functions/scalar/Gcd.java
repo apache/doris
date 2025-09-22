@@ -54,13 +54,17 @@ public class Gcd extends ScalarFunction
         super("gcd", arg0, arg1);
     }
 
+    public Gcd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Gcd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new Gcd(children.get(0), children.get(1));
+        return new Gcd(getFunctionParams(children));
     }
 
     @Override

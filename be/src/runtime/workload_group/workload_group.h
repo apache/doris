@@ -61,24 +61,14 @@ class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
     ENABLE_FACTORY_CREATOR(WorkloadGroup);
 
 public:
-    explicit WorkloadGroup(const WorkloadGroupInfo& wg_info);
+    WorkloadGroup(const WorkloadGroupInfo& wg_info);
 
     virtual ~WorkloadGroup();
 
     int64_t version() const { return _version; }
-
-    uint64_t cpu_share() const { return _cpu_share.load(); }
-
-    int cpu_hard_limit() const { return _cpu_hard_limit.load(); }
-
     uint64_t id() const { return _id; }
 
     std::string name() const { return _name; };
-
-    bool enable_memory_overcommit() const {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _enable_memory_overcommit;
-    };
 
     int64_t memory_limit() const {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
@@ -87,19 +77,14 @@ public:
 
     int64_t total_mem_used() const { return _total_mem_used; }
 
-    int64_t write_buffer_size() const { return _write_buffer_size; }
-
-    void enable_write_buffer_limit(bool enable_limit) { _enable_write_buffer_limit = enable_limit; }
-
-    bool enable_write_buffer_limit() const { return _enable_write_buffer_limit; }
-
-    bool exceed_write_buffer_limit() const { return _write_buffer_size > write_buffer_limit(); }
-
     // make memory snapshots and refresh total memory used at the same time.
     int64_t refresh_memory_usage();
     int64_t memory_used();
 
     void do_sweep();
+#ifdef BE_TEST
+    void clear_cancelled_resource_ctx();
+#endif
 
     int memory_low_watermark() const {
         return _memory_low_watermark.load(std::memory_order_relaxed);
@@ -108,8 +93,6 @@ public:
     int memory_high_watermark() const {
         return _memory_high_watermark.load(std::memory_order_relaxed);
     }
-
-    void set_weighted_memory_ratio(double ratio);
 
     int total_query_slot_count() const {
         return _total_query_slot_count.load(std::memory_order_relaxed);
@@ -144,19 +127,14 @@ public:
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
-    // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
-    // because mem_limit is not a required property
-    bool is_mem_limit_valid() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _memory_limit > 0;
-    }
-
     TWgSlotMemoryPolicy::type slot_memory_policy() const { return _slot_mem_policy; }
 
     bool exceed_limit() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit > 0 ? _total_mem_used > _memory_limit : false;
     }
+
+    int64_t min_memory_limit() const { return _min_memory_limit; }
 
     Status add_resource_ctx(TUniqueId query_id, std::shared_ptr<ResourceContext> resource_ctx) {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
@@ -224,8 +202,6 @@ public:
     friend class WorkloadGroupMetrics;
     friend class WorkloadGroupMgr;
 
-    int64_t write_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
-
     int64_t revoke_memory(int64_t need_free_mem, const std::string& revoke_reason,
                           RuntimeProfile* profile);
 
@@ -243,29 +219,25 @@ private:
     uint64_t _id;
     std::string _name;
     int64_t _version;
-    int64_t _memory_limit; // bytes
-    // For example, load memtable, write to parquet.
-    // If the wg's memory reached high water mark, then the load buffer
-    // will be restricted to this limit.
-    int64_t _load_buffer_ratio = 0;
-    std::atomic<bool> _enable_write_buffer_limit = false;
+    std::atomic<int> _min_cpu_percent = 0;
+    std::atomic<int> _max_cpu_percent = 100;
+    std::atomic<int64_t> _memory_limit = 1 << 30;     // Default to 1GB
+    std::atomic<int64_t> _min_memory_limit = 1 << 26; // Default to 64MB
+    std::atomic<int> _min_memory_percent = 0;
+    std::atomic<int> _max_memory_percent = 100;
+    std::atomic<int> _memory_low_watermark;
+    std::atomic<int> _memory_high_watermark;
 
-    std::atomic_int64_t _total_mem_used = 0; // bytes
-    std::atomic_int64_t _write_buffer_size = 0;
-    std::atomic_int64_t _wg_refresh_interval_memory_growth;
-    bool _enable_memory_overcommit;
-    std::atomic<uint64_t> _cpu_share;
-    std::atomic<int> _cpu_hard_limit;
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
-    std::atomic<int> _memory_low_watermark;
-    std::atomic<int> _memory_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
     std::atomic<int> _total_query_slot_count = 0;
     std::atomic<TWgSlotMemoryPolicy::type> _slot_mem_policy {TWgSlotMemoryPolicy::NONE};
 
+    std::atomic_int64_t _total_mem_used = 0; // bytes
+    std::atomic_int64_t _wg_refresh_interval_memory_growth;
     // means workload group is mark dropped
     // new query can not submit
     // waiting running query to be cancelled or finish
@@ -293,21 +265,21 @@ using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 struct WorkloadGroupInfo {
     const uint64_t id = 0;
     const std::string name = "";
-    const uint64_t cpu_share = 0;
-    const int64_t memory_limit = 0;
-    const bool enable_memory_overcommit = false;
     const int64_t version = 0;
-    const int cpu_hard_limit = 0;
+    const int min_cpu_percent = 0;
+    const int max_cpu_percent = 100;
+    const int64_t memory_limit = 1 << 30; // Default to 1GB
+    const int min_memory_percent = 0;
+    const int max_memory_percent = 100;
+    const int memory_low_watermark = 0;
+    const int memory_high_watermark = 0;
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;
-    const int memory_low_watermark = 0;
-    const int memory_high_watermark = 0;
     const int64_t read_bytes_per_second = -1;
     const int64_t remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
     const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
-    const int write_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

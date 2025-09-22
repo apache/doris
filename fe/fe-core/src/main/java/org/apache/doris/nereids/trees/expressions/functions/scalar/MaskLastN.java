@@ -54,16 +54,18 @@ public class MaskLastN extends ScalarFunction implements ExplicitlyCastableSigna
         super("mask_last_n", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MaskLastN(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public MaskLastN withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        if (children.size() == 1) {
-            return new MaskLastN(children.get(0));
-        }
-        return new MaskLastN(children.get(0), children.get(1));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new MaskLastN(getFunctionParams(children));
     }
 
     @Override

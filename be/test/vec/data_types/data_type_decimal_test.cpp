@@ -39,7 +39,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris::vectorized {
 static std::string test_data_dir;
@@ -202,16 +201,12 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .family_name = tmp_dt->get_family_name(),
             .has_subtypes = false,
             .storage_field_type = doris::FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-            .should_align_right_in_pretty_formats = true,
-            .text_can_contain_only_valid_utf8 = true,
             .have_maximum_size_of_value = true,
             .size_of_value_in_memory = sizeof(Decimal32),
             .precision = tmp_dt->get_precision(),
             .scale = tmp_dt->get_scale(),
             .is_null_literal = false,
-            .is_value_represented_by_number = true,
             .pColumnMeta = col_meta.get(),
-            .is_value_unambiguously_represented_in_contiguous_memory_region = true,
             .default_field = Field::create_field<TYPE_DECIMAL32>(
                     DecimalField<Decimal32>(0, tmp_dt->get_scale())),
     };
@@ -255,15 +250,8 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_TRUE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-        EXPECT_FALSE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
 
@@ -594,7 +582,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -604,7 +592,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(source_column, i);
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -614,7 +602,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto str = dt.to_string(col_with_type->get_element(i));
-                ReadBuffer rb(str.data(), str.size());
+                StringRef rb(str.data(), str.size());
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -629,7 +617,7 @@ TEST_F(DataTypeDecimalTest, to_string) {
             ColumnType col_from_str(0, dt.get_scale());
             for (size_t i = 0; i != row_count; ++i) {
                 auto item = col_str_to_str.get_data_at(i);
-                ReadBuffer rb((char*)item.data, item.size);
+                StringRef rb((char*)item.data, item.size);
                 auto status = dt.from_string(rb, &col_from_str);
                 EXPECT_TRUE(status.ok());
                 EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));

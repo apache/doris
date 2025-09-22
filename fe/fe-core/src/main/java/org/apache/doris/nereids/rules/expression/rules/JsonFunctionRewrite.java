@@ -26,9 +26,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonSet;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonUnQuote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtract;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBigint;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbExtractBool;
@@ -45,6 +45,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 
@@ -60,8 +61,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
-        return ImmutableList.of(
-                matchesType(JsonArray.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
+        return ImmutableList.of(matchesType(JsonArray.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY),
                 matchesType(JsonArrayIgnoreNull.class).then(JsonFunctionRewrite::rewriteJsonArrayArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_ARRAY_IGNORE_NULL),
@@ -73,6 +73,8 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_SET),
                 matchesType(JsonReplace.class).then(JsonFunctionRewrite::rewriteJsonModifyArguments)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_REPLACE),
+                matchesType(JsonRemove.class).then(JsonFunctionRewrite::rewriteJsonRemoveArguments)
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_REMOVE),
                 matchesType(JsonbExtractInt.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_INT),
                 matchesType(JsonbExtractBigint.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
@@ -84,54 +86,73 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
                 matchesType(JsonbExtractDouble.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
                         .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_DOUBLE),
                 matchesType(JsonbExtractString.class).then(JsonFunctionRewrite::rewriteJsonExtractFunctions)
-                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_STRING)
-        );
+                        .toRule(ExpressionRuleType.JSON_FUNCTION_REWRITE_JSON_EXTRACT_STRING));
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonArrayArguments(T function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        function.children().forEach(child -> {
-            if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<>();
+            for (Expression child : function.children()) {
+                if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
             }
+            return function.withChildren(convectedChildren);
         });
-        return function.withChildren(convectedChildren);
     }
 
     private static Expression rewriteJsonObjectArguments(JsonObject function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        List<Expression> children = function.children();
-        for (int i = 0; i < children.size(); i++) {
-            Expression child = children.get(i);
-            if (i % 2 == 0) {
-                convectedChildren.add(child);
-            } else if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<Expression>();
+            List<Expression> children = function.children();
+            for (int i = 0; i < children.size(); i++) {
+                Expression child = children.get(i);
+                if (i % 2 == 0) {
+                    convectedChildren.add(child);
+                } else if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
             }
-        }
-        return function.withChildren(convectedChildren);
+            return function.withChildren(convectedChildren);
+        });
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonModifyArguments(T function) {
-        List<Expression> convectedChildren = new ArrayList<Expression>();
-        List<Expression> children = function.children();
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<Expression>();
+            List<Expression> children = function.children();
 
-        convectedChildren.add(children.get(0));
-        for (int i = 1; i < children.size(); i++) {
-            Expression child = children.get(i);
-            if (i % 2 == 1) {
-                convectedChildren.add(child);
-            } else if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
-            } else {
-                convectedChildren.add(new ToJson(child));
+            convectedChildren.add(children.get(0));
+            for (int i = 1; i < children.size(); i++) {
+                Expression child = children.get(i);
+                if (i % 2 == 1) {
+                    convectedChildren.add(child);
+                } else if (child.getDataType() instanceof JsonType) {
+                    convectedChildren.add(child);
+                } else {
+                    convectedChildren.add(new ToJson(child));
+                }
             }
-        }
-        return function.withChildren(convectedChildren);
+            return function.withChildren(convectedChildren);
+        });
+    }
+
+    private static <T extends ScalarFunction> Expression rewriteJsonRemoveArguments(T function) {
+        return MoreFieldsThread.keepFunctionSignature(false, () -> {
+            List<Expression> convectedChildren = new ArrayList<>();
+            List<Expression> children = function.children();
+
+            convectedChildren.add(children.get(0));
+
+            for (int i = 1; i < children.size(); i++) {
+                convectedChildren.add(children.get(i));
+            }
+            return function.withChildren(convectedChildren);
+        });
     }
 
     private static <T extends ScalarFunction> Expression rewriteJsonExtractFunctions(T function) {
@@ -147,7 +168,7 @@ public class JsonFunctionRewrite implements ExpressionPatternRuleFactory {
         } else if (function instanceof JsonbExtractDouble) {
             return new Cast(jsonExtract, DoubleType.INSTANCE, false);
         } else if (function instanceof JsonbExtractString) {
-            return new JsonUnQuote(new Cast(jsonExtract, StringType.INSTANCE, false));
+            return new Cast(jsonExtract, StringType.INSTANCE, false);
         } else {
             return function;
         }

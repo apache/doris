@@ -48,6 +48,11 @@ public class UrlEncode extends ScalarFunction
         super("url_encode", arg0);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private UrlEncode(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
 
     /**
      * withChildren.
@@ -55,7 +60,7 @@ public class UrlEncode extends ScalarFunction
     @Override
     public UrlEncode withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new UrlEncode(children.get(0));
+        return new UrlEncode(getFunctionParams(children));
     }
 
     @Override

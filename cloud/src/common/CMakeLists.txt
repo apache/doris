@@ -15,6 +15,12 @@ set(COMMON_FILES
     network_util.cpp
 )
 
+if (USE_JEMALLOC)
+    set(COMMON_FILES ${COMMON_FILES}
+        ${BUILD_DIR}/../../be/src/runtime/memory/jemalloc_hook.cpp
+    )
+endif()
+
 add_library(Common STATIC
     ${COMMON_FILES}
     )

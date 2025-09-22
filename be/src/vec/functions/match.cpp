@@ -19,6 +19,7 @@
 
 #include <hs/hs.h>
 
+#include "olap/rowset/segment_v2/index_reader_helper.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -43,7 +44,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
         function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        if (iter->get_reader()->is_fulltext_index() && !iter->get_reader()->is_support_phrase()) {
+        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
+        if (reader && !segment_v2::IndexReaderHelper::is_support_phrase(reader)) {
             return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
                     "phrase queries require setting support_phrase = true");
         }
@@ -65,6 +67,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
 
     InvertedIndexParam param;
     param.column_name = data_type_with_name.first;
+    param.column_type = data_type_with_name.second;
     param.query_value = query_param->get_value();
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
@@ -102,11 +105,6 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     if (inverted_index_ctx == nullptr) {
         inverted_index_ctx = reinterpret_cast<InvertedIndexCtx*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    }
-
-    if (!inverted_index_ctx->custom_analyzer.empty()) {
-        return Status::NotSupported(
-                "Custom analyzer is not supported for unindexed MATCH operations.");
     }
 
     const ColumnPtr source_col =
@@ -181,7 +179,8 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
     if (inverted_index_ctx == nullptr) {
         return query_tokens;
     }
-    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+    if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+        inverted_index_ctx->custom_analyzer.empty()) {
         query_tokens.emplace_back(match_query_str);
         return query_tokens;
     }
@@ -216,7 +215,8 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
-        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE) {
+        if (inverted_index_ctx->parser_type == InvertedIndexParserType::PARSER_NONE &&
+            inverted_index_ctx->custom_analyzer.empty()) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(

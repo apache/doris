@@ -22,6 +22,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "data_type_number_serde.h"
@@ -29,6 +30,7 @@
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/serde/data_type_serde.h"
 
 namespace doris::vectorized {
 class Arena;
@@ -42,6 +44,7 @@ public:
     using ColumnType = PrimitiveTypeTraits<T>::ColumnType;
     using NativeType = PrimitiveTypeTraits<T>::CppNativeType; // int64
     using CppType = PrimitiveTypeTraits<T>::CppType;          // VecDateTimeValue
+    constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
     using typename DataTypeNumberSerDe<T>::FormatOptions;
     DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};

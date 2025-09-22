@@ -161,17 +161,6 @@ WrapperType create_identity_wrapper(const DataTypePtr&) {
     };
 }
 
-WrapperType create_nothing_wrapper(const IDataType* to_type) {
-    ColumnPtr res = to_type->create_column_const_with_default_value(1);
-    return [res](FunctionContext* context, Block& block, const ColumnNumbers&, uint32_t result,
-                 size_t input_rows_count, const NullMap::value_type* null_map = nullptr) {
-        /// Column of Nothing type is trivially convertible to any other column
-        block.get_by_position(result).column =
-                res->clone_resized(input_rows_count)->convert_to_full_column_if_const();
-        return Status::OK();
-    };
-}
-
 Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
                                         const ColumnNumbers& arguments, uint32_t result,
                                         size_t input_rows_count,

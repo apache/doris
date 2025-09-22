@@ -17,34 +17,14 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LoadStmt;
-import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.ResourceTypeEnum;
-import org.apache.doris.analysis.SetStmt;
-import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.SetVar.SetVarType;
-import org.apache.doris.analysis.ShowStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
-import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.SwitchStmt;
-import org.apache.doris.analysis.UnifiedLoadStmt;
-import org.apache.doris.analysis.UnlockTablesStmt;
-import org.apache.doris.analysis.UnsetVariableStmt;
-import org.apache.doris.analysis.UnsupportedStmt;
-import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -54,10 +34,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cloud.analysis.UseCloudClusterStmt;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
-import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
@@ -65,14 +43,13 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
@@ -84,11 +61,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileScanNode;
-import org.apache.doris.datasource.jdbc.client.JdbcClientException;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
-import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.LoadJobRowResult;
-import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -96,13 +70,11 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.ProxyMysqlChannel;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlanProcess;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundBaseExternalTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.exceptions.MustFallbackException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
@@ -110,19 +82,20 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
+import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
-import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -155,7 +128,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService.Client;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TResultFileSink;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -174,11 +146,9 @@ import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -203,7 +173,7 @@ public class StmtExecutor {
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     private static Set<String> blockSqlAstNames = Sets.newHashSet();
 
-    private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
+    private static final Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
     private MysqlSerializer serializer;
@@ -228,6 +198,11 @@ public class StmtExecutor {
     // The profile of this execution
     private final Profile profile;
     private Boolean isForwardedToMaster = null;
+    // Flag for execute prepare statement, need to use binary protocol resultset
+    private boolean isComStmtExecute = false;
+    // Set to true if there are more stmt need to execute.
+    // Mainly for forward to master, so that master can set the mysql server status correctly.
+    private boolean moreStmtExists = false;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -260,9 +235,14 @@ public class StmtExecutor {
 
     // constructor for receiving parsed stmt from connect processor
     public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt) {
+        this(ctx, parsedStmt, false);
+    }
+
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt, boolean isComStmtExecute) {
         this.context = ctx;
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
+        this.isComStmtExecute = isComStmtExecute;
         if (context.getConnectType() == ConnectType.MYSQL) {
             this.serializer = context.getMysqlChannel().getSerializer();
         } else {
@@ -325,7 +305,14 @@ public class StmtExecutor {
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            builder.totalTime(DebugUtil.getPrettyStringMs(currentTimestamp - context.getStartTime()));
+            long executionCosts = currentTimestamp - context.getStartTime();
+            // Execution of parser could happen before StmtExecutor is involved.
+            if (getSummaryProfile().parsedByConnectionProcess) {
+                builder.totalTime(DebugUtil.getPrettyStringMs(
+                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+            } else {
+                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+            }
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -367,6 +354,14 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
+    }
+
+    public boolean isMoreStmtExists() {
+        return moreStmtExists;
+    }
+
+    public void setMoreStmtExists(boolean moreStmtExists) {
+        this.moreStmtExists = moreStmtExists;
     }
 
     private boolean shouldForwardToMaster() {
@@ -540,38 +535,13 @@ public class StmtExecutor {
         try {
             try {
                 executeByNereids(queryId);
-            } catch (NereidsException | ParseException e) {
+            } catch (Exception e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
                 }
-                // try to fall back to legacy planner
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("nereids cannot process statement\n{}\n because of {}",
-                            originStmt.originStmt, e.getMessage(), e);
-                }
-                // only must fall back + unsupported command could use legacy planner
-                if ((e instanceof NereidsException
-                        && !(((NereidsException) e).getException() instanceof MustFallbackException))
-                        || !((parsedStmt instanceof LogicalPlanAdapter
-                        && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command))) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    context.getState().setError(e.getMessage());
-                    return;
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
-                }
-                parsedStmt = null;
-                planner = null;
-                isForwardedToMaster = null;
-                redirectStatus = null;
-                // Attention: currently exception from nereids does not mean an Exception to user terminal
-                // unless user does not allow fallback to lagency planner. But state of query
-                // has already been set to Error in this case, it will have some side effect on profile result
-                // and audit log. So we need to reset state to OK if query cancel be processd by lagency.
-                context.getState().reset();
-                context.getState().setNereids(false);
-                executeByLegacy(queryId);
+                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                context.getState().setError(e.getMessage());
+                return;
             }
         } finally {
             // revert Session Value
@@ -625,7 +595,8 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        if (context.getSessionVariable().enableProfile) {
+        // short circuit query should not dump changed session var since it will impact the performance.
+        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -641,10 +612,6 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
             }
-            if (logicalPlan instanceof UnsupportedCommand || logicalPlan instanceof CreatePolicyCommand) {
-                throw new NereidsException(
-                        new MustFallbackException("cannot prepare command " + logicalPlan.getClass().getSimpleName()));
-            }
             long stmtId = Config.prepared_stmt_start_id > 0
                     ? Config.prepared_stmt_start_id : context.getPreparedStmtId();
             this.prepareStmtName = String.valueOf(stmtId);
@@ -658,8 +625,7 @@ public class StmtExecutor {
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
-                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof TransactionCommand
-                    || logicalPlan instanceof UnsupportedCommand)) {
+                    || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof TransactionCommand)) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
@@ -702,11 +668,6 @@ public class StmtExecutor {
             try {
                 ((Command) logicalPlan).verifyCommandSupported(context);
                 ((Command) logicalPlan).run(context, this);
-            } catch (MustFallbackException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
-                }
-                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (QueryStateException e) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Command({}) process failed.", originStmt.originStmt, e);
@@ -769,14 +730,80 @@ public class StmtExecutor {
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
-            } catch (MustFallbackException e) {
-                LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
-                throw new NereidsException("Command(" + originStmt.originStmt + ") process failed.", e);
             } catch (Exception e) {
                 LOG.warn("Nereids plan query failed:\n{}", originStmt.originStmt, e);
                 throw new NereidsException(new AnalysisException(e.getMessage(), e));
             }
-            profile.getSummaryProfile().setQueryPlanFinishTime();
+            profile.getSummaryProfile().setQueryPlanFinishTime(TimeUtils.getStartTimeMs());
+            if (MetricRepo.isInit) {
+                SummaryProfile summaryProfile = profile.getSummaryProfile();
+                int nereidsAnalysisTimeMs = summaryProfile.getNereidsAnalysisTimeMs();
+                // init is -1, so need record when >= 0
+                if (nereidsAnalysisTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_ANALYZE_DURATION.update(nereidsAnalysisTimeMs);
+                }
+                int nereidsRewriteTimeMs = summaryProfile.getNereidsRewriteTimeMs();
+                if (nereidsRewriteTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_REWRITE_DURATION.update(nereidsRewriteTimeMs);
+                }
+                // init is 0, so need record when > 0
+                int nereidsBeFoldConstTimeMs = summaryProfile.getNereidsBeFoldConstTimeMs();
+                if (nereidsBeFoldConstTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_FOLD_CONST_BY_BE_DURATION.update(nereidsBeFoldConstTimeMs);
+                }
+                int nereidsOptimizeTimeMs = summaryProfile.getNereidsOptimizeTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(nereidsOptimizeTimeMs);
+                }
+                int nereidsTranslateTimeMs = summaryProfile.getNereidsTranslateTimeMs();
+                if (nereidsOptimizeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(nereidsTranslateTimeMs);
+                }
+                long initScanNodeTimeMs = summaryProfile.getInitScanNodeTimeMs();
+                if (initScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_INIT_SCAN_NODE_DURATION.update(initScanNodeTimeMs);
+                }
+                long finalizeScanNodeTimeMs = summaryProfile.getFinalizeScanNodeTimeMs();
+                if (finalizeScanNodeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_FINALIZE_SCAN_NODE_DURATION.update(finalizeScanNodeTimeMs);
+                }
+                int createScanRangeTimeMs = summaryProfile.getCreateScanRangeTimeMs();
+                if (createScanRangeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_CREATE_SCAN_RANGE_DURATION.update(createScanRangeTimeMs);
+                }
+                int nereidsDistributeTimeMs = summaryProfile.getNereidsDistributeTimeMs();
+                if (nereidsDistributeTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DISTRIBUTE_DURATION.update(nereidsDistributeTimeMs);
+                }
+                int planTimeMs = summaryProfile.getPlanTimeMs();
+                if (planTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_DURATION.update(planTimeMs);
+                }
+                long externalCatalogMetaTimeMs = summaryProfile.getExternalCatalogMetaTimeMs();
+                if (externalCatalogMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_CATALOG_META_DURATION.update(externalCatalogMetaTimeMs);
+                }
+                long externalTvfInitTimeMs = summaryProfile.getExternalTvfInitTimeMs();
+                if (externalTvfInitTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_EXTERNAL_TVF_INIT_DURATION.update(externalTvfInitTimeMs);
+                }
+                int nereidsLockTableTimeMs = summaryProfile.getNereidsLockTableTimeMs();
+                if (nereidsLockTableTimeMs >= 0) {
+                    MetricRepo.HISTO_PLAN_LOCK_TABLES_DURATION.update(nereidsLockTableTimeMs);
+                }
+                long nereidsPartitiionPruneTimeMs = summaryProfile.getNereidsPartitiionPruneTimeMs();
+                if (nereidsPartitiionPruneTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_PARTITION_PRUNE_DURATION.update(nereidsPartitiionPruneTimeMs);
+                }
+                long cloudMetaTimeMs = summaryProfile.getCloudMetaTimeMs();
+                if (cloudMetaTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_CLOUD_META_DURATION.update(cloudMetaTimeMs);
+                }
+                long nereidsMvRewriteTimeMs = summaryProfile.getNereidsMvRewriteTimeMs();
+                if (nereidsMvRewriteTimeMs > 0) {
+                    MetricRepo.HISTO_PLAN_MATERIALIZED_VIEW_REWRITE_DURATION.update(nereidsMvRewriteTimeMs);
+                }
+            }
             handleQueryWithRetry(queryId);
         }
     }
@@ -807,12 +834,16 @@ public class StmtExecutor {
             getProfile().getSummaryProfile().setParseSqlStartTime(System.currentTimeMillis());
             statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
             getProfile().getSummaryProfile().setParseSqlFinishTime(System.currentTimeMillis());
+            getProfile().getSummaryProfile().parsedByConnectionProcess = false;
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_PLAN_PARSE_DURATION.update(getProfile().getSummaryProfile().getParseSqlTimeMs());
+            }
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
         if (statements.isEmpty()) {
             // for test only
-            parsedStmt = new LogicalPlanAdapter(new UnsupportedCommand(), new StatementContext());
+            parsedStmt = new LogicalPlanAdapter(new EmptyCommand(), new StatementContext());
         } else {
             if (statements.size() <= originStmt.idx) {
                 throw new ParseException("Nereids parse failed. Parser get " + statements.size() + " statements,"
@@ -867,6 +898,7 @@ public class StmtExecutor {
                     context.setReturnResultFromLocal(false);
                 }
                 handleQueryStmt();
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
@@ -930,122 +962,6 @@ public class StmtExecutor {
         }
     }
 
-    // Execute one statement with queryId
-    // The queryId will be set in ConnectContext
-    // This queryId will also be sent to master FE for exec master only query.
-    // query id in ConnectContext will be changed when retry exec a query or master FE return a different one.
-    // Exception:
-    // IOException: talk with client failed.
-    public void executeByLegacy(TUniqueId queryId) throws Exception {
-        context.setStartTime();
-
-        profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
-        context.setQueryId(queryId);
-
-        try {
-            // parsedStmt maybe null here, we parse it. Or the predicate will not work.
-            parseByLegacy();
-            checkSqlBlocked(parsedStmt.getClass());
-            if (context.isTxnModel()) {
-                throw new TException("This is in a transaction, only insert, update, delete, "
-                        + "commit, rollback is acceptable.");
-            }
-
-            if (!context.isTxnModel()) {
-                // analyze this query
-                analyze(context.getSessionVariable().toThrift());
-
-                if (isForwardToMaster()) {
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
-                                || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
-                        throw new UserException("Forward master command is not supported for prepare statement");
-                    }
-                    if (isProxy) {
-                        // This is already a stmt forwarded from other FE.
-                        // If goes here, which means we can't find a valid Master FE(some error happens).
-                        // To avoid endless forward, throw exception here.
-                        throw new UserException("The statement has been forwarded to master FE("
-                                + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
-                                + " because Master FE is not ready. You may need to check FE's status");
-                    }
-                    forwardToMaster();
-                    if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
-                        context.setQueryId(masterOpExecutor.getQueryId());
-                    }
-                    return;
-                } else {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
-                    }
-                }
-            } else {
-                // Query following createting table would throw table not exist error.
-                // For example.
-                // t1: client issues create table to master fe
-                // t2: client issues query sql to observer fe, the query would fail due to not exist table
-                //     in plan phase.
-                // t3: observer fe receive editlog creating the table from the master fe
-                syncJournalIfNeeded();
-                parsedStmt.analyze();
-            }
-            parsedStmt.checkPriv();
-            // sql/sqlHash block
-            checkBlockRules();
-            if (parsedStmt instanceof SetStmt) {
-                handleSetStmt();
-            } else if (parsedStmt instanceof UnsetVariableStmt) {
-                handleUnsetVariableStmt();
-            } else if (parsedStmt instanceof SwitchStmt) {
-                handleSwitchStmt();
-            } else if (parsedStmt instanceof UseStmt) {
-                handleUseStmt();
-            }  else if (parsedStmt instanceof UseCloudClusterStmt) {
-                // jdbc client use
-                handleUseCloudClusterStmt();
-            } else if (parsedStmt instanceof LoadStmt) {
-                handleLoadStmt();
-            } else if (parsedStmt instanceof DdlStmt) {
-                handleDdlStmt();
-            } else if (parsedStmt instanceof ShowStmt) {
-                handleShow();
-            } else if (parsedStmt instanceof ExportStmt) {
-                handleExportStmt();
-            } else if (parsedStmt instanceof UnlockTablesStmt) {
-                handleUnlockTablesStmt();
-            } else if (parsedStmt instanceof LockTablesStmt) {
-                handleLockTablesStmt();
-            } else if (parsedStmt instanceof UnsupportedStmt) {
-                handleUnsupportedStmt();
-            } else {
-                context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
-            }
-        } catch (IOException e) {
-            LOG.warn("execute IOException. {}", context.getQueryIdentifier(), e);
-            // the exception happens when interact with client
-            // this exception shows the connection is gone
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
-            throw e;
-        } catch (UserException e) {
-            // insert into select
-            if (Config.isCloudMode() && e.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
-                throw e;
-            }
-            // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-        } catch (JdbcClientException e) {
-            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getMessage());
-        } catch (Exception e) {
-            LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseWithSuppressedMessage(e));
-        }
-    }
-
     private void syncJournalIfNeeded() throws Exception {
         final Env env = context.getEnv();
         if (env.isMaster() || !context.getSessionVariable().enableStrongConsistencyRead) {
@@ -1069,6 +985,12 @@ public class StmtExecutor {
         // fe/fe-core/src/main/java/org/apache/doris/nereids/NereidsPlanner.java:131
         // Only generate profile for NereidsPlanner.
         if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+
+        // If the query is short circuit, we should not update the profile,
+        // which will impact the performance of the short circuit query.
+        if (statementContext.isShortCircuitQuery()) {
             return false;
         }
 
@@ -1112,31 +1034,13 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
+        masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
                 Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
                 forward.afterForwardToMaster(context);
-            }
-        } else if (parsedStmt instanceof SetStmt) {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            setStmt.modifySetVarsForExecute();
-            for (SetVar var : setStmt.getSetVars()) {
-                VariableMgr.setVarForNonMasterFE(context.getSessionVariable(), var);
-            }
-        } else if (parsedStmt instanceof UnsetVariableStmt) {
-            UnsetVariableStmt unsetStmt = (UnsetVariableStmt) parsedStmt;
-            if (unsetStmt.isApplyToAll()) {
-                VariableMgr.setAllVarsToDefaultValue(context.getSessionVariable(), SetType.SESSION);
-            } else {
-                String defaultValue = VariableMgr.getDefaultValue(unsetStmt.getVariable());
-                if (defaultValue == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, unsetStmt.getVariable());
-                }
-                SetVar var = new SetVar(SetType.SESSION, unsetStmt.getVariable(),
-                        new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
-                VariableMgr.setVar(context.getSessionVariable(), var);
             }
         }
     }
@@ -1157,103 +1061,6 @@ public class StmtExecutor {
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
-    }
-
-    private boolean hasCloudClusterPriv() {
-        String clusterName = "";
-        try {
-            clusterName = ConnectContext.get().getCloudCluster();
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to get cloud cluster", e);
-            return false;
-        }
-        if (ConnectContext.get() == null || Strings.isNullOrEmpty(clusterName)) {
-            return false;
-        }
-        return Env.getCurrentEnv().getAccessManager().checkCloudPriv(ConnectContext.get().getCurrentUserIdentity(),
-            clusterName, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER);
-    }
-
-    // Analyze one statement to structure in memory.
-    public void analyze(TQueryOptions tQueryOptions) throws UserException, InterruptedException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(),
-                    context.getForwardedStmtId());
-        }
-
-        parseByLegacy();
-
-        // yiguolei: insert stmt's grammar analysis will write editlog,
-        // so that we check if the stmt should be forward to master here
-        // if the stmt should be forward to master, then just return here and the master will do analysis again
-        if (isForwardToMaster()) {
-            return;
-        }
-
-        // convert unified load stmt here
-        if (parsedStmt instanceof UnifiedLoadStmt) {
-            // glue code for unified load
-            final UnifiedLoadStmt unifiedLoadStmt = (UnifiedLoadStmt) parsedStmt;
-            unifiedLoadStmt.init();
-            final StatementBase proxyStmt = unifiedLoadStmt.getProxyStmt();
-            parsedStmt = proxyStmt;
-            if (!(proxyStmt instanceof LoadStmt) && !(proxyStmt instanceof CreateRoutineLoadStmt)) {
-                Preconditions.checkState(
-                        true,
-                        "enable_unified_load=true, should be insert stmt");
-            }
-        }
-
-        try {
-            parsedStmt.analyze();
-        } catch (UserException e) {
-            throw e;
-        } catch (Exception e) {
-            LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-            throw new AnalysisException("Unexpected exception: " + e.getMessage());
-        }
-
-    }
-
-    private void parseByLegacy() throws AnalysisException, DdlException {
-        // parsedStmt may already by set when constructing this StmtExecutor();
-        if (parsedStmt == null) {
-            // Parse statement with parser generated by CUP&FLEX
-            SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt),
-                    context.getSessionVariable().getSqlMode());
-            SqlParser parser = new SqlParser(input);
-            try {
-                List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
-                if (originStmt.idx >= stmts.size()) {
-                    throw new AnalysisException("Invalid statement index: "
-                            + originStmt.idx + ". size: " + stmts.size());
-                }
-                parsedStmt = stmts.get(originStmt.idx);
-                parsedStmt.setOrigStmt(originStmt);
-                parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            } catch (Error e) {
-                LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
-                throw new AnalysisException("sql parsing error, please check your sql");
-            } catch (AnalysisException e) {
-                String syntaxError = parser.getErrorMsg(originStmt.originStmt);
-                LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
-                        originStmt, context.getStmtId(), syntaxError, e);
-                if (syntaxError == null) {
-                    throw e;
-                } else {
-                    throw new AnalysisException(syntaxError, e);
-                }
-            } catch (Exception e) {
-                // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-                // should be removed this try-catch clause future.
-                LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
-                        originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
-                throw new AnalysisException("Unexpected exception: " + e.getMessage());
-            }
-
-            analyzeVariablesInStmt();
-        }
-        redirectStatus = parsedStmt.getRedirectStatus();
     }
 
     // Because this is called by other thread
@@ -1298,45 +1105,6 @@ public class StmtExecutor {
             }
         }
         return Optional.empty();
-    }
-
-    // Process set statement.
-    private void handleSetStmt() {
-        try {
-            SetStmt setStmt = (SetStmt) parsedStmt;
-            SetExecutor executor = new SetExecutor(context, setStmt);
-            executor.execute();
-        } catch (DdlException e) {
-            LOG.warn("", e);
-            // Return error message to client.
-            context.getState().setError(ErrorCode.ERR_LOCAL_VARIABLE, e.getMessage());
-            return;
-        }
-        context.getState().setOk();
-    }
-
-    // Process unset variable statement.
-    private void handleUnsetVariableStmt() {
-        try {
-            UnsetVariableStmt unsetStmt = (UnsetVariableStmt) parsedStmt;
-            if (unsetStmt.isApplyToAll()) {
-                VariableMgr.setAllVarsToDefaultValue(context.getSessionVariable(), unsetStmt.getSetType());
-            } else {
-                String defaultValue = VariableMgr.getDefaultValue(unsetStmt.getVariable());
-                if (defaultValue == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_SYSTEM_VARIABLE, unsetStmt.getVariable());
-                }
-                SetVar var = new SetVar(unsetStmt.getSetType(), unsetStmt.getVariable(),
-                        new StringLiteral(defaultValue), SetVarType.SET_SESSION_VAR);
-                VariableMgr.setVar(context.getSessionVariable(), var);
-            }
-        } catch (DdlException e) {
-            LOG.warn("", e);
-            // Return error message to client.
-            context.getState().setError(ErrorCode.ERR_LOCAL_VARIABLE, e.getMessage());
-            return;
-        }
-        context.getState().setOk();
     }
 
     // send values from cache.
@@ -1391,39 +1159,12 @@ public class StmtExecutor {
      * Handle the SelectStmt via Cache.
      */
     private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
-        InternalService.PFetchCacheResult cacheResult = null;
-        boolean wantToParseSqlForSqlCache = planner instanceof NereidsPlanner
-                && CacheAnalyzer.canUseSqlCache(context.getSessionVariable());
-        try {
-            cacheResult = cacheAnalyzer.getCacheData();
-            if (cacheResult == null) {
-                if (ConnectContext.get() != null
-                        && !ConnectContext.get().getSessionVariable().testQueryCacheHit.equals("none")) {
-                    throw new UserException("The variable test_query_cache_hit is set to "
-                            + ConnectContext.get().getSessionVariable().testQueryCacheHit
-                            + ", but the query cache is not hit.");
-                }
-            }
-        } finally {
-            if (wantToParseSqlForSqlCache) {
-                String originStmt = parsedStmt.getOrigStmt().originStmt;
-                NereidsSqlCacheManager sqlCacheManager = context.getEnv().getSqlCacheManager();
-                if (cacheResult != null) {
-                    sqlCacheManager.tryAddBeCache(context, originStmt, cacheAnalyzer);
-                }
-            }
-        }
-
-        Queriable queryStmt = (Queriable) parsedStmt;
-        boolean isSendFields = false;
-        if (cacheResult != null) {
-            isCached = true;
-            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
-                return;
-            }
-        }
-        executeAndSendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+        // only compute CacheTable, but not get cache from be, because there has a case in nereids planner:
+        // `select * from tbl`. the tbl has 2 columns and create cache in be, use the **original sql** as the cache key,
+        // and then we add another column to the table, and the cache in be will not remove. if we use the result in be,
+        // it will return 2 columns result, but the correct result is 3 columns. so we will not trust the cache in be.
+        cacheAnalyzer.getCacheData(false);
+        executeAndSendResult(false, false, (Queriable) parsedStmt, channel, cacheAnalyzer, null);
     }
 
     // Process a select statement.
@@ -1443,7 +1184,6 @@ public class StmtExecutor {
         if (queryStmt.isExplain()) {
             String explainString = planner.getExplainString(queryStmt.getExplainOptions());
             handleExplainStmt(explainString, false);
-            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
         }
 
@@ -1462,7 +1202,6 @@ public class StmtExecutor {
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 if (context.getSessionVariable().enableProfile()) {
                     if (profile != null) {
                         this.profile.getSummaryProfile().setExecutedByFrontend(true);
@@ -1497,13 +1236,11 @@ public class StmtExecutor {
                 && parsedStmt.getOrigStmt() != null && parsedStmt.getOrigStmt().originStmt != null) {
             if (queryStmt instanceof LogicalPlanAdapter) {
                 handleCacheStmt(cacheAnalyzer, channel);
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
         }
 
         executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
-        LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
     }
 
     public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,
@@ -1546,7 +1283,7 @@ public class StmtExecutor {
 
         try {
             coordBase.exec();
-            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
 
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
@@ -1643,7 +1380,17 @@ public class StmtExecutor {
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
             context.getState().setEof();
-            profile.getSummaryProfile().setQueryFetchResultFinishTime();
+            profile.getSummaryProfile().setQueryFetchResultFinishTime(TimeUtils.getStartTimeMs());
+        } catch (QueryTimeoutException e) {
+            // notify all be cancel running fragment
+            // in some case may block all fragment handle threads
+            // details see issue https://github.com/apache/doris/issues/16203
+            Status internalErrorSt = new Status(TStatusCode.TIMEOUT,
+                    "cancel fragment query_id:{} cause query timeout",
+                    DebugUtil.printId(context.queryId()));
+            LOG.warn(internalErrorSt.getErrorMsg());
+            coordBase.cancel(internalErrorSt);
+            throw e;
         } catch (Exception e) {
             // notify all be cancel running fragment
             // in some case may block all fragment handle threads
@@ -1741,74 +1488,6 @@ public class StmtExecutor {
                 }
             }
         }));
-    }
-
-    private void handleUnsupportedStmt() {
-        if (context.getConnectType() == ConnectType.MYSQL) {
-            context.getMysqlChannel().reset();
-        }
-        // do nothing
-        context.getState().setOk();
-    }
-
-    // Process switch catalog
-    private void handleSwitchStmt() throws AnalysisException {
-        SwitchStmt switchStmt = (SwitchStmt) parsedStmt;
-        try {
-            context.getEnv().changeCatalog(context, switchStmt.getCatalogName());
-        } catch (DdlException e) {
-            LOG.warn("", e);
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
-        context.getState().setOk();
-    }
-
-    // Process use statement.
-    private void handleUseStmt() throws AnalysisException {
-        UseStmt useStmt = (UseStmt) parsedStmt;
-        try {
-            if (useStmt.getCatalogName() != null) {
-                context.getEnv().changeCatalog(context, useStmt.getCatalogName());
-            }
-            context.getEnv().changeDb(context, useStmt.getDatabase());
-        } catch (DdlException e) {
-            LOG.warn("", e);
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
-        context.getState().setOk();
-    }
-
-    private void handleUseCloudClusterStmt() throws AnalysisException {
-        if (!Config.isCloudMode()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_CLOUD_MODE);
-            return;
-        }
-
-        UseCloudClusterStmt useCloudClusterStmt = (UseCloudClusterStmt) parsedStmt;
-        try {
-            ((CloudEnv) context.getEnv()).changeCloudCluster(useCloudClusterStmt.getCluster(), context);
-        } catch (DdlException e) {
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
-
-        if (Strings.isNullOrEmpty(useCloudClusterStmt.getDatabase())) {
-            return;
-        }
-
-        try {
-            if (useCloudClusterStmt.getCatalogName() != null) {
-                context.getEnv().changeCatalog(context, useCloudClusterStmt.getCatalogName());
-            }
-            context.getEnv().changeDb(context, useCloudClusterStmt.getDatabase());
-        } catch (DdlException e) {
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
-
-        context.getState().setOk();
     }
 
     private void sendMetaData(ResultSetMetaData metaData) throws IOException {
@@ -1981,18 +1660,14 @@ public class StmtExecutor {
             sendMetaData(resultSet.getMetaData(), fieldInfos);
 
             // Send result set.
-            for (List<String> row : resultSet.getResultRows()) {
-                serializer.reset();
-                for (String item : row) {
-                    if (item == null || item.equals(FeConstants.null_string)) {
-                        serializer.writeNull();
-                    } else {
-                        serializer.writeLenEncodedString(item);
-                    }
+            if (isComStmtExecute) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Use binary protocol to set result.");
                 }
-                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+                sendBinaryResultRow(resultSet);
+            } else {
+                sendTextResultRow(resultSet);
             }
-
             context.getState().setEof();
         } else if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             context.updateReturnRows(resultSet.getResultRows().size());
@@ -2004,45 +1679,77 @@ public class StmtExecutor {
         }
     }
 
-    // Process show statement
-    private void handleShow() throws IOException, AnalysisException, DdlException {
-        ShowExecutor executor = new ShowExecutor(context, (ShowStmt) parsedStmt);
-        ShowResultSet resultSet = executor.execute();
-        if (resultSet == null) {
-            // state changed in execute
-            return;
+    protected void sendTextResultRow(ResultSet resultSet) throws IOException {
+        for (List<String> row : resultSet.getResultRows()) {
+            serializer.reset();
+            for (String item : row) {
+                if (item == null || item.equals(FeConstants.null_string)) {
+                    serializer.writeNull();
+                } else {
+                    serializer.writeLenEncodedString(item);
+                }
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-        if (isProxy) {
-            proxyShowResultSet = resultSet;
-            return;
+    }
+
+    protected void sendBinaryResultRow(ResultSet resultSet) throws IOException {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html#sect_protocol_binary_resultset_row_value
+        ResultSetMetaData metaData = resultSet.getMetaData();
+        int nullBitmapLength = (metaData.getColumnCount() + 7 + 2) / 8;
+        for (List<String> row : resultSet.getResultRows()) {
+            serializer.reset();
+            // Reserved one byte.
+            serializer.writeByte((byte) 0x00);
+            byte[] nullBitmap = new byte[nullBitmapLength];
+            // Generate null bitmap
+            for (int i = 0; i < row.size(); i++) {
+                String item = row.get(i);
+                if (item == null || item.equals(FeConstants.null_string)) {
+                    // The first 2 bits are reserved.
+                    int byteIndex = (i + 2) / 8;  // Index of the byte in the bitmap array
+                    int bitInByte = (i + 2) % 8;  // Position within the target byte (0-7)
+                    nullBitmap[byteIndex] |= (1 << bitInByte);
+                }
+            }
+            // Null bitmap
+            serializer.writeBytes(nullBitmap);
+            // Non-null columns
+            for (int i = 0; i < row.size(); i++) {
+                String item = row.get(i);
+                if (item != null && !item.equals(FeConstants.null_string)) {
+                    Column col = metaData.getColumn(i);
+                    switch (col.getType().getPrimitiveType()) {
+                        case INT:
+                            serializer.writeInt4(Integer.parseInt(item));
+                            break;
+                        case BIGINT:
+                            serializer.writeInt8(Long.parseLong(item));
+                            break;
+                        case DATETIME:
+                        case DATETIMEV2:
+                            DateTimeV2Literal datetime = new DateTimeV2Literal(item);
+                            long microSecond = datetime.getMicroSecond();
+                            // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_query_response_text_resultset.html
+                            int length = microSecond == 0 ? 7 : 11;
+                            serializer.writeInt1(length);
+                            serializer.writeInt2((int) (datetime.getYear()));
+                            serializer.writeInt1((int) datetime.getMonth());
+                            serializer.writeInt1((int) datetime.getDay());
+                            serializer.writeInt1((int) datetime.getHour());
+                            serializer.writeInt1((int) datetime.getMinute());
+                            serializer.writeInt1((int) datetime.getSecond());
+                            if (microSecond > 0) {
+                                serializer.writeInt4((int) microSecond);
+                            }
+                            break;
+                        default:
+                            serializer.writeLenEncodedString(item);
+                    }
+                }
+            }
+            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
-
-        sendResultSet(resultSet);
-    }
-
-    private void handleUnlockTablesStmt() {
-    }
-
-    private void handleLockTablesStmt() {
-    }
-
-    public void handleShowConstraintStmt(List<List<String>> result) throws IOException {
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Name", ScalarType.createVarchar(20)))
-                .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                .addColumn(new Column("Definition", ScalarType.createVarchar(20)))
-                .build();
-        ResultSet resultSet = new ShowResultSet(metaData, result);
-        sendResultSet(resultSet);
-    }
-
-    public void handleShowCreateMTMVStmt(List<List<String>> result) throws IOException {
-        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
-                .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
-                .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
-                .build();
-        ResultSet resultSet = new ShowResultSet(metaData, result);
-        sendResultSet(resultSet);
     }
 
     public void handleExplainPlanProcessStmt(List<PlanProcess> result) throws IOException {
@@ -2109,74 +1816,6 @@ public class StmtExecutor {
         context.getState().setEof();
     }
 
-    private void handleLoadStmt() {
-        try {
-            LoadStmt loadStmt = (LoadStmt) parsedStmt;
-            EtlJobType jobType = loadStmt.getEtlJobType();
-            if (jobType == EtlJobType.UNKNOWN) {
-                throw new DdlException("Unknown load job type");
-            }
-            LoadManager loadManager = context.getEnv().getLoadManager();
-            if (jobType == EtlJobType.LOCAL_FILE) {
-                if (!context.getCapability().supportClientLocalFile()) {
-                    context.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
-                            + " to load client local file.");
-                    return;
-                }
-                String loadId = UUID.randomUUID().toString();
-                mysqlLoadId = loadId;
-                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
-                        .executeMySqlLoadJobFromStmt(context, loadStmt, loadId);
-                context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
-                        submitResult.toString());
-            } else {
-                loadManager.createLoadJobFromStmt(loadStmt);
-                context.getState().setOk();
-            }
-        } catch (UserException e) {
-            // Return message to info client what happened.
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
-            }
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-        } catch (Exception e) {
-            // Maybe our bug
-            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-        }
-    }
-
-    private void handleDdlStmt() {
-        try {
-            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            context.getState().setOk();
-            // copy into used
-            if (context.getState().getResultSet() != null) {
-                if (isProxy) {
-                    proxyShowResultSet = context.getState().getResultSet();
-                    return;
-                }
-                sendResultSet(context.getState().getResultSet());
-            }
-        } catch (QueryStateException e) {
-            LOG.warn("", e);
-            context.setState(e.getQueryState());
-        } catch (UserException e) {
-            // Return message to info client what happened.
-            LOG.warn("DDL statement({}) process failed.", originStmt.originStmt, e);
-            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-        } catch (Exception e) {
-            // Maybe our bug
-            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-        }
-    }
-
-    private void handleExportStmt() throws Exception {
-        ExportStmt exportStmt = (ExportStmt) parsedStmt;
-        context.getEnv().getExportMgr().addExportJobAndRegisterTask(exportStmt.getExportJob());
-    }
-
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = Data.PQueryStatistics.newBuilder();
@@ -2216,9 +1855,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
-        return nereidsPlanner.getPhysicalPlan().getOutput();
+        return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {
@@ -2345,7 +1984,7 @@ public class StmtExecutor {
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
-        LOG.info("TUniqueId: {} generate stream load plan", queryId);
+        LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -2354,7 +1993,6 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         InsertIntoTableCommand insert = (InsertIntoTableCommand) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-        HttpStreamParams httpStreamParams = new HttpStreamParams();
 
         try {
             if (!StringUtils.isEmpty(context.getSessionVariable().groupCommit)) {
@@ -2364,6 +2002,7 @@ public class StmtExecutor {
                 context.setGroupCommit(true);
             }
             OlapInsertExecutor insertExecutor = (OlapInsertExecutor) insert.initPlan(context, this);
+            HttpStreamParams httpStreamParams = new HttpStreamParams();
             httpStreamParams.setTxnId(insertExecutor.getTxnId());
             httpStreamParams.setDb(insertExecutor.getDatabase());
             httpStreamParams.setTable(insertExecutor.getTable());
@@ -2380,6 +2019,7 @@ public class StmtExecutor {
             if (!isValidPlan) {
                 throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
             }
+            return httpStreamParams;
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -2398,17 +2038,15 @@ public class StmtExecutor {
             throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                     new AnalysisException(e.getMessage(), e));
         }
-        return httpStreamParams;
     }
 
     public HttpStreamParams generateHttpStreamPlan(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
-        HttpStreamParams httpStreamParams = null;
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
                 sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
-                httpStreamParams = generateHttpStreamNereidsPlan(queryId);
+                return generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
                     MinidumpUtils.saveMinidumpString(context.getMinidump(), DebugUtil.printId(context.queryId()));
@@ -2420,8 +2058,8 @@ public class StmtExecutor {
                 }
                 if (e instanceof NereidsException) {
                     LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                    throw ((NereidsException) e).getException();
                 }
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
@@ -2437,7 +2075,6 @@ public class StmtExecutor {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }
-        return httpStreamParams;
     }
 
     public SummaryProfile getSummaryProfile() {

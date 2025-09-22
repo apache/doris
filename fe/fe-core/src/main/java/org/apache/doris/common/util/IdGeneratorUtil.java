@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -45,25 +44,6 @@ public class IdGeneratorUtil {
             bufferSize = bufferSize + (replicaAlloc.getTotalReplicaNum() + 1) * indexNum * bucketNum;
         } else {
             for (SinglePartitionDesc partitionDesc : createTableInfo.getPartitionDesc().getSinglePartitionDescs()) {
-                long replicaNum = partitionDesc.getReplicaAlloc().getTotalReplicaNum();
-                bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
-            }
-        }
-        return bufferSize;
-    }
-
-    public static long getBufferSizeForCreateTable(CreateTableStmt stmt, ReplicaAllocation replicaAlloc)
-            throws DdlException {
-        long bufferSize = 1;
-        long partitionNum = stmt.getPartitionDesc() == null ? 1 :
-                stmt.getPartitionDesc().getSinglePartitionDescs().size();
-        long indexNum = stmt.getRollupAlterClauseList().size() + 1;
-        long bucketNum = stmt.getDistributionDesc().toDistributionInfo(stmt.getColumns()).getBucketNum();
-        bufferSize = bufferSize + partitionNum + indexNum;
-        if (stmt.getPartitionDesc() == null) {
-            bufferSize = bufferSize + (replicaAlloc.getTotalReplicaNum() + 1) * indexNum * bucketNum;
-        } else {
-            for (SinglePartitionDesc partitionDesc : stmt.getPartitionDesc().getSinglePartitionDescs()) {
                 long replicaNum = partitionDesc.getReplicaAlloc().getTotalReplicaNum();
                 bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
             }

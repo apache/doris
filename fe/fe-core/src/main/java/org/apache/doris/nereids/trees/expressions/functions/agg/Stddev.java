@@ -23,12 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.DecimalStddevPrecisi
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.FloatType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,12 +38,7 @@ public class Stddev extends NullableAggregateFunction
         StdDevOrVarianceFunction, DecimalStddevPrecision {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(SmallIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(TinyIntType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE));
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE));
 
     /**
      * constructor with 1 argument.
@@ -68,18 +58,23 @@ public class Stddev extends NullableAggregateFunction
         super("stddev", distinct, alwaysNullable, arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Stddev(NullableAggregateFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withDistinctAndChildren.
      */
     @Override
     public Stddev withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Stddev(distinct, alwaysNullable, children.get(0));
+        return new Stddev(getFunctionParams(distinct, children));
     }
 
     @Override
     public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
-        return new Stddev(distinct, alwaysNullable, children.get(0));
+        return new Stddev(getAlwaysNullableFunctionParams(alwaysNullable));
     }
 
     @Override

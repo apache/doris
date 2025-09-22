@@ -20,6 +20,9 @@ suite("mv_with_force_drop") {
         drop table if exists test_table_t1;
     """
 
+    // this mv rewrite would not be rewritten in RBO phase, so set TRY_IN_RBO explicitly to make case stable
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
+
     sql """
         CREATE TABLE test_table_t1 (
         a1 varchar(65533) NULL default '123',
@@ -43,7 +46,7 @@ suite("mv_with_force_drop") {
     sql """ insert into test_table_t1 values(); """
     // create mv and do not wait ready
     sql """ CREATE MATERIALIZED VIEW test_table_view As
-            select a1,a3,a4,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
+            select a1 as test_table_view_a1,a3 as test_table_view_a3,a4 as test_table_view_a4,DATE_FORMAT(a5, 'yyyyMMdd') QUERY_TIME,DATE_FORMAT(a6 ,'yyyyMMdd') CREATE_TIME
             from test_table_t1 where DATE_FORMAT(a5, 'yyyyMMdd') =20230131; """
     // drop table force immediately
     sql """

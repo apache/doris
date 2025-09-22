@@ -198,8 +198,8 @@ TEST_F(CompactionMetricsTest, TestCompactionReadWriteThroughput) {
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
     sp->set_call_back("compaction::CompactionMixin::build_basic_info", [](auto&& values) {
-        bool* pred = try_any_cast<bool*>(values.back());
-        *pred = true;
+        auto* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());
+        pairs->second = true;
     });
     sp->set_call_back("compaction::CompactionMixin::execute_compact_impl", [&](auto&& values) {
         auto* pairs = try_any_cast<std::pair<Status, bool>*>(values.back());

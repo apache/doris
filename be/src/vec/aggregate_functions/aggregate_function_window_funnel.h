@@ -32,6 +32,7 @@
 
 #include "common/cast_set.h"
 #include "common/exception.h"
+#include "common/status.h"
 #include "util/binary_cast.hpp"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -100,10 +101,10 @@ struct DataValue {
     }
 };
 
-template <PrimitiveType PrimitiveType, typename NativeType>
 struct WindowFunnelState {
-    using DateValueType = std::conditional_t<PrimitiveType == PrimitiveType::TYPE_DATETIMEV2,
-                                             DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>;
+    static constexpr PrimitiveType PType = PrimitiveType::TYPE_DATETIMEV2;
+    using NativeType = UInt64;
+    using DateValueType = DateV2Value<DateTimeV2ValueType>;
     int event_count = 0;
     int64_t window;
     bool enable_mode;
@@ -125,8 +126,8 @@ struct WindowFunnelState {
     void add(const IColumn** arg_columns, ssize_t row_num, int64_t win, WindowFunnelMode mode) {
         window = win;
         window_funnel_mode = enable_mode ? mode : WindowFunnelMode::DEFAULT;
-        events_list.dt.emplace_back(assert_cast<const ColumnVector<PrimitiveType>&>(*arg_columns[2])
-                                            .get_data()[row_num]);
+        events_list.dt.emplace_back(
+                assert_cast<const ColumnVector<PType>&>(*arg_columns[2]).get_data()[row_num]);
         for (int i = 0; i < event_count; i++) {
             events_list.event_columns_data[i].emplace_back(
                     assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num]);
@@ -160,6 +161,12 @@ struct WindowFunnelState {
         int matched_count = 0;
         DateValueType start_timestamp;
         DateValueType end_timestamp;
+
+        if (window < 0) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the sliding time window must be a positive integer, but got: {}",
+                            window);
+        }
         TimeInterval interval(SECOND, window, false);
         int column_idx = 0;
         const auto& timestamp_data = events_list.dt;
@@ -342,19 +349,17 @@ struct WindowFunnelState {
     }
 };
 
-template <PrimitiveType PrimitiveType, typename NativeType>
 class AggregateFunctionWindowFunnel
-        : public IAggregateFunctionDataHelper<
-                  WindowFunnelState<PrimitiveType, NativeType>,
-                  AggregateFunctionWindowFunnel<PrimitiveType, NativeType>> {
+        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      WindowFunnelState<PrimitiveType, NativeType>,
-                      AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>(argument_types_) {}
+            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
+                      argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        auto data = new (place) WindowFunnelState<PrimitiveType, NativeType>(
+        auto data = new (place) WindowFunnelState(
                 cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = IAggregateFunction::version >= 3;
@@ -391,9 +396,8 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
-                IAggregateFunctionDataHelper<
-                        WindowFunnelState<PrimitiveType, NativeType>,
-                        AggregateFunctionWindowFunnel<PrimitiveType, NativeType>>::data(place)
+                IAggregateFunctionDataHelper<WindowFunnelState,
+                                             AggregateFunctionWindowFunnel>::data(place)
                         .get());
     }
 

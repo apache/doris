@@ -129,10 +129,6 @@ private:
                                  const ColumnInt8* dst_base_column, ColumnString* result_column,
                                  NullMap& result_null_map, size_t input_rows_count) {
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
             Int8 src_base = src_base_column->get_element(i);
             Int8 dst_base = dst_base_column->get_element(i);
             if (_check_oob(src_base, dst_base)) {
@@ -155,10 +151,6 @@ private:
             return;
         }
         for (size_t i = 0; i < input_rows_count; i++) {
-            if (result_null_map[i]) {
-                result_column->insert_default();
-                continue;
-            }
             Impl::calculate_cell(context, data_column, src_base, dst_base, result_column,
                                  result_null_map, i);
         }

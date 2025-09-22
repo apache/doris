@@ -7,7 +7,7 @@ CREATE TABLE `small_data_high_concurrent_load_range`(
 auto partition by range (date_trunc(`col1`, 'day'))
 (
 )
-DISTRIBUTED BY HASH(`col1`) BUCKETS 10
+DISTRIBUTED BY HASH(`col1`) BUCKETS 1
 PROPERTIES (
   "replication_num" = "1"
 );

@@ -37,7 +37,7 @@ suite ("varchar_length") {
         """
         // only mor table can have mv
 
-    createMV ("CREATE MATERIALIZED VIEW mv_test as SELECT report_time, vid FROM test1 ORDER BY report_time DESC; ")
+    createMV ("CREATE MATERIALIZED VIEW mv_test as SELECT report_time as a1, vid as a2 FROM test1 ORDER BY report_time DESC; ")
 
     qt_select_exp "desc test1 all"
 }

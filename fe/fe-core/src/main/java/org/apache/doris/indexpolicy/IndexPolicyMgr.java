@@ -17,9 +17,6 @@
 
 package org.apache.doris.indexpolicy;
 
-import org.apache.doris.analysis.CreateIndexPolicyStmt;
-import org.apache.doris.analysis.DropIndexPolicyStmt;
-import org.apache.doris.analysis.ShowIndexPolicyStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -139,15 +136,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         LOG.info("Created index policy successfully: {}", indexPolicy);
     }
 
-    public void createIndexPolicy(CreateIndexPolicyStmt stmt) throws UserException {
-        boolean isIfNotExists = stmt.isIfNotExists();
-        String policyName = stmt.getName();
-        IndexPolicyTypeEnum type = stmt.getType();
-        Map<String, String> properties = stmt.getProperties();
-
-        createIndexPolicy(isIfNotExists, policyName, type, properties);
-    }
-
     public IndexPolicy getPolicyByName(String name) {
         readLock();
         try {
@@ -242,6 +230,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             case "keyword":
                 validator = new KeywordTokenizerValidator();
                 break;
+            case "char_group":
+                validator = new CharGroupTokenizerValidator();
+                break;
             default:
                 throw new DdlException("Unsupported tokenizer type: " + type
                         + ". Supported types: " + IndexPolicy.BUILTIN_TOKENIZERS);
@@ -298,14 +289,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             writeUnlock();
         }
         LOG.info("Drop index policy success: {}", indexPolicyName);
-    }
-
-    public void dropIndexPolicy(DropIndexPolicyStmt stmt) throws DdlException, AnalysisException {
-        boolean isIfExists = stmt.isIfExists();
-        String indexPolicyName = stmt.getName();
-        IndexPolicyTypeEnum type = stmt.getType();
-
-        dropIndexPolicy(isIfExists, indexPolicyName, type);
     }
 
     private void checkAnalyzerNotUsedByIndex(String analyzerName) throws DdlException {
@@ -374,12 +357,6 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
-    }
-
-    public ShowResultSet showIndexPolicy(ShowIndexPolicyStmt showStmt) throws AnalysisException {
-        IndexPolicyTypeEnum type = showStmt.getType();
-
-        return showIndexPolicy(type);
     }
 
     public void replayCreateIndexPolicy(IndexPolicy indexPolicy) {

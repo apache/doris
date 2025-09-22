@@ -17,8 +17,8 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.LLMResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -46,9 +46,9 @@ import org.apache.doris.planner.SortNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
+import org.apache.doris.thrift.TAIResource;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.TLLMResource;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -378,14 +378,14 @@ public class ThriftPlansBuilder {
             params.setBucketSeqToInstanceIdx(computeBucketIdToInstanceId(fragmentPlan, w, instanceToIndex));
             params.setShuffleIdxToInstanceIdx(computeDestIdToInstanceId(fragmentPlan, w, instanceToIndex));
 
-            // Only used for LLM Functions
-            Map<String, TLLMResource> llmResourceMap = Maps.newLinkedHashMap();
-            for (Resource resource : Env.getCurrentEnv().getResourceMgr().getResource(Resource.ResourceType.LLM)) {
-                if (resource instanceof LLMResource) {
-                    llmResourceMap.put(resource.getName(), ((LLMResource) resource).toThrift());
+            // Only used for AI Functions
+            Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+            for (Resource resource : Env.getCurrentEnv().getResourceMgr().getResource(Resource.ResourceType.AI)) {
+                if (resource instanceof AIResource) {
+                    aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
                 }
             }
-            params.setLlmResources(llmResourceMap);
+            params.setAiResources(aiResourceMap);
 
             return params;
         });

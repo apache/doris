@@ -105,6 +105,10 @@ public:
                                               const FormatOptions& options) const override;
     void insert_column_last_value_multiple_times(IColumn& column, uint64_t times) const override;
 
+    void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
+                                  int64_t row_num) const override;
+    int get_scale() const override { return _scale; }
+
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,

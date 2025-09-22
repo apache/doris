@@ -135,10 +135,6 @@ public:
 
     PredicateType type() const override { return PT; }
 
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
-
     Status evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
@@ -184,9 +180,18 @@ public:
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* result) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
         }
-        std::string column_name = name_with_type.first;
+        // only string type and bkd inverted index reader can be used for in
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            //NOT support in list when parser is FULLTEXT for expr inverted index evaluate.
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "in_list");
+        }
         roaring::Roaring indices;
         HybridSetBase::IteratorBase* iter = _values->begin();
         while (iter->has_next()) {
@@ -194,11 +199,12 @@ public:
             //            auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(
             //                    *reinterpret_cast<const T*>(ptr));
             std::unique_ptr<InvertedIndexQueryParamFactory> query_param = nullptr;
-            RETURN_IF_ERROR(
-                    InvertedIndexQueryParamFactory::create_query_value<Type>(ptr, query_param));
+            RETURN_IF_ERROR(InvertedIndexQueryParamFactory::create_query_value<Type>((const T*)ptr,
+                                                                                     query_param));
             InvertedIndexQueryType query_type = InvertedIndexQueryType::EQUAL_QUERY;
             InvertedIndexParam param;
-            param.column_name = column_name;
+            param.column_name = name_with_type.first;
+            param.column_type = name_with_type.second;
             param.query_value = query_param->get_value();
             param.query_type = query_type;
             param.num_rows = num_rows;
@@ -270,8 +276,10 @@ public:
             return true;
         }
         if constexpr (PT == PredicateType::IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) <= _max_value &&
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) >= _min_value;
+            return Compare::less_equal(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                       _max_value) &&
+                   Compare::greater_equal(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                          _min_value);
         } else {
             return true;
         }
@@ -293,8 +301,10 @@ public:
             return false;
         }
         if constexpr (PT == PredicateType::NOT_IN_LIST) {
-            return get_zone_map_value<Type, T>(statistic.first->cell_ptr()) > _max_value ||
-                   get_zone_map_value<Type, T>(statistic.second->cell_ptr()) < _min_value;
+            return Compare::greater(get_zone_map_value<Type, T>(statistic.first->cell_ptr()),
+                                    _max_value) ||
+                   Compare::less(get_zone_map_value<Type, T>(statistic.second->cell_ptr()),
+                                 _min_value);
         } else {
             return false;
         }
@@ -392,8 +402,7 @@ private:
         return new_size;
     }
 
-    template <typename LeftT, typename RightT>
-    bool _operator(const LeftT& lhs, const RightT& rhs) const {
+    bool _operator(const bool& lhs, const bool& rhs) const {
         if constexpr (PT == PredicateType::IN_LIST) {
             return lhs != rhs;
         } else {
@@ -555,10 +564,10 @@ private:
     }
 
     void _update_min_max(const T& value) {
-        if (value > _max_value) {
+        if (Compare::greater(value, _max_value)) {
             _max_value = value;
         }
-        if (value < _min_value) {
+        if (Compare::less(value, _min_value)) {
             _min_value = value;
         }
     }

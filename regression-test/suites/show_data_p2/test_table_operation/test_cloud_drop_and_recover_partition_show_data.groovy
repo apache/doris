@@ -162,6 +162,8 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2, nonConcurrent") {
         assertEquals(sizeRecords["apiSize"][0], sizeRecords["apiSize"][1])
         assertEquals(sizeRecords["cbsSize"][0], sizeRecords["cbsSize"][1])
 
+        sql """admin set frontend config ("catalog_trash_expire_second" = "30")"""
+
         if (op == 1){
           sql """alter table ${tableName} drop partition p1;"""
         } else if(op == 2){
@@ -192,6 +194,8 @@ suite("test_cloud_drop_and_recover_partition_show_data","p2, nonConcurrent") {
         } else if(op == 2){
           sql """recover partition p19920101000000 from ${tableName};"""
         }
+        
+        sql """admin set frontend config ("catalog_trash_expire_second" = "1")"""
 
         // after drop partition，tablets will changed，need get new tablets
         tablets = get_tablets_from_table(tableName)

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <type_traits>
 
+#include "common/compare.h"
 #include "olap/column_predicate.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h" // IWYU pragma: keep
@@ -35,10 +36,6 @@ public:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite), _value(value) {}
-
-    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
-        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
-    }
 
     PredicateType type() const override { return PT; }
 
@@ -71,9 +68,17 @@ public:
                     IndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
-            return Status::OK();
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
         }
-        std::string column_name = name_with_type.first;
+
+        if (iterator->get_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE) == nullptr &&
+            iterator->get_reader(segment_v2::InvertedIndexReaderType::BKD) == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, no inverted index reader can not support "
+                    "comparison predicate");
+        }
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -104,7 +109,8 @@ public:
                 InvertedIndexQueryParamFactory::create_query_value<Type>(&_value, query_param));
 
         InvertedIndexParam param;
-        param.column_name = column_name;
+        param.column_name = name_with_type.first;
+        param.column_type = name_with_type.second;
         param.query_value = query_param->get_value();
         param.query_type = query_type;
         param.num_rows = num_rows;
@@ -146,9 +152,13 @@ public:
         T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
-            return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
+            return _operator(Compare::less_equal(tmp_min_value, _value) &&
+                                     Compare::greater_equal(tmp_max_value, _value),
+                             true);
         } else if constexpr (PT == PredicateType::NE) {
-            return _operator(tmp_min_value == _value && tmp_max_value == _value, true);
+            return _operator(
+                    Compare::equal(tmp_min_value, _value) && Compare::equal(tmp_max_value, _value),
+                    true);
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             return _operator(tmp_min_value, _value);
         } else {
@@ -403,17 +413,17 @@ private:
     template <typename LeftT, typename RightT>
     bool _operator(const LeftT& lhs, const RightT& rhs) const {
         if constexpr (PT == PredicateType::EQ) {
-            return lhs == rhs;
+            return Compare::equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::NE) {
-            return lhs != rhs;
+            return Compare::not_equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::LT) {
-            return lhs < rhs;
+            return Compare::less(lhs, rhs);
         } else if constexpr (PT == PredicateType::LE) {
-            return lhs <= rhs;
+            return Compare::less_equal(lhs, rhs);
         } else if constexpr (PT == PredicateType::GT) {
-            return lhs > rhs;
+            return Compare::greater(lhs, rhs);
         } else if constexpr (PT == PredicateType::GE) {
-            return lhs >= rhs;
+            return Compare::greater_equal(lhs, rhs);
         }
     }
 

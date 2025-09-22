@@ -37,6 +37,7 @@
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
 #include "util/slice.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/typeid_cast.h"
 namespace doris {
 
@@ -655,7 +656,7 @@ protected:
     }
 
 private:
-    std::unique_ptr<uint8_t[]> _buf;
+    DorisUniqueBufferPtr<uint8_t> _buf;
     io::FileReaderSPtr _file;
     uint64_t _file_start_offset;
     uint64_t _file_end_offset;

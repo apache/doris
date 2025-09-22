@@ -21,11 +21,9 @@
 
 #include <string>
 
-#include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -36,36 +34,8 @@ AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
                                                   const bool result_is_nullable,
                                                   const AggregateFunctionAttr& attr) {
-    switch (argument_types[0]->get_primitive_type()) {
-    case PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<Function<Data<TYPE_BOOLEAN, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<Function<Data<TYPE_TINYINT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<Function<Data<TYPE_SMALLINT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<Function<Data<TYPE_INT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<Function<Data<TYPE_BIGINT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<Function<Data<TYPE_LARGEINT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<Function<Data<TYPE_FLOAT, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<Function<Data<TYPE_DOUBLE, Name, is_stddev>>>(
-                argument_types, result_is_nullable, attr);
-    default:
-        LOG(WARNING) << fmt::format("create_function_single_value with unknowed type {}",
-                                    argument_types[0]->get_name());
-        return nullptr;
-    }
+    return creator_without_type::create<Function<Data<TYPE_DOUBLE, Name, is_stddev>>>(
+            argument_types, result_is_nullable, attr);
 }
 
 AggregateFunctionPtr create_aggregate_function_variance_samp(const std::string& name,

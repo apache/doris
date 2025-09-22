@@ -20,17 +20,13 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 
-import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 
 import java.util.IdentityHashMap;
-import java.util.Map.Entry;
-import java.util.Set;
 
 /**
  * check the memo whether is a valid memo.
@@ -38,19 +34,12 @@ import java.util.Set;
  * 2. group/group expression should not traverse twice, this logical can detect whether the group has a ring.
  */
 public class MemoValidator {
-    public final Set<GroupId> visitedGroupIds = Sets.newLinkedHashSet();
-    public final IdentityHashMap<Group, Void> visitedGroups = new IdentityHashMap<>();
-    public final IdentityHashMap<GroupExpression, Void> visitedExpressions = new IdentityHashMap<>();
 
     public static MemoValidator validateInitState(Memo memo, Plan initPlan) {
-        Assertions.assertEquals(memo.getGroups().size(), memo.getGroupExpressions().size());
-
         for (Group group : memo.getGroups()) {
-            // every group has one logical groupExpression and no physical groupExpression
-            Assertions.assertEquals(1, group.getLogicalExpressions().size());
+            // every group has no physical groupExpression
             Assertions.assertEquals(0, group.getPhysicalExpressions().size());
         }
-
         MemoValidator validator = validate(memo);
         if (initPlan != null) {
             if (initPlan instanceof UnboundResultSink || initPlan instanceof LogicalSelectHint) {
@@ -61,55 +50,59 @@ public class MemoValidator {
         return validator;
     }
 
-    /* basic validate */
+    /* basic validate memo init state*/
     public static MemoValidator validate(Memo memo) {
         MemoValidator memoValidator = new MemoValidator();
-
         Group root = memo.getRoot();
-        memoValidator.validate(root);
-
-        for (Group group : memo.getGroups()) {
-            Assertions.assertTrue(memoValidator.visitedGroups.containsKey(group),
-                    "Exist unreachable group: " + group.getGroupId());
-        }
-
-        for (Entry<GroupExpression, GroupExpression> entry : memo.getGroupExpressions().entrySet()) {
-            Assertions.assertTrue(memoValidator.visitedExpressions.containsKey(entry.getKey()),
-                    "Exist unreachable groupExpression: " + entry.getKey() + ", groupId: "
-                            + entry.getKey().getOwnerGroup().getGroupId());
-        }
-
+        CycleDetector cycleDetector = new CycleDetector();
+        cycleDetector.hasCycle(root);
         return memoValidator;
     }
 
-    private void validate(Group group) {
-        GroupId groupId = group.getGroupId();
-        Assertions.assertFalse(visitedGroupIds.contains(groupId),
-                "GroupId " + groupId + " already exists, group tree has a ring");
-        visitedGroupIds.add(groupId);
+    private static final class CycleDetector {
+        private final IdentityHashMap<Object, Boolean> visited = new IdentityHashMap<>();
+        private final IdentityHashMap<Object, Boolean> visiting = new IdentityHashMap<>();
 
-        Assertions.assertFalse(visitedGroups.containsKey(group), "Group " + group
-                + " already exists, group tree has a ring");
-        visitedGroups.put(group, null);
-
-        for (GroupExpression logicalExpression : group.getLogicalExpressions()) {
-            Assertions.assertEquals(group, logicalExpression.getOwnerGroup());
-            validate(logicalExpression);
+        public boolean hasCycle(Group startGroup) {
+            return detectCycle(startGroup);
         }
 
-        for (GroupExpression physicalExpression : group.getPhysicalExpressions()) {
-            Assertions.assertEquals(group, physicalExpression.getOwnerGroup());
-            validate(physicalExpression);
+        private boolean detectCycle(Object node) {
+            Assertions.assertFalse(visiting.containsKey(node),
+                    "Group or group expression " + node + " already exists");
+            if (visited.containsKey(node)) {
+                return false;
+            }
+            visiting.put(node, true);
+            visited.put(node, true);
+
+            boolean hasCycle = false;
+            if (node instanceof Group) {
+                hasCycle = checkGroupDependencies((Group) node);
+            } else if (node instanceof GroupExpression) {
+                hasCycle = checkExpressionDependencies((GroupExpression) node);
+            }
+
+            visiting.remove(node);
+            return hasCycle;
         }
-    }
 
-    private void validate(GroupExpression groupExpression) {
-        Assertions.assertFalse(visitedExpressions.containsKey(groupExpression),
-                "GroupExpression " + groupExpression + " already exists");
-        visitedExpressions.put(groupExpression, null);
+        private boolean checkGroupDependencies(Group group) {
+            for (GroupExpression expr : group.getLogicalExpressions()) {
+                if (detectCycle(expr)) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
-        for (Group child : groupExpression.children()) {
-            validate(child);
+        private boolean checkExpressionDependencies(GroupExpression expr) {
+            for (Group childGroup : expr.children()) {
+                if (detectCycle(childGroup)) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }

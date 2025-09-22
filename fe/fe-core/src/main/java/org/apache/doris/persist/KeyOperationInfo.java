@@ -30,6 +30,8 @@ import lombok.Setter;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 public class KeyOperationInfo implements Writable {
     public enum KeyOPType {
@@ -49,7 +51,11 @@ public class KeyOperationInfo implements Writable {
     @Setter
     @Getter
     @SerializedName(value = "masterKey")
-    private EncryptionKey masterKey;
+    private List<EncryptionKey> masterKeys = new ArrayList<>();
+
+    public void addMasterKey(EncryptionKey key) {
+        masterKeys.add(key);
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {

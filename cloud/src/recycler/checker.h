@@ -107,6 +107,22 @@ public:
 
     int do_mow_job_key_check();
 
+    int do_tablet_stats_key_check();
+
+    int do_restore_job_check();
+
+    int do_txn_key_check();
+
+    // check table and partition version key
+    // table version should be greater than the versions of all its partitions
+    // Return 0 if success, otherwise error
+    int do_version_key_check();
+
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak or loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_meta_rowset_key_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -133,7 +149,7 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
-    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_mow_tablet(const std::function<int(int64_t, bool)>& check_func);
     int traverse_rowset_delete_bitmaps(
             int64_t tablet_id, std::string rowset_id,
             const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
@@ -142,7 +158,8 @@ private:
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int get_pending_delete_bitmap_keys(int64_t tablet_id,
                                        std::unordered_set<std::string>& pending_delete_bitmaps);
-    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, int64_t& abnormal_rowsets_num);
+    int check_delete_bitmap_storage_optimize_v2(int64_t tablet_id, bool has_sequence_col,
+                                                int64_t& abnormal_rowsets_num);
 
     int check_inverted_index_file_storage_format_v1(int64_t tablet_id, const std::string& file_path,
                                                     const std::string& rowset_info,
@@ -151,6 +168,53 @@ private:
     int check_inverted_index_file_storage_format_v2(int64_t tablet_id, const std::string& file_path,
                                                     const std::string& rowset_info,
                                                     RowsetIndexesFormatV2& rowset_index_cache_v2);
+
+    // Return 0 if success.
+    // Return 1 if key loss is abnormal.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key(std::string_view key, std::string_view value);
+
+    // Return 0 if success.
+    // Return 1 if key loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key_exists(std::string_view key, std::string_view value);
+
+    // Return 0 if success.
+    // Return 1 if key leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_stats_tablet_key_leaked(std::string_view key, std::string_view value);
+    int check_txn_info_key(std::string_view key, std::string_view value);
+
+    int check_txn_label_key(std::string_view key, std::string_view value);
+
+    int check_txn_index_key(std::string_view key, std::string_view value);
+
+    int check_txn_running_key(std::string_view key, std::string_view value);
+
+    // Only check whether the meta rowset key is leak
+    // in do_inverted_check() function, check whether the key is lost by comparing data file with key
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_rowset_key(std::string_view key, std::string_view value);
+
+    // if TxnInfoKey's finish time > current time, it should not find tmp rowset
+    // Return 0 if success.
+    // Return 1 if meta tmp rowset key is abnormal.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_tmp_rowset_key(std::string_view key, std::string_view value);
+
+    /**
+     * It is used to scan the key in the range from start_key to end_key 
+     * and then perform handle operations on each group of kv
+     * 
+     * @param start_key Range begining. Note that this function will modify the `start_key`
+     * @param end_key Range ending
+     * @param handle_kv Operations on kv
+     * @return code int 0 for success to scan and hanle, 1 for success to scan but handle abnormally, -1 for failed to handle 
+     */
+    int scan_and_handle_kv(std::string& start_key, const std::string& end_key,
+                           std::function<int(std::string_view, std::string_view)> handle_kv);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;

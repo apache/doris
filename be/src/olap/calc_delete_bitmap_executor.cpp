@@ -21,7 +21,6 @@
 
 #include <ostream>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "olap/base_tablet.h"
 #include "olap/memtable.h"
@@ -62,7 +61,8 @@ Status CalcDeleteBitmapToken::submit(
     });
 }
 
-Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
+Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr schema,
+                                     RowsetId rowset_id,
                                      const std::vector<segment_v2::SegmentSharedPtr>& segments,
                                      DeleteBitmapPtr delete_bitmap) {
     {
@@ -72,7 +72,8 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetId rowset_id,
     }
     return _thread_token->submit_func([=, this]() {
         SCOPED_ATTACH_TASK(_resource_ctx);
-        auto st = tablet->calc_delete_bitmap_between_segments(rowset_id, segments, delete_bitmap);
+        auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
+                                                              delete_bitmap);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc delete bitmap between segments, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << rowset_id
@@ -91,10 +92,10 @@ Status CalcDeleteBitmapToken::wait() {
     return _status;
 }
 
-void CalcDeleteBitmapExecutor::init() {
+void CalcDeleteBitmapExecutor::init(int max_threads) {
     static_cast<void>(ThreadPoolBuilder("TabletCalcDeleteBitmapThreadPool")
                               .set_min_threads(1)
-                              .set_max_threads(config::calc_delete_bitmap_max_thread)
+                              .set_max_threads(max_threads)
                               .build(&_thread_pool));
 }
 

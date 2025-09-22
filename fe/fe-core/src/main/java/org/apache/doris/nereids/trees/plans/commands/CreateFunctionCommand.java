@@ -40,9 +40,11 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -114,33 +116,33 @@ import java.util.stream.Collectors;
  */
 public class CreateFunctionCommand extends Command implements ForwardWithSync {
     @Deprecated
-    private static final String OBJECT_FILE_KEY = "object_file";
-    private static final String FILE_KEY = "file";
-    private static final String SYMBOL_KEY = "symbol";
-    private static final String PREPARE_SYMBOL_KEY = "prepare_fn";
-    private static final String CLOSE_SYMBOL_KEY = "close_fn";
-    private static final String MD5_CHECKSUM = "md5";
-    private static final String INIT_KEY = "init_fn";
-    private static final String UPDATE_KEY = "update_fn";
-    private static final String MERGE_KEY = "merge_fn";
-    private static final String SERIALIZE_KEY = "serialize_fn";
-    private static final String FINALIZE_KEY = "finalize_fn";
-    private static final String GET_VALUE_KEY = "get_value_fn";
-    private static final String REMOVE_KEY = "remove_fn";
-    private static final String BINARY_TYPE = "type";
-    private static final String EVAL_METHOD_KEY = "evaluate";
-    private static final String CREATE_METHOD_NAME = "create";
-    private static final String DESTROY_METHOD_NAME = "destroy";
-    private static final String ADD_METHOD_NAME = "add";
-    private static final String SERIALIZE_METHOD_NAME = "serialize";
-    private static final String MERGE_METHOD_NAME = "merge";
-    private static final String GETVALUE_METHOD_NAME = "getValue";
-    private static final String STATE_CLASS_NAME = "State";
+    public static final String OBJECT_FILE_KEY = "object_file";
+    public static final String FILE_KEY = "file";
+    public static final String SYMBOL_KEY = "symbol";
+    public static final String PREPARE_SYMBOL_KEY = "prepare_fn";
+    public static final String CLOSE_SYMBOL_KEY = "close_fn";
+    public static final String MD5_CHECKSUM = "md5";
+    public static final String INIT_KEY = "init_fn";
+    public static final String UPDATE_KEY = "update_fn";
+    public static final String MERGE_KEY = "merge_fn";
+    public static final String SERIALIZE_KEY = "serialize_fn";
+    public static final String FINALIZE_KEY = "finalize_fn";
+    public static final String GET_VALUE_KEY = "get_value_fn";
+    public static final String REMOVE_KEY = "remove_fn";
+    public static final String BINARY_TYPE = "type";
+    public static final String EVAL_METHOD_KEY = "evaluate";
+    public static final String CREATE_METHOD_NAME = "create";
+    public static final String DESTROY_METHOD_NAME = "destroy";
+    public static final String ADD_METHOD_NAME = "add";
+    public static final String SERIALIZE_METHOD_NAME = "serialize";
+    public static final String MERGE_METHOD_NAME = "merge";
+    public static final String GETVALUE_METHOD_NAME = "getValue";
+    public static final String STATE_CLASS_NAME = "State";
     // add for java udf check return type nullable mode, always_nullable or always_not_nullable
-    private static final String IS_RETURN_NULL = "always_nullable";
+    public static final String IS_RETURN_NULL = "always_nullable";
     // iff is static load, BE will be cache the udf class load, so only need load once
-    private static final String IS_STATIC_LOAD = "static_load";
-    private static final String EXPIRATION_TIME = "expiration_time";
+    public static final String IS_STATIC_LOAD = "static_load";
+    public static final String EXPIRATION_TIME = "expiration_time";
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
@@ -159,6 +161,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     private TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
     // needed item set after analyzed
     private String userFile;
+    private String originalUserFile; // Keep original jar name for BE
     private Function function;
     private String checksum = "";
     private boolean isStaticLoad = false;
@@ -172,9 +175,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
      * CreateFunctionCommand
      */
     public CreateFunctionCommand(SetType setType, boolean ifNotExists, boolean isAggregate, boolean isAlias,
-                                 boolean isTableFunction, FunctionName functionName, FunctionArgTypesInfo argsDef,
-                                 DataType returnType, DataType intermediateType, List<String> parameters,
-                                 Expression originFunction, Map<String, String> properties) {
+            boolean isTableFunction, FunctionName functionName, FunctionArgTypesInfo argsDef,
+            DataType returnType, DataType intermediateType, List<String> parameters,
+            Expression originFunction, Map<String, String> properties) {
         super(PlanType.CREATE_FUNCTION_COMMAND);
         this.setType = setType;
         this.ifNotExists = ifNotExists;
@@ -304,6 +307,11 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
+        originalUserFile = userFile; // Keep original jar name for BE
+        // Convert userFile to realUrl only for FE checksum calculation
+        if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
+            userFile = getRealUrl(userFile);
+        }
         if (!Strings.isNullOrEmpty(userFile) && binaryType != TFunctionBinaryType.RPC) {
             try {
                 computeObjectChecksum();
@@ -377,6 +385,33 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
+    private String getRealUrl(String url) {
+        if (!url.contains(":/")) {
+            return checkAndReturnDefaultJavaUdfUrl(url);
+        }
+        return url;
+    }
+
+    private String checkAndReturnDefaultJavaUdfUrl(String url) {
+        String defaultUrl = EnvUtils.getDorisHome() + "/plugins/java_udf";
+        // In cloud mode, try cloud download first
+        if (Config.isCloudMode()) {
+            String targetPath = defaultUrl + "/" + url;
+            try {
+                String downloadedPath = CloudPluginDownloader.downloadFromCloud(
+                        CloudPluginDownloader.PluginType.JAVA_UDF, url, targetPath);
+                if (!downloadedPath.isEmpty()) {
+                    return "file://" + downloadedPath;
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot download UDF from cloud: " + url
+                        + ". Please retry later or check your UDF has been uploaded to cloud.");
+            }
+        }
+        // Return the file path (original UDF behavior)
+        return "file://" + defaultUrl + "/" + url;
+    }
+
     private void analyzeUdtf() throws AnalysisException {
         String symbol = properties.get(SYMBOL_KEY);
         if (Strings.isNullOrEmpty(symbol)) {
@@ -387,8 +422,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         analyzeJavaUdf(symbol);
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -407,8 +442,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder
                 .createUdfBuilder();
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -486,8 +521,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             analyzeJavaUdf(symbol);
         }
         URI location;
-        if (!Strings.isNullOrEmpty(userFile)) {
-            location = URI.create(userFile);
+        if (!Strings.isNullOrEmpty(originalUserFile)) {
+            location = URI.create(originalUserFile);
         } else {
             location = null;
         }
@@ -514,7 +549,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("Class [" + clazz + "] not found in classpath");
                 }
             }
-            URL[] urls = { new URL("jar:" + userFile + "!/") };
+            URL[] urls = {new URL("jar:" + userFile + "!/")};
             try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
                 checkUdafClass(clazz, cl, allMethods);
             } catch (ClassNotFoundException e) {
@@ -666,7 +701,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                     throw new AnalysisException("Class [" + clazz + "] not found in classpath");
                 }
             }
-            URL[] urls = { new URL("jar:" + userFile + "!/") };
+            URL[] urls = {new URL("jar:" + userFile + "!/")};
             try (URLClassLoader cl = URLClassLoader.newInstance(urls)) {
                 checkUdfClass(clazz, cl);
             } catch (ClassNotFoundException e) {

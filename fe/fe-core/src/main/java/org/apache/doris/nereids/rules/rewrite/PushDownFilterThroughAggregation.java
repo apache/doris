@@ -64,8 +64,13 @@ public class PushDownFilterThroughAggregation extends OneRewriteRuleFactory {
             Set<Expression> filterPredicates = Sets.newLinkedHashSet();
             for (Expression conjunct : filter.getConjuncts()) {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
-                // NOTICE: filter not contain slot should not be pushed. e.g. 'a' = 'b'
-                if (!conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
+                // NOTICE:
+                // 1. filter not contain slot should not be pushed. e.g. 'a' = 'b';
+                // 2. if the conjunct contains unique function, it should not be pushed down;
+                //    e.g. 'select a, sum(a) from t group by a having a + random() >  10'
+                //    not equals 'select a, sum(a) from t where a + random() > 10 group by a'
+                if (!conjunct.containsUniqueFunction()
+                        && !conjunctSlots.isEmpty() && canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
                 } else {
                     filterPredicates.add(conjunct);

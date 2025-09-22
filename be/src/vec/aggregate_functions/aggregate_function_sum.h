@@ -50,7 +50,7 @@ template <PrimitiveType T>
 struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::ColumnItemType sum {};
 
-    void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
+    NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::ColumnItemType value) {
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
@@ -69,7 +69,9 @@ struct AggregateFunctionSumData {
 /// Counts the sum of the numbers.
 template <PrimitiveType T, PrimitiveType TResult, typename Data>
 class AggregateFunctionSum final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultDataType = typename PrimitiveTypeTraits<TResult>::DataType;
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;

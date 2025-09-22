@@ -66,18 +66,7 @@ public:
     MutableColumnPtr create_column() const override;
     Status check_column(const IColumn& column) const override;
 
-    bool have_subtypes() const override { return false; }
-    bool should_align_right_in_pretty_formats() const override { return false; }
-    bool text_can_contain_only_valid_utf8() const override { return true; }
-    bool is_comparable() const override { return false; }
-    // TODO:
-    bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
-        return true;
-    }
-
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
-
-    bool can_be_inside_low_cardinality() const override { return false; }
 
     std::string to_string(const IColumn& column, size_t row_num) const override {
         auto result = check_column_const_set_readability(column, row_num);
@@ -88,7 +77,6 @@ public:
         return data.to_string();
     }
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_default() const override {
         return Field::create_field<TYPE_BITMAP>(BitmapValue::empty_bitmap());

@@ -178,7 +178,9 @@ private:
 
 template <typename Data, PrimitiveType K>
 class AggregateFunctionMapAgg final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionMapAgg<Data, K>>,
+          MultiExpression,
+          NotNullableAggregateFunction {
 public:
     using KeyColumnType = typename PrimitiveTypeTraits<K>::ColumnType;
     AggregateFunctionMapAgg() = default;

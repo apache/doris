@@ -632,14 +632,15 @@ Status DataTypeStructSerDe::_from_string(StringRef& str, IColumn& column,
     }
 
     for (int field_pos = 0; field_pos < elem_size; ++field_pos) {
+        // Previously, there was rollback logic here in case of errors, similar to the logic in deserialize_one_cell_from_json.
+        // But it's not necessary here.
+        // If it is non-strict mode, the internal type is Nullable, and Nullable will handle errors itself.
+        // If it is strict mode, errors will be returned directly.
         if (Status st = ComplexTypeDeserializeUtil::process_column<is_strict_mode>(
                     elem_serdes_ptrs[field_pos], struct_column.get_column(field_pos),
                     field_value[field_pos], options);
             st != Status::OK()) {
-            // we should do column revert if error
-            for (size_t j = 0; j < field_pos; j++) {
-                struct_column.get_column(j).pop_back(1);
-            }
+            DCHECK(is_strict_mode) << "only strict mode should return error";
             return st;
         }
     }
@@ -653,6 +654,19 @@ Status DataTypeStructSerDe::from_string(StringRef& str, IColumn& column,
 Status DataTypeStructSerDe::from_string_strict_mode(StringRef& str, IColumn& column,
                                                     const FormatOptions& options) const {
     return _from_string<true>(str, column, options);
+}
+
+void DataTypeStructSerDe::to_string(const IColumn& column, size_t row_num,
+                                    BufferWritable& bw) const {
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    bw.write("{", 1);
+    for (size_t idx = 0; idx < elem_serdes_ptrs.size(); idx++) {
+        if (idx != 0) {
+            bw.write(", ", 2);
+        }
+        elem_serdes_ptrs[idx]->to_string(struct_column.get_column(idx), row_num, bw);
+    }
+    bw.write("}", 1);
 }
 
 } // namespace vectorized

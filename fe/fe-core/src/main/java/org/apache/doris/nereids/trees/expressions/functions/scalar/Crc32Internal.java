@@ -50,14 +50,18 @@ public class Crc32Internal extends ScalarFunction
         super("crc32_internal", ExpressionUtils.mergeArguments(arg, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Crc32Internal(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Crc32Internal withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() >= 1);
-        return new Crc32Internal(children.get(0),
-                children.subList(1, children.size()).toArray(new Expression[0]));
+        Preconditions.checkArgument(!children.isEmpty());
+        return new Crc32Internal(getFunctionParams(children));
     }
 
     @Override

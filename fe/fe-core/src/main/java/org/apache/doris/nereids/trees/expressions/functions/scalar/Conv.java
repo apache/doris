@@ -55,13 +55,18 @@ public class Conv extends ScalarFunction
         super("conv", arg0, arg1, arg2);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Conv(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Conv withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3);
-        return new Conv(children.get(0), children.get(1), children.get(2));
+        return new Conv(getFunctionParams(children));
     }
 
     @Override

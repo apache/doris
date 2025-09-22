@@ -525,7 +525,7 @@ public interface TableIf {
         return false;
     }
 
-    default boolean isPartitionColumn(String columnName) {
+    default boolean isPartitionColumn(Column column) {
         return false;
     }
 

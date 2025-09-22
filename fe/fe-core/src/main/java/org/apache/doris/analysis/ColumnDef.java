@@ -32,6 +32,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -266,6 +268,40 @@ public class ColumnDef {
             Optional<GeneratedColumnInfo> generatedColumnInfo) {
         this(name, typeDef, isKey, null, nullableType, -1, DefaultValue.NOT_SET,
                 comment, true, generatedColumnInfo);
+    }
+
+    public ColumnDefinition translateToColumnDefinition() {
+        org.apache.doris.nereids.trees.plans.commands.info.DefaultValue value;
+        if (!defaultValue.isSet) {
+            value = null;
+        } else {
+            if (defaultValue.defaultValueExprDef != null) {
+                value = new org.apache.doris.nereids
+                    .trees.plans.commands.info.DefaultValue(
+                    defaultValue.getValue(),
+                    defaultValue.defaultValueExprDef.getExprName(),
+                    defaultValue.defaultValueExprDef.getPrecision());
+            } else {
+                value = new org.apache.doris.nereids
+                    .trees.plans.commands.info.DefaultValue(defaultValue.getValue());
+            }
+        }
+
+        ColumnDefinition columnDefinition = new ColumnDefinition(
+                name,
+                DataType.fromCatalogType(typeDef.getType()),
+                isKey,
+                aggregateType,
+                isAllowNull ? ColumnNullableType.NULLABLE : ColumnNullableType.NOT_NULLABLE,
+                autoIncInitValue,
+                value == null ? Optional.empty() : Optional.of(value),
+                Optional.empty(),
+                comment,
+                visible,
+                Optional.empty());
+        columnDefinition.setGeneratedColumnsThatReferToThis(generatedColumnsThatReferToThis);
+
+        return columnDefinition;
     }
 
     public static ColumnDef newDeleteSignColumnDef() {

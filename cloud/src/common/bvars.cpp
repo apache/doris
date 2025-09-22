@@ -44,7 +44,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_version("ms", "get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_batch_get_version("ms", "batch_get_version");
 BvarLatencyRecorderWithTag g_bvar_ms_create_tablets("ms", "create_tablets");
 BvarLatencyRecorderWithTag g_bvar_ms_update_tablet("ms", "update_tablet");
-BvarLatencyRecorderWithTag g_bvar_ms_update_tablet_schema("ms", "update_tablet_schema");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet("ms", "get_tablet");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_rowset("ms", "prepare_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_rowset("ms", "commit_rowset");
@@ -94,6 +93,12 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status("ms", "get_cluster_statu
 BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status("ms", "set_cluster_status");
 BvarLatencyRecorderWithTag g_bvar_ms_check_kv("ms", "check_kv");
 BvarLatencyRecorderWithTag g_bvar_ms_get_schema_dict("ms", "get_schema_dict");
+BvarLatencyRecorderWithTag g_bvar_ms_begin_snapshot("ms", "begin_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_snapshot("ms", "commit_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
+BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
 bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -108,11 +113,9 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycl
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
-// current concurrency of recycle task
-bvar::Adder<int64_t> g_bvar_recycler_instance_recycle_task_concurrency;
-
+// current status of recycle task (submitted, completed, error)
+mBvarIntAdder g_bvar_recycler_instance_recycle_task_status("recycler_instance_recycle_task_status", { "status"});
 // recycler's mbvars
-bvar::Adder<int64_t> g_bvar_recycler_instance_running_counter("recycler_instance_running_counter");
 // cost time of the last whole recycle process
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
@@ -123,20 +126,18 @@ mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts("recycler_
 
 // recycler's mbvars
 // instance_id: unique identifier for the instance
-// resource_type: type of resource need to be recycled (index, partition, rowset, segment, tablet, etc.)
 // resource_id: unique identifier for the repository
-// status: status of the recycle task (normal, abnormal, etc.)
-mBvarIntAdder g_bvar_recycler_vault_recycle_status("recycler_vault_recycle_status", {"instance_id", "resource_id", "status"});
+// status: status of the recycle task (submitted, completed, error)
+mBvarIntAdder g_bvar_recycler_vault_recycle_task_status("recycler_vault_recycle_task_status", {"instance_id", "resource_id", "status"});
 // current concurrency of vault delete task
-mBvarIntAdder g_bvar_recycler_vault_recycle_task_concurrency("recycler_vault_recycle_task_concurrency", {"instance_id", "resource_type", "resource_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num("recycler_instance_last_round_recycled_num", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_num("recycler_instance_last_round_to_recycle_num", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_bytes("recycler_instance_last_round_recycled_bytes", {"instance_id", "resource_type"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_to_recycle_bytes("recycler_instance_last_round_to_recycle_bytes", {"instance_id", "resource_type"});
 mBvarStatus<double> g_bvar_recycler_instance_last_round_recycle_elpased_ts("recycler_instance_last_round_recycle_elpased_ts", {"instance_id", "resource_type"});
 // total recycled num and bytes of resources since recycler started
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
-mBvarIntAdder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
+mBvarInt64Adder g_bvar_recycler_instance_recycle_total_num_since_started("recycler_instance_recycle_total_num_since_started", {"instance_id", "resource_type"});
+mBvarInt64Adder g_bvar_recycler_instance_recycle_total_bytes_since_started("recycler_instance_recycle_total_bytes_since_started", {"instance_id", "resource_type"});
 mBvarIntAdder g_bvar_recycler_instance_recycle_round("recycler_instance_recycle_round", {"instance_id", "resource_type"});
 // represents the ms required per resource to be recycled
 // value of -1 means no resource recycled
@@ -232,6 +233,12 @@ BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps("checke
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps("checker", "abnormal_delete_bitmaps");
 BvarStatusWithTag<int64_t> g_bvar_inverted_checker_delete_bitmaps_scanned("checker", "delete_bitmap_keys_scanned");
 BvarStatusWithTag<int64_t> g_bvar_max_rowsets_with_useless_delete_bitmap_version("checker", "max_rowsets_with_useless_delete_bitmap_version");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_prepared_state("checker", "restore_job_prepared_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_committed_state("checker", "restore_job_committed_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_dropped_state("checker", "restore_job_dropped_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_completed_state("checker", "restore_job_completed_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_recycling_state("checker", "restore_job_recycling_state");
+BvarStatusWithTag<int64_t> g_bvar_checker_restore_job_cost_many_time("checker", "restore_job_cost_many_time");
 
 // rpc kv rw count
 // get_rowset
@@ -246,9 +253,6 @@ mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_counter("rpc_kv_create_tablets_
 // update_tablet
 mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_counter("rpc_kv_update_tablet_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_update_tablet_put_counter("rpc_kv_update_tablet_put_counter",{"instance_id"});
-// update_tablet_schema
-mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_get_counter("rpc_kv_update_tablet_schema_get_counter",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_put_counter("rpc_kv_update_tablet_schema_put_counter",{"instance_id"});
 // get_tablet
 mBvarInt64Adder g_bvar_rpc_kv_get_tablet_get_counter("rpc_kv_get_tablet_get_counter",{"instance_id"});
 // prepare_rowset
@@ -399,6 +403,31 @@ mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_put_counter("rpc_kv_clean_txn_labe
 mBvarInt64Adder g_bvar_rpc_kv_clean_txn_label_del_counter("rpc_kv_clean_txn_label_del_counter",{"instance_id"});
 // get_txn_id
 mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_counter("rpc_kv_get_txn_id_get_counter",{"instance_id"});
+// begin snapshot
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_counter("rpc_kv_begin_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_counter("rpc_kv_begin_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_counter("rpc_kv_begin_snapshot_del_counter",{"instance_id"});
+// commit_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_counter("rpc_kv_commit_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_counter("rpc_kv_commit_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_del_counter("rpc_kv_commit_snapshot_del_counter",{"instance_id"});
+// abort_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_get_counter("rpc_kv_abort_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_put_counter("rpc_kv_abort_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_del_counter("rpc_kv_abort_snapshot_del_counter",{"instance_id"});
+// list_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_get_counter("rpc_kv_list_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_put_counter("rpc_kv_list_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_del_counter("rpc_kv_list_snapshot_del_counter",{"instance_id"});
+// drop_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_get_counter("rpc_kv_drop_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_put_counter("rpc_kv_drop_snapshot_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_del_counter("rpc_kv_drop_snapshot_del_counter",{"instance_id"});
+// clone_instance
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_counter("rpc_kv_clone_instance_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_counter("rpc_kv_clone_instance_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_counter("rpc_kv_clone_instance_del_counter",{"instance_id"});
+
 // bytes
 // get_rowset
 mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes("rpc_kv_get_rowset_get_bytes",{"instance_id"});
@@ -412,9 +441,6 @@ mBvarInt64Adder g_bvar_rpc_kv_create_tablets_put_bytes("rpc_kv_create_tablets_pu
 // update_tablet
 mBvarInt64Adder g_bvar_rpc_kv_update_tablet_get_bytes("rpc_kv_update_tablet_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_update_tablet_put_bytes("rpc_kv_update_tablet_put_bytes",{"instance_id"});
-// update_tablet_schema
-mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_get_bytes("rpc_kv_update_tablet_schema_get_bytes",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_update_tablet_schema_put_bytes("rpc_kv_update_tablet_schema_put_bytes",{"instance_id"});
 // get_tablet
 mBvarInt64Adder g_bvar_rpc_kv_get_tablet_get_bytes("rpc_kv_get_tablet_get_bytes",{"instance_id"});
 // prepare_rowset
@@ -568,5 +594,29 @@ mBvarInt64Adder g_bvar_rpc_kv_get_txn_id_get_bytes("rpc_kv_get_txn_id_get_bytes"
 
 // meta ranges
 mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count("fdb_kv_ranges_count", {"category","instance_id", "sub_category"});
+// begin snapshot
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_get_bytes("rpc_kv_begin_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_put_bytes("rpc_kv_begin_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_begin_snapshot_del_bytes("rpc_kv_begin_snapshot_del_bytes",{"instance_id"});
+// commit_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_get_bytes("rpc_kv_commit_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_put_bytes("rpc_kv_commit_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_commit_snapshot_del_bytes("rpc_kv_commit_snapshot_del_bytes",{"instance_id"});
+// abort_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_get_bytes("rpc_kv_abort_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_put_bytes("rpc_kv_abort_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_abort_snapshot_del_bytes("rpc_kv_abort_snapshot_del_bytes",{"instance_id"});
+// drop_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_get_bytes("rpc_kv_drop_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_put_bytes("rpc_kv_drop_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_del_bytes("rpc_kv_drop_snapshot_del_bytes",{"instance_id"});
+// list_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_get_bytes("rpc_kv_list_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_put_bytes("rpc_kv_list_snapshot_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_del_bytes("rpc_kv_list_snapshot_del_bytes",{"instance_id"});
+// clone_instance
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_bytes("rpc_kv_clone_instance_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_bytes("rpc_kv_clone_instance_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_bytes("rpc_kv_clone_instance_del_bytes",{"instance_id"});
 
 // clang-format on

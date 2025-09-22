@@ -103,15 +103,8 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
     auto test_func = [](auto& dt) {
         using DataType = decltype(dt);
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
-        EXPECT_FALSE(dt.have_subtypes());
-        EXPECT_TRUE(dt.should_align_right_in_pretty_formats());
-        EXPECT_TRUE(dt.text_can_contain_only_valid_utf8());
-        EXPECT_TRUE(dt.is_comparable());
-        EXPECT_TRUE(dt.is_value_represented_by_number());
-        EXPECT_TRUE(dt.is_value_unambiguously_represented_in_contiguous_memory_region());
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-        EXPECT_TRUE(dt.can_be_inside_low_cardinality());
 
         EXPECT_FALSE(dt.is_null_literal());
         dt.set_null_literal(true);
@@ -129,6 +122,7 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
     EXPECT_THROW(create_datetimev2(7), Exception);
     EXPECT_THROW(DataTypeTimeV2(7), Exception);
 }
+
 TEST_F(DataTypeDateTimeV2Test, get_default) {
     EXPECT_EQ(dt_datetime_v2_0.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
     EXPECT_EQ(dt_datetime_v2_5.get_default(), Field::create_field<TYPE_DATETIMEV2>(0UL));
@@ -136,7 +130,9 @@ TEST_F(DataTypeDateTimeV2Test, get_default) {
     EXPECT_EQ(dt_date_v2.get_default(), Field::create_field<TYPE_DATEV2>(0UL));
     EXPECT_EQ(dt_time_v2_6.get_default(), Field::create_field<TYPE_TIMEV2>(0.0));
 }
+
 TEST_F(DataTypeDateTimeV2Test, get_field) {
+    config::allow_zero_date = true;
     {
         TExprNode expr_node;
         expr_node.date_literal.value = "abc";
@@ -153,8 +149,8 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         expr_node.date_literal.value = " ";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
 
-        expr_node.date_literal.value = "0000-00-00";
-        EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "0000-00-00"; // allow_zero_date
+        EXPECT_NO_THROW(dt_date_v2.get_field(expr_node));
 
         // invalid year
         expr_node.date_literal.value = "10000-12-15";
@@ -171,21 +167,18 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         expr_node.date_literal.value = "2025-04-31";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
 
-        /*
-        // TODO: currently the following cases are OK,
-        //       check if its' as expected
-        // trailing invalid chars for date???
         expr_node.date_literal.value = "2025-01-01x";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
         expr_node.date_literal.value = "2025-01-01 x";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
-        // invalid hour for date???
         expr_node.date_literal.value = "2025-01-01 25:00:00";
         EXPECT_THROW(dt_date_v2.get_field(expr_node), Exception);
-        */
     }
     {
         TExprNode expr_node;
+        TTypeNode type_node = TTypeNode();
+        type_node.type = TTypeNodeType::SCALAR;
+
         expr_node.date_literal.value = "abc";
         EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
 
@@ -200,8 +193,8 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         expr_node.date_literal.value = " ";
         EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
 
-        expr_node.date_literal.value = "0000-00-00";
-        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.date_literal.value = "0000-00-00"; // allow_zero_date
+        EXPECT_NO_THROW(dt_datetime_v2_0.get_field(expr_node));
 
         // invalid year
         expr_node.date_literal.value = "10000-13-15";
@@ -218,31 +211,44 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         expr_node.date_literal.value = "2025-04-31";
         EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
 
-        // invalid microsecond
+        // invalid microsecond?
+        type_node.scalar_type.type = TPrimitiveType::DATETIMEV2;
+        type_node.scalar_type.scale = 0;
+        expr_node.type.types.push_back(type_node);
+
         expr_node.date_literal.value = "0000-01-01 00:00:00.1";
-        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_0.get_field(expr_node));
         expr_node.date_literal.value = "0000-01-01 00:00:00.999999";
-        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_0.get_field(expr_node));
         expr_node.date_literal.value = "2021-12-30 12:23:34.1";
-        EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_0.get_field(expr_node));
         expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
         EXPECT_THROW(dt_datetime_v2_0.get_field(expr_node), Exception);
+        expr_node.type.types.clear();
 
+        type_node.scalar_type.type = TPrimitiveType::DATETIMEV2;
+        type_node.scalar_type.scale = 5;
+        expr_node.type.types.push_back(type_node);
         expr_node.date_literal.value = "0000-01-01 00:00:00.100000";
-        EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_5.get_field(expr_node));
         expr_node.date_literal.value = "2021-12-30 12:23:34.100000";
-        EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_5.get_field(expr_node));
         expr_node.date_literal.value = "9999-12-31 23:59:59.999999";
         EXPECT_THROW(dt_datetime_v2_5.get_field(expr_node), Exception);
+        expr_node.type.types.clear();
 
+        type_node.scalar_type.type = TPrimitiveType::DATETIMEV2;
+        type_node.scalar_type.scale = 0;
+        expr_node.type.types.push_back(type_node);
         expr_node.date_literal.value = "0000-01-01 00:00:00.1000000";
-        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_6.get_field(expr_node));
         expr_node.date_literal.value = "2021-12-30 12:23:34.1000000";
-        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_6.get_field(expr_node));
         expr_node.date_literal.value = "2021-12-30 12:23:34.9999999";
-        EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        EXPECT_NO_THROW(dt_datetime_v2_6.get_field(expr_node));
         expr_node.date_literal.value = "9999-12-31 23:59:59.9999999";
         EXPECT_THROW(dt_datetime_v2_6.get_field(expr_node), Exception);
+        expr_node.type.types.clear();
     }
     {
         TExprNode expr_node;
@@ -662,7 +668,9 @@ TEST_F(DataTypeDateTimeV2Test, get_field) {
         EXPECT_EQ(date_value.second(), 59);
         EXPECT_EQ(date_value.microsecond(), 0);
     }
+    config::allow_zero_date = false;
 }
+
 TEST_F(DataTypeDateTimeV2Test, ser_deser) {
     auto test_func = [](auto& dt, const auto& column, int be_exec_version) {
         std::cout << "test serialize/deserialize datatype " << dt.get_family_name()
@@ -812,7 +820,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 ColumnType col_from_str;
                 for (size_t i = 0; i != row_count; ++i) {
                     auto item = col_str_to_str.get_data_at(i);
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -827,7 +835,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -848,7 +856,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(str);
                 } else {
-                    ReadBuffer rb(str.data(), str.size());
+                    StringRef rb(str.data(), str.size());
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));
@@ -874,7 +882,7 @@ TEST_F(DataTypeDateTimeV2Test, to_string) {
                 if constexpr (std::is_same_v<ColumnType, ColumnTimeV2>) {
                     res_column.push_back(item.to_string());
                 } else {
-                    ReadBuffer rb((char*)item.data, item.size);
+                    StringRef rb((char*)item.data, item.size);
                     auto status = dt.from_string(rb, &col_from_str);
                     EXPECT_TRUE(status.ok());
                     EXPECT_EQ(col_from_str.get_element(i), source_column.get_element(i));

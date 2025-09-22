@@ -19,6 +19,7 @@
 
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
+#include <fmt/core.h>
 
 #include <cstdint>
 
@@ -81,9 +82,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     }
     auto& column_data = assert_cast<ColumnDateV2&>(column);
     UInt32 val = 0;
-    if (ReadBuffer rb(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, rb)) {
-        return Status::InvalidArgument("parse date fail, string: '{}'",
-                                       std::string(rb.position(), rb.count()).c_str());
+    if (StringRef str(slice.data, slice.size); !read_date_v2_text_impl<UInt32>(val, str)) {
+        return Status::InvalidArgument("parse date fail, string: '{}'", str.to_string());
     }
     column_data.insert_value(val);
     return Status::OK();
@@ -210,6 +210,21 @@ void DataTypeDateV2SerDe::insert_column_last_value_multiple_times(IColumn& colum
     col.insert_many_vals(val, times);
 }
 
+void DataTypeDateV2SerDe::write_one_cell_to_binary(const IColumn& src_column,
+                                                   ColumnString::Chars& chars,
+                                                   int64_t row_num) const {
+    const uint8_t type = static_cast<uint8_t>(FieldType::OLAP_FIELD_TYPE_DATEV2);
+    const auto& data_ref =
+            assert_cast<const ColumnVector<TYPE_DATEV2>&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, ColumnNullable& col_res,
@@ -255,7 +270,10 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
         DateV2Value<DateV2ValueType> res;
         CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res);
     }
@@ -290,7 +308,10 @@ Status DataTypeDateV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     DateV2Value<DateV2ValueType> res;
     CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
-    RETURN_IF_ERROR(params.status);
+    if (!params.status.ok()) [[unlikely]] {
+        params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
+        return params.status;
+    }
 
     col_data.insert_value(binary_cast<DateV2Value<DateV2ValueType>, UInt32>(res));
     return Status::OK();
@@ -328,7 +349,10 @@ Status DataTypeDateV2SerDe::from_int_strict_mode_batch(const IntDataType::Column
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_integer<true>(int_col.get_element(i), val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(fmt::format("parse {} to date failed: ", int_col.get_element(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
     }
@@ -367,7 +391,11 @@ Status DataTypeDateV2SerDe::from_float_strict_mode_batch(const FloatDataType::Co
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_float<true>(float_col.get_data()[i], val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {} to date failed: ", float_col.get_data()[i]));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
     }
@@ -408,7 +436,12 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
         DateV2Value<DateV2ValueType> val;
         CastToDateV2::from_decimal<true>(decimal_col.get_intergral_part(i), decimal_col.get_scale(),
                                          val, params);
-        RETURN_IF_ERROR(params.status);
+        if (!params.status.ok()) [[unlikely]] {
+            params.status.prepend(
+                    fmt::format("parse {}.{} to date failed: ", decimal_col.get_intergral_part(i),
+                                decimal_col.get_fractional_part(i)));
+            return params.status;
+        }
 
         col_data.get_data()[i] = binary_cast<DateV2Value<DateV2ValueType>, UInt32>(val);
     }

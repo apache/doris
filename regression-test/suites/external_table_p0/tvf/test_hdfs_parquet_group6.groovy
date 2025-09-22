@@ -648,7 +648,6 @@ suite("test_hdfs_parquet_group6","external,hive,tvf,external_docker") {
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
 
-
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group6/test_parquet_time_type.parquet"
             test {
                 sql """ select * from HDFS(

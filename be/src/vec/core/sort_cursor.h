@@ -86,10 +86,7 @@ struct MergeSortCursorImpl {
             columns.push_back(col.get());
         }
         for (auto& column_desc : desc) {
-            size_t column_number = !column_desc.column_name.empty()
-                                           ? block->get_position_by_name(column_desc.column_name)
-                                           : column_desc.column_number;
-            sort_columns.push_back(columns[column_number]);
+            sort_columns.push_back(columns[column_desc.column_number]);
         }
 
         pos = 0;

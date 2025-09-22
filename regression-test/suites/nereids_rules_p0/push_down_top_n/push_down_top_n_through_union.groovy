@@ -306,7 +306,7 @@ suite("push_down_top_n_through_union") {
     LIMIT 8;"""
 
 
-    order_qt_union_all_push_down_top_n_shape """
+    qt_union_all_push_down_top_n_shape """
     explain shape plan SELECT `args1`, `args2`, `args3`, `args4`, `args5`, `args6`, `args7`, `args8`, `args9`, `args10`, `args11`, `args12`, `args13`, `args14`, `args15`, `log`, logTimestamp
     FROM view_test
     ORDER BY logTimestamp desc

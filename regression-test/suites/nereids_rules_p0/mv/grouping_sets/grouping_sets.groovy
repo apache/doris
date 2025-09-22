@@ -16,6 +16,7 @@
 // under the License.
 
 suite("materialized_view_grouping_sets") {
+    sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "set runtime_filter_mode=OFF";

@@ -38,6 +38,13 @@ public class CloudMetrics {
     protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE;
     protected static AutoMappedMetric<GaugeMetricImpl<Integer>> CLUSTER_BACKEND_ALIVE_TOTAL;
 
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_EXEC_COUNT;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_FINISHED_TABLETS;
+
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LATEST_START_TIME;
+    protected static AutoMappedMetric<LongCounterMetric> CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME;
+
     protected static void init() {
         if (Config.isNotCloudMode()) {
             return;
@@ -74,5 +81,22 @@ public class CloudMetrics {
                     + clusterId, "cluster_name=" + clusterName);
             return MetricRepo.METRIC_REGISTER.histogram(metricName);
         });
+
+        CLUSTER_WARM_UP_JOB_EXEC_COUNT = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_exec_count", MetricUnit.NOUNIT, "warm up job execution count"));
+        CLUSTER_WARM_UP_JOB_LATEST_START_TIME = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_latest_start_time", MetricUnit.MILLISECONDS,
+                "the latest start time (ms, epoch time) of the warm up job"));
+        CLUSTER_WARM_UP_JOB_LAST_FINISH_TIME = new AutoMappedMetric<>(name -> new LongCounterMetric(
+                "file_cache_warm_up_job_last_finish_time", MetricUnit.MILLISECONDS,
+                "the last finish time (ms, epoch time) of the warm up job"));
+
+        CLUSTER_WARM_UP_JOB_REQUESTED_TABLETS = new AutoMappedMetric<>(
+                name -> new LongCounterMetric("file_cache_warm_up_job_requested_tablets",
+                        MetricUnit.NOUNIT, "warm up job requested tablets"));
+
+        CLUSTER_WARM_UP_JOB_FINISHED_TABLETS = new AutoMappedMetric<>(
+                name -> new LongCounterMetric("file_cache_warm_up_job_finished_tablets",
+                        MetricUnit.NOUNIT, "warm up job finished tablets"));
     }
 }

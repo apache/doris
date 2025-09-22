@@ -34,7 +34,6 @@
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
-#include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
@@ -86,6 +85,7 @@ private:
     friend class COWHelper<IColumn, Self>;
 
 public:
+    // value_type is decimal32/64/128/256 type
     using value_type =
             typename PrimitiveTypeTraits<T>::ColumnItemType; //TODO: replace with ValueType
     using CppNativeType = typename PrimitiveTypeTraits<T>::CppNativeType;

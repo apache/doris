@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <memory>
 
 #include "common/cast_set.h"
@@ -35,6 +36,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
+#include "vec/common/custom_allocator.h"
 namespace doris {
 
 #include "common/compile_check_begin.h"
@@ -800,7 +802,7 @@ Status BufferedFileStreamReader::read_bytes(const uint8_t** buf, uint64_t offset
     }
     size_t buf_size = std::max(_max_buf_size, bytes_to_read);
     if (_buf_size < buf_size) {
-        std::unique_ptr<uint8_t[]> new_buf(new uint8_t[buf_size]);
+        auto new_buf = make_unique_buffer<uint8_t>(buf_size);
         if (offset >= _buf_start_offset && offset < _buf_end_offset) {
             memcpy(new_buf.get(), _buf.get() + offset - _buf_start_offset,
                    _buf_end_offset - offset);

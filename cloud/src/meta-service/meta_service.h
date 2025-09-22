@@ -35,6 +35,7 @@
 #include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -65,7 +66,8 @@ static void* run_bthread_work(void* arg) {
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
-                    std::shared_ptr<RateLimiter> rate_controller);
+                    std::shared_ptr<RateLimiter> rate_controller,
+                    std::shared_ptr<SnapshotManager> snapshot_manager);
     ~MetaServiceImpl() override;
 
     [[nodiscard]] const std::shared_ptr<TxnKv>& txn_kv() const { return txn_kv_; }
@@ -76,6 +78,10 @@ public:
 
     [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
         return txn_lazy_committer_;
+    }
+
+    [[nodiscard]] const std::shared_ptr<SnapshotManager>& snapshot_manager() const {
+        return snapshot_manager_;
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -140,11 +146,6 @@ public:
     void update_tablet(::google::protobuf::RpcController* controller,
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
-
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override;
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
@@ -362,6 +363,10 @@ public:
                        const ListSnapshotRequest* request, ListSnapshotResponse* response,
                        ::google::protobuf::Closure* done) override;
 
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override;
+
     void clone_instance(::google::protobuf::RpcController* controller,
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -427,13 +432,30 @@ private:
 
     void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
                                  MetaServiceCode& code, std::string& msg,
-                                 const std::string& instance_id, KVStats& stats);
+                                 const std::string& instance_id, int64_t db_id, KVStats& stats);
+
+    // Get the first pending transaction ID for a partition. If there no any pending transaction,
+    // `first_txn_id` will be set to -1.
+    void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
+                                      int64_t partition_id, int64_t tablet_id,
+                                      std::stringstream& ss, MetaServiceCode& code,
+                                      std::string& msg, int64_t& first_txn_id,
+                                      int64_t& partition_version, Transaction* txn);
+
+    // Get versions in batch, Only for versioned read.
+    std::pair<MetaServiceCode, std::string> batch_get_table_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
+    std::pair<MetaServiceCode, std::string> batch_get_partition_versions(
+            const GetVersionRequest* request, GetVersionResponse* response,
+            std::string_view instance_id, KVStats& stats);
 
     std::shared_ptr<TxnKv> txn_kv_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     std::shared_ptr<RateLimiter> rate_limiter_;
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
     std::shared_ptr<DeleteBitmapLockWhiteList> delete_bitmap_lock_white_list_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 class MetaServiceProxy final : public MetaService {
@@ -533,13 +555,6 @@ public:
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
-    }
-
-    void update_tablet_schema(::google::protobuf::RpcController* controller,
-                              const UpdateTabletSchemaRequest* request,
-                              UpdateTabletSchemaResponse* response,
-                              ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::update_tablet_schema, controller, request, response, done);
     }
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
@@ -861,6 +876,12 @@ public:
         call_impl(&cloud::MetaService::list_snapshot, controller, request, response, done);
     }
 
+    void drop_snapshot(::google::protobuf::RpcController* controller,
+                       const DropSnapshotRequest* request, DropSnapshotResponse* response,
+                       ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::drop_snapshot, controller, request, response, done);
+    }
+
     void clone_instance(::google::protobuf::RpcController* controller,
                         const CloneInstanceRequest* request, CloneInstanceResponse* response,
                         ::google::protobuf::Closure* done) override {
@@ -973,6 +994,15 @@ private:
             auto dist = std::uniform_int_distribution(-config::idempotent_request_replay_delay_range_ms,
                                                       config::idempotent_request_replay_delay_range_ms);
             int64_t sleep_ms = config::idempotent_request_replay_delay_base_ms + dist(rng);
+            std::string debug_string = req.ShortDebugString();
+            if constexpr (std::is_same_v<Request, GetTabletStatsRequest>) {
+                auto short_req = req;
+                if (short_req.tablet_idx_size() > 10) {
+                    short_req.mutable_tablet_idx()->DeleteSubrange(10, req.tablet_idx_size() - 10);
+                }
+                debug_string = short_req.ShortDebugString();
+                TEST_SYNC_POINT_CALLBACK("idempotent_injection_short_debug_string_for_get_stats", &short_req);
+            }
             LOG(INFO) << " request_name=" << req.GetDescriptor()->name()
                       << " response_name=" << res.GetDescriptor()->name()
                       << " queue_ts=" << duration_cast<milliseconds>(s.time_since_epoch()).count()
@@ -980,7 +1010,7 @@ private:
                       << " idempotent_request_replay_delay_base_ms=" << config::idempotent_request_replay_delay_base_ms
                       << " idempotent_request_replay_delay_range_ms=" << config::idempotent_request_replay_delay_range_ms
                       << " idempotent_request_replay_delay_ms=" << sleep_ms
-                      << " request=" << req.ShortDebugString();
+                      << " request=" << debug_string;
             if (sleep_ms < 0 || exclusion.count(req.GetDescriptor()->name())) return;
             brpc::Controller ctrl;
             bthread_usleep(sleep_ms * 1000);

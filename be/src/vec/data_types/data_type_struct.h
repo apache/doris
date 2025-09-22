@@ -43,7 +43,6 @@ class PColumnMeta;
 namespace vectorized {
 class BufferWritable;
 class IColumn;
-class ReadBuffer;
 } // namespace vectorized
 } // namespace doris
 
@@ -93,9 +92,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool have_subtypes() const override { return !elems.empty(); }
-    bool is_comparable() const override;
-    bool text_can_contain_only_valid_utf8() const override;
     bool have_maximum_size_of_value() const override;
     size_t get_size_of_value_in_memory() const override;
 
@@ -114,8 +110,6 @@ public:
     const char* deserialize(const char* buf, MutableColumnPtr* column,
                             int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
-
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     bool get_have_explicit_names() const { return have_explicit_names; }

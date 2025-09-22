@@ -28,6 +28,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -47,6 +48,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
+#include "cpp/util.h"
 #ifdef USE_AZURE
 #include "recycler/azure_obj_client.h"
 #endif
@@ -290,7 +292,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> S3Accessor::get_aws_credentia
             return std::make_shared<Aws::Auth::InstanceProfileCredentialsProvider>();
         }
 
-        Aws::Client::ClientConfiguration clientConfiguration;
+        Aws::Client::ClientConfiguration clientConfiguration =
+                S3Environment::getClientConfiguration();
         if (_ca_cert_file_path.empty()) {
             _ca_cert_file_path =
                     get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
@@ -335,6 +338,7 @@ int S3Accessor::init() {
                 uri_ = "https://" + uri_;
             }
         }
+        uri_ = normalize_http_uri(uri_);
         // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
         // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
         // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
@@ -343,7 +347,7 @@ int S3Accessor::init() {
         auto container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
                 uri_, cred, std::move(options));
         // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
-        uri_ = uri_ + '/' + conf_.prefix;
+        uri_ = normalize_http_uri(uri_ + '/' + conf_.prefix);
         obj_client_ = std::make_shared<AzureObjClient>(std::move(container_client));
         return 0;
 #else
@@ -357,9 +361,10 @@ int S3Accessor::init() {
         } else {
             uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
         }
+        uri_ = normalize_http_uri(uri_);
 
         // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config;
+        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
         // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck

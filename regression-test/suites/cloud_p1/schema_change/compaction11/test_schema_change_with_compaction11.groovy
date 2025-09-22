@@ -109,22 +109,22 @@ suite('test_schema_change_with_compaction11', 'docker') {
             def newTabletId = array[1].TabletId
             trigger_and_wait_compaction("date", "base")
             logger.info("run compaction:" + newTabletId)
-            (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
+            def (code, out, err) = be_run_base_compaction(injectBe.Host, injectBe.HttpPort, newTabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
 
 
             // cu compaction
-            tabletId = array[0].TabletId
+            def tabletId = array[0].TabletId
             logger.info("run compaction:" + tabletId)
             (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
 
-            running = true
+            def running = true
             do {
                 Thread.sleep(100)
-                tabletId = array[0].TabletId
-                (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, tabletId)
+                def currentTabletId = array[0].TabletId
+                (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, currentTabletId)
                 logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)
                 assertEquals(code, 0)
                 def compactionStatus = parseJson(out.trim())
@@ -133,19 +133,23 @@ suite('test_schema_change_with_compaction11', 'docker') {
             } while (running)
 
              // new tablet cannot do cu compaction
-            tabletId = array[1].TabletId
-            logger.info("run compaction:" + tabletId)
-            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, tabletId)
+            def newTabletIdForCu = array[1].TabletId
+            logger.info("run compaction:" + newTabletIdForCu)
+            (code, out, err) = be_run_cumulative_compaction(injectBe.Host, injectBe.HttpPort, newTabletIdForCu)
             logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("invalid tablet state."))
 
-        } finally {
+        } catch (Exception e) {
+            logger.info("Exception: " + e)
+        }
+        finally {
             if (injectBe != null) {
                 GetDebugPoint().disableDebugPointForAllBEs(injectName)
             }
             int max_try_time = 3000
+            def result = null
             while (max_try_time--){
-                def result = getJobState("date")
+                result = getJobState("date")
                 if (result == "FINISHED" || result == "CANCELLED") {
                     sleep(3000)
                     break
@@ -161,7 +165,7 @@ suite('test_schema_change_with_compaction11', 'docker') {
             assertEquals(count[0][0], 2556);
             // check rowsets
             logger.info("run show:" + originTabletId)
-            (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
+            def (code, out, err) = be_show_tablet_status(injectBe.Host, injectBe.HttpPort, originTabletId)
             logger.info("Run show: code=" + code + ", out=" + out + ", err=" + err)
             assertTrue(out.contains("[0-1]"))
             assertTrue(out.contains("[2-7]"))
@@ -185,7 +189,7 @@ suite('test_schema_change_with_compaction11', 'docker') {
 
 
             // wait for all compactions done
-            boolean running = true
+            def running = true
             while (running) {
                 Thread.sleep(100)
                 (code, out, err) = be_get_compaction_status(injectBe.Host, injectBe.HttpPort, newTabletId)

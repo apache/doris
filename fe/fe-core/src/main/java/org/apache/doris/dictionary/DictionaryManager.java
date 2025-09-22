@@ -372,10 +372,14 @@ public class DictionaryManager extends MasterDaemon implements Writable {
     private void submitDataLoad(Dictionary dictionary, boolean adaptiveLoad) {
         LOG.info("Submit dictionary {} refresh task, it's {} now", dictionary.getName(), dictionary.getStatus());
         executor.execute(() -> {
+            Dictionary.DictionaryStatus oldStatus = dictionary.getStatus();
             try {
                 dataLoad(null, dictionary, adaptiveLoad);
             } catch (Exception e) {
+                // some exception will leak to here. just revert status and wait next schedule.
                 LOG.warn("Failed to load dictionary " + dictionary.getName(), e);
+                dictionary.trySetStatus(oldStatus);
+                dictionary.setLastUpdateResult(e.getMessage());
             }
         });
     }

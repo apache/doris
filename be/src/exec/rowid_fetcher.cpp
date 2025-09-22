@@ -134,10 +134,6 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
     return mget_req;
 }
 
-static void fetch_callback(bthread::CountdownEvent* counter) {
-    Defer __defer([&] { counter->signal(); });
-}
-
 Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                                         const std::vector<PMultiGetResponse>& rsps,
                                         const std::vector<brpc::Controller>& cntls,
@@ -337,6 +333,8 @@ struct IteratorItem {
     std::unique_ptr<ColumnIterator> iterator;
     // for holding the reference of segment to avoid use after release
     SegmentSharedPtr segment;
+    // for holding the reference of storage read options to avoid use after release
+    StorageReadOptions storage_read_options;
 };
 
 Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
@@ -450,10 +448,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
             if (iterator_item.segment == nullptr) {
                 // hold the reference
                 iterator_map[iterator_key].segment = segment;
+                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_id,
-                                                            column, stats, iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                    full_read_schema, &slots[x], row_id, column, iterator_item.storage_read_options,
+                    iterator_item.iterator));
         }
     }
     // serialize block if not empty
@@ -721,8 +722,9 @@ Status RowIdStorageReader::read_batch_external_row(
     }
 
     // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
+    // std::multimap<segment_v2::rowid_t, size_t> : The reason for using multimap is: may need the same row of data multiple times.
     std::map<std::string,
-             std::pair<std::map<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
+             std::pair<std::multimap<segment_v2::rowid_t, size_t>, std::shared_ptr<FileMapping>>>
             scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
@@ -761,7 +763,7 @@ Status RowIdStorageReader::read_batch_external_row(
         if (scan_rows.contains(scan_range_hash)) {
             scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
         } else {
-            std::map<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
+            std::multimap<segment_v2::rowid_t, size_t> tmp {{request_block_desc.row_id(j), j}};
             scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
         }
     }
@@ -805,18 +807,18 @@ Status RowIdStorageReader::read_batch_external_row(
                                                         ->rowid_storage_reader_tracker());
                                         signal::set_signal_task_id(query_id);
 
-                                        scan_blocks[idx] =
-                                                vectorized::Block(slots, scan_info.first.size());
-
-                                        size_t j = 0;
                                         std::list<int64_t> read_ids;
                                         //Generate an ordered list with the help of the orderliness of the map.
                                         for (const auto& [row_id, result_block_idx] : row_ids) {
-                                            read_ids.emplace_back(row_id);
+                                            if (read_ids.empty() || read_ids.back() != row_id) {
+                                                read_ids.emplace_back(row_id);
+                                            }
                                             row_id_block_idx[result_block_idx] =
-                                                    std::make_pair(idx, j);
-                                            j++;
+                                                    std::make_pair(idx, read_ids.size() - 1);
                                         }
+
+                                        scan_blocks[idx] =
+                                                vectorized::Block(slots, read_ids.size());
 
                                         auto& external_info =
                                                 file_mapping->get_external_file_info();
@@ -1048,11 +1050,13 @@ Status RowIdStorageReader::read_doris_format_row(
             IteratorItem& iterator_item = iterator_map[iterator_key];
             if (iterator_item.segment == nullptr) {
                 iterator_map[iterator_key].segment = segment;
+                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x],
-                                                            cast_set<uint32_t>(row_id), column,
-                                                            stats, iterator_item.iterator));
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
+                    full_read_schema, &slots[x], cast_set<uint32_t>(row_id), column,
+                    iterator_item.storage_read_options, iterator_item.iterator));
         }
     }
 

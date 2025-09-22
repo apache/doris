@@ -35,7 +35,6 @@
 namespace doris {
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris
@@ -63,7 +62,6 @@ public:
     size_t number_length() const;
     void push_number(ColumnString::Chars& chars, const IPv4& num) const;
     std::string to_string(const IPv4& value) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     Field get_field(const TExprNode& node) const override;
 

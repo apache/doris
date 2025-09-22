@@ -55,7 +55,6 @@ public class HMSProperties extends AbstractHMSProperties {
         super.initNormalizeAndCheckProps();
         initRefreshParams();
         hmsBaseProperties = HMSBaseProperties.of(origProps);
-        hmsBaseProperties.initAndCheckParams();
         this.hiveConf = hmsBaseProperties.getHiveConf();
         this.executionAuthenticator = new HadoopExecutionAuthenticator(hmsBaseProperties.getHmsAuthenticator());
     }
@@ -65,7 +64,5 @@ public class HMSProperties extends AbstractHMSProperties {
         this.hmsEventsIncrementalSyncEnabled = BooleanUtils.toBoolean(hmsEventsIncrementalSyncEnabledInput);
         this.hmsEventsBatchSizePerRpc = hmsEventisBatchSizePerRpcInput;
     }
-
-
 
 }

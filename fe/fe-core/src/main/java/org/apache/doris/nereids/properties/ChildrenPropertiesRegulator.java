@@ -23,18 +23,16 @@ import org.apache.doris.nereids.cost.CostCalculator;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.trees.expressions.AggregateExpression;
-import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -47,18 +45,21 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * ensure child add enough distribute. update children properties if we do regular.
@@ -66,7 +67,6 @@ import java.util.stream.Collectors;
  * to process must shuffle except project and filter
  */
 public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalProperties>>, Void> {
-
     private final GroupExpression parent;
     private final List<GroupExpression> children;
     private final List<PhysicalProperties> originChildrenProperties;
@@ -110,74 +110,147 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (agg.getGroupByExpressions().isEmpty() && agg.getOutputExpressions().isEmpty()) {
             return ImmutableList.of();
         }
+        // If the origin attribute satisfies the group by key but does not meet the requirements, ban the plan.
+        // e.g. select count(distinct a) from t group by b;
+        // requiredChildProperty: a
+        // but the child is already distributed by b
+        // ban this plan
+        PhysicalProperties originChildProperty = originChildrenProperties.get(0);
+        PhysicalProperties requiredChildProperty = requiredProperties.get(0);
+        PhysicalProperties hashSpec = PhysicalProperties.createHash(agg.getGroupByExpressions(), ShuffleType.REQUIRE);
+        GroupExpression child = children.get(0);
+        if (child.getPlan() instanceof PhysicalDistribute) {
+            PhysicalProperties properties = new PhysicalProperties(
+                    DistributionSpecAny.INSTANCE, originChildProperty.getOrderSpec());
+            Optional<Pair<Cost, GroupExpression>> pair = child.getOwnerGroup().getLowestCostPlan(properties);
+            // add null check
+            if (!pair.isPresent()) {
+                return ImmutableList.of();
+            }
+            GroupExpression distributeChild = pair.get().second;
+            PhysicalProperties distributeChildProperties = distributeChild.getOutputProperties(properties);
+            if (distributeChildProperties.satisfy(hashSpec)
+                    && !distributeChildProperties.satisfy(requiredChildProperty)) {
+                return ImmutableList.of();
+            }
+        }
+
         if (!agg.getAggregateParam().canBeBanned) {
             return visit(agg, context);
         }
-        // forbid one phase agg on distribute
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            // this means one stage gather agg, usually bad pattern
+        // return aggBanByStatistics(agg, context);
+        if (shouldBanOnePhaseAgg(agg, requiredChildProperty)) {
             return ImmutableList.of();
-        }
-
-        // forbid TWO_PHASE_AGGREGATE_WITH_DISTINCT after shuffle
-        // TODO: this is forbid good plan after cte reuse by mistake
-        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER
-                && requiredProperties.get(0).getDistributionSpec() instanceof DistributionSpecHash
-                && children.get(0).getPlan() instanceof PhysicalDistribute) {
-            return ImmutableList.of();
-        }
-
-        // agg(group by x)-union all(A, B)
-        // no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
-        // and hence we forbid one phase agg
-        if (agg.getAggMode() == AggMode.INPUT_TO_RESULT
-                && children.get(0).getPlan() instanceof PhysicalUnion
-                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct()) {
-            return ImmutableList.of();
-        }
-        // forbid multi distinct opt that bad than multi-stage version when multi-stage can be executed in one fragment
-        if (agg.getAggMode() == AggMode.INPUT_TO_BUFFER || agg.getAggMode() == AggMode.INPUT_TO_RESULT) {
-            List<MultiDistinction> multiDistinctions = agg.getOutputExpressions().stream()
-                    .filter(Alias.class::isInstance)
-                    .map(a -> ((Alias) a).child())
-                    .filter(AggregateExpression.class::isInstance)
-                    .map(a -> ((AggregateExpression) a).getFunction())
-                    .filter(MultiDistinction.class::isInstance)
-                    .map(MultiDistinction.class::cast)
-                    .collect(Collectors.toList());
-            if (multiDistinctions.size() == 1) {
-                Expression distinctChild = multiDistinctions.get(0).child(0);
-                DistributionSpec childDistribution = originChildrenProperties.get(0).getDistributionSpec();
-                if (distinctChild instanceof SlotReference && childDistribution instanceof DistributionSpecHash) {
-                    SlotReference slotReference = (SlotReference) distinctChild;
-                    DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childDistribution;
-                    List<ExprId> groupByColumns = agg.getGroupByExpressions().stream()
-                            .map(SlotReference.class::cast)
-                            .map(SlotReference::getExprId)
-                            .collect(Collectors.toList());
-                    DistributionSpecHash groupByRequire = new DistributionSpecHash(
-                            groupByColumns, ShuffleType.REQUIRE);
-                    List<ExprId> distinctChildColumns = Lists.newArrayList(slotReference.getExprId());
-                    distinctChildColumns.add(slotReference.getExprId());
-                    DistributionSpecHash distinctChildRequire = new DistributionSpecHash(
-                            distinctChildColumns, ShuffleType.REQUIRE);
-                    if ((!groupByColumns.isEmpty() && distributionSpecHash.satisfy(groupByRequire))
-                            || (groupByColumns.isEmpty() && distributionSpecHash.satisfy(distinctChildRequire))) {
-                        if (!agg.mustUseMultiDistinctAgg()) {
-                            return ImmutableList.of();
-                        }
-                    }
-                }
-                // if distinct without group by key, we prefer three or four stage distinct agg
-                // because the second phase of multi-distinct only have one instance, and it is slow generally.
-                if (agg.getOutputExpressions().size() == 1 && agg.getGroupByExpressions().isEmpty()
-                        && !agg.mustUseMultiDistinctAgg()) {
-                    return ImmutableList.of();
-                }
-            }
         }
         // process must shuffle
         return visit(agg, context);
+    }
+
+    /**
+     * 1. Generally, one-stage AGG is disabled unless the child of distribute is a CTE consumer.
+     * 2. If it is a CTE consumer, to avoid being banned, ensure that distribute is not a gather.
+     *    Alternatively, if the distribute is a shuffle, ensure that the shuffle expr is not skewed.
+     * */
+    private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate,
+            PhysicalProperties requiredChildProperty) {
+        if (banAggUnionAll(aggregate)) {
+            return true;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
+            return false;
+        }
+        if (!onePhaseAggWithDistribute(aggregate)) {
+            return false;
+        }
+        if (childIsCTEConsumer()) {
+            // shape is agg-distribute-CTEConsumer
+            // distribute is gather
+            if (requireGather(requiredChildProperty)) {
+                return true;
+            }
+            // group by key is skew
+            return skewOnShuffleExpr(aggregate);
+
+        } else {
+            return true;
+        }
+    }
+
+    private boolean skewOnShuffleExpr(PhysicalHashAggregate<? extends Plan> agg) {
+        // if statistic is unknown -> not skew
+        Statistics aggStatistics = agg.getGroupExpression().get().getOwnerGroup().getStatistics();
+        Statistics inputStatistics = agg.getGroupExpression().get().childStatistics(0);
+        if (aggStatistics == null || inputStatistics == null) {
+            return false;
+        }
+        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
+            return false;
+        }
+        // There are two cases of skew:
+        double gbyNdv = aggStatistics.getRowCount();
+        // 1. ndv is very low
+        if (gbyNdv <= AggregateUtils.LOW_NDV_THRESHOLD) {
+            return true;
+        }
+        // 2. There is a hot value, and the ndv of other keys is very low
+        return isSkew(agg.getGroupByExpressions(), inputStatistics);
+    }
+
+    // if one group by key has hot value, and others ndv is low -> skew
+    private boolean isSkew(List<Expression> groupBy, Statistics inputStatistics) {
+        for (int i = 0; i < groupBy.size(); ++i) {
+            Expression expr = groupBy.get(i);
+            ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
+            if (colStat == null) {
+                continue;
+            }
+            if (colStat.getHotValues() == null) {
+                continue;
+            }
+            List<Expression> otherExpr = excludeElement(groupBy, i);
+            double otherNdv = StatsCalculator.estimateGroupByRowCount(otherExpr, inputStatistics);
+            if (otherNdv <= AggregateUtils.LOW_NDV_THRESHOLD) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static <T> List<T> excludeElement(List<T> list, int index) {
+        List<T> newList = new ArrayList<>();
+        for (int i = 0; i < list.size(); i++) {
+            if (index != i) {
+                newList.add(list.get(i));
+            }
+        }
+        return newList;
+    }
+
+    private boolean onePhaseAggWithDistribute(PhysicalHashAggregate<? extends Plan> aggregate) {
+        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                && children.get(0).getPlan() instanceof PhysicalDistribute;
+    }
+
+    private boolean childIsCTEConsumer() {
+        List<GroupExpression> groupExpressions = children.get(0).children().get(0).getPhysicalExpressions();
+        if (groupExpressions != null && !groupExpressions.isEmpty()) {
+            return groupExpressions.get(0).getPlan() instanceof PhysicalCTEConsumer;
+        }
+        return false;
+    }
+
+    private boolean requireGather(PhysicalProperties requiredChildProperty) {
+        return requiredChildProperty.getDistributionSpec() instanceof DistributionSpecGather;
+    }
+
+    /* agg(group by x)-union all(A, B)
+    * no matter x.ndv is high or not, it is not worthwhile to shuffle A and B by x
+    * and hence we forbid one phase agg */
+    private boolean banAggUnionAll(PhysicalHashAggregate<? extends Plan> aggregate) {
+        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                && children.get(0).getPlan() instanceof PhysicalUnion
+                && !((PhysicalUnion) children.get(0).getPlan()).isDistinct();
     }
 
     @Override
