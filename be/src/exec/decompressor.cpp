@@ -221,10 +221,10 @@ Status GzipDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* 
             // reset _z_strm to continue decoding a subsequent gzip stream
             ret = inflateReset(&_z_strm);
             if (ret != Z_OK) {
-                return Status::InternalError("Failed to inflateReset. return code: {}", ret);
+                return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
             }
         } else if (ret != Z_OK) {
-            return Status::InternalError("Failed to inflate. return code: {}", ret);
+            return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
         } else {
             // here ret must be Z_OK.
             // we continue if avail_out and avail_in > 0.
@@ -549,7 +549,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                     reinterpret_cast<const char*>(input_ptr), reinterpret_cast<char*>(output_ptr),
                     compressed_small_block_len, remaining_output_len);
             if (decompressed_small_block_len < 0) {
-                return Status::InvalidArgument("fail to do LZ4 decompress, error = {}",
+                return Status::InvalidArgument("Failed to Lz4Block decompress, error = {}",
                                                LZ4F_getErrorName(decompressed_small_block_len));
             }
             input_ptr += compressed_small_block_len;
