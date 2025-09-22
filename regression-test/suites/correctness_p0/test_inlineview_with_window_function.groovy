@@ -110,10 +110,12 @@ suite("test_inlineview_with_window_function") {
             group by ordernum
             ORDER BY ordernum;"""
 
+    sql "set enable_insert_strict=false;"
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');"""
+    sql "set enable_insert_strict=true;"
 
     qt_order """select
                 '2023-06-10',

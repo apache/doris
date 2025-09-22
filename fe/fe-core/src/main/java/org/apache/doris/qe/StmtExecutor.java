@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -1854,9 +1855,9 @@ public class StmtExecutor {
         Preconditions.checkState(parsedStmt instanceof LogicalPlanAdapter,
                 "Nereids only process LogicalPlanAdapter,"
                         + " but parsedStmt is " + parsedStmt.getClass().getName());
-        NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+        NereidsPlanner nereidsPlanner = new PrepareCommandPlanner(statementContext);
         nereidsPlanner.plan(parsedStmt, context.getSessionVariable().toThrift());
-        return nereidsPlanner.getPhysicalPlan().getOutput();
+        return nereidsPlanner.getCascadesContext().getRewritePlan().getOutput();
     }
 
     public List<ResultRow> executeInternalQuery() {
