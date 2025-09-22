@@ -26,8 +26,6 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -36,8 +34,6 @@ import java.util.Map;
 import java.util.Set;
 
 public class HdfsProperties extends HdfsCompatibleProperties {
-
-    private static final Logger LOG = LogManager.getLogger(HdfsProperties.class);
 
     @ConnectorProperty(names = {"hdfs.authentication.type", "hadoop.security.authentication"},
             required = false,
@@ -107,13 +103,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         if (MapUtils.isEmpty(props)) {
             return false;
         }
-        try {
-            if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
-                return true;
-            }
-        } catch (Exception ex) {
-            LOG.warn("Failed to validate uri is hdfs uri, {}", ex.getMessage());
-            return false;
+        if (HdfsPropertiesUtils.validateUriIsHdfsUri(props, supportSchema)) {
+            return true;
         }
 
         return HDFS_PROPERTIES_KEYS.stream().anyMatch(props::containsKey);
