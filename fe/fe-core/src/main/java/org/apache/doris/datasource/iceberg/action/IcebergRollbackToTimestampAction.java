@@ -99,9 +99,6 @@ public class IcebergRollbackToTimestampAction extends BaseIcebergAction {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         String timestampStr = namedArguments.getString(TIMESTAMP);
-        if (timestampStr == null || timestampStr.trim().isEmpty()) {
-            throw new UserException("timestamp parameter is required for rollback_to_timestamp operation");
-        }
 
         Snapshot previousSnapshot = icebergTable.currentSnapshot();
         Long previousSnapshotId = previousSnapshot != null ? previousSnapshot.snapshotId() : null;
