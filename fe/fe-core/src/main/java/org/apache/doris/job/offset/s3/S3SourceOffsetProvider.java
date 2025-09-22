@@ -66,22 +66,37 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             String uri = storageProperties.validateAndGetUri(copiedProps);
             filePath = storageProperties.validateAndNormalizeUri(uri);
             GlobListResult globListResult = fileSystem.globListWithLimit(filePath, rfiles, startFile,
-                    jobProps.getS3BatchFiles(), jobProps.getS3BatchSize());
-            maxEndFile = globListResult.getMaxFile();
+                    jobProps.getS3BatchBytes(), jobProps.getS3BatchFiles());
+
             if (!rfiles.isEmpty()) {
                 String bucket = globListResult.getBucket();
                 String prefix = globListResult.getPrefix();
-                offset.setStartFile(startFile);
 
-                String base = "s3://" + bucket + "/" + prefix + "/";
+                offset.setStartFile(startFile);
+                String bucketBase = "s3://" + bucket + "/";
+                // Get the path of the last directory
+                int lastSlash = prefix.lastIndexOf('/');
+                String basePrefix = (lastSlash >= 0) ? prefix.substring(0, lastSlash + 1) : "";
+                String filePathBase = bucketBase + basePrefix;
                 String joined = rfiles.stream()
-                        .map(path -> path.getName().replace(base, ""))
+                        .filter(name -> !name.equals(filePathBase)) // Single file case
+                        .map(path -> path.getName().replace(filePathBase, ""))
                         .collect(Collectors.joining(","));
 
-                String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, prefix, joined);
-                String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(base, "");
-                offset.setFileLists(finalFileLists);
-                offset.setEndFile(lastFile);
+                if (joined.isEmpty()) {
+                    // base is a single file
+                    offset.setFileLists(filePathBase);
+                    String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
+                    offset.setEndFile(lastFile);
+                } else {
+                    // base is dir
+                    String normalizedPrefix = basePrefix.endsWith("/") ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
+                    String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
+                    String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
+                    offset.setFileLists(finalFileLists);
+                    offset.setEndFile(lastFile);
+                }
+                maxEndFile = globListResult.getMaxFile();
             } else {
                 throw new RuntimeException("No new files found in path: " + filePath);
             }

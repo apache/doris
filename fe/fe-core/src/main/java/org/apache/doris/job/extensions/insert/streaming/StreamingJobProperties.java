@@ -44,14 +44,14 @@ public class StreamingJobProperties implements JobProperties {
     private final Map<String, String> properties;
     private long maxIntervalSecond;
     private long s3BatchFiles;
-    private long s3BatchSize;
+    private long s3BatchBytes;
 
     public StreamingJobProperties(Map<String, String> jobProperties) {
         this.properties = jobProperties;
         if (properties.isEmpty()) {
             this.maxIntervalSecond = DEFAULT_MAX_INTERVAL_SECOND;
             this.s3BatchFiles = DEFAULT_MAX_S3_BATCH_FILES;
-            this.s3BatchSize = DEFAULT_MAX_S3_BATCH_BYTES;
+            this.s3BatchBytes = DEFAULT_MAX_S3_BATCH_BYTES;
         }
     }
 
@@ -66,7 +66,7 @@ public class StreamingJobProperties implements JobProperties {
                         StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES, (v) -> v >= 1,
                 StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY + " should >=1 ");
 
-        this.s3BatchSize = Util.getLongPropertyOrDefault(
+        this.s3BatchBytes = Util.getLongPropertyOrDefault(
                         properties.get(StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY),
                         StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES, (v) -> v >= 100 * 1024 * 1024
                         && v <= (long) (1024 * 1024 * 1024) * 10,
