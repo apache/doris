@@ -474,11 +474,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
      * check for s3 param
      */
     public void checkS3Param() throws UserException {
+        checkS3ParamCommon(brokerDesc);
         if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
-            ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-            String endpoint = storageProperties.getEndpoint();
-            checkEndpoint(endpoint);
-            checkWhiteList(endpoint);
             List<String> filePaths = new ArrayList<>();
             if (dataDescriptions != null && !dataDescriptions.isEmpty()) {
                 for (NereidsDataDescription dataDescription : dataDescriptions) {
@@ -535,7 +532,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     /**
      * check WhiteList
      */
-    public void checkWhiteList(String endpoint) throws UserException {
+    public static void checkWhiteList(String endpoint) throws UserException {
         endpoint = endpoint.replaceFirst("^http://", "");
         endpoint = endpoint.replaceFirst("^https://", "");
         List<String> whiteList = new ArrayList<>(Arrays.asList(Config.s3_load_endpoint_white_list));
@@ -543,6 +540,18 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
         if (!whiteList.isEmpty() && !whiteList.contains(endpoint)) {
             throw new UserException("endpoint: " + endpoint
                 + " is not in s3 load endpoint white list: " + String.join(",", whiteList));
+        }
+    }
+
+    /**
+     * Universal S3 parameter validation method
+     */
+    public static void checkS3ParamCommon(BrokerDesc brokerDesc) throws UserException {
+        if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
+            ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
+            String endpoint = storageProperties.getEndpoint();
+            checkEndpoint(endpoint);
+            checkWhiteList(endpoint);
         }
     }
 

@@ -43,7 +43,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -151,11 +150,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && !brokerDesc.getFileType().equals(TFileType.FILE_LOCAL)) {
-                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-                String endpoint = storageProperties.getEndpoint();
-                LoadCommand.checkEndpoint(endpoint);
-            }
+            LoadCommand.checkS3ParamCommon(brokerDesc);
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
