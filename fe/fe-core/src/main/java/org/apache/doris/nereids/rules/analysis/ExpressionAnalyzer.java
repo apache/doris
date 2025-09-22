@@ -81,6 +81,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.UdfBuilder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.PlaceholderLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -650,7 +651,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // In prepare stage, the realExpr has not been set, set it to StringLiteral so that we can plan the statement
         // and get the output slots in prepare stage, which is required by Mysql api definition.
         if (realExpr == null && context.cascadesContext.getStatementContext().isPrepareStage()) {
-            realExpr = new StringLiteral(String.valueOf(placeholder.getPlaceholderId().asInt()));
+            realExpr = new PlaceholderLiteral(String.valueOf(placeholder.getPlaceholderId().asInt()));
         }
         return visit(realExpr, context);
     }

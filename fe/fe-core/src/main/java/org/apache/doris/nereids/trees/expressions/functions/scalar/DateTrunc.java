@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.PlaceholderLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -65,16 +66,19 @@ public class DateTrunc extends ScalarFunction
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {
-            if (!LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(0)).getStringValue().toLowerCase())
-                    && !LEGAL_TIME_UNIT.contains(((StringLikeLiteral) getArgument(1))
-                    .getStringValue().toLowerCase())) {
+            StringLikeLiteral argument0 = (StringLikeLiteral) getArgument(0);
+            StringLikeLiteral argument1 = (StringLikeLiteral) getArgument(1);
+            if (!LEGAL_TIME_UNIT.contains(argument0.getStringValue().toLowerCase())
+                    && !(argument0 instanceof PlaceholderLiteral)
+                    && !LEGAL_TIME_UNIT.contains(argument1.getStringValue().toLowerCase())
+                    && !(argument1 instanceof PlaceholderLiteral)) {
                 throw new AnalysisException("date_trunc function time unit param only support argument is "
                         + String.join("|", LEGAL_TIME_UNIT));
             }
         } else {
-            final String constParam = ((StringLikeLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1))
-                    .getStringValue().toLowerCase();
-            if (!LEGAL_TIME_UNIT.contains(constParam)) {
+            StringLikeLiteral argument = (StringLikeLiteral) getArgument(firstArgIsStringLiteral ? 0 : 1);
+            final String constParam = argument.getStringValue().toLowerCase();
+            if (!LEGAL_TIME_UNIT.contains(constParam) && !(argument instanceof PlaceholderLiteral)) {
                 throw new AnalysisException("date_trunc function time unit param only support argument is "
                         + String.join("|", LEGAL_TIME_UNIT));
             }
