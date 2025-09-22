@@ -159,11 +159,13 @@ suite("load") {
 
     if (!isClusterKeyEnabled()) {
     // test fn_test_ip_nullable_rowstore table with update action
+    sql "set enable_insert_strict = false;"
     sql "update fn_test_ip_nullable_rowstore set ip4 = '' where id = 1;"
     sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
     log.info("sql_res: ${sql_res[0]}".toString())
     assertEquals(sql_res[0].toString(), '[1, null, ::1, "127.0.0.1", "::1"]')
     sql "update fn_test_ip_nullable_rowstore set ip6 = '' where id = 1;"
+    sql "set enable_insert_strict = true;"
     sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
     assertEquals(sql_res[0].toString(), '[1, null, null, "127.0.0.1", "::1"]')
     sql "update fn_test_ip_nullable_rowstore set ip4 = '127.0.0.1' where id = 1;"
@@ -227,12 +229,12 @@ suite("load") {
     // not null will throw exception if we has data in table
     test {
         sql "update fn_test_ip_not_nullable_rowstore set ip4 = '' where id = 1;"
-        exception("Insert has filtered data in strict mode")
+        exception("parse ipv4 fail")
     }
 
     test {
         sql "update fn_test_ip_not_nullable_rowstore set ip6 = '' where id = 1;"
-        exception("Insert has filtered data in strict mode")
+        exception("parse ipv6 fail")
     }
 
     sql "update fn_test_ip_not_nullable_rowstore set ip4 = '192.10.10.1' where id = 1;"
@@ -738,7 +740,9 @@ suite("load") {
             }
             insert_sql += ")"
             log.info("insert_sql: ${insert_sql}".toString())
+            sql "set enable_insert_strict = false"
             sql insert_sql
+            sql "set enable_insert_strict = true"
             row_cnt ++
         }
     }
