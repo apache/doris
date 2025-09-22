@@ -5008,7 +5008,8 @@ TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
             txn_info->set_db_id(db_id);
             txn_info->set_label("streaming_ut_1");
             txn_info->add_table_ids(1);
-            txn_info->set_load_job_source_type(LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
             txn_info->set_timeout_ms(36000);
             meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
             ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
@@ -5050,7 +5051,8 @@ TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
             txn_info->set_db_id(db_id);
             txn_info->set_label("streaming_ut_2");
             txn_info->add_table_ids(1);
-            txn_info->set_load_job_source_type(LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
             txn_info->set_timeout_ms(36000);
             meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
             ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
@@ -5092,7 +5094,8 @@ TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
             txn_info->set_db_id(db_id);
             txn_info->set_label("streaming_ut_missing_attach");
             txn_info->add_table_ids(1);
-            txn_info->set_load_job_source_type(LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
             txn_info->set_timeout_ms(36000);
             meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
             ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
@@ -5129,7 +5132,8 @@ TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
             txn_info->set_db_id(db_id);
             txn_info->set_label("streaming_ut_3");
             txn_info->add_table_ids(1);
-            txn_info->set_load_job_source_type(LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
+            txn_info->set_load_job_source_type(
+                    LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB);
             txn_info->set_timeout_ms(36000);
             meta_service->begin_txn(&cntl_bt, &bt_req, &bt_res, nullptr);
             ASSERT_EQ(bt_res.status().code(), MetaServiceCode::OK);
