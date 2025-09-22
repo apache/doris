@@ -20,13 +20,63 @@
 
 #pragma once
 
+#include "common/status.h"
+#include "util/binary_cast.hpp"
 #include "vec/data_types/data_type_date.h"
 #include "vec/functions/date_time_transforms.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
 
-/// See DateTimeTransforms.h
+template <PrimitiveType FromPType, PrimitiveType ToPType, typename Transform>
+struct Transformer {
+    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+    using CppType = typename PrimitiveTypeTraits<FromPType>::CppType;
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            //FIXME: seems external table still generates invalid date/datetime. but where?
+            if (!binary_cast<FromType, CppType>(vec_from[i]).is_valid_date()) [[unlikely]] {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Operation {} meets invalid data: {}",
+                                Transform::name, vec_from[i]);
+            }
+            auto res = Transform::execute(vec_from[i]);
+            using RESULT_TYPE = std::decay_t<decltype(res)>;
+            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
+        }
+    }
+};
+
+template <PrimitiveType FromPType, PrimitiveType ToPType, template <PrimitiveType> typename Impl>
+struct TransformerYear {
+    using FromType = typename PrimitiveTypeTraits<FromPType>::ColumnItemType;
+    using ToType = typename PrimitiveTypeTraits<ToPType>::ColumnItemType;
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            to_ptr[i] = Impl<FromPType>::execute(from_ptr[i]);
+        }
+    }
+};
+
+template <PrimitiveType FromType, PrimitiveType ToType>
+struct Transformer<FromType, ToType, ToYearImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearImpl> {};
+
+template <PrimitiveType FromType, PrimitiveType ToType>
+struct Transformer<FromType, ToType, ToYearOfWeekImpl<FromType>>
+        : public TransformerYear<FromType, ToType, ToYearOfWeekImpl> {};
+
+// used in time_of/to_time functions
 template <typename ToDataType, typename Transform>
 class FunctionDateOrDateTimeToSomething : public IFunction {
 public:
@@ -87,16 +137,27 @@ public:
                                    get_name(), arguments.size());
         }
 
-        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType::PType);
+        return std::make_shared<typename PrimitiveTypeTraits<ToDataType::PType>::DataType>();
     }
 
-    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-    bool use_default_implementation_for_nulls() const override { return false; }
+    // random value in nested for null row may be not valid date/datetime, which would cause false positive of
+    // out of range error.
+    bool need_replace_null_data_to_default() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return DateTimeTransformImpl<Transform::OpArgType, ToDataType::PType, Transform>::execute(
-                block, arguments, result, input_rows_count);
+        static constexpr PrimitiveType FromType = Transform::OpArgType;
+        static constexpr PrimitiveType ToType = ToDataType::PType;
+        using Op = Transformer<FromType, ToType, Transform>;
+
+        const auto* sources = assert_cast<const ColumnVector<FromType>*>(
+                block.get_by_position(arguments[0]).column.get());
+        auto col_to = ColumnVector<ToType>::create();
+        LOG(WARNING) << "zclll: " << block.dump_data();
+        Op::vector(sources->get_data(), col_to->get_data());
+        block.replace_by_position(result, std::move(col_to));
+
+        return Status::OK();
     }
 };
 
