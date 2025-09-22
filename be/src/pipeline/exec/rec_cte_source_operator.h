@@ -18,6 +18,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "util/brpc_client_cache.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -112,6 +113,22 @@ private:
     }
 
     Status _send_data_to_targets(RuntimeState* state, size_t last_round_offset) {
+        auto stub = state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
+                _targets[0].addr);
+        if (!stub) {
+            return Status::InternalError(fmt::format("Get rpc stub failed, host={}, port={}",
+                                                     _targets[0].addr.hostname,
+                                                     _targets[0].addr.port));
+        }
+        PTransmitRecCTEBlockParams request;
+        for (size_t i = last_round_offset; i < _blocks.size(); i++) {
+            auto* pblock = request.add_blocks();
+            size_t uncompressed_bytes = 0;
+            size_t compressed_bytes = 0;
+            RETURN_IF_ERROR(_blocks[i].serialize(state->be_exec_version(), pblock,
+                                                 &uncompressed_bytes, &compressed_bytes,
+                                                 state->fragement_transmission_compression_type()));
+        }
         return Status::OK();
     }
 

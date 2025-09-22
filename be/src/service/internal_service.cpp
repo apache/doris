@@ -1572,6 +1572,26 @@ void PInternalService::fold_constant_expr(google::protobuf::RpcController* contr
     }
 }
 
+void PInternalService::transmit_rec_cte_block(google::protobuf::RpcController* controller,
+                                              const PTransmitRecCTEBlockParams* request,
+                                              PTransmitRecCTEBlockResult* response,
+                                              google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        timeval tv1 {};
+        gettimeofday(&tv1, nullptr);
+        brpc::ClosureGuard closure_guard(done);
+        auto st = _exec_env->fragment_mgr()->transmit_rec_cte_block(
+                UniqueId(request->query_id()).to_thrift(),
+                UniqueId(request->fragment_instance_id()).to_thrift(), request->node_id(),
+                request->blocks());
+        st.to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        offer_failed(response, done, _light_work_pool);
+        return;
+    }
+}
+
 void PInternalService::transmit_block(google::protobuf::RpcController* controller,
                                       const PTransmitDataParams* request,
                                       PTransmitDataResult* response,
@@ -1584,17 +1604,17 @@ void PInternalService::transmit_block(google::protobuf::RpcController* controlle
         // pool here.
         _transmit_block(controller, request, response, done, Status::OK(), 0);
     } else {
-        bool ret = _light_work_pool.try_offer([this, controller, request, response, done,
-                                               receive_time]() {
-            response->set_receive_time(receive_time);
-            // Sometimes transmit block function is the last owner of PlanFragmentExecutor
-            // It will release the object. And the object maybe a JNIContext.
-            // JNIContext will hold some TLS object. It could not work correctly under bthread
-            // Context. So that put the logic into pthread.
-            // But this is rarely happens, so this config is disabled by default.
-            _transmit_block(controller, request, response, done, Status::OK(),
-                            GetCurrentTimeNanos() - receive_time);
-        });
+        bool ret = _light_work_pool.try_offer(
+                [this, controller, request, response, done, receive_time]() {
+                    response->set_receive_time(receive_time);
+                    // Sometimes transmit block function is the last owner of PlanFragmentExecutor
+                    // It will release the object. And the object maybe a JNIContext.
+                    // JNIContext will hold some TLS object. It could not work correctly under bthread
+                    // Context. So that put the logic into pthread.
+                    // But this is rarely happens, so this config is disabled by default.
+                    _transmit_block(controller, request, response, done, Status::OK(),
+                                    GetCurrentTimeNanos() - receive_time);
+                });
         if (!ret) {
             offer_failed(response, done, _light_work_pool);
             return;

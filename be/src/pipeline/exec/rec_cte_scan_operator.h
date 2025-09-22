@@ -33,8 +33,21 @@ public:
     ENABLE_FACTORY_CREATOR(RecCTEScanLocalState);
 
     RecCTEScanLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent) {}
-    ~RecCTEScanLocalState() override = default;
+            : PipelineXLocalState<>(state, parent) {
+        state->get_query_ctx()->registe_cte_scan(state->fragment_instance_id(), parent->node_id(),
+                                                 this);
+    }
+    ~RecCTEScanLocalState() override {
+        state()->get_query_ctx()->deregiste_cte_scan(state()->fragment_instance_id(),
+                                                     parent()->node_id());
+    }
+
+    Status add_block(const PBlock& pblock) {
+        vectorized::Block block;
+        RETURN_IF_ERROR(block.deserialize(pblock));
+        _blocks.emplace_back(std::move(block));
+        return Status::OK();
+    }
 
 private:
     friend class RecCTEScanOperatorX;
