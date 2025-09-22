@@ -95,6 +95,15 @@ Status LoadStreamWriter::init() {
                     { return Status::InternalError("fault injection"); });
     RETURN_IF_ERROR(_rowset_builder->init());
     _rowset_writer = _rowset_builder->rowset_writer();
+
+    auto tablet_res = ExecEnv::get_tablet(_req.tablet_id);
+    if (tablet_res.has_value()) {
+        auto tablet = std::dynamic_pointer_cast<Tablet>(tablet_res.value());
+        if (tablet && tablet->data_dir()) {
+            _data_dir = tablet->data_dir();
+        }
+    }
+
     _is_init = true;
     return Status::OK();
 }
@@ -109,16 +118,12 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
         return Status::Corruption("append_data failed, LoadStreamWriter is not inited");
     }
 
-    auto tablet_res = ExecEnv::get_tablet(_req.tablet_id);
-    if (tablet_res.has_value()) {
-        auto tablet = std::dynamic_pointer_cast<Tablet>(tablet_res.value());
-        if (tablet && tablet->data_dir()) {
-            int64_t incoming_data_size = static_cast<int64_t>(buf.size());
-            if (tablet->data_dir()->reach_capacity_limit(incoming_data_size)) {
-                return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
-                        "disk {} exceed capacity limit when writing stream data, tablet_id={}",
-                        tablet->data_dir()->path_hash(), _req.tablet_id);
-            }
+    if (_data_dir) {
+        int64_t incoming_data_size = static_cast<int64_t>(buf.size());
+        if (_data_dir->reach_capacity_limit(incoming_data_size)) {
+            return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
+                    "disk {} exceed capacity limit when writing stream data, tablet_id={}",
+                    _data_dir->path_hash(), _req.tablet_id);
         }
     }
 
