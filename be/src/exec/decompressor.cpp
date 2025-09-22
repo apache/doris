@@ -282,14 +282,12 @@ Status Bzip2Decompressor::decompress(uint8_t* input, uint32_t input_len, size_t*
             *stream_end = true;
             ret = BZ2_bzDecompressEnd(&_bz_strm);
             if (ret != BZ_OK) {
-                return Status::InternalError(
-                        "Failed to do bz2 decompress. status code: {}", ret);
+                return Status::InternalError("Failed to do bz2 decompress. status code: {}", ret);
             }
 
             ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
             if (ret != BZ_OK) {
-                return Status::InternalError(
-                        "Failed to do bz2 decompress. status code: {}", ret);
+                return Status::InternalError("Failed to do bz2 decompress. status code: {}", ret);
             }
         } else if (ret != BZ_OK) {
             return Status::InternalError("Failed to bz2 decompress. status code: {}", ret);
