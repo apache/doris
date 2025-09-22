@@ -17,11 +17,9 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -56,6 +54,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -362,13 +361,13 @@ public class OlapScanNode extends ScanNode {
 
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo,
-            PartitionNames partitionNames) throws AnalysisException {
+            PartitionNamesInfo partitionNamesInfo) throws AnalysisException {
         PartitionPruner partitionPruner = null;
         Map<Long, PartitionItem> keyItemMap;
-        if (partitionNames != null) {
+        if (partitionNamesInfo != null) {
             keyItemMap = Maps.newHashMap();
-            for (String partName : partitionNames.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
+            for (String partName : partitionNamesInfo.getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName, partitionNamesInfo.isTemp());
                 if (partition == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
@@ -731,7 +730,7 @@ public class OlapScanNode extends ScanNode {
     private void computePartitionInfo() throws AnalysisException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
+        PartitionNamesInfo partitionNames = desc.getRef().getPartitionNamesInfo();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
             selectedPartitionIds = partitionPrune(partitionInfo, partitionNames);

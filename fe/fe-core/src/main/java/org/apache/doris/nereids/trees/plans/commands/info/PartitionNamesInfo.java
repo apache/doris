@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.base.Joiner;
@@ -111,10 +110,6 @@ public class PartitionNamesInfo {
         sb.append(Joiner.on(", ").join(partitionNames));
         sb.append(")");
         return sb.toString();
-    }
-
-    public PartitionNames translateToLegacyPartitionNames() {
-        return new PartitionNames(isTemp, partitionNames, isStar, count);
     }
 
     @Override

@@ -21,7 +21,10 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
@@ -29,6 +32,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Objects;
@@ -99,6 +103,51 @@ public class TableNameInfo {
             this.tbl = tbl.toLowerCase();
         }
         this.db = db;
+    }
+
+    /**
+     * TableNameInfo
+     * @param alias alias
+     */
+    public TableNameInfo(String alias) {
+        String[] parts = alias.split("\\.");
+        Preconditions.checkArgument(parts.length > 0, "table name can't be empty");
+        tbl = parts[parts.length - 1];
+        if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
+        if (parts.length >= 2) {
+            db = parts[parts.length - 2];
+        }
+        if (parts.length >= 3) {
+            ctl = parts[parts.length - 3];
+        }
+    }
+
+    /**
+     * TableNameInfo
+     * @param tableIf tableIf
+     * @throws AnalysisException AnalysisException
+     */
+    public TableNameInfo(TableIf tableIf) throws AnalysisException {
+        String tableName = tableIf.getName();
+        if (StringUtils.isEmpty(tableName)) {
+            throw new AnalysisException("tableName is empty");
+        }
+        DatabaseIf db = tableIf.getDatabase();
+        if (db == null) {
+            throw new AnalysisException("db is null, tableName: " + tableName);
+        }
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            throw new AnalysisException("catalog is null, dbName: " + db.getFullName());
+        }
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        this.ctl = catalog.getName();
+        this.db = db.getFullName();
+        this.tbl = tableName;
     }
 
     /**
@@ -178,6 +227,10 @@ public class TableNameInfo {
      */
     public TableName transferToTableName() {
         return new TableName(ctl, db, tbl);
+    }
+
+    public String getTableAlias() {
+        return toString();
     }
 
     @Override

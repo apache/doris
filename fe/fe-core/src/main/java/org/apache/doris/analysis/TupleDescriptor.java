@@ -23,6 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
@@ -49,7 +50,7 @@ public class TupleDescriptor {
     // underlying table, if there is one
     private TableIf table;
     // underlying table, if there is one
-    private TableRef ref;
+    private TableRefInfo ref;
 
     // All legal aliases of this tuple.
     private String[] aliases;
@@ -95,12 +96,12 @@ public class TupleDescriptor {
         return id;
     }
 
-    public TableRef getRef() {
+    public TableRefInfo getRef() {
         return ref;
     }
 
-    public void setRef(TableRef tableRef) {
-        ref = tableRef;
+    public void setRef(TableRefInfo tableRefInfo) {
+        ref = tableRefInfo;
     }
 
     public ArrayList<SlotDescriptor> getSlots() {

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -46,6 +45,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -88,7 +88,7 @@ public class DescribeCommand extends ShowCommand {
 
     private PartitionNamesInfo partitionNames;
 
-    private TableValuedFunctionRef tableValuedFunctionRef;
+    private TableValuedFunctionRefInfo tableValuedFunctionRefInfo;
     private boolean isTableValuedFunction;
 
     private List<List<String>> rows = new LinkedList<List<String>>();
@@ -100,9 +100,9 @@ public class DescribeCommand extends ShowCommand {
         this.partitionNames = partitionNames;
     }
 
-    public DescribeCommand(TableValuedFunctionRef tableValuedFunctionRef) {
+    public DescribeCommand(TableValuedFunctionRefInfo tableValuedFunctionRefInfo) {
         super(PlanType.DESCRIBE);
-        this.tableValuedFunctionRef = tableValuedFunctionRef;
+        this.tableValuedFunctionRefInfo = tableValuedFunctionRefInfo;
         this.isTableValuedFunction = true;
         this.isAllTables = false;
     }
@@ -201,18 +201,18 @@ public class DescribeCommand extends ShowCommand {
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
                 TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
                 isTableValuedFunction = true;
-                Optional<TableValuedFunctionRef> optTvfRef = table.getSysTableFunctionRef(
+                Optional<TableValuedFunctionRefInfo> optTvfRef = table.getSysTableFunctionRef(
                         dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
                 if (!optTvfRef.isPresent()) {
                     throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
                 }
-                tableValuedFunctionRef = optTvfRef.get();
+                tableValuedFunctionRefInfo = optTvfRef.get();
             }
         }
 
         if (!isAllTables && isTableValuedFunction) {
-            validateTableValuedFunction(ctx, tableValuedFunctionRef.getTableFunction().getTableName());
-            List<Column> columns = tableValuedFunctionRef.getTableFunction().getTableColumns();
+            validateTableValuedFunction(ctx, tableValuedFunctionRefInfo.getTableFunction().getTableName());
+            List<Column> columns = tableValuedFunctionRefInfo.getTableFunction().getTableColumns();
             for (Column column : columns) {
                 List<String> row = Arrays.asList(
                         column.getName(),

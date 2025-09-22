@@ -18,12 +18,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -36,17 +39,49 @@ import java.util.Objects;
     if you need write one and use.
  */
 public class TableRefInfo {
-    private final TableNameInfo tableNameInfo;
-    private final TableScanParams scanParams;
-    private final TableSnapshot tableSnapShot;
-    private final PartitionNamesInfo partitionNamesInfo;
-    private final List<Long> tabletIdList;
-    private final String tableAlias;
-    private final TableSample tableSample;
-    private final List<String> relationHints;
+    protected JoinOperator joinOp;
+    protected String tableAlias;
+    protected boolean isMark;
+    protected TableNameInfo tableNameInfo;
+    private TableScanParams scanParams;
+    private TableSnapshot tableSnapShot;
+    private PartitionNamesInfo partitionNamesInfo;
+    private List<Long> tabletIdList;
+    private TableSample tableSample;
+    private List<String> relationHints;
 
     /**
      * constructor
+     */
+    public TableRefInfo(TableNameInfo tableNameInfo, String tableAlias) {
+        this(tableNameInfo, null, tableAlias);
+    }
+
+    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo, String tableAlias) {
+        this(tableNameInfo, partitionNamesInfo, tableAlias, new ArrayList<>());
+    }
+
+    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo,
+                        String tableAlias, List<String> relationHints) {
+        this(tableNameInfo, partitionNamesInfo, new ArrayList<>(), tableAlias, null, relationHints);
+    }
+
+    public TableRefInfo(TableNameInfo tableNameInfo, PartitionNamesInfo partitionNamesInfo,
+                        List<Long> tabletIdList, String tableAlias,
+                        TableSample tableSample, List<String> relationHints) {
+        this(tableNameInfo, null, partitionNamesInfo, tabletIdList, tableAlias, tableSample, relationHints);
+    }
+
+    public TableRefInfo(TableNameInfo tableNameInfo, TableSnapshot tableSnapShot,
+                        PartitionNamesInfo partitionNamesInfo,
+                        List<Long> tabletIdList, String tableAlias,
+                        TableSample tableSample, List<String> relationHints) {
+        this(tableNameInfo, null, tableSnapShot, partitionNamesInfo,
+                tabletIdList, tableAlias, tableSample, relationHints);
+    }
+
+    /**
+     * TableRefInfo
      */
     public TableRefInfo(TableNameInfo tableNameInfo, TableScanParams scanParams,
                         TableSnapshot tableSnapShot, PartitionNamesInfo partitionNamesInfo,
@@ -61,6 +96,18 @@ public class TableRefInfo {
         this.tableAlias = tableAlias;
         this.tableSample = tableSample;
         this.relationHints = relationHints;
+    }
+
+    protected TableRefInfo(TableRefInfo other) {
+        tableNameInfo = other.tableNameInfo;
+        tableAlias = other.tableAlias;
+        isMark = other.isMark;
+        partitionNamesInfo = other.partitionNamesInfo;
+        tableSnapShot = (other.tableSnapShot != null) ? new TableSnapshot(other.tableSnapShot) : null;
+        scanParams = other.scanParams;
+        tableSample = other.tableSample;
+        relationHints = other.relationHints;
+        tabletIdList = other.tabletIdList;
     }
 
     public TableNameInfo getTableNameInfo() {
@@ -84,6 +131,47 @@ public class TableRefInfo {
 
     public boolean hasAlias() {
         return tableAlias != null;
+    }
+
+    public JoinOperator getJoinOp() {
+        return joinOp;
+    }
+
+    public void setJoinOp(JoinOperator joinOp) {
+        this.joinOp = joinOp;
+    }
+
+    public boolean isMark() {
+        return isMark;
+    }
+
+    public void setMark(TupleDescriptor markTuple) {
+        this.isMark = markTuple != null;
+    }
+
+    public TableScanParams getScanParams() {
+        return scanParams;
+    }
+
+    public TableSnapshot getTableSnapShot() {
+        return tableSnapShot;
+    }
+
+    public List<Long> getTabletIdList() {
+        return tabletIdList;
+    }
+
+    public TableSample getTableSample() {
+        return tableSample;
+    }
+
+    public List<String> getRelationHints() {
+        return relationHints;
+    }
+
+    @Override
+    public TableRefInfo clone() {
+        return new TableRefInfo(this);
     }
 
     @Override

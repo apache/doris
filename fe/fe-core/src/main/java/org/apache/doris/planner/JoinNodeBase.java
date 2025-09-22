@@ -19,9 +19,9 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;
@@ -32,14 +32,14 @@ import java.util.List;
 
 public abstract class JoinNodeBase extends PlanNode {
 
-    protected final TableRef innerRef;
+    protected final TableRefInfo innerRef;
     protected final JoinOperator joinOp;
     protected final boolean isMark;
     protected ExprSubstitutionMap vSrcToOutputSMap;
     protected List<TupleDescriptor> vIntermediateTupleDescList;
 
     public JoinNodeBase(PlanNodeId id, String planNodeName, StatisticalType statisticalType,
-            PlanNode outer, PlanNode inner, TableRef innerRef) {
+            PlanNode outer, PlanNode inner, TableRefInfo innerRef) {
         super(id, planNodeName, statisticalType);
         this.innerRef = innerRef;
         tblRefIds.addAll(outer.getTblRefIds());

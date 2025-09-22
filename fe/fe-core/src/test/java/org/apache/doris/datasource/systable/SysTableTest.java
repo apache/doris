@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.systable;
 
 import org.apache.doris.common.Pair;
-
+import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -36,7 +36,7 @@ public class SysTableTest {
         }
 
         @Override
-        public org.apache.doris.analysis.TableValuedFunctionRef createFunctionRef(
+        public TableValuedFunctionRefInfo createFunctionRef(
                 String ctlName, String dbName, String sourceNameWithMetaName) {
             return null;
         }

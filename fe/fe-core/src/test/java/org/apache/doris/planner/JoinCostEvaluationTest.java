@@ -18,7 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.TableRef;
+import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -40,7 +40,7 @@ public class JoinCostEvaluationTest {
     private PlanNode node;
 
     @Mocked
-    private TableRef ref;
+    private TableRefInfo ref;
 
     @Mocked
     private PlanFragmentId fragmentId;

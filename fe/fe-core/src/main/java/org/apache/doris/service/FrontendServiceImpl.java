@@ -21,13 +21,7 @@ import org.apache.doris.analysis.AbstractBackupTableRefClause;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PartitionExprUtil;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.TableSample;
-import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJobInfo;
 import org.apache.doris.backup.BackupMeta;
@@ -3208,9 +3202,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
-            List<TableRef> tableRefs = new ArrayList<>();
+            List<TableRefInfo> tableRefs = new ArrayList<>();
             for (TTableRef tTableRef : request.getTableRefs()) {
-                tableRefs.add(new TableRef(new TableName(tTableRef.getTable()), tTableRef.getAliasName()));
+                tableRefs.add(new TableRefInfo(new TableNameInfo(tTableRef.getTable()),
+                        null,
+                        null,
+                        null,
+                        new ArrayList<>(),
+                        tTableRef.getAliasName(),
+                        null,
+                        new ArrayList<>()));
             }
 
             if (tableRefs.size() > 0) {
@@ -3252,62 +3253,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         //instantiate RestoreCommand
         LabelNameInfo labelNameInfo = new LabelNameInfo(label.getDbName(), label.getLabelName());
-        List<TableRefInfo> tableRefInfos = new ArrayList<>();
-        List<TableRef> tableRefList = restoreTableRefClause == null
+        List<TableRefInfo> tableRefInfos = restoreTableRefClause == null
                 ? new ArrayList<>() : restoreTableRefClause.getTableRefList();
-        for (TableRef tableRef : tableRefList) {
-            TableName tableName = tableRef.getName();
-            String[] aliases = tableRef.getAliases();
-            PartitionNames partitionNames = tableRef.getPartitionNames();
-            List<Long> sampleTabletIds = tableRef.getSampleTabletIds();
-            TableSample tableSample = tableRef.getTableSample();
-            ArrayList<String> commonHints = tableRef.getCommonHints();
-            TableSnapshot tableSnapshot = tableRef.getTableSnapshot();
-            TableScanParams tableScanParams = tableRef.getScanParams();
-
-            TableNameInfo tableNameInfo;
-            if (tableName != null) {
-                tableNameInfo = new TableNameInfo(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
-            } else {
-                tableNameInfo = new TableNameInfo();
-            }
-
-            String tableAlias = aliases.length >= 1 ? aliases[0] : null;
-
-            PartitionNamesInfo partitionNamesInfo = null;
-            if (partitionNames != null) {
-                partitionNamesInfo = new PartitionNamesInfo(partitionNames.isTemp(),
-                        partitionNames.isStar(),
-                        partitionNames.getPartitionNames(),
-                        0);
-            }
-
-            List<Long> tabletIdList = new ArrayList<>();
-            if (sampleTabletIds != null) {
-                tabletIdList.addAll(sampleTabletIds);
-            }
-
-            ArrayList<String> relationHints = new ArrayList<>();
-            if (commonHints != null) {
-                relationHints.addAll(commonHints);
-            }
-
-            org.apache.doris.nereids.trees.TableSample newTableSample =
-                    new org.apache.doris.nereids.trees.TableSample(tableSample.getSampleValue(),
-                            tableSample.isPercent(),
-                            tableSample.getSeek());
-
-            TableRefInfo tableRefInfo = new TableRefInfo(tableNameInfo,
-                    tableScanParams,
-                    tableSnapshot,
-                    partitionNamesInfo,
-                    tabletIdList,
-                    tableAlias,
-                    newTableSample,
-                    relationHints);
-            tableRefInfos.add(tableRefInfo);
-        }
-
         RestoreCommand restoreCommand = new RestoreCommand(labelNameInfo, repoName, tableRefInfos, properties, false);
         restoreCommand.setMeta(backupMeta);
         restoreCommand.setJobInfo(backupJobInfo);

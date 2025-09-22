@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.systable;
 
-import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.commands.info.TableValuedFunctionRefInfo;
 import org.apache.doris.tablefunction.IcebergTableValuedFunction;
 
 import com.google.common.base.Joiner;
@@ -63,14 +63,14 @@ public class IcebergSysTable extends SysTable {
     }
 
     @Override
-    public TableValuedFunctionRef createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
+    public TableValuedFunctionRefInfo createFunctionRef(String ctlName, String dbName, String sourceNameWithMetaName) {
         List<String> nameParts = Lists.newArrayList(ctlName, dbName,
                 getSourceTableName(sourceNameWithMetaName));
         Map<String, String> params = Maps.newHashMap();
         params.put(IcebergTableValuedFunction.TABLE, Joiner.on(".").join(nameParts));
         params.put(IcebergTableValuedFunction.QUERY_TYPE, tableName);
         try {
-            return new TableValuedFunctionRef(tvfName, null, params);
+            return new TableValuedFunctionRefInfo(tvfName, null, params);
         } catch (org.apache.doris.common.AnalysisException e) {
             LOG.warn("should not happen. {}.{}.{}", ctlName, dbName, sourceNameWithMetaName, e);
             return null;
