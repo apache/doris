@@ -323,6 +323,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             hadoopStorageConfig.set("fs.s3a.assumed.role.arn", s3IAMRole);
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
+            hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
+                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider,com.amazonaws.auth.EnvironmentVar"
+                            + "iableCredentialsProvider,com.amazonaws.auth.InstanceProfileCredentialsProvider");
             if (StringUtils.isNotBlank(s3ExternalId)) {
                 hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             }

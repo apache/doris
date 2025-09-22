@@ -236,11 +236,7 @@ class StreamLoadAction implements SuiteAction {
         } catch (Throwable t) {
             ex = t
         }
-        long endTime = System.currentTimeMillis()
-
-        log.info("Stream load elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
-                "response: ${responseText}, " + ex.toString())
-        checkResult(responseText, ex, startTime, endTime)
+        checkResult(isHttpStream, responseText, ex, startTime, System.currentTimeMillis())
     }
 
     private String httpGetString(CloseableHttpClient client, String url) {
@@ -379,9 +375,10 @@ class StreamLoadAction implements SuiteAction {
         return responseText
     }
 
-    private void checkResult(String responseText, Throwable ex, long startTime, long endTime) {
+    private void checkResult(boolean isHttpStream, String responseText, Throwable ex, long startTime, long endTime) {
         String finalStatus = waitForPublishOrFailure(responseText)
-        log.info("The origin stream load result: ${responseText}, final status: ${finalStatus}")
+        log.info("Stream load final status: ${finalStatus}, elapsed ${endTime - startTime} ms, is http stream: ${isHttpStream}, " +
+                "response: ${responseText}, " + ex.toString())
         responseText = responseText.replace("Publish Timeout", finalStatus)
         if (check != null) {
             check.call(responseText, ex, startTime, endTime)

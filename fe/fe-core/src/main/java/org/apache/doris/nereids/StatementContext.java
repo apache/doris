@@ -273,6 +273,8 @@ public class StatementContext implements Closeable {
 
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
+    private boolean isInsert = false;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -292,13 +294,16 @@ public class StatementContext implements Closeable {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
         exprIdGenerator = ExprId.createGenerator(initialId);
-        if (connectContext != null && connectContext.getSessionVariable() != null
-                && CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
-            // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
-            this.sqlCacheContext = new SqlCacheContext(
-                    connectContext.getCurrentUserIdentity());
-            if (originStatement != null) {
-                this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
+                // cannot set the queryId here because the queryId for the current query is set in the subsequent steps.
+                this.sqlCacheContext = new SqlCacheContext(
+                        connectContext.getCurrentUserIdentity());
+                if (originStatement != null) {
+                    this.sqlCacheContext.setOriginSql(originStatement.originStmt);
+                }
+            } else {
+                this.sqlCacheContext = null;
             }
         } else {
             this.sqlCacheContext = null;
@@ -980,5 +985,13 @@ public class StatementContext implements Closeable {
 
     public void setProducerStats(CTEId id, Statistics stats) {
         cteIdToProducerStats.put(id, stats);
+    }
+
+    public void setIsInsert(boolean isInsert) {
+        this.isInsert = isInsert;
+    }
+
+    public boolean isInsert() {
+        return isInsert;
     }
 }

@@ -833,13 +833,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     int64_t duration_ns = 0;
     std::shared_ptr<pipeline::PipelineFragmentContext> context =
             std::make_shared<pipeline::PipelineFragmentContext>(
-                    query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
-                    std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
-                                      this, std::placeholders::_1, std::placeholders::_2));
+                    query_ctx->query_id(), params, query_ctx, _exec_env, cb,
+                    [this](const ReportStatusRequest& req, auto&& ctx) {
+                        return this->trigger_pipeline_context_report(req, std::move(ctx));
+                    });
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get()),
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(_thread_pool.get()),
                                          prepare_st);
         DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.prepare_failed", {
             prepare_st = Status::Aborted("FragmentMgr.exec_plan_fragment.prepare_failed");

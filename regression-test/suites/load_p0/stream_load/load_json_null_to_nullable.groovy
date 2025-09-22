@@ -22,8 +22,8 @@ suite("test_load_json_null_to_nullable", "p0") {
     def create_test_table = {
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
-              `k1` CHAR NULL COMMENT "",
-              `v1` CHAR NULL COMMENT ""
+              `k1` CHAR(3) NULL COMMENT "",
+              `v1` CHAR(3) NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1
@@ -34,7 +34,7 @@ suite("test_load_json_null_to_nullable", "p0") {
             """
     }
 
-    def load_array_data = {new_json_reader_flag, table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
+    def load_array_data = {table_name, strip_flag, read_flag, format_flag, exprs, json_paths, 
                             json_root, where_expr, fuzzy_flag, column_sep, file_name ->
         // load the json data
         streamLoad {
@@ -82,16 +82,9 @@ suite("test_load_json_null_to_nullable", "p0") {
         
         create_test_table.call()
 
-        load_array_data.call('false', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
+        load_array_data.call(testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
         
         check_data_correct(testTable)
-
-        // test new json load, should be deleted after new_load_scan ready
-        sql "DROP TABLE IF EXISTS ${testTable}"
-        create_test_table.call()
-        load_array_data.call('true', testTable, 'true', '', 'json', '', '', '', '', '', '', 'test_char.json')
-        check_data_correct(testTable)
-
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

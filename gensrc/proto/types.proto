@@ -118,6 +118,7 @@ message PGenericType {
         DECIMAL256 = 38;
         IPV4 = 39;
         IPV6 = 40;
+        VARBINARY = 41;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

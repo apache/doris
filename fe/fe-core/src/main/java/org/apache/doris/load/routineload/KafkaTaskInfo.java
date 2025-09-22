@@ -118,6 +118,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setMemtableOnSinkNode(routineLoadJob.isMemtableOnSinkNode());
         tRoutineLoadTask.setQualifiedUser(routineLoadJob.getUserIdentity().getQualifiedUser());
         tRoutineLoadTask.setCloudCluster(routineLoadJob.getCloudCluster());
+        tRoutineLoadTask.setStrictMode(routineLoadJob.getStrictMode());
         return tRoutineLoadTask;
     }
 

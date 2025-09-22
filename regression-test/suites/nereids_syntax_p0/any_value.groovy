@@ -202,6 +202,7 @@ suite("any_value") {
             "replication_allocation" = "tag.location.default: 1"
             );"""
 
+    sql "set enable_insert_strict = false;"
     sql """insert into test_table_any values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');"""
     qt_sql_any25 """ select any(data) from test_table_any; """
 

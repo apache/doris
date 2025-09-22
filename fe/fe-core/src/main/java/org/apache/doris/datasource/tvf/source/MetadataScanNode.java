@@ -130,6 +130,7 @@ public class MetadataScanNode extends ExternalScanNode {
             // delay createScanRangeLocations in getScanRangeLocations to keep desc has been
             // projected
             createScanRangeLocations();
+            initedScanRangeLocations = true;
         }
         return scanRangeLocations;
     }

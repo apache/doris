@@ -1608,6 +1608,7 @@ suite("test_stream_load", "p0") {
         streamLoad {
             table "${tableName19}"
             set 'column_separator', ','
+            set 'strict_mode', 'true'
             file 'test_input_long_than_schema.csv'
 
             check { result, exception, startTime, endTime ->

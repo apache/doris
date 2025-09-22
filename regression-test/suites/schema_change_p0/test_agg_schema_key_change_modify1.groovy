@@ -1064,6 +1064,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
 
      //TODO Test the agg model by modify a key type from DATETIME to BOOLEAN
      errorMessage="errCode = 2, detailMessage = Can not change DATEV2 to BOOLEAN"
+     sql "set enable_insert_strict = false"
      expectException({
           sql initTable
           sql initTableData

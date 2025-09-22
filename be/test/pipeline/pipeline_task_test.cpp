@@ -66,7 +66,8 @@ private:
     void _build_fragment_context() {
         int fragment_id = 0;
         _context = std::make_shared<PipelineFragmentContext>(
-                _query_id, fragment_id, _query_ctx, ExecEnv::GetInstance(), empty_function,
+                _query_id, TPipelineFragmentParams(), _query_ctx, ExecEnv::GetInstance(),
+                empty_function,
                 std::bind<Status>(std::mem_fn(&FragmentMgr::trigger_pipeline_context_report),
                                   ExecEnv::GetInstance()->fragment_mgr(), std::placeholders::_1,
                                   std::placeholders::_2));

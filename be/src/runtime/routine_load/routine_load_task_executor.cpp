@@ -281,6 +281,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
 
     put_result.pipeline_params = task.pipeline_params;
     put_result.__isset.pipeline_params = true;
+    if (task.__isset.strict_mode && task.strict_mode) {
+        put_result.pipeline_params.query_options.__set_enable_insert_strict(true);
+    }
 
     ctx->put_result = put_result;
     if (task.__isset.format) {
