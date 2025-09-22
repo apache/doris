@@ -94,7 +94,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 + ")"
                 + "WITH S3("
                 + " \"provider\" = \"S3\","
-                + " \"AWS_ENDPOINT\" = \"s3.ap-southeast-1.amazonaws.com\","
+                + " \"AWS_ENDPOINT\" = \"xxx\","
                 + " \"AWS_ACCESS_KEY\" = \"abc\","
                 + " \"AWS_SECRET_KEY\" = \"abc\","
                 + " \"AWS_REGION\" = \"ap-beijing\""
