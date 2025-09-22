@@ -103,7 +103,7 @@ public class Backend implements Writable {
 
     private Long lastPublishTaskAccumulatedNum = 0L;
 
-    private Long runningFragments = 0L;
+    private Long runningTasks = 0L;
 
     private String heartbeatErrMsg = "";
 
@@ -963,12 +963,12 @@ public class Backend implements Writable {
         return disksRef.size();
     }
 
-    public Long getRunningFragments() {
-        return runningFragments;
+    public Long getRunningTasks() {
+        return runningTasks;
     }
 
-    public void setRunningFragments(Long runningFragments) {
-        this.runningFragments = runningFragments;
+    public void setRunningTasks(Long runningTasks) {
+        this.runningTasks = runningTasks;
     }
 
     /**

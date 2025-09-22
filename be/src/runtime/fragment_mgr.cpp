@@ -662,6 +662,10 @@ void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
     _pipeline_map.erase(key);
 }
 
+void FragmentMgr::remove_query_context(const TUniqueId& key) {
+    _query_ctx_map.erase(key);
+}
+
 std::shared_ptr<QueryContext> FragmentMgr::get_query_ctx(const TUniqueId& query_id) {
     auto val = _query_ctx_map.find(query_id);
     if (auto q_ctx = val.lock()) {
@@ -893,7 +897,6 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
         }
     }
     query_ctx->cancel(reason);
-    _query_ctx_map.erase(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }

@@ -51,7 +51,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("DataUsedCapacity").add("TrashUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
             .add("MaxDiskUsedPct").add("RemoteUsedCapacity").add("Tag").add("ErrMsg").add("Version").add("Status")
             .add("HeartbeatFailureCounter").add("NodeRole").add("CpuCores").add("Memory").add("LiveSince")
-            .add("RunningFragments").build();
+            .add("RunningTasks").build();
 
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Host").add("RootPath").add("DirType").add("DiskState")
@@ -178,7 +178,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(TimeUtils.longToTimeString(backend.getLiveSince()));
 
             // runningFragments
-            backendInfo.add(String.valueOf(backend.getRunningFragments()));
+            backendInfo.add(String.valueOf(backend.getRunningTasks()));
 
             comparableBackendInfos.add(backendInfo);
         }

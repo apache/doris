@@ -234,6 +234,7 @@ QueryContext::~QueryContext() {
     _merge_controller_handler.reset();
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }

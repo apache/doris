@@ -124,6 +124,7 @@ public:
                               const TPipelineFragmentParamsList& parent);
 
     void remove_pipeline_context(std::pair<TUniqueId, int> key);
+    void remove_query_context(const TUniqueId& key);
 
     Status exec_plan_fragment(const TPipelineFragmentParams& params, const QuerySource query_type,
                               const FinishCallback& cb, const TPipelineFragmentParamsList& parent);
@@ -170,7 +171,6 @@ public:
     bool shutting_down() { return _stop_background_threads_latch.count() == 0; }
 
     int32_t running_query_num() { return cast_set<int32_t>(_query_ctx_map.num_items()); }
-    int32_t running_fragments_num() { return cast_set<int32_t>(_pipeline_map.num_items()); }
 
     std::string dump_pipeline_tasks(int64_t duration = 0);
     std::string dump_pipeline_tasks(TUniqueId& query_id);
