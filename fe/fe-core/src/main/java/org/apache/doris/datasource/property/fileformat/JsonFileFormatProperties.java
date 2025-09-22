@@ -59,35 +59,20 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "", isRemoveOriginProperty);
             jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                     "", isRemoveOriginProperty);
-            // Since the behavior of JSON loading using TVF load will be affected by
-            // FileFormatProperties, we maintain the same parsing behavior here as in
-            // `StreamLoadAction::_process_put`.
-            boolean hasReadJsonByLine = formatProperties.containsKey(PROP_READ_JSON_BY_LINE);
-            boolean hasStripOuterArray = formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY);
-            if (!hasReadJsonByLine && !hasStripOuterArray) {
-                // both not set
+            if (formatProperties.containsKey(PROP_READ_JSON_BY_LINE) || formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY)) {
                 readJsonByLine = true;
                 stripOuterArray = false;
-            } else if (hasReadJsonByLine && hasStripOuterArray) {
-                // both set
+                if (isRemoveOriginProperty) {
+                    formatProperties.remove(PROP_READ_JSON_BY_LINE);
+                    formatProperties.remove(PROP_STRIP_OUTER_ARRAY);
+                }
+            } else {
                 readJsonByLine = Boolean.valueOf(
                         getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                                "false", isRemoveOriginProperty)).booleanValue();
+                                "", isRemoveOriginProperty)).booleanValue();
                 stripOuterArray = Boolean.valueOf(
                         getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                                "false", isRemoveOriginProperty)).booleanValue();
-            } else if (hasReadJsonByLine) {
-                // only set read_json_by_line
-                readJsonByLine = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                                "false", isRemoveOriginProperty)).booleanValue();
-                stripOuterArray = false;
-            } else if (hasStripOuterArray) {
-                // only set strip_outer_array
-                stripOuterArray = Boolean.valueOf(
-                        getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                                "false", isRemoveOriginProperty)).booleanValue();
-                readJsonByLine = false;
+                                "", isRemoveOriginProperty)).booleanValue();
             }
             numAsString = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_NUM_AS_STRING,
