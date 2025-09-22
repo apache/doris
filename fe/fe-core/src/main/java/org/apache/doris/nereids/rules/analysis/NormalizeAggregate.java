@@ -269,11 +269,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 normalizedAggFuncsToSlotContext.pushDownToNamedExpression(normalizedAggFuncs)
         );
         // create new agg node
-        ImmutableList<NamedExpression> aggOutput = normalizedAggOutputBuilder.build();
-        ImmutableList.Builder<NamedExpression> newAggOutputBuilder
-                = ImmutableList.builderWithExpectedSize(aggOutput.size());
-        newAggOutputBuilder.addAll(aggOutput);
-        ImmutableList<NamedExpression> normalizedAggOutput = newAggOutputBuilder.build();
+        ImmutableList<NamedExpression> normalizedAggOutput = normalizedAggOutputBuilder.build();
 
         // create upper projects by normalize all output exprs in old LogicalAggregate
         // In aggregateOutput, the expressions inside the agg function can be rewritten
@@ -308,7 +304,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                     for (Slot slot : missingSlotsInAggregate) {
                         Alias anyValue = new Alias(new AnyValue(slot), slot.getName());
                         replaceMap.put(slot, anyValue.toSlot());
-                        newAggOutputBuilder.add(anyValue);
+                        normalizedAggOutputBuilder.add(anyValue);
                     }
                     upperProjects = upperProjects.stream()
                             .map(e -> (NamedExpression) ExpressionUtils.replace(e, replaceMap))
@@ -323,10 +319,10 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         } else {
             bottomPlan = aggregate.child();
         }
-        // NOTICE: we must call newAggOutputBuilder.build() here, newAggOutputBuilder could be updated if we need
-        //  to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
+        // NOTICE: we must call normalizedAggOutputBuilder.build() here, normalizedAggOutputBuilder could be updated
+        // if we need to process non-standard aggregate: SELECT c1, c2 FROM t GROUP BY c1
         LogicalAggregate<?> newAggregate =
-                aggregate.withNormalized(normalizedGroupExprs, newAggOutputBuilder.build(), bottomPlan);
+                aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
                 normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
