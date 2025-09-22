@@ -141,4 +141,17 @@ suite("agg_strategy") {
     select group_concat(distinct dst_key1 ,' ') from t_gbykey_10_dstkey_10_1000_dst_key1;"""
 
     // multi_distinct and count distinct multi expr
+    qt_multi_distinct_count_and_count_distinct_multi_expr """
+    select multi_distinct_count(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_sum_and_count_distinct_multi_expr """
+    select multi_distinct_sum(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_sum0_and_count_distinct_multi_expr """
+    select multi_distinct_sum0(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_group_concat_and_count_distinct_multi_expr """
+    explain shape plan
+    select multi_distinct_group_concat(dst_key1 order by dst_key2), count(distinct dst_key1,dst_key2) from t_gbykey_10_dstkey_10_1000_id;
+    """
 }

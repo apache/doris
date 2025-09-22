@@ -40,7 +40,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE_WITHOUT_INDEX)
     );
-    private final boolean mustUseMultiDistinctAgg;
 
     // MultiDistinctCount is created in AggregateStrategies phase
     // can't change getSignatures to use type coercion rule to add a cast expr
@@ -50,28 +49,26 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
-        this(false, false, ExpressionUtils.mergeArguments(arg0, varArgs));
+        this(false, ExpressionUtils.mergeArguments(arg0, varArgs));
     }
 
-    private MultiDistinctCount(boolean mustUseMultiDistinctAgg, boolean distinct, List<Expression> children) {
+    private MultiDistinctCount(boolean distinct, List<Expression> children) {
         super("multi_distinct_count", false, children
                 .stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     /** constructor for withChildren and reuse signature */
-    protected MultiDistinctCount(boolean mustUseMultiDistinctAgg, AggregateFunctionParams functionParams) {
+    protected MultiDistinctCount(AggregateFunctionParams functionParams) {
         super(functionParams);
-        this.mustUseMultiDistinctAgg = mustUseMultiDistinctAgg;
     }
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(!children.isEmpty());
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(false, children));
+        return new MultiDistinctCount(getFunctionParams(false, children));
     }
 
     @Override
@@ -82,16 +79,6 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
-    }
-
-    @Override
-    public boolean mustUseMultiDistinctAgg() {
-        return mustUseMultiDistinctAgg;
-    }
-
-    @Override
-    public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
-        return new MultiDistinctCount(mustUseMultiDistinctAgg, getFunctionParams(children));
     }
 
     @Override

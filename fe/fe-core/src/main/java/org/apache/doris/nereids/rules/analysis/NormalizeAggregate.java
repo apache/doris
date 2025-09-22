@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
-import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -273,11 +272,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         ImmutableList<NamedExpression> aggOutput = normalizedAggOutputBuilder.build();
         ImmutableList.Builder<NamedExpression> newAggOutputBuilder
                 = ImmutableList.builderWithExpectedSize(aggOutput.size());
-        for (NamedExpression output : aggOutput) {
-            Expression rewrittenExpr = output.rewriteDownShortCircuit(
-                    e -> e instanceof MultiDistinction ? ((MultiDistinction) e).withMustUseMultiDistinctAgg(true) : e);
-            newAggOutputBuilder.add((NamedExpression) rewrittenExpr);
-        }
+        newAggOutputBuilder.addAll(aggOutput);
         ImmutableList<NamedExpression> normalizedAggOutput = newAggOutputBuilder.build();
 
         // create upper projects by normalize all output exprs in old LogicalAggregate
