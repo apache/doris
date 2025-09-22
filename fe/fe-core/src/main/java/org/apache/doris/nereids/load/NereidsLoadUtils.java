@@ -64,6 +64,8 @@ import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -76,6 +78,8 @@ import java.util.TreeSet;
  * NereidsLoadUtils
  */
 public class NereidsLoadUtils {
+    private static final Logger LOG = LogManager.getLogger(NereidsLoadUtils.class);
+
     /**
      * parse a expression list as 'select expr1, expr2,... exprn' into a nereids Expression List
      */
@@ -180,6 +184,8 @@ public class NereidsLoadUtils {
                 castScanProjects.add(slotReference);
             }
         }
+
+        LOG.info("table {} castScanProjects: {}", targetTable.getName(), castScanProjects);
 
         // create a project to case all scan slots to correct data types
         currentRootPlan = new LogicalProject(castScanProjects, currentRootPlan);

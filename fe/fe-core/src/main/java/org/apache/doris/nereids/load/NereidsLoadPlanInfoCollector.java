@@ -77,6 +77,8 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -91,6 +93,7 @@ import java.util.stream.Collectors;
  * visit logical plan tree and store required information in LoadPlanInfo
  */
 public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanTranslatorContext> {
+    private static final Logger LOG = LogManager.getLogger(NereidsLoadPlanInfoCollector.class);
 
     /**
      * store OlapTableSink and required information for FileLoadScanNode
@@ -384,6 +387,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
             loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), expr);
         }
+        LOG.info("table {} loadPlanInfo.destSlotIdToExprMap: {}", destTable.getName(),
+                 loadPlanInfo.destSlotIdToExprMap);
         return null;
     }
 
