@@ -141,7 +141,7 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx, HttpReq
 }
 
 void StreamLoadAction::_on_finish(std::shared_ptr<StreamLoadContext> ctx, HttpRequest* req) {
-    ctx->status = ctx->future.get();
+    ctx->status = ctx->load_status_future.get();
     if (ctx->status.ok()) {
         if (ctx->group_commit) {
             LOG(INFO) << "skip commit because this is group commit, pipe_id="

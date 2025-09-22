@@ -31,6 +31,7 @@
 #include <future>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -81,7 +82,15 @@ Status StreamLoadExecutor::execute_plan_fragment(
     LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
-    auto exec_fragment = [ctx, cb, this](RuntimeState* state, Status* status) {
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    std::shared_ptr<bool> is_done = std::make_shared<bool>(false);
+
+    auto exec_fragment = [ctx, cb, this, lock, is_done](RuntimeState* state, Status* status) {
+        std::lock_guard<std::mutex> lock1(*lock);
+        if (*is_done) {
+            return;
+        }
+        *is_done = true;
         if (ctx->group_commit) {
             ctx->label = state->import_label();
             ctx->txn_id = state->wal_id();
@@ -129,7 +138,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
             }
         }
         ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
-        ctx->promise.set_value(*status);
+        ctx->load_status_promise.set_value(*status);
 
         if (!status->ok() && ctx->body_sink != nullptr) {
             // In some cases, the load execution is exited early.
@@ -166,7 +175,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
         return st;
     }
 #else
-    ctx->promise.set_value(k_stream_load_plan_status);
+    ctx->load_status_promise.set_value(k_stream_load_plan_status);
 #endif
     return Status::OK();
 }

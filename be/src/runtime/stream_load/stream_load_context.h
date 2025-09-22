@@ -204,8 +204,8 @@ public:
 
     std::vector<TTabletCommitInfo> commit_infos;
 
-    std::promise<Status> promise;
-    std::future<Status> future = promise.get_future();
+    std::promise<Status> load_status_promise;
+    std::future<Status> load_status_future = load_status_promise.get_future();
 
     Status status;
 

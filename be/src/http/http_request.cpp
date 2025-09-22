@@ -143,7 +143,7 @@ void HttpRequest::finish_send_reply() {
     }
     LOG(INFO) << "finish send reply, infos=" << infos
               << ", stack=" << get_stack_trace(); // temp locate problem
-    promise.set_value(true);
+    _http_reply_promise.set_value(true);
 }
 
 void HttpRequest::wait_finish_send_reply() {
@@ -159,7 +159,7 @@ void HttpRequest::wait_finish_send_reply() {
     }
 
     LOG(INFO) << "start to wait send reply, infos=" << infos;
-    auto status = _futrue.wait_for(std::chrono::seconds(600));
+    auto status = _http_reply_futrue.wait_for(std::chrono::seconds(600));
     if (status != std::future_status::ready) {
         LOG(WARNING) << "wait for send reply timeout, " << this->debug_string();
     } else {

@@ -1280,7 +1280,7 @@ void PInternalService::report_stream_load_status(google::protobuf::RpcController
     if (!stream_load_ctx) {
         st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    stream_load_ctx->promise.set_value(st);
+    stream_load_ctx->load_status_promise.set_value(st);
     st.to_protobuf(response->mutable_status());
 }
 

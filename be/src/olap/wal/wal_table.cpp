@@ -255,7 +255,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     auto st = _http_stream_action->process_put(nullptr, ctx);
     if (st.ok()) {
         // wait stream load finish
-        RETURN_IF_ERROR(ctx->future.get());
+        RETURN_IF_ERROR(ctx->load_status_future.get());
         if (ctx->status.ok()) {
             // deprecated and should be removed in 3.1, use token instead.
             ctx->auth.auth_code = wal_id;
