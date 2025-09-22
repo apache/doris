@@ -90,7 +90,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                     offset.setEndFile(lastFile);
                 } else {
                     // base is dir
-                    String normalizedPrefix = basePrefix.endsWith("/") ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
+                    String normalizedPrefix = basePrefix.endsWith("/")
+                            ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
                     String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
                     String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(bucketBase, "");
                     offset.setFileLists(finalFileLists);
