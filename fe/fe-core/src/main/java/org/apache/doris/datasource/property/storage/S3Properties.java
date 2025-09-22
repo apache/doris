@@ -324,8 +324,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
             hadoopStorageConfig.set("fs.s3a.assumed.role.credentials.provider",
-                    "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider,com.amazonaws.auth.EnvironmentVar"
-                            + "iableCredentialsProvider,com.amazonaws.auth.InstanceProfileCredentialsProvider");
+                    "com.amazonaws.auth.profile.ProfileCredentialsProvider,"
+                            + "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider,"
+                            + "com.amazonaws.auth.EnvironmentVariableCredentialsProvider,"
+                            + "com.amazonaws.auth.InstanceProfileCredentialsProvider,"
+            );
             if (StringUtils.isNotBlank(s3ExternalId)) {
                 hadoopStorageConfig.set("fs.s3a.assumed.role.external.id", s3ExternalId);
             }
@@ -345,17 +348,17 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
     /**
      * ===========================================
-     *  NOTICE:
-     *  This parameter is still used for Cloud-related features,
-     *  although it is no longer recommended.
-     *
-     *  Reason:
-     *  - Cloud may access S3-compatible object storage via the S3 protocol.
-     *  - The exact behavior has not yet been fully clarified.
-     *
-     *  Therefore:
-     *  - We cannot directly replace it with the new parameter.
-     *  - This redundant parameter is temporarily kept for compatibility.
+     * NOTICE:
+     * This parameter is still used for Cloud-related features,
+     * although it is no longer recommended.
+     * <p>
+     * Reason:
+     * - Cloud may access S3-compatible object storage via the S3 protocol.
+     * - The exact behavior has not yet been fully clarified.
+     * <p>
+     * Therefore:
+     * - We cannot directly replace it with the new parameter.
+     * - This redundant parameter is temporarily kept for compatibility.
      * ===========================================
      */
 
