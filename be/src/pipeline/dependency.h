@@ -582,6 +582,10 @@ public:
     std::mutex sink_eos_lock;
 };
 
+struct RecCTESharedState : public BasicSharedState {
+    std::vector<vectorized::Block> anchor_side;
+};
+
 struct JoinSharedState : public BasicSharedState {
     // For some join case, we can apply a short circuit strategy
     // 1. _has_null_in_build_side = true
