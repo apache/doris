@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_search_dsl_syntax") {
-    
     def tableName = "search_dsl_test_table"
     
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -71,281 +70,161 @@ suite("test_search_dsl_syntax") {
     Thread.sleep(5000)
     
     // DSL Syntax Test 1: Simple term queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [10, "Microservices Architecture"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"
     
     // DSL Syntax Test 2: Phrase queries with quotes
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"')"
-        result([
-            [1, "Machine Learning Introduction"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:\"Machine Learning\"')"
     
     // DSL Syntax Test 3: Wildcard queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('title:*Learning') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [2, "Advanced Deep Learning"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:*Learning') ORDER BY id"
     
     // DSL Syntax Test 4: Prefix queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('title:Data*')"
-        result([
-            [4, "Data Science with R"],
-            [6, "Database Design Patterns"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:Data*')"
     
     // DSL Syntax Test 5: Regular expression queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/')"
-        result([
-            [4, "Data Science with R"],
-            [6, "Database Design Patterns"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:/.*[Dd]ata.*/')"
     
     // DSL Syntax Test 6: Boolean AND operator
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('category:Technology AND tags:AI') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [2, "Advanced Deep Learning"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('category:Technology AND tags:AI') ORDER BY id"
     
     // DSL Syntax Test 7: Boolean OR operator
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('category:Programming OR category:Science') ORDER BY id"
-        result([
-            [3, "Python for Beginners"],
-            [4, "Data Science with R"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('category:Programming OR category:Science') ORDER BY id"
     
     // DSL Syntax Test 8: Boolean NOT operator
-    test {
-        sql "SELECT COUNT(*) FROM ${tableName} WHERE search('status:published AND NOT category:Technology')"
-        result([
-            [6]
-        ])
-    }
+    qt_sql "SELECT COUNT(*) FROM ${tableName} WHERE search('status:published AND NOT category:Technology')"
     
     // DSL Syntax Test 9: Parentheses for grouping
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('(category:Technology OR category:AI) AND status:published') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [2, "Advanced Deep Learning"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('(category:Technology OR category:AI) AND status:published') ORDER BY id"
     
     // DSL Syntax Test 10: Complex nested queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('(title:Learning OR title:Development) AND (status:published OR status:review)') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [2, "Advanced Deep Learning"],
-            [5, "Web Development 2023"]
-        ])
-    }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('(title:Learning OR title:Development) AND (status:published OR status:review)') ORDER BY id"
     
     // DSL Syntax Test 11: Range queries (if supported)
-    test {
-        try {
-            sql "SELECT id, title FROM ${tableName} WHERE search('priority:[1 TO 2]') ORDER BY id"
-            // This may or may not work depending on implementation
-        } catch (Exception e) {
-            // Range queries might not be implemented yet
-            logger.info("Range query not supported: " + e.getMessage())
-        }
+    try {
+        qt_sql "SELECT id, title FROM ${tableName} WHERE search('priority:[1 TO 2]') ORDER BY id"
+        // This may or may not work depending on implementation
+    } catch (Exception e) {
+        // Range queries might not be implemented yet
+        logger.info("Range query not supported: " + e.getMessage())
     }
-    
+
     // DSL Syntax Test 12: List queries with IN operator (if supported)
-    test {
-        try {
-            sql "SELECT id, title FROM ${tableName} WHERE search('status:IN(published draft)') ORDER BY id"
-            // This may or may not work depending on implementation
-        } catch (Exception e) {
-            // List queries might not be implemented yet
-            logger.info("List query not supported: " + e.getMessage())
-        }
+    try {
+        qt_sql "SELECT id, title FROM ${tableName} WHERE search('status:IN(published draft)') "
+               "ORDER BY id"
+        // This may or may not work depending on implementation
+    } catch (Exception e) {
+        // List queries might not be implemented yet
+        logger.info("List query not supported: " + e.getMessage())
     }
-    
+
     // DSL Syntax Test 13: ANY queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('tags:ANY(AI python)') ORDER BY id"
-        check { result ->
-            assertTrue(result.size() > 0, "Should find records with ANY(AI python) in tags")
-        }
+    qt_sql "SELECT id, title FROM ${tableName} WHERE search('tags:ANY(AI python)') ORDER BY id"
+
+            // DSL Syntax Test 14: ALL queries
+            qt_sql
+           "SELECT id, title FROM ${tableName} WHERE search('tags:ALL(machine learning)') ORDER BY "
+           "id"
+
+            // DSL Syntax Test 15: Field names with quotes
+            qt_sql "SELECT id, title FROM ${tableName} WHERE search('\"title\":Machine')"
+
+            // DSL Syntax Test 16: Case insensitive field names
+            qt_sql "SELECT id, title FROM ${tableName} WHERE search('TITLE:Machine')"
+
+            // DSL Syntax Test 17: Multiple terms in same field
+            qt_sql
+           "SELECT id, title FROM ${tableName} WHERE search('content:machine AND content:learning')"
+
+            // DSL Syntax Test 18: Hyphenated terms in tags
+            qt_sql "SELECT id, title FROM ${tableName} WHERE search('tags:machine-learning')"
+
+            // DSL Syntax Test 19: Special characters in search terms
+            qt_sql "SELECT id, title FROM ${tableName} WHERE search('author:\"John Doe\"')"
+
+            // DSL Syntax Test 20: Multiple field search with complex boolean logic
+            qt_sql
+           "SELECT id, title FROM ${tableName} WHERE search('(title:Learning AND "
+           "category:Technology) OR (title:Development AND category:Web)') ORDER BY id"
+
+            // Error handling tests for invalid DSL syntax
+
+            // Error Test 1: Unclosed parentheses
+            try {
+        sql "SELECT id FROM ${tableName} WHERE search('(title:Machine')" assertTrue(
+                false, "Expected exception for unclosed parentheses")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
-    // DSL Syntax Test 14: ALL queries
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
-        check { result ->
-            // Should find records where tags contain both "machine" and "learning"
-            assertTrue(result.size() >= 0, "Should execute ALL query without error")
-        }
-    }
-    
-    // DSL Syntax Test 15: Field names with quotes
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('\"title\":Machine')"
-        result([
-            [1, "Machine Learning Introduction"],
-            [10, "Microservices Architecture"]
-        ])
-    }
-    
-    // DSL Syntax Test 16: Case insensitive field names
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('TITLE:Machine')"
-        result([
-            [1, "Machine Learning Introduction"],
-            [10, "Microservices Architecture"]
-        ])
-    }
-    
-    // DSL Syntax Test 17: Multiple terms in same field
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('content:machine AND content:learning')"
-        result([
-            [1, "Machine Learning Introduction"]
-        ])
-    }
-    
-    // DSL Syntax Test 18: Hyphenated terms in tags
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('tags:machine-learning')"
-        result([
-            [1, "Machine Learning Introduction"]
-        ])
-    }
-    
-    // DSL Syntax Test 19: Special characters in search terms
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('author:\"John Doe\"')"
-        result([
-            [1, "Machine Learning Introduction"]
-        ])
-    }
-    
-    // DSL Syntax Test 20: Multiple field search with complex boolean logic
-    test {
-        sql "SELECT id, title FROM ${tableName} WHERE search('(title:Learning AND category:Technology) OR (title:Development AND category:Web)') ORDER BY id"
-        result([
-            [1, "Machine Learning Introduction"],
-            [2, "Advanced Deep Learning"],
-            [5, "Web Development 2023"]
-        ])
-    }
-    
-    // Error handling tests for invalid DSL syntax
-    
-    // Error Test 1: Unclosed parentheses
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('(title:Machine')"
-            assertTrue(false, "Expected exception for unclosed parentheses")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
-    }
-    
+
     // Error Test 2: Missing field name
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search(':value')"
-            assertTrue(false, "Expected exception for missing field name")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search(':value')" assertTrue(
+                false, "Expected exception for missing field name")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
+
     // Error Test 3: Missing value
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('field:')"
-            assertTrue(false, "Expected exception for missing value")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('field:')" assertTrue(
+                false, "Expected exception for missing value")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
+
     // Error Test 4: Invalid boolean operator
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('title:Machine XOR category:Technology')"
-            assertTrue(false, "Expected exception for invalid boolean operator")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('title:Machine XOR "
+            "category:Technology')" assertTrue(false,
+                                               "Expected exception for invalid boolean operator")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
+
     // Error Test 5: Unclosed quotes
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('title:\"Machine Learning')"
-            assertTrue(false, "Expected exception for unclosed quotes")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('title:\"Machine Learning')" assertTrue(
+                false, "Expected exception for unclosed quotes")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
+
     // Error Test 6: Invalid regular expression
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('title:/[invalid/')"
-            assertTrue(false, "Expected exception for invalid regex")
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('title:/[invalid/')" assertTrue(
+                false, "Expected exception for invalid regex")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Invalid") || e.getMessage().contains("syntax"))
     }
-    
+
     // Performance and edge case tests
-    
+
     // Edge Case Test 1: Empty search string
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('')"
-            // Should handle empty string gracefully
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("empty") || e.getMessage().contains("Invalid"))
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('')"
+        // Should handle empty string gracefully
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("empty") || e.getMessage().contains("Invalid"))
     }
-    
+
     // Edge Case Test 2: Very long search string
-    test {
-        def longTerm = "a" * 1000
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('title:${longTerm}')"
-            // Should handle long strings gracefully
-        } catch (Exception e) {
-            // Acceptable if implementation has length limits
-            logger.info("Long search string error: " + e.getMessage())
-        }
+    def longTerm = "a" * 1000 try {
+        sql "SELECT id FROM ${tableName} WHERE search('title:${longTerm}')"
+        // Should handle long strings gracefully
+    } catch (Exception e) {
+        // Acceptable if implementation has length limits
+        logger.info("Long search string error: " + e.getMessage())
     }
-    
+
     // Edge Case Test 3: Unicode characters
-    test {
-        try {
-            sql "SELECT id FROM ${tableName} WHERE search('title:测试')"
-            // Should handle Unicode gracefully
-        } catch (Exception e) {
-            logger.info("Unicode search error: " + e.getMessage())
-        }
+    try {
+        sql "SELECT id FROM ${tableName} WHERE search('title:测试')"
+        // Should handle Unicode gracefully
+    } catch (Exception e) {
+        logger.info("Unicode search error: " + e.getMessage())
     }
-    
+
     // Cleanup
     sql "DROP TABLE IF EXISTS ${tableName}"
 }

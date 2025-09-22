@@ -153,7 +153,52 @@ std::shared_ptr<query_v2::Query> FunctionSearch::build_leaf_query(
 
     // Handle different clause types based on tokenization needs (most are TODO and use TermQuery for now)
     if (clause_type == "TERM") {
-        return std::make_shared<query_v2::TermQuery>(context, field_wstr, value_wstr);
+        // Check if field needs tokenization (text vs keyword type)
+        auto index_properties = get_field_index_properties(field_name, iterators);
+        bool should_analyze =
+                inverted_index::InvertedIndexAnalyzer::should_analyzer(index_properties);
+
+        if (should_analyze) {
+            // Text type: use analyzer for tokenization and lowercase
+            if (index_properties.empty()) {
+                LOG(WARNING) << "Failed to get index properties for TERM query field: "
+                             << field_name;
+                return std::make_shared<query_v2::TermQuery>(context, field_wstr, value_wstr);
+            }
+
+            // Parse using proper tokenization
+            std::vector<segment_v2::TermInfo> term_infos =
+                    segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                            value, index_properties);
+            if (term_infos.empty()) {
+                LOG(WARNING) << "No terms found after tokenization for TERM query: field="
+                             << field_name << ", value='" << value << "'";
+                return nullptr;
+            }
+
+            if (term_infos.size() == 1) {
+                // Single term - use TermQuery directly
+                std::wstring term_wstr = StringHelper::to_wstring(term_infos[0].get_single_term());
+                return std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+            }
+
+            // Multiple terms - create BooleanQuery with OR operation (any match)
+            BooleanQuery::Builder builder(OperatorType::OP_OR);
+            for (const auto& term_info : term_infos) {
+                std::wstring term_wstr = StringHelper::to_wstring(term_info.get_single_term());
+                auto term_query =
+                        std::make_shared<query_v2::TermQuery>(context, field_wstr, term_wstr);
+                builder.add(std::static_pointer_cast<query_v2::Query>(term_query));
+            }
+
+            LOG(INFO) << "Built TERM query with " << term_infos.size()
+                      << " OR conditions for text field: " << field_name;
+            return std::static_pointer_cast<query_v2::Query>(builder.build());
+        } else {
+            // Keyword type: exact match without tokenization
+            LOG(INFO) << "Using exact match for keyword field: " << field_name;
+            return std::make_shared<query_v2::TermQuery>(context, field_wstr, value_wstr);
+        }
     } else if (category == ClauseTypeCategory::TOKENIZED) {
         // Tokenized queries: PHRASE, MATCH, ANY, ALL - need tokenization
         if (clause_type == "PHRASE") {
