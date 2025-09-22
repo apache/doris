@@ -62,7 +62,6 @@ void register_function_to_time_function(SimpleFunctionFactory& factory);
 void register_function_time_value_field(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
-void register_function_running_difference(SimpleFunctionFactory& factory);
 void register_function_date_time_to_string(SimpleFunctionFactory& factory);
 void register_function_date_time_string_to_string(SimpleFunctionFactory& factory);
 void register_function_in(SimpleFunctionFactory& factory);

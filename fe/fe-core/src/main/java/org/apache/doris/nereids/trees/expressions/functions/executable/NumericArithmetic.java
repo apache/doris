@@ -455,6 +455,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ln")
     public static Expression ln(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -466,6 +469,12 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log")
     public static Expression log(DoubleLiteral first, DoubleLiteral second) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
+        if (second.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)
                 || first.getValue().equals(1.0d)
                 || inputOutOfBound(second, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
@@ -479,6 +488,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log2")
     public static Expression log2(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -490,6 +502,9 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "log10")
     public static Expression log10(DoubleLiteral first) {
+        if (first.getValue().isNaN()) {
+            return new DoubleLiteral(Double.NaN);
+        }
         if (inputOutOfBound(first, 0.0d, Double.POSITIVE_INFINITY, false, true)) {
             return new NullLiteral(DoubleType.INSTANCE);
         }
@@ -710,11 +725,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "signbit")
     public static Expression signbit(DoubleLiteral first) {
-        if (first.getValue() < 0) {
-            return BooleanLiteral.of(true);
-        } else {
-            return BooleanLiteral.of(false);
-        }
+        long bits = Double.doubleToRawLongBits(first.getValue());
+        // The highest bit is the symbol bit, 1 represents a negative number and 0
+        // represents a positive number (including +0.0)
+        return BooleanLiteral.of((bits & (1L << 63)) != 0);
     }
 
     /**
