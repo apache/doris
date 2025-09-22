@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "jni.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -43,18 +44,11 @@ jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintA
     if (elems == nullptr) {
         return nullptr;
     }
-    struct IntArrayReleaseGuard {
-        JNIEnv* env;
-        jintArray arr;
-        jint* ptr;
-        IntArrayReleaseGuard(JNIEnv* e, jintArray a, jint* p) : env(e), arr(a), ptr(p) {}
-        ~IntArrayReleaseGuard() {
-            if (ptr != nullptr) {
-                env->ReleaseIntArrayElements(arr, ptr, JNI_ABORT);
-            }
+    DEFER({
+        if (elems != nullptr) {
+            env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
         }
-    };
-    IntArrayReleaseGuard elems_guard(env, sizes, elems);
+    });
 
     jlongArray result = env->NewLongArray(n);
     if (result == nullptr) {
