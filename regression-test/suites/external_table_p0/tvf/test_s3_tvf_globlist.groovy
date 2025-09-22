@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3_tvf_globlist", "p0,external,external_docker") {
+suite("test_s3_tvf_globlist", "p0,external") {
+
+    String ak = getS3AK()
+    String sk = getS3SK()
 
     try {
         order_qt_select_1 """ SELECT * FROM S3
                             (
-                                "uri" = "${s3BucketName}/regression/load/data/{example_0.csv}",
+                                "uri" = "s3://${s3BucketName}/regression/load/data/{example_0.csv}",
                                 "format" = "csv",
-                                "provider" = "s3",
                                 "column_separator" = ",",
                                 "s3.endpoint" = "${getS3Endpoint()}",
                                 "s3.region" = "${getS3Region()}",
-                                "s3.access_key" = "${getS3AK()}",
-                                "s3.secret_key" = "${getS3SK()}"
+                                "s3.access_key" = "${ak}",
+                                "s3.secret_key" = "${sk}"
                             )
                             order by c1;
                         """
@@ -37,14 +39,13 @@ suite("test_s3_tvf_globlist", "p0,external,external_docker") {
     try {
         order_qt_select_2 """ SELECT * FROM S3
                             (
-                                "uri" = "${s3BucketName}/regression/load/data/{example_0.csv, example_1.csv}",
+                                "uri" = "s3://${s3BucketName}/regression/load/data/{example_0.csv,example_1.csv}",
                                 "format" = "csv",
-                                "provider" = "s3",
                                 "column_separator" = ",",
                                 "s3.endpoint" = "${getS3Endpoint()}",
                                 "s3.region" = "${getS3Region()}",
-                                "s3.access_key" = "${getS3AK()}",
-                                "s3.secret_key" = "${getS3SK()}"
+                                "s3.access_key" = "${ak}",
+                                "s3.secret_key" = "${sk}"
                             )
                             order by c1;
                         """
