@@ -601,11 +601,10 @@ supportedAdminStatement
     | ADMIN SET ENCRYPTION ROOT KEY PROPERTIES LEFT_PAREN propertyItemList RIGHT_PAREN   #adminSetEncryptionRootKey
     | ADMIN SET TABLE name=multipartIdentifier
         PARTITION VERSION properties=propertyClause?                                #adminSetPartitionVersion
-    | ADMIN BACKUP CLUSTER SNAPSHOT propertyClause?                                 #adminBackupClusterSnapshot
-    | ADMIN SET CLUSTER SNAPSHOT propertyClause?                                    #adminSetClusterSnapshot
-    | ADMIN SHOW CLUSTER SNAPSHOT PROPERTIES                                        #adminShowClusterSnapshotProperties
-    | ADMIN SHOW FULL? CLUSTER SNAPSHOT                                             #adminShowClusterSnapshot
+    | ADMIN CREATE CLUSTER SNAPSHOT propertyClause?                                 #adminCreateClusterSnapshot
+    | ADMIN SET AUTO CLUSTER SNAPSHOT propertyClause?                               #adminSetAutoClusterSnapshot
     | ADMIN DROP CLUSTER SNAPSHOT WHERE (key=identifier) EQ (value=STRING_LITERAL)  #adminDropClusterSnapshot
+    | ADMIN SET CLUSTER SNAPSHOT FEATURE (ON | OFF)                                 #adminSetClusterSnapshotFeatureSwitch
     ;
 
 supportedRecoverStatement
