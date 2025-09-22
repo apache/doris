@@ -76,14 +76,6 @@ public class IcebergFastForwardAction extends BaseIcebergAction {
         String sourceBranch = namedArguments.getString(BRANCH);
         String desBranch = namedArguments.getString(TO);
 
-        if (sourceBranch == null || sourceBranch.trim().isEmpty()) {
-            throw new UserException("branch parameter is required for fast_forward operation");
-        }
-
-        if (desBranch == null) {
-            throw new UserException("to parameter is required for fast_forward operation");
-        }
-
         try {
             Long snapshotBefore =
                     icebergTable.snapshot(sourceBranch) != null ? icebergTable.snapshot(sourceBranch).snapshotId()
