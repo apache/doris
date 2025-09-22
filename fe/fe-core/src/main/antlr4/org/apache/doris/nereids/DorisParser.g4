@@ -112,7 +112,7 @@ supportedJobStatement
        commentSpec?
        DO supportedDmlStatement                                                                                                             #createScheduledJob
    | PAUSE JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                                #pauseJob
-   | ALTER JOB FOR (jobName=multipartIdentifier) (propertyClause | supportedDmlStatement | propertyClause  supportedDmlStatement)                  #alterJob
+   | ALTER JOB (jobName=multipartIdentifier) (propertyClause | supportedDmlStatement | propertyClause  supportedDmlStatement)                  #alterJob
    | DROP JOB (IF EXISTS)? WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                    #dropJob
    | RESUME JOB WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL)                                                               #resumeJob
    | CANCEL TASK WHERE (jobNameKey=identifier) EQ (jobNameValue=STRING_LITERAL) AND (taskIdKey=identifier) EQ (taskIdValue=INTEGER_VALUE)    #cancelJobTask

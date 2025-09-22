@@ -40,22 +40,16 @@ public interface SourceOffsetProvider {
     Offset getNextOffset(StreamingJobProperties jobProps, Map<String, String> properties);
 
     /**
-     * Get current offset
+     * Get consumered offset to show
      * @return
      */
-    Offset getCurrentOffset();
+    String getConsumedOffset();
 
     /**
-     * Get sync offset to show
+     * Get remote datasource max offset
      * @return
      */
-    String getSyncOffset();
-
-    /**
-     * Get remote offset
-     * @return
-     */
-    String getRemoteOffset();
+    String getMaxOffset();
 
     /**
      * Rewrite the TVF parameters in the SQL based on the current offset.

@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -69,7 +70,7 @@ public class S3FileSystem extends ObjFileSystem {
     }
 
     @Override
-    public String globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         return objStorage.globListWithLimit(remotePath, result, startFile, fileSizeLimit, fileNumLimit);

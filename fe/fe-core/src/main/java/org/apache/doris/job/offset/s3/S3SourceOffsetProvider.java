@@ -19,6 +19,7 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
@@ -45,7 +46,7 @@ import java.util.stream.Collectors;
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     S3Offset currentOffset;
-    String maxRemoteEndFile;
+    String maxEndFile;
 
     @Override
     public String getSourceType() {
@@ -64,18 +65,25 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         try (RemoteFileSystem fileSystem = FileSystemFactory.get(storageProperties)) {
             String uri = storageProperties.validateAndGetUri(copiedProps);
             filePath = storageProperties.validateAndNormalizeUri(uri);
-            maxRemoteEndFile = fileSystem.globListWithLimit(filePath, rfiles, startFile,
+            GlobListResult globListResult = fileSystem.globListWithLimit(filePath, rfiles, startFile,
                     jobProps.getS3BatchFiles(), jobProps.getS3BatchSize());
-            offset.setStartFile(startFile);
-            //todo: The path may be in the form of bucket/dir/*/*,
-            // but currently only the case where the last segment is * is handled.
+            maxEndFile = globListResult.getMaxFile();
             if (!rfiles.isEmpty()) {
-                String bucket = rfiles.get(0).getBucket();
-                String parentPath = rfiles.get(0).getParentPath();
-                String filePaths = rfiles.stream().map(RemoteFile::getName).collect(Collectors.joining(",", "{", "}"));
-                String finalFiles = String.format("s3://%s/%s/%s", bucket, parentPath, filePaths);
-                offset.setEndFile(String.format("%s/%s", parentPath, rfiles.get(rfiles.size() - 1).getName()));
-                offset.setFileLists(finalFiles);
+                String bucket = globListResult.getBucket();
+                String prefix = globListResult.getPrefix();
+                offset.setStartFile(startFile);
+
+                String base = "s3://" + bucket + "/" + prefix + "/";
+                String joined = rfiles.stream()
+                        .map(path -> path.getName().replace(base, ""))
+                        .collect(Collectors.joining(","));
+
+                String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, prefix, joined);
+                String lastFile = rfiles.get(rfiles.size() - 1).getName().replace(base, "");
+                offset.setFileLists(finalFileLists);
+                offset.setEndFile(lastFile);
+            } else {
+                throw new RuntimeException("No new files found in path: " + filePath);
             }
         } catch (Exception e) {
             log.warn("list path exception, path={}", filePath, e);
@@ -85,12 +93,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public Offset getCurrentOffset() {
-        return currentOffset;
-    }
-
-    @Override
-    public String getSyncOffset() {
+    public String getConsumedOffset() {
         if (currentOffset != null) {
             return currentOffset.getEndFile();
         }
@@ -98,8 +101,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public String getRemoteOffset() {
-        return maxRemoteEndFile;
+    public String getMaxOffset() {
+        return maxEndFile;
     }
 
     @Override
@@ -138,11 +141,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             String uri = storageProperties.validateAndGetUri(copiedProps);
             String filePath = storageProperties.validateAndNormalizeUri(uri);
             List<RemoteFile> objects = new ArrayList<>();
-            String endFile = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
-            if (!objects.isEmpty() && StringUtils.isNotEmpty(endFile)) {
-                maxRemoteEndFile = endFile;
+            GlobListResult globListResult = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
+            if (globListResult != null && !objects.isEmpty() && StringUtils.isNotEmpty(globListResult.getMaxFile())) {
+                maxEndFile = globListResult.getMaxFile();
             } else {
-                maxRemoteEndFile = startFile;
+                maxEndFile = startFile;
             }
         } catch (Exception e) {
             throw e;
@@ -154,7 +157,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         if (currentOffset == null) {
             return true;
         }
-        if (currentOffset.endFile.compareTo(maxRemoteEndFile) < 0) {
+        if (currentOffset.endFile.compareTo(maxEndFile) < 0) {
             return true;
         }
         return false;

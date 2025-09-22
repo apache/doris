@@ -24,6 +24,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
@@ -541,13 +542,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * Limit: Starting from startFile, until the total file size is greater than fileSizeLimit,
      * or the number of files is greater than fileNumLimit.
      *
-     * @return The largest file name after listObject this time
+     * @return GlobListResult
      */
-    public String globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
             long fileSizeLimit, long fileNumLimit) {
-        GlobListResult globListResult = globListInternal(remotePath, result, true, startFile, fileSizeLimit,
-                fileNumLimit);
-        return globListResult.getMaxFile();
+        return globListInternal(remotePath, result, false, startFile, fileSizeLimit, fileNumLimit);
     }
 
     /**
@@ -643,8 +642,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                 isPrefix ? -1 : obj.size(),
                                 isPrefix ? 0 : obj.lastModified().toEpochMilli()
                         );
-                        remoteFile.setBucket(bucket);
-                        remoteFile.setParentPath(objPath.getParent().toString());
                         result.add(remoteFile);
 
                         if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
@@ -677,11 +674,11 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("remotePath:{}, result:{}", remotePath, result);
             }
-            return new GlobListResult(Status.OK, currentMaxFile);
+            return new GlobListResult(Status.OK, currentMaxFile, bucket, finalPrefix);
         } catch (Exception e) {
             LOG.warn("Errors while getting file status", e);
             return new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
-                    "Errors while getting file status " + Util.getRootCauseMessage(e)), "");
+                    "Errors while getting file status " + Util.getRootCauseMessage(e)));
         } finally {
             long endTime = System.nanoTime();
             long duration = endTime - startTime;
@@ -713,24 +710,6 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             return true;
         }
         return false;
-    }
-
-    private static class GlobListResult {
-        private final Status status;
-        private final String maxFile;
-
-        public GlobListResult(Status status, String maxFile) {
-            this.status = status;
-            this.maxFile = maxFile;
-        }
-
-        public Status getStatus() {
-            return status;
-        }
-
-        public String getMaxFile() {
-            return maxFile;
-        }
     }
 
     @Override

@@ -46,7 +46,7 @@ suite("test_streaming_insert_job") {
     sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        "s3.batch_files" = "1"
+        "s3.max_batch_files" = "1"
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -104,7 +104,7 @@ suite("test_streaming_insert_job") {
 
     // alter streaming job
     sql """
-       ALTER JOB FOR ${jobName}
+       ALTER JOB ${jobName}
        PROPERTIES(
         "session.insert_max_filter_ratio" = "0.5"
        )

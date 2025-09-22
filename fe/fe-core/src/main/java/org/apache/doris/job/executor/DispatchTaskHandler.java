@@ -18,7 +18,6 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.JobUtils;
 import org.apache.doris.job.common.TaskType;
@@ -57,9 +56,7 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                 return;
             }
             if (event.getJob().isReadyForScheduling(null) && JobUtils.checkNeedSchedule(event.getJob())) {
-                TaskType taskType = JobExecuteType.STREAMING.equals(event.getJob().getJobConfig().getExecuteType())
-                        ? TaskType.STREAMING : TaskType.SCHEDULED;
-                List<? extends AbstractTask> tasks = event.getJob().commonCreateTasks(taskType, null);
+                List<? extends AbstractTask> tasks = event.getJob().commonCreateTasks(TaskType.SCHEDULED, null);
                 if (CollectionUtils.isEmpty(tasks)) {
                     log.warn("job is ready for scheduling, but create task is empty, skip scheduler,"
                                     + "job id is {}," + " job name is {}", event.getJob().getJobId(),

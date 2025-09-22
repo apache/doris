@@ -19,4 +19,6 @@ package org.apache.doris.job.offset;
 
 public interface Offset {
     String toSerializedJson();
+
+    boolean isEmpty();
 }
