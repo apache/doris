@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_tvf_fast_fail", "p0,external,tvf,external_docker") {
+suite("test_tvf_fast_fail", "p0,external,tvf") {
     String enabled = context.config.otherConfigs.get("enableS3Test")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable S3 test.")
