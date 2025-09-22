@@ -626,59 +626,54 @@ void update_streaming_job_meta(MetaServiceCode& code, std::string& msg,
             txn_commit_attachment.streaming_task_txn_commit_attachment();
     int64_t job_id = commit_attachment.job_id();
 
-    std::string streaming_meta_key;
-    std::string streaming_meta_val;
-    bool prev_meta_existed = true;
-    StreamingJobMetaKeyInfo streaming_meta_key_info {instance_id, db_id, job_id};
-    streaming_job_meta_key_info(streaming_meta_key_info, &streaming_meta_key);
-    TxnErrorCode err = txn->get(streaming_meta_key, &streaming_meta_val);
-    if (err != TxnErrorCode::TXN_OK) {
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            prev_meta_existed = false;
-        } else {
-            code = cast_as<ErrCategory::READ>(err);
-            ss << "failed to get streaming job meta, db_id=" << db_id << " txn_id=" << txn_id
-               << " err=" << err;
-            msg = ss.str();
-            return;
-        }
+    std::string streaming_job_val;
+    bool prev_existed = true;
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    TxnErrorCode err = txn->get(streaming_job_key_str, &streaming_job_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        prev_existed = false;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get streaming job, db_id=" << db_id << " txn_id=" << txn_id
+           << " err=" << err;
+        msg = ss.str();
+        return;
     }
 
-    StreamingTaskCommitAttachmentPB new_meta_info;
-    if (prev_meta_existed) {
-        if (!new_meta_info.ParseFromString(streaming_meta_val)) {
+    StreamingTaskCommitAttachmentPB new_job_info;
+    if (prev_existed) {
+        if (!new_job_info.ParseFromString(streaming_job_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "failed to parse streaming job meta, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
             return;
         }
-        new_meta_info.set_scanned_rows(new_meta_info.scanned_rows() +
-                                       commit_attachment.scanned_rows());
-        new_meta_info.set_load_bytes(new_meta_info.load_bytes() + commit_attachment.load_bytes());
-        new_meta_info.set_file_number(new_meta_info.file_number() +
-                                      commit_attachment.file_number());
-        new_meta_info.set_file_size(new_meta_info.file_size() + commit_attachment.file_size());
+        new_job_info.set_scanned_rows(new_job_info.scanned_rows() +
+                                      commit_attachment.scanned_rows());
+        new_job_info.set_load_bytes(new_job_info.load_bytes() + commit_attachment.load_bytes());
+        new_job_info.set_num_files(new_job_info.num_files() + commit_attachment.num_files());
+        new_job_info.set_file_bytes(new_job_info.file_bytes() + commit_attachment.file_bytes());
     } else {
-        new_meta_info.set_job_id(commit_attachment.job_id());
-        new_meta_info.set_scanned_rows(commit_attachment.scanned_rows());
-        new_meta_info.set_load_bytes(commit_attachment.load_bytes());
-        new_meta_info.set_file_number(commit_attachment.file_number());
-        new_meta_info.set_file_size(commit_attachment.file_size());
+        new_job_info.set_job_id(commit_attachment.job_id());
+        new_job_info.set_scanned_rows(commit_attachment.scanned_rows());
+        new_job_info.set_load_bytes(commit_attachment.load_bytes());
+        new_job_info.set_num_files(commit_attachment.num_files());
+        new_job_info.set_file_bytes(commit_attachment.file_bytes());
     }
     if (commit_attachment.has_offset()) {
-        new_meta_info.set_offset(commit_attachment.offset());
+        new_job_info.set_offset(commit_attachment.offset());
     }
-    std::string new_meta_val;
-    if (!new_meta_info.SerializeToString(&new_meta_val)) {
+    std::string new_job_val;
+    if (!new_job_info.SerializeToString(&new_job_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        ss << "failed to serialize new streaming meta val, txn_id=" << txn_id;
+        ss << "failed to serialize new streaming job val, txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
 
-    txn->put(streaming_meta_key, new_meta_val);
-    LOG(INFO) << "put streaming_meta_key key=" << hex(streaming_meta_key)
-              << " streaming job new meta: " << new_meta_info.ShortDebugString();
+    txn->put(streaming_job_key_str, new_job_val);
+    LOG(INFO) << "put streaming_job_key key=" << hex(streaming_job_key_str)
+              << " streaming job new meta: " << new_job_info.ShortDebugString();
 }
 
 void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
@@ -780,11 +775,9 @@ void MetaServiceImpl::get_streaming_task_commit_attach(
 
     int64_t db_id = request->db_id();
     int64_t job_id = request->job_id();
-    std::string streaming_meta_key;
-    std::string streaming_meta_val;
-    StreamingJobMetaKeyInfo streaming_meta_key_info {instance_id, db_id, job_id};
-    streaming_job_meta_key_info(streaming_meta_key_info, &streaming_meta_key);
-    err = txn->get(streaming_meta_key, &streaming_meta_val);
+    std::string streaming_job_val;
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    err = txn->get(streaming_job_key_str, &streaming_job_val);
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         code = MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND;
         ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
@@ -799,7 +792,7 @@ void MetaServiceImpl::get_streaming_task_commit_attach(
     }
 
     StreamingTaskCommitAttachmentPB* commit_attach = response->mutable_commit_attach();
-    if (!commit_attach->ParseFromString(streaming_meta_val)) {
+    if (!commit_attach->ParseFromString(streaming_job_val)) {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse meta info, db_id=" << db_id << " job_id=" << job_id;
         msg = ss.str();

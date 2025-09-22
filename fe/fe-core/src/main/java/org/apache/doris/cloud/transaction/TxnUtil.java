@@ -282,11 +282,10 @@ public class TxnUtil {
                 StreamingTaskCommitAttachmentPB.newBuilder();
 
         builder.setJobId(streamingTaskTxnCommitAttachment.getJobId())
-                .setTaskId(streamingTaskTxnCommitAttachment.getTaskId())
                 .setScannedRows(streamingTaskTxnCommitAttachment.getScannedRows())
                 .setLoadBytes(streamingTaskTxnCommitAttachment.getLoadBytes())
-                .setFileNumber(streamingTaskTxnCommitAttachment.getFileNumber())
-                .setFileSize(streamingTaskTxnCommitAttachment.getFileSize());
+                .setNumFiles(streamingTaskTxnCommitAttachment.getNumFiles())
+                .setFileBytes(streamingTaskTxnCommitAttachment.getFileBytes());
 
         if (streamingTaskTxnCommitAttachment.getOffset() != null) {
             builder.setOffset(streamingTaskTxnCommitAttachment.getOffset());
