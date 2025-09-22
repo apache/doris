@@ -27,14 +27,14 @@ import lombok.Getter;
 public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     public StreamingTaskTxnCommitAttachment(long jobId, long taskId,
-                long scannedRows, long loadBytes, long fileNumber, long fileSize, String offset) {
+                long scannedRows, long loadBytes, long numFiles, long fileBytes, String offset) {
         super(TransactionState.LoadJobSourceType.STREAMING_JOB);
         this.jobId = jobId;
         this.taskId = taskId;
         this.scannedRows = scannedRows;
         this.loadBytes = loadBytes;
-        this.fileNumber = fileNumber;
-        this.fileSize = fileSize;
+        this.numFiles = numFiles;
+        this.fileBytes = fileBytes;
         this.offset = offset;
     }
 
@@ -42,8 +42,8 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         super(TransactionState.LoadJobSourceType.STREAMING_JOB);
         this.scannedRows = pb.getScannedRows();
         this.loadBytes = pb.getLoadBytes();
-        this.fileNumber = pb.getFileNumber();
-        this.fileSize = pb.getFileSize();
+        this.numFiles = pb.getNumFiles();
+        this.fileBytes = pb.getFileBytes();
         this.offset = pb.getOffset();
     }
 
@@ -59,10 +59,10 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
     private long loadBytes;
     @SerializedName(value = "fn")
     @Getter
-    private long fileNumber;
+    private long numFiles;
     @SerializedName(value = "fs")
     @Getter
-    private long fileSize;
+    private long fileBytes;
     @SerializedName(value = "of")
     @Getter
     private String offset;
@@ -72,8 +72,8 @@ public class StreamingTaskTxnCommitAttachment extends TxnCommitAttachment {
         return "StreamingTaskTxnCommitAttachment: ["
                 + "scannedRows=" + scannedRows
                 + ", loadBytes=" + loadBytes
-                + ", fileNumber=" + fileNumber
-                + ", fileSize=" + fileSize
+                + ", numFiles=" + numFiles
+                + ", fileBytes=" + fileBytes
                 + ", offset=" + offset
                 + "]";
     }

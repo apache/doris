@@ -4990,4 +4990,179 @@ TEST(MetaServiceJobTest, IdempotentCompactionJob) {
     }
 }
 
+TEST(MetaServiceJobTest, UpdateStreamingJobMetaTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // Test case 1: First time update (job doesn't exist)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_txn_id(12345);
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001);
+        streaming_attach->set_task_id(2001);
+        streaming_attach->set_offset("test_offset_1");
+        streaming_attach->set_scanned_rows(1000);
+        streaming_attach->set_load_bytes(5000);
+        streaming_attach->set_num_files(10);
+        streaming_attach->set_file_bytes(8000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 2: Update existing job (accumulate values)
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_txn_id(12346);
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1001); // Same job_id as before
+        streaming_attach->set_task_id(2002);
+        streaming_attach->set_offset("test_offset_2");
+        streaming_attach->set_scanned_rows(500);
+        streaming_attach->set_load_bytes(2000);
+        streaming_attach->set_num_files(5);
+        streaming_attach->set_file_bytes(3000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 3: Missing commit attachment
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_txn_id(12347);
+        // No commit attachment set
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("missing commit attachment") != std::string::npos);
+    }
+}
+
+TEST(MetaServiceJobTest, GetStreamingTaskCommitAttachTest) {
+    auto meta_service = get_meta_service();
+    ASSERT_NE(meta_service, nullptr);
+
+    // First, create a streaming job by committing a txn
+    {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_txn_id(12348);
+
+        TxnCommitAttachmentPB* attachment = request.mutable_commit_attachment();
+        attachment->set_type(TxnCommitAttachmentPB::STREAMING_TASK_TXN_COMMIT_ATTACHMENT);
+
+        StreamingTaskCommitAttachmentPB* streaming_attach =
+                attachment->mutable_streaming_task_txn_commit_attachment();
+        streaming_attach->set_job_id(1002);
+        streaming_attach->set_task_id(3001);
+        streaming_attach->set_offset("test_offset_3");
+        streaming_attach->set_scanned_rows(2000);
+        streaming_attach->set_load_bytes(10000);
+        streaming_attach->set_num_files(20);
+        streaming_attach->set_file_bytes(15000);
+
+        CommitTxnResponse response;
+        brpc::Controller cntl;
+        meta_service->commit_txn(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 1: Get existing streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000); // Assuming db_id from the commit
+        request.set_job_id(1002);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.has_commit_attach());
+        EXPECT_EQ(response.commit_attach().job_id(), 1002);
+        EXPECT_EQ(response.commit_attach().scanned_rows(), 2000);
+        EXPECT_EQ(response.commit_attach().load_bytes(), 10000);
+        EXPECT_EQ(response.commit_attach().num_files(), 20);
+        EXPECT_EQ(response.commit_attach().file_bytes(), 15000);
+    }
+
+    // Test case 2: Get non-existent streaming job
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(1000);
+        request.set_job_id(9999); // Non-existent job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND);
+        EXPECT_TRUE(response.status().msg().find("progress info not found") != std::string::npos);
+    }
+
+    // Test case 3: Missing required fields
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        // Missing db_id and job_id
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty db_id or job_id") != std::string::npos);
+    }
+
+    // Test case 4: Invalid cloud_unique_id
+    {
+        GetStreamingTaskCommitAttachRequest request;
+        request.set_cloud_unique_id("invalid_cloud_unique_id");
+        request.set_db_id(1000);
+        request.set_job_id(1002);
+
+        GetStreamingTaskCommitAttachResponse response;
+        brpc::Controller cntl;
+        meta_service->get_streaming_task_commit_attach(&cntl, &request, &response, nullptr);
+
+        EXPECT_FALSE(cntl.Failed()) << "Error: " << cntl.ErrorText();
+        EXPECT_EQ(response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_TRUE(response.status().msg().find("empty instance_id") != std::string::npos);
+    }
+}
+
 } // namespace doris::cloud
