@@ -143,7 +143,8 @@ TEST_F(FileCacheActionTest, check_consistency_not_found) {
 
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(status.to_string(),
-              "[INVALID_ARGUMENT]file cache not found for base_path: /tmp/file_cache_action_ut_not_exist");
+              "[INVALID_ARGUMENT]file cache not found for base_path: "
+              "/tmp/file_cache_action_ut_not_exist");
 }
 
 TEST_F(FileCacheActionTest, check_consistency_ok) {
