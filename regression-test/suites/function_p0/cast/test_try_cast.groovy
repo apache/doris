@@ -36,11 +36,17 @@ suite("test_try_cast") {
     """ 
 
 
-    qt_ssql """
+    qt_sql """
         select id, str, try_cast(str as int)  , try_cast(not_null_str as int) from test_try_cast order by id;
     """
 
 
+    qt_sql """
+        select try_cast('abc' as int);
+    """
 
 
+    qt_sql """
+        select try_cast('123' as int);
+    """
 }
