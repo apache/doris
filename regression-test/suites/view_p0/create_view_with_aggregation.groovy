@@ -78,7 +78,7 @@ suite("create_view_with_aggregation") {
         INSERT INTO `test_tbl_src_02` VALUES ('2025-03-01 10:04:25','ABC123','1234567',1.0000,'Doris001','2025-03-01');
         """
     sql """
-        drop view test_date_error;
+        drop view if exists test_date_error;
         """
     sql """
         CREATE VIEW test_date_error

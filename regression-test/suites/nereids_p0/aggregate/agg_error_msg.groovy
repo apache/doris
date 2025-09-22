@@ -45,6 +45,6 @@ suite("agg_error_msg") {
     """
     test {
         sql """SELECT col_int_undef_signed2   col_alias1, col_int_undef_signed  *  (SELECT  MAX (col_int_undef_signed) FROM table_20_undef_partitions2_keys3_properties4_distributed_by58 where table_20_undef_partitions2_keys3_properties4_distributed_by53.pk = pk)  AS col_alias2 FROM table_20_undef_partitions2_keys3_properties4_distributed_by53  GROUP BY  GROUPING SETS ((col_int_undef_signed2),())  ;"""
-        exception "pk, col_int_undef_signed not in aggregate's output";
+        exception "Input slot(s) not in child's output: col_int_undef_signed#1 in plan";
     }
 }
