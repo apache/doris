@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.analyzer.Unbound;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /** MultiDistinctCount */
@@ -53,11 +55,14 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
     }
 
     private MultiDistinctCount(boolean distinct, List<Expression> children) {
-        super("multi_distinct_count", false, children
+        super("multi_distinct_count", false, new LinkedHashSet<>(children)
                 .stream()
                 .map(arg -> !(arg instanceof Unbound) && arg.getDataType() instanceof DateLikeType
                         ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(ImmutableList.toImmutableList()));
+        if (super.children().size() > 1) {
+            throw new AnalysisException("MultiDistinctCount's children size must be 1");
+        }
     }
 
     /** constructor for withChildren and reuse signature */
@@ -67,7 +72,7 @@ public class MultiDistinctCount extends NotNullableAggregateFunction
 
     @Override
     public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(!children.isEmpty());
+        Preconditions.checkArgument(children.size() == 1, "MultiDistinctCount's children size must be 1");
         return new MultiDistinctCount(getFunctionParams(false, children));
     }
 

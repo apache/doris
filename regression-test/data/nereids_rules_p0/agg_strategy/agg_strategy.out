@@ -916,3 +916,6 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[t_gbykey_10_dstkey_10_1000_id]
 
+-- !multi_distinct_count_2_same_args --
+10
+

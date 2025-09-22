@@ -154,4 +154,12 @@ suite("agg_strategy") {
     explain shape plan
     select multi_distinct_group_concat(dst_key1 order by dst_key2), count(distinct dst_key1,dst_key2) from t_gbykey_10_dstkey_10_1000_id;
     """
+
+    // multi_distinct_count only accept one arg
+    test {
+        sql "select multi_distinct_count(dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;"
+        exception "multi_distinct_count(dst_key1, dst_key2), MultiDistinctCount's children size must be 1"
+    }
+    // multi_distinct_count only accept 2 same args
+    qt_multi_distinct_count_2_same_args "select multi_distinct_count(dst_key2,dst_key2) from t_gbykey_2_dstkey_10_30_id;"
 }
