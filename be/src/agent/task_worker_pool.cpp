@@ -1093,7 +1093,8 @@ void report_task_callback(const ClusterInfo* cluster_info) {
         }
     }
     request.__set_backend(BackendOptions::get_local_backend());
-    request.__set_running_fragments(ExecEnv::GetInstance()->fragment_mgr()->running_fragments_num());
+    request.__set_running_fragments(
+            ExecEnv::GetInstance()->fragment_mgr()->running_fragments_num());
     bool succ = handle_report(request, cluster_info, "task");
     report_task_total << 1;
     if (!succ) [[unlikely]] {
