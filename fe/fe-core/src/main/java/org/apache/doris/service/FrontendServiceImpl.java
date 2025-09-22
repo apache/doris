@@ -2871,13 +2871,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
                 List<Backend> backends;
                 if (Config.isCloudMode()) {
-                    if (request.isSetWarmUpJobId()) {
-                        CloudReplica cloudReplica = (CloudReplica) replica;
-                        Backend primaryBackend = cloudReplica.getPrimaryBackend(clusterId);
-                        backends = Lists.newArrayList(primaryBackend);
-                    } else {
-                        CloudReplica cloudReplica = (CloudReplica) replica;
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    if (!request.isSetWarmUpJobId()) {
                         backends = cloudReplica.getAllPrimaryBes();
+                    } else {
+                        // On the cloud, the PrimaryBackend of a tablet
+                        // indicates the BE where the tablet is stably located,
+                        // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
+                        // is temporarily unavailable. Once the PrimaryBackend recovers,
+                        // the system will switch back to using it. During the preheating phase,
+                        // data needs to be synchronized downstream, which requires a stable BE,
+                        // so the PrimaryBackend is used in this case.
+                        Backend backend = cloudReplica.getPrimaryBackend(clusterId, true);
+                        backends = Lists.newArrayList(backend);
                     }
                 } else {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
