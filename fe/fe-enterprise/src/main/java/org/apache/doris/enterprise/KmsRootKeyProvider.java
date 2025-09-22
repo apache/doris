@@ -30,6 +30,11 @@ class KmsRootKeyProvider implements RootKeyProvider {
 
     }
 
+    @Override
+    public byte[] encrypt(byte[] plaintext) {
+        return new byte[0];
+    }
+
     public byte[] decrypt(byte[] ciphertext) {
         return null;
     }

@@ -25,6 +25,7 @@
 #include <openssl/rand.h>
 
 #include <memory>
+#include <stop_token>
 
 #include "common/status.h"
 #include "gen_cpp/FrontendService.h"
@@ -52,6 +53,18 @@ bool fromThrift(const TEncryptionKey& tk, std::shared_ptr<EncryptionKeyPB> ek) {
            ek->has_crc32() && ek->has_ctime() && ek->has_mtime();
 }
 
+KeyCache::KeyCache()
+        : _worker([this](std::stop_token token) { scheduled_update_master_keys(token); }) {}
+
+void KeyCache::scheduled_update_master_keys(std::stop_token token) {
+    while (!token.stop_requested()) {
+        std::this_thread::sleep_for(std::chrono::seconds(20));
+        if (!token.stop_requested()) {
+            refresh_all_master_keys();
+        }
+    }
+}
+
 std::shared_ptr<EncryptionKeyPB> KeyCache::get_master_key(std::string key_id, int version,
                                                           EncryptionAlgorithmPB algorithm) {
     {
@@ -71,7 +84,7 @@ std::shared_ptr<EncryptionKeyPB> KeyCache::get_master_key(std::string key_id, in
         }
     }
 
-    refresh_all_data_keys();
+    refresh_all_master_keys();
 
     {
         std::shared_lock lock(_mutex);
@@ -111,7 +124,7 @@ std::shared_ptr<EncryptionKeyPB> KeyCache::get_latest_master_key(EncryptionAlgor
         }
     }
 
-    refresh_all_data_keys();
+    refresh_all_master_keys();
 
     {
         std::shared_lock lock(_mutex);
@@ -353,7 +366,7 @@ Status KeyCache::get_master_keys() {
     return Status::OK();
 }
 
-void KeyCache::refresh_all_data_keys() {
+void KeyCache::refresh_all_master_keys() {
     Status st = get_master_keys();
     if (!st.ok()) {
         return;

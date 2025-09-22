@@ -23,7 +23,9 @@
 #include <map>
 #include <memory>
 #include <shared_mutex>
+#include <stop_token>
 #include <string>
+#include <thread>
 
 #include "common/status.h"
 
@@ -34,13 +36,17 @@ enum class EncryptionKeyType { MASTER_KEY = 0, DATA_KEY = 1 };
 
 class KeyCache {
 public:
+    KeyCache();
+
     std::shared_ptr<EncryptionKeyPB> generate_data_key(EncryptionAlgorithmPB algorithm);
     Status decrypt_data_key(std::shared_ptr<EncryptionKeyPB>& data_key_cipher);
 
-    void refresh_all_data_keys();
+    void refresh_all_master_keys();
     Status get_master_keys();
 
 private:
+    void scheduled_update_master_keys(std::stop_token token);
+
     std::shared_ptr<EncryptionKeyPB> get_master_key(std::string key_id, int version,
                                                     EncryptionAlgorithmPB algorithm);
     std::shared_ptr<EncryptionKeyPB> get_latest_master_key(EncryptionAlgorithmPB algorithm);
@@ -48,6 +54,7 @@ private:
     std::map<int, std::shared_ptr<EncryptionKeyPB>> _aes256_master_keys;
     std::map<int, std::shared_ptr<EncryptionKeyPB>> _sm4_master_keys;
     mutable std::shared_mutex _mutex;
+    std::jthread _worker;
 };
 
 } // namespace doris

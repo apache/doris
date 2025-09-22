@@ -20,15 +20,35 @@ package org.apache.doris.enterprise;
 import org.apache.doris.encryption.DataKeyMaterial;
 import org.apache.doris.encryption.RootKeyInfo;
 
-public interface RootKeyProvider {
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 
-    void init(RootKeyInfo info);
+public class MockedRootKeyProvider implements RootKeyProvider {
+    AtomicInteger counter = new AtomicInteger(1);
 
-    void describeKey();
+    @Override
+    public void init(RootKeyInfo info) {
 
-    byte[] encrypt(byte[] plaintext);
+    }
 
-    byte[] decrypt(byte[] ciphertext);
+    @Override
+    public void describeKey() {
 
-    DataKeyMaterial generateSymmetricDataKey(int length);
+    }
+
+    @Override
+    public byte[] encrypt(byte[] plaintext) {
+        int n = counter.getAndIncrement();
+        return (new String(plaintext, StandardCharsets.UTF_8) + "_enc_" + n).getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public byte[] decrypt(byte[] ciphertext) {
+        return new byte[0];
+    }
+
+    @Override
+    public DataKeyMaterial generateSymmetricDataKey(int length) {
+        return new DataKeyMaterial("1".getBytes(StandardCharsets.UTF_8), encrypt("1".getBytes(StandardCharsets.UTF_8)));
+    }
 }

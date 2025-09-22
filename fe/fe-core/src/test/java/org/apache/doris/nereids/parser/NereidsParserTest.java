@@ -844,4 +844,21 @@ public class NereidsParserTest extends ParserTestBase {
                 .assertThrowsExactly(ParseException.class)
                 .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
     }
+
+    @Test
+    public void testAdminRotateTdeRootKey() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "admin rotate tde root key";
+        nereidsParser.parseSingle(sql);
+
+        sql = "admin rotate tde root key properties(\"k\" = \"v\")";
+        nereidsParser.parseSingle(sql);
+
+        sql = "admin rotate tde root key properties(\"k0\" = \"v0\", \"k1\" = \"v1\")";
+        nereidsParser.parseSingle(sql);
+
+        parsePlan("admin rotate tde root key properties()")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input ')' expecting");
+    }
 }

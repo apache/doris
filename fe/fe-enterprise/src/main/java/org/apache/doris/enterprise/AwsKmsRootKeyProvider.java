@@ -35,6 +35,8 @@ import software.amazon.awssdk.services.kms.model.DecryptRequest;
 import software.amazon.awssdk.services.kms.model.DecryptResponse;
 import software.amazon.awssdk.services.kms.model.DescribeKeyRequest;
 import software.amazon.awssdk.services.kms.model.DescribeKeyResponse;
+import software.amazon.awssdk.services.kms.model.EncryptRequest;
+import software.amazon.awssdk.services.kms.model.EncryptResponse;
 import software.amazon.awssdk.services.kms.model.GenerateDataKeyRequest;
 import software.amazon.awssdk.services.kms.model.GenerateDataKeyResponse;
 import software.amazon.awssdk.services.kms.model.KeyMetadata;
@@ -55,14 +57,15 @@ public class AwsKmsRootKeyProvider extends KmsRootKeyProvider {
         LOG.info("init aws kms client, get ak {} system env", ak);
         if (!Strings.isNullOrEmpty(ak) && !Strings.isNullOrEmpty(sk)) {
             credProvider = StaticCredentialsProvider.create(
-                AwsBasicCredentials.create(ak, sk)
+                    AwsBasicCredentials.create(ak, sk)
             );
         } else {
             credProvider = InstanceProfileCredentialsProvider.create();
         }
 
+        KmsClient client;
         try {
-            kms = KmsClient.builder()
+            client = KmsClient.builder()
                     .region(Region.of(info.region))
                     .endpointOverride(URI.create(info.endpoint))
                     .credentialsProvider(credProvider)
@@ -71,18 +74,45 @@ public class AwsKmsRootKeyProvider extends KmsRootKeyProvider {
             LOG.error("failed to init KMS client: {}", e.getMessage(), e);
             throw new RuntimeException("init KMS client failed", e);
         }
+        describeKey(info, client);
 
-        this.rootKeyInfo = info;
+        if (kms != null) {
+            kms.close();
+        }
+        kms = client;
+        rootKeyInfo = info;
+    }
+
+    public byte[] encrypt(byte[] plaintext) {
+        try {
+            EncryptRequest request = EncryptRequest.builder()
+                    .keyId(rootKeyInfo.cmkId)
+                    .plaintext(SdkBytes.fromByteArray(plaintext))
+                    .build();
+            EncryptResponse response = kms.encrypt(request);
+            SdkBytes sdkBytes = response.ciphertextBlob();
+            return sdkBytes.asByteArray();
+        } catch (KmsException kmsEx) {
+            LOG.error("KMS exception in describeKey: {}", kmsEx.getMessage(), kmsEx);
+            throw new RuntimeException("describeKey failed", kmsEx);
+        } catch (Exception e) {
+            LOG.error("Unexpected error in describeKey: {}", e.getMessage(), e);
+            throw new RuntimeException("describeKey failed", e);
+        }
     }
 
     public void describeKey() {
+        describeKey(rootKeyInfo, kms);
+    }
+
+    private void describeKey(RootKeyInfo info, KmsClient client) {
         try {
             DescribeKeyRequest req = DescribeKeyRequest.builder()
-                    .keyId(rootKeyInfo.cmkId).build();
-            DescribeKeyResponse resp = kms.describeKey(req);
+                    .keyId(info.cmkId).build();
+            DescribeKeyResponse resp = client.describeKey(req);
             KeyMetadata meta = resp.keyMetadata();
             LOG.info("DescribeKey succeeded for keyId {}: state={}, creationDate={}",
-                    rootKeyInfo.cmkId, meta.keyState(), meta.creationDate());
+                    info.cmkId, meta.keyState(), meta.creationDate());
         } catch (KmsException kmsEx) {
             LOG.error("KMS exception in describeKey: {}", kmsEx.getMessage(), kmsEx);
             throw new RuntimeException("describeKey failed", kmsEx);

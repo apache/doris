@@ -57,6 +57,11 @@ public class LocalRootKeyProvider implements RootKeyProvider {
     }
 
     @Override
+    public byte[] encrypt(byte[] plaintext) {
+        return new byte[0];
+    }
+
+    @Override
     public byte[] decrypt(byte[] ciphertext) {
         try {
             byte[] iv = new byte[IV_SIZE];

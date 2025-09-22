@@ -30,9 +30,24 @@
         </dependency>
     </dependencies>
 
-    <properties>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
-    </properties>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-->set larger, eg, 3, to reduce the time or running FE unit tests<-->
+                    <forkCount>3</forkCount>
+                    <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton conflict<-->
+                    <reuseForks>false</reuseForks>
+                    <useFile>false</useFile>
+                    <argLine>
+                        -Xmx512m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                    </argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 
 </project>

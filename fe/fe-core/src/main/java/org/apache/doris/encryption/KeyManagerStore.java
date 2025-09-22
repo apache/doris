@@ -41,21 +41,21 @@ public class KeyManagerStore implements Writable {
     @SerializedName(value = "masterKeys")
     private final List<EncryptionKey> masterKeys = new ArrayList<>();
 
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private void readLock() {
+    public void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    public void readUnlock() {
         lock.readLock().unlock();
     }
 
-    private void writeLock() {
+    public void writeLock() {
         lock.writeLock().lock();
     }
 
-    private void writeUnlock() {
+    public void writeUnlock() {
         lock.writeLock().unlock();
     }
 
@@ -63,6 +63,15 @@ public class KeyManagerStore implements Writable {
         writeLock();
         try {
             masterKeys.add(masterKey);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void clearMasterKeys() {
+        writeLock();
+        try {
+            masterKeys.clear();
         } finally {
             writeUnlock();
         }
