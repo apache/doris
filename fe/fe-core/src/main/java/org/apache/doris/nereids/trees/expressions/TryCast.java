@@ -52,6 +52,11 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
         return visitor.visitTryCast(this, context);
     }
 
+    @Override
+    public boolean nullable() {
+        return true;
+    }
+
     public boolean parentNullable() {
         return super.nullable();
     }
