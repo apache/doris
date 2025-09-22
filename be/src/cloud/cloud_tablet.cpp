@@ -297,10 +297,11 @@ Status CloudTablet::capture_rs_readers_with_freshness_tolerance(
         return ret;
     };
     // use std::views::concat after C++26
-    bool should_fallback = std::ranges::any_of(_tablet_meta->all_rs_metas(),
-                                               should_be_visible_but_not_warmed_up) ||
-                           std::ranges::any_of(_tablet_meta->all_stale_rs_metas(),
-                                               should_be_visible_but_not_warmed_up);
+    bool should_fallback =
+            std::ranges::any_of(std::views::values(_tablet_meta->all_rs_metas()),
+                                should_be_visible_but_not_warmed_up) ||
+            std::ranges::any_of(std::views::values(_tablet_meta->all_stale_rs_metas()),
+                                should_be_visible_but_not_warmed_up);
     if (should_fallback) {
         rlock.unlock();
         g_capture_with_freshness_tolerance_fallback_count << 1;

@@ -2034,7 +2034,7 @@ Status CloudMetaMgr::fill_version_holes(CloudTablet* tablet, int64_t max_version
     }
 
     Versions existing_versions;
-    for (const auto& rs : tablet->tablet_meta()->all_rs_metas()) {
+    for (const auto& [_, rs] : tablet->tablet_meta()->all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
 
