@@ -154,4 +154,29 @@ suite("test_math_function") {
     testFoldConst""" select tanh(cast('nan' as double)), tanh(cast('inf' as double)), tanh(cast('-inf' as double)) """
     qt_select_tanh""" select tanh(cast('nan' as double)), tanh(cast('inf' as double)), tanh(cast('-inf' as double)) """
 
+    testFoldConst""" select ln(cast('nan' as double)), ln(cast('inf' as double)), ln(cast('-inf' as double)) """
+    qt_select_ln""" select ln(cast('nan' as double)), ln(cast('inf' as double)), ln(cast('-inf' as double)) """
+
+
+    testFoldConst"""     select log(cast('nan' as double) , 2), log(cast('inf' as double) , 2), log(cast('-inf' as double) ,2 ); """
+    qt_select_log"""     select log(cast('nan' as double) , 2), log(cast('inf' as double) , 2), log(cast('-inf' as double) ,2 ); """
+
+    testFoldConst"""     select log(2 ,cast('nan' as double)), log(2 , cast('inf' as double)), log( 2, cast('-inf' as double)); """
+    qt_select_log"""     select log(2 ,cast('nan' as double)), log(2 , cast('inf' as double)), log( 2, cast('-inf' as double)); """
+
+
+    testFoldConst""" select log2(cast('nan' as double)), log2(cast('inf' as double)), log2(cast('-inf' as double)) """
+    qt_select_log2""" select log2(cast('nan' as double)), log2(cast('inf' as double)), log2(cast('-inf' as double)) """
+
+    testFoldConst""" select log10(cast('nan' as double)), log10(cast('inf' as double)), log10(cast('-inf' as double)) """
+    qt_select_log10""" select log10(cast('nan' as double)), log10(cast('inf' as double)), log10(cast('-inf' as double)) """
+
+
+    testFoldConst"""select sign(cast('+0.0' as double)) , sign(cast('-0.0' as double));"""
+    qt_select_sign"""select sign(cast('+0.0' as double)) , sign(cast('-0.0' as double));"""
+
+
+    testFoldConst"""select signbit(cast('+0.0' as double)) , signbit(cast('-0.0' as double));"""
+    qt_select_sign"""select signbit(cast('+0.0' as double)) , signbit(cast('-0.0' as double));"""
+
 }
