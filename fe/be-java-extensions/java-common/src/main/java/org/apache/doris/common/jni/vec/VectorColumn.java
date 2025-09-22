@@ -1500,6 +1500,11 @@ public class VectorColumn {
         }
         long[] addrs = allocCount == 0 ? new long[0]
                 : OffHeap.allocateMemoryBatch(java.util.Arrays.copyOf(sizes, allocCount));
+        if (allocCount != 0) {
+            if (addrs == null) {
+                throw new OutOfMemoryError("allocateMemoryBatch returned null");
+            }
+        }
         int cursor = 0;
         for (int i = 0; i < rows; i++) {
             byte[] v = batch[i];

@@ -17,8 +17,9 @@
 
 #include "jni_native_method.h"
 
-#include <stdlib.h>
+#include <glog/logging.h>
 
+#include <cstdlib>
 #include <vector>
 
 #include "jni.h"
@@ -34,36 +35,40 @@ void JavaNativeMethods::memoryFree(JNIEnv* env, jclass clazz, jlong address) {
 }
 
 jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintArray sizes) {
-    if (sizes == nullptr) {
-        return env->NewLongArray(0);
-    }
+    DCHECK(sizes != nullptr);
     jsize n = env->GetArrayLength(sizes);
-    if (n <= 0) {
-        return env->NewLongArray(0);
-    }
+    DCHECK(n > 0);
 
     jint* elems = env->GetIntArrayElements(sizes, nullptr);
     if (elems == nullptr) {
         return nullptr;
     }
+    struct IntArrayReleaseGuard {
+        JNIEnv* env;
+        jintArray arr;
+        jint* ptr;
+        IntArrayReleaseGuard(JNIEnv* e, jintArray a, jint* p) : env(e), arr(a), ptr(p) {}
+        ~IntArrayReleaseGuard() {
+            if (ptr != nullptr) {
+                env->ReleaseIntArrayElements(arr, ptr, JNI_ABORT);
+            }
+        }
+    };
+    IntArrayReleaseGuard elems_guard(env, sizes, elems);
 
     jlongArray result = env->NewLongArray(n);
     if (result == nullptr) {
-        env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
         return nullptr;
     }
 
     std::vector<void*> allocated;
     allocated.reserve(n);
 
+    // sizes are validated on Java side: n > 0 and each size > 0
     bool failed = false;
     for (jsize i = 0; i < n; ++i) {
-        jint sz = elems[i];
-        if (sz <= 0) {
-            allocated.push_back(nullptr);
-            continue;
-        }
-        void* p = malloc(static_cast<size_t>(sz));
+        auto sz = static_cast<size_t>(elems[i]);
+        void* p = malloc(sz);
         if (p == nullptr) {
             failed = true;
             break;
@@ -77,7 +82,6 @@ jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintA
                 free(p);
             }
         }
-        env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
         return nullptr;
     }
 
@@ -86,7 +90,6 @@ jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintA
         addrs[i] = reinterpret_cast<jlong>(allocated[i]);
     }
     env->SetLongArrayRegion(result, 0, n, addrs.data());
-    env->ReleaseIntArrayElements(sizes, elems, JNI_ABORT);
     return result;
 }
 
