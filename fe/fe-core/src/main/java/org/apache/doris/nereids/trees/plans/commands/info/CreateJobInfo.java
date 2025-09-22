@@ -283,8 +283,8 @@ public class CreateJobInfo {
                 throw new AnalysisException(e.getMessage());
             }
         } else {
-            throw new AnalysisException("Not support this sql : " + sql + " Command class is "
-                    + logicalPlan.getClass().getName() + ".");
+            throw new AnalysisException("Only " + logicalPlan.getClass().getName()
+                    + " is supported to use with streaming job together");
         }
     }
 

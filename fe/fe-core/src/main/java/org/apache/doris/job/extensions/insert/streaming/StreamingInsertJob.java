@@ -46,7 +46,6 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.persist.AlterStreamingJobOperationLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -253,12 +252,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offsetProvider.hasMoreDataToConsume();
     }
 
-    @Override
-    public void logUpdateOperation() {
-        AlterStreamingJobOperationLog log =
-                new AlterStreamingJobOperationLog(this.getJobId(), this.getJobStatus(), properties, getExecuteSql());
-        Env.getCurrentEnv().getEditLog().logUpdateStreamingJob(log);
-    }
 
     @Override
     public void onTaskFail(StreamingJobSchedulerTask task) throws JobException {
@@ -321,13 +314,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         super.onReplayCreate();
     }
 
-    @Override
-    public void onReplayUpdateStreaming(AlterStreamingJobOperationLog operationLog) {
-        super.onReplayUpdateStreaming(operationLog);
-        setJobStatus(operationLog.getStatus());
-        this.properties = operationLog.getJobProperties();
+    /**
+     * Because the offset statistics of the streamingInsertJob are all stored in txn,
+     * only some fields are replayed here.
+     * @param replayJob
+     */
+    public void replayOnUpdated(StreamingInsertJob replayJob) {
+        setJobStatus(replayJob.getJobStatus());
+        this.properties = replayJob.getProperties();
         this.jobProperties = new StreamingJobProperties(properties);
-        setExecuteSql(operationLog.getExecuteSql());
+        setExecuteSql(replayJob.getExecuteSql());
     }
 
     @Override
@@ -358,14 +354,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(properties != null
                 ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
 
-        if (offsetProvider != null && offsetProvider.getSyncOffset() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getSyncOffset()));
+        if (offsetProvider != null && offsetProvider.getConsumedOffset() != null) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getConsumedOffset()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
 
-        if (offsetProvider != null && offsetProvider.getRemoteOffset() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getRemoteOffset()));
+        if (offsetProvider != null && offsetProvider.getMaxOffset() != null) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getMaxOffset()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }

@@ -32,44 +32,45 @@ import java.util.Map;
 @Data
 public class StreamingJobProperties implements JobProperties {
     public static final String MAX_INTERVAL_SECOND_PROPERTY = "max_interval";
-    public static final String S3_BATCH_FILES_PROPERTY = "s3.batch_files";
-    public static final String S3_BATCH_SIZE_PROPERTY = "s3.batch_size";
+    public static final String S3_MAX_BATCH_FILES_PROPERTY = "s3.max_batch_files";
+    public static final String S3_MAX_BATCH_BYTES_PROPERTY = "s3.max_batch_bytes";
     public static final String SESSION_VAR_PREFIX = "session.";
 
     public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
-    public static final long DEFAULT_S3_BATCH_FILES = 256;
-    public static final long DEFAULT_S3_BATCH_SIZE = 10 * 1024 * 1024 * 1024L; // 10GB
+    public static final long DEFAULT_MAX_S3_BATCH_FILES = 256;
+    public static final long DEFAULT_MAX_S3_BATCH_BYTES = 10 * 1024 * 1024 * 1024L; // 10GB
     public static final int DEFAULT_INSERT_TIMEOUT = 30 * 60; // 30min
 
     private final Map<String, String> properties;
     private long maxIntervalSecond;
     private long s3BatchFiles;
-    private long s3BatchSize;
+    private long s3BatchBytes;
 
     public StreamingJobProperties(Map<String, String> jobProperties) {
         this.properties = jobProperties;
         if (properties.isEmpty()) {
             this.maxIntervalSecond = DEFAULT_MAX_INTERVAL_SECOND;
-            this.s3BatchFiles = DEFAULT_S3_BATCH_FILES;
-            this.s3BatchSize = DEFAULT_S3_BATCH_SIZE;
+            this.s3BatchFiles = DEFAULT_MAX_S3_BATCH_FILES;
+            this.s3BatchBytes = DEFAULT_MAX_S3_BATCH_BYTES;
         }
     }
 
     public void validate() throws AnalysisException {
         this.maxIntervalSecond = Util.getLongPropertyOrDefault(
-                properties.get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY),
-                StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND, (v) -> v >= 1,
+                        properties.get(StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY),
+                        StreamingJobProperties.DEFAULT_MAX_INTERVAL_SECOND, (v) -> v >= 1,
                 StreamingJobProperties.MAX_INTERVAL_SECOND_PROPERTY + " should > 1");
 
         this.s3BatchFiles = Util.getLongPropertyOrDefault(
-                properties.get(StreamingJobProperties.S3_BATCH_FILES_PROPERTY),
-                StreamingJobProperties.DEFAULT_S3_BATCH_FILES, (v) -> v >= 1,
-                StreamingJobProperties.S3_BATCH_FILES_PROPERTY + " should >=1 ");
+                        properties.get(StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY),
+                        StreamingJobProperties.DEFAULT_MAX_S3_BATCH_FILES, (v) -> v >= 1,
+                StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY + " should >=1 ");
 
-        this.s3BatchSize = Util.getLongPropertyOrDefault(properties.get(StreamingJobProperties.S3_BATCH_SIZE_PROPERTY),
-                StreamingJobProperties.DEFAULT_S3_BATCH_SIZE, (v) -> v >= 100 * 1024 * 1024
+        this.s3BatchBytes = Util.getLongPropertyOrDefault(
+                        properties.get(StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY),
+                        StreamingJobProperties.DEFAULT_MAX_S3_BATCH_BYTES, (v) -> v >= 100 * 1024 * 1024
                         && v <= (long) (1024 * 1024 * 1024) * 10,
-                StreamingJobProperties.S3_BATCH_SIZE_PROPERTY + " should between 100MB and 10GB");
+                StreamingJobProperties.S3_MAX_BATCH_BYTES_PROPERTY + " should between 100MB and 10GB");
     }
 
     public SessionVariable getSessionVariable() throws JobException {

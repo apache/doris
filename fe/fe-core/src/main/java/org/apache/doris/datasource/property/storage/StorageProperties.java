@@ -146,60 +146,15 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @throws RuntimeException if no supported storage type is found
      */
     public static StorageProperties createPrimary(Map<String, String> origProps) {
-        StorageProperties p = createPrimaryInternal(origProps);
-        if (p == null) {
-            for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
-                p = func.apply(origProps);
-                if (p != null) {
-                    break;
-                }
+        for (Function<Map<String, String>, StorageProperties> func : PROVIDERS) {
+            StorageProperties p = func.apply(origProps);
+            if (p != null) {
+                p.initNormalizeAndCheckProps();
+                p.initializeHadoopStorageConfig();
+                return p;
             }
-        }
-        if (p != null) {
-            p.initNormalizeAndCheckProps();
-            p.initializeHadoopStorageConfig();
-            return p;
         }
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
-    }
-
-    private static StorageProperties createPrimaryInternal(Map<String, String> origProps) {
-        String provider = origProps.get(FS_PROVIDER_KEY);
-        if (provider == null) {
-            return null;
-        }
-
-        try {
-            Type type = Type.valueOf(provider.trim().toUpperCase());
-            switch (type) {
-                case HDFS:
-                    return new HdfsProperties(origProps);
-                case OSS_HDFS:
-                    return new OSSHdfsProperties(origProps);
-                case S3:
-                    return new S3Properties(origProps);
-                case OSS:
-                    return new OSSProperties(origProps);
-                case OBS:
-                    return new OBSProperties(origProps);
-                case COS:
-                    return new COSProperties(origProps);
-                case GCS:
-                    return new GCSProperties(origProps);
-                case AZURE:
-                    return new AzureProperties(origProps);
-                case MINIO:
-                    return new MinioProperties(origProps);
-                case BROKER:
-                    return new BrokerProperties(origProps);
-                case LOCAL:
-                    return new LocalProperties(origProps);
-                default:
-                    return null;
-            }
-        } catch (Exception e) {
-            return null;
-        }
     }
 
     private static final List<Function<Map<String, String>, StorageProperties>> PROVIDERS =

@@ -36,8 +36,6 @@ public class RemoteFile {
     private long modificationTime;
     private Path path;
     BlockLocation[] blockLocations;
-    private String parentPath;
-    private String bucket;
 
     public RemoteFile(String name, boolean isFile, long size, long blockSize) {
         this(name, null, isFile, !isFile, size, blockSize, 0, null);
@@ -75,22 +73,6 @@ public class RemoteFile {
 
     public void setPath(Path path) {
         this.path = path;
-    }
-
-    public String getBucket() {
-        return bucket;
-    }
-
-    public void setBucket(String bucket) {
-        this.bucket = bucket;
-    }
-
-    public String getParentPath() {
-        return parentPath;
-    }
-
-    public void setParentPath(String parentPath) {
-        this.parentPath = parentPath;
     }
 
     public boolean isFile() {

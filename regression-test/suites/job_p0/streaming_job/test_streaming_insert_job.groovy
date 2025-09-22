@@ -46,7 +46,7 @@ suite("test_streaming_insert_job") {
     sql """
        CREATE JOB ${jobName}  
        PROPERTIES(
-        "s3.batch_files" = "1"
+        "s3.max_batch_files" = "1"
        )
        ON STREAMING DO INSERT INTO ${tableName} 
        SELECT * FROM S3
@@ -104,9 +104,9 @@ suite("test_streaming_insert_job") {
 
     // alter streaming job
     sql """
-       ALTER JOB FOR ${jobName}
+       ALTER JOB ${jobName}
        PROPERTIES(
-        "session.insert_max_filter_ratio" = "0.5"
+        "session.insert_max_filter_ratio" = 0.5
        )
        INSERT INTO ${tableName}
        SELECT * FROM S3
@@ -126,7 +126,7 @@ suite("test_streaming_insert_job") {
         select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert alterJobProperties.get(0).get(0) == "PAUSED"
-    assert alterJobProperties.get(0).get(1) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+    assert alterJobProperties.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
     assert alterJobProperties.get(0).get(2) == "regression/load/data/example_1.csv"
 
     sql """
@@ -136,7 +136,7 @@ suite("test_streaming_insert_job") {
         select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
-    assert resumeJobStatus.get(0).get(1) == "{\"s3.batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
+    assert resumeJobStatus.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
     assert resumeJobStatus.get(0).get(2) == "regression/load/data/example_1.csv"
 
     Awaitility.await().atMost(60, SECONDS)

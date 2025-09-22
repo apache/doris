@@ -862,11 +862,6 @@ public class EditLog {
                     Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
                     break;
                 }
-                case OperationType.OP_UPDATE_STREAMING_JOB: {
-                    AlterStreamingJobOperationLog log = (AlterStreamingJobOperationLog) journal.getData();
-                    Env.getCurrentEnv().getJobManager().replayUpdateStreamingJob(log);
-                    break;
-                }
                 /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayCreateTask(task);
@@ -2041,10 +2036,6 @@ public class EditLog {
 
     public void logUpdateJob(AbstractJob job) {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
-    }
-
-    public void logUpdateStreamingJob(AlterStreamingJobOperationLog log) {
-        logEdit(OperationType.OP_UPDATE_STREAMING_JOB, log);
     }
 
     public void logDeleteJob(AbstractJob job) {

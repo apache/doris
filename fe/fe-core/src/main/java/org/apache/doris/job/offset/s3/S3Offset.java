@@ -23,6 +23,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.commons.lang3.StringUtils;
 
 @Getter
 @Setter
@@ -37,6 +38,11 @@ public class S3Offset implements Offset {
     @Override
     public String toSerializedJson() {
         return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return StringUtils.isEmpty(fileLists);
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.job.scheduler.StreamingTaskScheduler;
@@ -45,7 +46,6 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.persist.AlterStreamingJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -368,21 +368,16 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
             LOG.warn("replayUpdateJob not normal, job: {}, jobId: {}, jobMap: {}", job, jobId, jobMap);
             return;
         }
-        jobMap.put(jobId, job);
+
+        if (job instanceof StreamingInsertJob) {
+            // for streaming job, we only update part properties
+            StreamingInsertJob currentJob = (StreamingInsertJob) jobMap.get(jobId);
+            currentJob.replayOnUpdated((StreamingInsertJob) job);
+        } else {
+            jobMap.put(jobId, job);
+        }
         log.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
                 .add("msg", "replay update scheduler job").build());
-    }
-
-    public void replayUpdateStreamingJob(AlterStreamingJobOperationLog log) {
-        Long jobId = log.getJobId();
-        if (!jobMap.containsKey(jobId)) {
-            LOG.warn("replayUpdateStreamingJob not normal, jobId: {}, jobMap: {}", jobId, log);
-            return;
-        }
-        T job = jobMap.get(jobId);
-        job.onReplayUpdateStreaming(log);
-        LOG.info(new LogBuilder(LogKey.SCHEDULER_JOB, jobId)
-                .add("msg", "replay update streaming job").build());
     }
 
     /**

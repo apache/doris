@@ -41,9 +41,9 @@ import java.util.Objects;
 public class AlterJobCommand extends AlterCommand implements ForwardWithSync {
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
-    private String jobName;
-    private Map<String, String> properties;
-    private String sql;
+    private final String jobName;
+    private final Map<String, String> properties;
+    private final String sql;
 
     public AlterJobCommand(String jobName, Map<String, String> properties, String sql) {
         super(PlanType.ALTER_JOB_COMMAND);

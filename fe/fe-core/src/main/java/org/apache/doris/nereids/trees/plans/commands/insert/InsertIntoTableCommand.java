@@ -79,7 +79,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -544,24 +543,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
     }
 
-    // todo: add ut
     public List<UnboundTVFRelation> getAllTVFRelation() {
-        List<UnboundTVFRelation> tvfs = new ArrayList<>();
-        findAllTVFInPlan(getLogicalQuery(), tvfs);
-        return tvfs;
-    }
-
-    private void findAllTVFInPlan(LogicalPlan plan, List<UnboundTVFRelation> tvfs) {
-        if (plan instanceof UnboundTVFRelation) {
-            UnboundTVFRelation tvfRelation = (UnboundTVFRelation) plan;
-            tvfs.add(tvfRelation);
-        }
-
-        for (Plan child : plan.children()) {
-            if (child instanceof LogicalPlan) {
-                findAllTVFInPlan((LogicalPlan) child, tvfs);
-            }
-        }
+        return getLogicalQuery().collectToList(UnboundTVFRelation.class::isInstance);
     }
 
     @Override
