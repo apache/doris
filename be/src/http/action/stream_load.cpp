@@ -417,8 +417,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     request.__set_compress_type(ctx->compress_type);
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
-    request.__set_read_json_by_line(false);
-    request.__set_strip_outer_array(false);
     if (ctx->use_streaming) {
         std::shared_ptr<io::StreamLoadPipe> pipe;
         if (ctx->is_chunked_transfer) {
