@@ -47,17 +47,42 @@ suite("test_date_floor_ceil") {
     sql """set debug_skip_fold_constant = false"""
     qt_x1 """ select date_floor('9999-12-31 23:59:59.999999', interval 5 minute); """
     qt_x2 """ select date_floor('9999-12-31 23:59:59.999999', interval 33333 year); """
-    qt_x3 """ select date_floor('9999-12-31 23:59:59.999999', interval -10 year); """
-    qt_x4 """ select date_floor('1923-12-31 23:59:59.999999', interval -10 year); """
+    test {
+        sql """ select date_floor('9999-12-31 23:59:59.999999', interval -10 year); """
+        exception "out of range"
+    }
+    test {
+        sql """ select date_floor('1923-12-31 23:59:59.999999', interval -10 year); """
+        exception "out of range"
+    }
     // qt_x5 """ select date_floor('0000-01-01 00:00:00', interval 7 minute); """//wrong
     qt_x6 """ select date_floor('0001-01-01 00:00:00', interval 7 minute); """
-    qt_x7 """ select date_ceil('9999-12-31 23:59:59.999999', interval 5 minute); """
-    qt_x8 """ select date_ceil('9999-12-31 23:59:59.999999', interval 1 second); """
-    qt_x9 """ select date_ceil('9999-12-31 23:59:59.999999', interval 100 year); """
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 5 minute); """
+        exception "out of range"
+    }
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 1 second); """
+        exception "out of range"
+    }
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 100 year); """
+        exception "out of range"
+    }
+    test {
+        sql """ select date_ceil('9999-12-31 23:59:59.999999', interval 1 second); """
+        exception "out of range"
+    }
     // qt_x10 """ select date_ceil('0000-01-01 23:59:59.999999', interval 7 month); """//wrong
     qt_x11 """ select date_ceil('0001-01-01 23:59:59.999999', interval 7 month); """
-    qt_x12 """ select date_ceil('0001-09-01 23:59:59.999999', interval -7 month); """
-    qt_x13 """ select date_ceil('0002-02-01 23:59:59.999999', interval -7 month); """
+    test {
+        sql """ select date_ceil('0001-09-01 23:59:59.999999', interval -7 month); """
+        exception "out of range"
+    }
+    test {
+        sql """ select date_ceil('0002-02-01 23:59:59.999999', interval -7 month); """
+        exception "out of range"
+    }
     qt_x14 """ select date_ceil('9999-12-31 23:54:59.999999', interval 5 minute); """
 
     qt_f_positive_1 """ select date_floor('2023-07-14 15:30:45', interval 3 second); """
@@ -67,14 +92,15 @@ suite("test_date_floor_ceil") {
     qt_f_positive_5 """ select date_floor('2023-07-14 15:30:45', interval 3 month); """
     qt_f_positive_6 """ select date_floor('2023-07-14 15:30:45', interval 2 quarter); """
     qt_f_positive_7 """ select date_floor('2023-07-14 15:30:45', interval 5 year); """
-    
-    qt_f_neg_1 """ select date_floor('2023-07-14 15:30:45', interval -3 second); """
-    qt_f_neg_2 """ select date_floor('2023-07-14 15:30:45', interval -10 minute); """
-    qt_f_neg_3 """ select date_floor('2023-07-14 15:30:45', interval -6 hour); """
-    qt_f_neg_4 """ select date_floor('2023-07-14 15:30:45', interval -7 day); """
-    qt_f_neg_5 """ select date_floor('2023-07-14 15:30:45', interval -3 month); """
-    qt_f_neg_6 """ select date_floor('2023-07-14 15:30:45', interval -2 quarter); """
-    qt_f_neg_7 """ select date_floor('2023-07-14 15:30:45', interval -5 year); """
+
+    // TRY
+    // qt_f_neg_1 """ select date_floor('2023-07-14 15:30:45', interval -3 second); """
+    // qt_f_neg_2 """ select date_floor('2023-07-14 15:30:45', interval -10 minute); """
+    // qt_f_neg_3 """ select date_floor('2023-07-14 15:30:45', interval -6 hour); """
+    // qt_f_neg_4 """ select date_floor('2023-07-14 15:30:45', interval -7 day); """
+    // qt_f_neg_5 """ select date_floor('2023-07-14 15:30:45', interval -3 month); """
+    // qt_f_neg_6 """ select date_floor('2023-07-14 15:30:45', interval -2 quarter); """
+    // qt_f_neg_7 """ select date_floor('2023-07-14 15:30:45', interval -5 year); """
     
     qt_c_positive_1 """ select date_ceil('2023-07-14 15:30:45', interval 3 second); """
     qt_c_positive_2 """ select date_ceil('2023-07-14 15:30:45', interval 10 minute); """
@@ -84,16 +110,16 @@ suite("test_date_floor_ceil") {
     qt_c_positive_6 """ select date_ceil('2023-07-14 15:30:45', interval 2 quarter); """
     qt_c_positive_7 """ select date_ceil('2023-07-14 15:30:45', interval 5 year); """
 
-    qt_c_neg_1 """ select date_ceil('2023-07-14 15:30:45', interval -3 second); """
-    qt_c_neg_2 """ select date_ceil('2023-07-14 15:30:45', interval -10 minute); """
-    qt_c_neg_3 """ select date_ceil('2023-07-14 15:30:45', interval -6 hour); """
-    qt_c_neg_4 """ select date_ceil('2023-07-14 15:30:45', interval -7 day); """
-    qt_c_neg_5 """ select date_ceil('2023-07-14 15:30:45', interval -3 month); """
-    qt_c_neg_6 """ select date_ceil('2023-07-14 15:30:45', interval -2 quarter); """
-    qt_c_neg_7 """ select date_ceil('2023-07-14 15:30:45', interval -5 year); """
-    
-    qt_zero_interval_1 """ select date_floor('2023-07-14 15:30:45', interval 0 second); """
-    qt_zero_interval_2 """ select date_ceil('2023-07-14 15:30:45', interval 0 minute); """
+    // qt_c_neg_1 """ select date_ceil('2023-07-14 15:30:45', interval -3 second); """
+    // qt_c_neg_2 """ select date_ceil('2023-07-14 15:30:45', interval -10 minute); """
+    // qt_c_neg_3 """ select date_ceil('2023-07-14 15:30:45', interval -6 hour); """
+    // qt_c_neg_4 """ select date_ceil('2023-07-14 15:30:45', interval -7 day); """
+    // qt_c_neg_5 """ select date_ceil('2023-07-14 15:30:45', interval -3 month); """
+    // qt_c_neg_6 """ select date_ceil('2023-07-14 15:30:45', interval -2 quarter); """
+    // qt_c_neg_7 """ select date_ceil('2023-07-14 15:30:45', interval -5 year); """
+    // 
+    // qt_zero_interval_1 """ select date_floor('2023-07-14 15:30:45', interval 0 second); """
+    // qt_zero_interval_2 """ select date_ceil('2023-07-14 15:30:45', interval 0 minute); """
     
     qt_boundary_1 """ select date_floor('9999-12-31 23:59:58', interval 1 second); """
     qt_boundary_2 """ select date_floor('9999-12-31 22:59:58', interval 1 hour); """

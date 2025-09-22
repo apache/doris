@@ -55,6 +55,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/functions/datetime_errors.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/runtime/time_value.h"
@@ -68,47 +69,49 @@ namespace doris::vectorized {
 
 template <TimeUnit unit, PrimitiveType ArgType, typename IntervalType>
 auto date_time_add(const typename PrimitiveTypeTraits<ArgType>::DataType::FieldType& t,
-                   IntervalType delta, bool& is_null) {
+                   IntervalType delta) {
     using ValueType = typename PrimitiveTypeTraits<ArgType>::CppType;
     using NativeType = typename PrimitiveTypeTraits<ArgType>::DataType::FieldType;
 
     // e.g.: for DatatypeDatetimeV2, cast from u64 to DateV2Value<DateTimeV2ValueType>
     auto ts_value = binary_cast<NativeType, ValueType>(t);
     TimeInterval interval(unit, std::abs(delta), delta < 0);
-    is_null = !(ts_value.template date_add_interval<unit>(interval));
+    if (!(ts_value.template date_add_interval<unit>(interval))) [[unlikely]] {
+        throw_out_of_bound_date_int<ValueType, NativeType>(get_time_unit_name(unit), t, delta);
+    }
     // here DateValueType = ResultDateValueType
     return binary_cast<ValueType, NativeType>(ts_value);
 }
 
-#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                  \
-    template <PrimitiveType PType>                                                                 \
-    struct CLASS {                                                                                 \
-        /* return type must be same with arg type. cast have already be planned in FE */           \
-        static constexpr PrimitiveType ArgPType = PType;                                           \
-        static constexpr PrimitiveType ReturnType = PType;                                         \
-        /* for interval <= minute, use bigint. otherwise int. */                                   \
-        static constexpr PrimitiveType IntervalPType =                                             \
-                (TimeUnit::UNIT == TimeUnit::YEAR || TimeUnit::UNIT == TimeUnit::QUARTER ||        \
-                 TimeUnit::UNIT == TimeUnit::MONTH || TimeUnit::UNIT == TimeUnit::WEEK ||          \
-                 TimeUnit::UNIT == TimeUnit::DAY || TimeUnit::UNIT == TimeUnit::HOUR)              \
-                        ? PrimitiveType::TYPE_INT                                                  \
-                        : PrimitiveType::TYPE_BIGINT;                                              \
-        using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;          \
-        using ReturnNativeType = InputNativeType;                                                  \
-        using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;            \
-        using IntervalNativeType = IntervalDataType::FieldType;                                    \
-                                                                                                   \
-        static constexpr auto name = #NAME;                                                        \
-        static constexpr auto is_nullable = true;                                                  \
-        static inline ReturnNativeType execute(const InputNativeType& t, IntervalNativeType delta, \
-                                               bool& is_null) {                                    \
-            return date_time_add<TimeUnit::UNIT, PType, IntervalNativeType>(t, delta, is_null);    \
-        }                                                                                          \
-                                                                                                   \
-        static DataTypes get_variadic_argument_types() {                                           \
-            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),             \
-                    std::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()};    \
-        }                                                                                          \
+#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                               \
+    template <PrimitiveType PType>                                                              \
+    struct CLASS {                                                                              \
+        /* return type must be same with arg type. cast have already be planned in FE */        \
+        static constexpr PrimitiveType ArgPType = PType;                                        \
+        static constexpr PrimitiveType ReturnType = PType;                                      \
+        /* for interval <= minute, use bigint. otherwise int. */                                \
+        static constexpr PrimitiveType IntervalPType =                                          \
+                (TimeUnit::UNIT == TimeUnit::YEAR || TimeUnit::UNIT == TimeUnit::QUARTER ||     \
+                 TimeUnit::UNIT == TimeUnit::MONTH || TimeUnit::UNIT == TimeUnit::WEEK ||       \
+                 TimeUnit::UNIT == TimeUnit::DAY || TimeUnit::UNIT == TimeUnit::HOUR)           \
+                        ? PrimitiveType::TYPE_INT                                               \
+                        : PrimitiveType::TYPE_BIGINT;                                           \
+        using InputNativeType = typename PrimitiveTypeTraits<PType>::DataType::FieldType;       \
+        using ReturnNativeType = InputNativeType;                                               \
+        using IntervalDataType = typename PrimitiveTypeTraits<IntervalPType>::DataType;         \
+        using IntervalNativeType = IntervalDataType::FieldType;                                 \
+                                                                                                \
+        static constexpr auto name = #NAME;                                                     \
+        static constexpr auto is_nullable = false;                                              \
+        static inline ReturnNativeType execute(const InputNativeType& t,                        \
+                                               IntervalNativeType delta) {                      \
+            return date_time_add<TimeUnit::UNIT, PType, IntervalNativeType>(t, delta);          \
+        }                                                                                       \
+                                                                                                \
+        static DataTypes get_variadic_argument_types() {                                        \
+            return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),          \
+                    std::make_shared<typename PrimitiveTypeTraits<IntervalPType>::DataType>()}; \
+        }                                                                                       \
     }
 
 ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
@@ -130,9 +133,9 @@ struct AddQuartersImpl {
     using ReturnNativeType = InputNativeType;
 
     static constexpr auto name = "quarters_add";
-    static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta, bool& is_null) {
-        return date_time_add<TimeUnit::MONTH, PType, Int32>(t, 3 * delta, is_null);
+    static constexpr auto is_nullable = false;
+    static inline ReturnNativeType execute(const InputNativeType& t, Int32 delta) {
+        return date_time_add<TimeUnit::MONTH, PType, Int32>(t, 3 * delta);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -147,9 +150,9 @@ struct SubtractIntervalImpl {
     static constexpr PrimitiveType ReturnType = Transform::ReturnType;
     using InputNativeType = typename Transform::InputNativeType;
     using ReturnNativeType = typename Transform::ReturnNativeType;
-    static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
-        return Transform::execute(t, -delta, is_null);
+    static constexpr auto is_nullable = false;
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta) {
+        return Transform::execute(t, -delta);
     }
 
     static DataTypes get_variadic_argument_types() {
@@ -228,10 +231,9 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>> {
         static constexpr auto name = #FN_NAME;                                                \
         static constexpr auto is_nullable = false;                                            \
         static inline typename PrimitiveTypeTraits<RETURN_TYPE>::DataType::FieldType execute( \
-                const NativeType& t0, const NativeType& t1, bool& is_null) {                  \
+                const NativeType& t0, const NativeType& t1) {                                 \
             const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                     \
             const auto& ts1 = reinterpret_cast<const DateValueType&>(t1);                     \
-            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                           \
             return (STMT);                                                                    \
         }                                                                                     \
         static DataTypes get_variadic_argument_types() {                                      \
@@ -253,11 +255,9 @@ struct TimeDiffImpl {
     static constexpr PrimitiveType ReturnType = TYPE_TIMEV2;
 
     static constexpr auto name = "timediff";
-    static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1,
-                                                    bool& is_null) {
+    static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1) {
         const auto& ts0 = reinterpret_cast<const NativeType&>(t0);
         const auto& ts1 = reinterpret_cast<const NativeType&>(t1);
-        is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         if constexpr (UsingTimev2) {
             int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
             return TimeValue::limit_with_bound(diff_m);
@@ -308,9 +308,8 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
         static constexpr auto name = #NAME;                                                     \
         static constexpr auto is_nullable = false;                                              \
         static inline typename PrimitiveTypeTraits<RETURN_TYPE>::DataType::FieldType execute(   \
-                const ArgType& t0, const IntervalNativeType mode, bool& is_null) {              \
+                const ArgType& t0, const IntervalNativeType mode) {                             \
             const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                       \
-            is_null = !ts0.is_valid_date();                                                     \
             return ts0.FUNCTION;                                                                \
         }                                                                                       \
         static DataTypes get_variadic_argument_types() {                                        \
@@ -356,16 +355,15 @@ struct DateTimeOp {
                               const PaddedPODArray<NativeType1>& vec_from1,
                               PaddedPODArray<ToType>& vec_to, const NullMap* nullmap0,
                               const NullMap* nullmap1) {
-        bool invalid = false;
         for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw_out_of_bound(vec_from0[i], vec_from1[i]);
-            }
+            // maybe all date value is valid, but now sure.
+            // if (!binary_cast<NativeType0, ValueType0>(vec_from0[i]).is_valid_date()) [[unlikely]] {
+            //     throw_out_of_bound_int(Transform::name, vec_from0[i]);
+            // }
+            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i]);
         }
     }
 
@@ -376,16 +374,11 @@ struct DateTimeOp {
             return;
         }
 
-        bool invalid = false;
         for (size_t i = 0; i < vec_from.size(); ++i) {
             if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw_out_of_bound(vec_from[i], delta);
-            }
+            vec_to[i] = Transform::execute(vec_from[i], delta);
         }
     }
 
@@ -396,16 +389,11 @@ struct DateTimeOp {
             return;
         }
 
-        bool invalid = false;
         for (size_t i = 0; i < delta.size(); ++i) {
             if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(from, delta[i], invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw_out_of_bound(from, delta[i]);
-            }
+            vec_to[i] = Transform::execute(from, delta[i]);
         }
     }
 };
@@ -430,6 +418,8 @@ public:
         }
         return {};
     }
+
+    // compare to need_replace_null_data_to_default, skipping null rows is more efficient.
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -445,26 +435,13 @@ public:
                 typename PrimitiveTypeTraits<Transform::ReturnType>::DataType::FieldType;
         using Op = DateTimeOp<Transform::ArgPType, Transform::ArgPType, ResFieldType, Transform>;
 
-        auto get_null_map = [](const ColumnPtr& col) -> const NullMap* {
-            if (col->is_nullable()) {
-                return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
-            }
-            // Const(Nullable)
-            if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
-                const_col != nullptr && const_col->is_concrete_nullable()) {
-                return &static_cast<const ColumnNullable&>(const_col->get_data_column())
-                                .get_null_map_data();
-            }
-            return nullptr;
-        };
-
         //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
         // src column is always datelike type.
         ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
-        const NullMap* nullmap0 = get_null_map(col0);
+        const NullMap* nullmap0 = VectorizedUtils::get_null_map(col0);
         // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
         ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
-        const NullMap* nullmap1 = get_null_map(col1);
+        const NullMap* nullmap1 = VectorizedUtils::get_null_map(col1);
 
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
@@ -582,26 +559,13 @@ public:
         using IntervalColumnType =
                 typename PrimitiveTypeTraits<Transform::IntervalPType>::ColumnType;
 
-        auto get_null_map = [](const ColumnPtr& col) -> const NullMap* {
-            if (col->is_nullable()) {
-                return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
-            }
-            // Const(Nullable)
-            if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
-                const_col != nullptr && const_col->is_concrete_nullable()) {
-                return &static_cast<const ColumnNullable&>(const_col->get_data_column())
-                                .get_null_map_data();
-            }
-            return nullptr;
-        };
-
         //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
         // src column is always datelike type.
         ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
-        const NullMap* nullmap0 = get_null_map(col0);
+        const NullMap* nullmap0 = VectorizedUtils::get_null_map(col0);
         // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
         ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
-        const NullMap* nullmap1 = get_null_map(col1);
+        const NullMap* nullmap1 = VectorizedUtils::get_null_map(col1);
 
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
@@ -952,7 +916,7 @@ struct TimestampToDateTime : IFunction {
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeDateTimeV2>());
+        return std::make_shared<DataTypeDateTimeV2>();
     }
 
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
@@ -962,33 +926,26 @@ struct TimestampToDateTime : IFunction {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnDateTimeV2::create();
-        auto null_vector = ColumnUInt8::create();
         res_col->get_data().resize_fill(input_rows_count, 0);
-        null_vector->get_data().resize_fill(input_rows_count, false);
-
-        NullMap& null_map = null_vector->get_data();
         auto& res_data = res_col->get_data();
         const cctz::time_zone& time_zone = context->state()->timezone_obj();
 
         for (int i = 0; i < input_rows_count; ++i) {
             Int64 value = column_data.get_element(i);
-            if (value < 0) {
-                null_map[i] = true;
-                continue;
+            if (value < 0) [[unlikely]] {
+                throw_out_of_bound_int(name, value);
             }
 
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
             dt.from_unixtime(value / Impl::ratio, time_zone);
 
-            if (dt.is_valid_date()) [[likely]] {
-                dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
-            } else {
-                null_map[i] = true;
+            if (!dt.is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_int(name, value);
             }
+            dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
         }
 
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res_col), std::move(null_vector));
+        block.replace_by_position(result, std::move(res_col));
         return Status::OK();
     }
 };
