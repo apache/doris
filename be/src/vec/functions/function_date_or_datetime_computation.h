@@ -250,34 +250,33 @@ struct TimeDiffImpl {
     static constexpr PrimitiveType ArgPType = DateType;
     using NativeType = typename PrimitiveTypeTraits<DateType>::CppType;
     using ArgType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;
+    //TODO: remove V1 since FE already removed it.
     static constexpr bool UsingTimev2 = is_date_v2_or_datetime_v2(DateType);
-
-    static constexpr PrimitiveType ReturnType =
-            TYPE_TIMEV2; // TimeV1Type also use double as native type. same as v2.
+    static constexpr PrimitiveType ReturnType = TYPE_TIMEV2;
 
     static constexpr auto name = "timediff";
-    static constexpr int64_t limit_value = 3020399000000; // 838:59:59 convert to microsecond
     static inline DataTypeTimeV2::FieldType execute(const ArgType& t0, const ArgType& t1) {
         const auto& ts0 = reinterpret_cast<const NativeType&>(t0);
         const auto& ts1 = reinterpret_cast<const NativeType&>(t1);
         if constexpr (UsingTimev2) {
-            // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
-            // the time type value between '-838:59:59' and '838:59:59', so the return value should limited
             int64_t diff_m = ts0.datetime_diff_in_microseconds(ts1);
-            if (diff_m > limit_value) {
-                return (double)limit_value;
-            } else if (diff_m < -1 * limit_value) {
-                return (double)(-1 * limit_value);
-            } else {
-                return (double)diff_m;
-            }
+            return TimeValue::limit_with_bound(diff_m);
         } else {
             return TimeValue::from_seconds_with_limit(ts0.datetime_diff_in_seconds(ts1));
         }
     }
+
+    /// both non-virtual function. for compile-time function resolution for base template FunctionTimeDiff.
     static DataTypes get_variadic_argument_types() {
-        return {std ::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),
-                std ::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<DateType>::DataType>()};
+    }
+
+    static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale()));
+        }
+        return std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale());
     }
 };
 #define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
@@ -424,6 +423,9 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        if constexpr (requires { Transform::get_return_type_impl(arguments); }) {
+            return Transform::get_return_type_impl(arguments);
+        }
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(Transform::ReturnType);
     }
 
@@ -1224,7 +1226,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeTimeV2>();
+        return std::make_shared<DataTypeTimeV2>(arguments[0]->get_scale());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
