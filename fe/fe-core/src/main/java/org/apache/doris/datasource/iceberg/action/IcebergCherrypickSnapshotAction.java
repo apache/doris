@@ -74,9 +74,6 @@ public class IcebergCherrypickSnapshotAction extends BaseIcebergAction {
         Table icebergTable = ((IcebergExternalTable) table).getIcebergTable();
 
         Long sourceSnapshotId = namedArguments.getLong(SNAPSHOT_ID);
-        if (sourceSnapshotId == null) {
-            throw new UserException("snapshot_id parameter is required for cherry-pick operation");
-        }
 
         try {
             Snapshot targetSnapshot = icebergTable.snapshot(sourceSnapshotId);
