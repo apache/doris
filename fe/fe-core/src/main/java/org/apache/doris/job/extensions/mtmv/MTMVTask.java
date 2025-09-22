@@ -45,6 +45,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -278,9 +279,13 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
-        List<ColumnDefinition> currentColumnsDefinition = MTMVPlanUtil.generateColumnsBySql(mtmv.getQuerySql(), ctx,
-                mtmv.getMvPartitionInfo().getPartitionCol(),
-                mtmv.getDistributionColumnNames(), null, mtmv.getTableProperty().getProperties());
+        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo;
+        try {
+            mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx);
+        } catch (UserException e) {
+            throw new JobException("analyze querySql failed", e);
+        }
+        List<ColumnDefinition> currentColumnsDefinition = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         List<Column> currentColumns = currentColumnsDefinition.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());
