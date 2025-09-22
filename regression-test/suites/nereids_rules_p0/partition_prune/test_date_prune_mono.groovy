@@ -257,7 +257,7 @@ suite("test_date_prune_mono") {
     sql "insert into null_range_date_mono values('2022-01-03 10:00:00'),('2019-01-01 10:00:00'),('2022-01-02 10:00:00'),('2024-01-01 10:00:00'),(null);"
     explain {
         sql "select * from null_range_date_mono where date(k0) is null"
-        contains("partitions=3/3 (p10,p100,pMAX)")
+        contains("partitions=1/3 (p10)")
     }
     // test infinite range
     explain {
