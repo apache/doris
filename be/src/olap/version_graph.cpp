@@ -42,12 +42,10 @@ void TimestampedVersionTracker::construct_versioned_tracker(
     construct_versioned_tracker(std::views::values(rs_metas));
 }
 
-
 void TimestampedVersionTracker::construct_versioned_tracker(
         const RowsetMetaMapContainer& rs_metas, const RowsetMetaMapContainer& stale_metas) {
     construct_versioned_tracker(std::views::values(rs_metas), std::views::values(stale_metas));
 }
-
 
 bool TimestampedVersionTracker::_find_path_from_stale_map(
         const std::unordered_map<int64_t, std::unordered_map<int64_t, RowsetMetaSharedPtr>>&
