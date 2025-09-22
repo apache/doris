@@ -112,9 +112,9 @@ void fill_block_with_array_int(vectorized::Block& block) {
 void fill_block_with_array_string(vectorized::Block& block) {
     auto off_column = vectorized::ColumnOffset64::create();
     auto data_column = vectorized::ColumnString::create();
-    // init column array with [["abc","de"],["fg"],[], [""]];
+    // init column array with [["abc","de"],["\\\b\f\n\r\t"],[], [""]];
     std::vector<vectorized::ColumnArray::Offset64> offs = {0, 2, 3, 3, 4};
-    std::vector<std::string> vals = {"abc", "de", "fg", ""};
+    std::vector<std::string> vals = {"abc", "de", "\\\b\f\n\r\t", ""};
     for (size_t i = 1; i < offs.size(); ++i) {
         off_column->insert_data((const char*)(&offs[i]), 0);
     }
