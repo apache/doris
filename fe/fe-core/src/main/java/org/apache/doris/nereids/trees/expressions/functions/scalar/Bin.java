@@ -48,13 +48,18 @@ public class Bin extends ScalarFunction
         super("bin", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Bin(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Bin withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Bin(children.get(0));
+        return new Bin(getFunctionParams(children));
     }
 
     @Override

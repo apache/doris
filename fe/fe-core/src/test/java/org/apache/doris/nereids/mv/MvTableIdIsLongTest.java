@@ -75,8 +75,10 @@ public class MvTableIdIsLongTest extends SqlTestBase {
                 connectContext
         );
         PlanChecker.from(c1)
+                .setIsQuery()
                 .analyze()
                 .rewrite()
+                .preMvRewrite()
                 .optimize()
                 .printlnBestPlanTree();
         Assertions.assertTrue(c1.getMemo().toString().contains("mv1"));

@@ -25,6 +25,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <list>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <utility>
 
@@ -94,8 +95,8 @@ void TimestampedVersionTracker::_init_stale_version_path_map(
         } else if (diff > 0) {
             return false;
         }
-        // When the version diff is equal, compare the rowset`s create time
-        return a->creation_time() < b->creation_time();
+        // When the version diff is equal, compare the rowset`s stale time
+        return a->stale_at() < b->stale_at();
     });
 
     // first_version -> (second_version -> rowset_meta)
@@ -313,8 +314,7 @@ void TimestampedVersionTracker::add_stale_path_version(
 
     PathVersionListSharedPtr ptr(new TimestampedVersionPathContainer());
     for (auto rs : stale_rs_metas) {
-        TimestampedVersionSharedPtr vt_ptr(
-                new TimestampedVersion(rs->version(), rs->creation_time()));
+        TimestampedVersionSharedPtr vt_ptr(new TimestampedVersion(rs->version(), rs->stale_at()));
         ptr->add_timestamped_version(vt_ptr);
     }
 
@@ -335,6 +335,27 @@ void TimestampedVersionTracker::add_stale_path_version(
 Status TimestampedVersionTracker::capture_consistent_versions(
         const Version& spec_version, std::vector<Version>* version_path) const {
     return _version_graph.capture_consistent_versions(spec_version, version_path);
+}
+
+Status TimestampedVersionTracker::capture_consistent_versions_with_validator(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_consistent_versions_with_validator(spec_version, version_path,
+                                                                     validator);
+}
+
+Status TimestampedVersionTracker::capture_consistent_versions_prefer_cache(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_consistent_versions_prefer_cache(spec_version, version_path,
+                                                                   validator);
+}
+
+Status TimestampedVersionTracker::capture_consistent_versions_with_validator_mow(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    return _version_graph.capture_consistent_versions_with_validator_mow(spec_version, version_path,
+                                                                         validator);
 }
 
 void TimestampedVersionTracker::capture_expired_paths(
@@ -412,6 +433,10 @@ std::string TimestampedVersionTracker::get_current_path_map_str() {
 
 double TimestampedVersionTracker::get_orphan_vertex_ratio() {
     return _version_graph.get_orphan_vertex_ratio();
+}
+
+std::string TimestampedVersionTracker::debug_string() const {
+    return _version_graph.debug_string();
 }
 
 void TimestampedVersionPathContainer::add_timestamped_version(TimestampedVersionSharedPtr version) {
@@ -636,6 +661,172 @@ Status VersionGraph::capture_consistent_versions(const Version& spec_version,
     return Status::OK();
 }
 
+Status VersionGraph::capture_consistent_versions_prefer_cache(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    if (spec_version.first > spec_version.second) {
+        return Status::Error<INVALID_ARGUMENT, false>(
+                "invalid specified version. spec_version={}-{}", spec_version.first,
+                spec_version.second);
+    }
+
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == spec_version.first) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. spec_version={}",
+                                            spec_version.to_string());
+    }
+
+    int64_t end_value = spec_version.second + 1;
+    while (_version_graph[cur_idx].value < end_value) {
+        int64_t next_idx = -1;
+        int64_t first_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+            if (first_idx == -1) {
+                first_idx = it;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else if (first_idx != -1) {
+            // if all edges are not in cache, use the first edge if possible
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[first_idx].value - 1);
+            cur_idx = first_idx;
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+Status VersionGraph::capture_consistent_versions_with_validator(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    if (spec_version.first > spec_version.second) {
+        return Status::Error<INVALID_ARGUMENT, false>(
+                "invalid specified version. spec_version={}-{}", spec_version.first,
+                spec_version.second);
+    }
+
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == spec_version.first) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. spec_version={}",
+                                            spec_version.to_string());
+    }
+
+    int64_t end_value = spec_version.second + 1;
+    while (_version_graph[cur_idx].value < end_value) {
+        int64_t next_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+Status VersionGraph::capture_consistent_versions_with_validator_mow(
+        const Version& spec_version, std::vector<Version>& version_path,
+        const std::function<bool(int64_t, int64_t)>& validator) const {
+    if (spec_version.first > spec_version.second) {
+        return Status::Error<INVALID_ARGUMENT, false>(
+                "invalid specified version. spec_version={}-{}", spec_version.first,
+                spec_version.second);
+    }
+
+    int64_t cur_idx = -1;
+    for (size_t i = 0; i < _version_graph.size(); i++) {
+        if (_version_graph[i].value == spec_version.first) {
+            cur_idx = i;
+            break;
+        }
+    }
+
+    if (cur_idx < 0) {
+        return Status::InternalError<false>("failed to find path in version_graph. spec_version={}",
+                                            spec_version.to_string());
+    }
+
+    int64_t end_value = spec_version.second + 1;
+    while (_version_graph[cur_idx].value < end_value) {
+        int64_t next_idx = -1;
+        for (const auto& it : _version_graph[cur_idx].edges) {
+            // Only consider incremental versions.
+            if (_version_graph[it].value < _version_graph[cur_idx].value) {
+                break;
+            }
+
+            if (!validator(_version_graph[cur_idx].value, _version_graph[it].value - 1)) {
+                if (_version_graph[cur_idx].value + 1 == _version_graph[it].value) {
+                    break;
+                }
+                end_value = std::min(_version_graph[it].value, end_value);
+                continue;
+            }
+
+            next_idx = it;
+            break;
+        }
+
+        if (next_idx > -1) {
+            version_path.emplace_back(_version_graph[cur_idx].value,
+                                      _version_graph[next_idx].value - 1);
+
+            cur_idx = next_idx;
+        } else {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
 double VersionGraph::get_orphan_vertex_ratio() {
     int64_t vertex_num = _version_graph.size();
     int64_t orphan_vertex_num = 0;
@@ -645,6 +836,22 @@ double VersionGraph::get_orphan_vertex_ratio() {
         }
     }
     return static_cast<double>(orphan_vertex_num) / static_cast<double>(vertex_num);
+}
+
+std::string VersionGraph::debug_string() const {
+    std::stringstream ss;
+    ss << "VersionGraph: [";
+    for (size_t i = 0; i < _version_graph.size(); ++i) {
+        ss << "{value: " << _version_graph[i].value << ", edges: [";
+        for (const auto& edge : _version_graph[i].edges) {
+            if (_version_graph[edge].value > _version_graph[i].value) {
+                ss << _version_graph[edge].value << ", ";
+            }
+        }
+        ss << "]}, ";
+    }
+    ss << "]";
+    return ss.str();
 }
 
 #include "common/compile_check_end.h"

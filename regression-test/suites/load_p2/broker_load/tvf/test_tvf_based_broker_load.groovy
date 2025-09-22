@@ -243,7 +243,7 @@ suite("test_tvf_based_broker_load", "p2") {
     }
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000"]
-    def task_info = ["cluster:${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
+    def task_info = ["${s3Endpoint}; timeout(s):14400; max_filter_ratio:0.0"]
     def error_msg = [""]
 
     // test load

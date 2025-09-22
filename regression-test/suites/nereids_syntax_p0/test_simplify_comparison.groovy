@@ -198,7 +198,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e = 1.1;"
-        contains "CAST(e[#4] AS double) = 1.1"
+        contains "(CAST(e[#4] AS decimalv3(38,1)) = 1.1)"
     }
 
     explain {
@@ -211,7 +211,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e > 1.1;"
-        contains "CAST(e[#4] AS double) > 1.1"
+        contains "(CAST(e[#4] AS decimalv3(38,1)) > 1.1)"
     }
 
     explain {
@@ -224,7 +224,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e < 1.1;"
-        contains "CAST(e[#4] AS double) < 1.1"
+        contains "(CAST(e[#4] AS decimalv3(38,1)) < 1.1)"
     }
 
     explain {
@@ -237,7 +237,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e >= 1.1;"
-        contains "CAST(e[#4] AS double) >= 1.1"
+        contains "(CAST(e[#4] AS decimalv3(38,1)) >= 1.1)"
     }
 
     explain {
@@ -250,7 +250,7 @@ suite("test_simplify_comparison") {
 
     explain {
         sql "verbose select * from simple_test_table_t where e <= 1.1;"
-        contains "CAST(e[#4] AS double) <= 1.1"
+        contains "(CAST(e[#4] AS decimalv3(38,1)) <= 1.1)"
     }
     qt_select1 """select * from simple_test_table_t where cast(a as decimal(5,1)) = 10.0;"""
     qt_select2 """select a.col1, cast(a.col1 as decimal(7,2)) col3, case when a.col1 is null then 15 when cast(a.col1 as decimal(7,2)) < -99997.99 then 18 when cast(a.col1 as decimal(7,2)) < 1.001 then 3 else -55 end col2 from (select 1 as col1) a;"""

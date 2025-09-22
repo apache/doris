@@ -27,7 +27,7 @@ PhysicalResultSink
 ------------------------------------------------PhysicalProject
 --------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF7
 ------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[LOCAL]
+--------------------------------------------------hashAgg[GLOBAL]
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cs_or_ws_sales.sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[cs_sold_date_sk,ws_sold_date_sk]
 --------------------------------------------------------PhysicalProject

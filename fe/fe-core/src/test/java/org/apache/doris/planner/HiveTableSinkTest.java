@@ -19,13 +19,15 @@ package org.apache.doris.planner;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.PathUtils;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -40,13 +42,16 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class HiveTableSinkTest {
 
     @Test
-    public void testBindDataSink() throws AnalysisException {
+    public void testBindDataSink() throws UserException {
 
         new MockUp<ThriftHMSCachedClient>() {
             @Mock
@@ -67,7 +72,26 @@ public class HiveTableSinkTest {
                 };
             }
         };
+        Map<String, String> storageProperties = new HashMap<>();
+        storageProperties.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        storageProperties.put("oss.access_key", "access_key");
+        storageProperties.put("oss.secret_key", "secret_key");
+        storageProperties.put("s3.endpoint", "s3.north-1.amazonaws.com");
+        storageProperties.put("s3.access_key", "access_key");
+        storageProperties.put("s3.secret_key", "secret_key");
+        storageProperties.put("cos.endpoint", "cos.cn-hangzhou.myqcloud.com");
+        storageProperties.put("cos.access_key", "access_key");
+        storageProperties.put("cos.secret_key", "secret_key");
+        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(storageProperties);
+        Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = storagePropertiesList.stream()
+                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
 
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
+                return storagePropertiesMap;
+            }
+        };
         new MockUp<HMSExternalCatalog>() {
             @Mock
             public HMSCachedClient getClient() {
@@ -93,9 +117,7 @@ public class HiveTableSinkTest {
             HMSExternalTable tbl = new HMSExternalTable(10001, "hive_tbl1", "hive_db1", hmsExternalCatalog, db);
             HiveTableSink hiveTableSink = new HiveTableSink(tbl);
             hiveTableSink.bindDataSink(Optional.empty());
-
-            Assert.assertEquals(hiveTableSink.tDataSink.hive_table_sink.location.original_write_path, location);
-            Assert.assertEquals(hiveTableSink.tDataSink.hive_table_sink.location.target_path, location);
+            Assert.assertTrue(PathUtils.equalsIgnoreSchemeIfOneIsS3(hiveTableSink.tDataSink.hive_table_sink.location.write_path, location));
         }
     }
 

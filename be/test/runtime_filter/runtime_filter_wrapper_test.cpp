@@ -52,7 +52,6 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
     bool build_bf_by_runtime_size = true;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -68,7 +67,6 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
             .bloom_filter_size = bloom_filter_size,
             .build_bf_by_runtime_size = build_bf_by_runtime_size,
             .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-            .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
             .bitmap_filter_not_in = bitmap_filter_not_in};
 
     auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -195,7 +193,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
     bool build_bf_by_runtime_size = true;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -213,7 +210,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
                 .bloom_filter_size = bloom_filter_size,                                            \
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,                              \
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,        \
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,                    \
+                                                                                                   \
                 .bitmap_filter_not_in = bitmap_filter_not_in};                                     \
         auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);                            \
         PMergeFilterRequest valid_request;                                                         \
@@ -274,7 +271,6 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     bool build_bf_by_runtime_size = true;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -292,7 +288,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
                 .bloom_filter_size = bloom_filter_size,                                      \
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,                        \
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,  \
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,              \
+                                                                                             \
                 .bitmap_filter_not_in = bitmap_filter_not_in};                               \
         auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);                      \
         PMergeFilterRequest valid_request;                                                   \
@@ -363,7 +359,6 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
     bool build_bf_by_runtime_size = false;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -381,7 +376,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_FALSE(wrapper->build_bf_by_runtime_size());
@@ -401,7 +396,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->bloom_filter_func()->_bloom_filter_length,
@@ -427,7 +422,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_TRUE(wrapper->build_bf_by_runtime_size());
@@ -457,7 +452,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->bloom_filter_func()->_bloom_filter_length,
@@ -509,7 +504,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_TRUE(new_wrapper->assign(valid_request, &stream).ok());
@@ -531,7 +526,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
@@ -579,7 +574,6 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
     bool build_bf_by_runtime_size = false;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -597,7 +591,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -666,7 +660,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -735,7 +729,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         {
             wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
@@ -805,7 +799,6 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
     bool build_bf_by_runtime_size = false;
     int64_t bloom_filter_size = 0;
     bool bloom_filter_size_calculated_by_ndv = true;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -820,7 +813,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
             .bloom_filter_size = bloom_filter_size,
             .build_bf_by_runtime_size = build_bf_by_runtime_size,
             .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-            .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
             .bitmap_filter_not_in = bitmap_filter_not_in};
 
     std::shared_ptr<RuntimeFilterWrapper> wrapper;
@@ -924,7 +917,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
     bool build_bf_by_runtime_size = false;
     int64_t bloom_filter_size = 64;
     bool bloom_filter_size_calculated_by_ndv = false;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
 
@@ -941,7 +933,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->bloom_filter_func()->_bloom_filter_length, bloom_filter_size);
@@ -974,7 +966,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->bloom_filter_func()->_bloom_filter_length, bloom_filter_size);
@@ -1004,7 +996,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1021,7 +1013,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
+
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1060,7 +1052,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1077,7 +1068,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1123,7 +1113,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1143,7 +1132,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1191,7 +1179,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1211,7 +1198,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1260,7 +1246,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1278,7 +1263,6 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
                 .bloom_filter_size = bloom_filter_size,
                 .build_bf_by_runtime_size = build_bf_by_runtime_size,
                 .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-                .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
                 .bitmap_filter_not_in = bitmap_filter_not_in};
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
@@ -1334,7 +1318,6 @@ TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
     bool build_bf_by_runtime_size = false;
     int64_t bloom_filter_size = 64;
     bool bloom_filter_size_calculated_by_ndv = false;
-    bool enable_fixed_len_to_uint32_v2 = true;
 
     bool bitmap_filter_not_in = false;
     RuntimeFilterParams params {
@@ -1348,7 +1331,6 @@ TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
             .bloom_filter_size = bloom_filter_size,
             .build_bf_by_runtime_size = build_bf_by_runtime_size,
             .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
-            .enable_fixed_len_to_uint32_v2 = enable_fixed_len_to_uint32_v2,
             .bitmap_filter_not_in = bitmap_filter_not_in};
     std::shared_ptr<RuntimeFilterWrapper> wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     auto col = vectorized::ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});

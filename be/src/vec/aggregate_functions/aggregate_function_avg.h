@@ -38,7 +38,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_fixed_length_object.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -109,7 +108,9 @@ struct AggregateFunctionAvgData {
 /// Calculates arithmetic mean of numbers.
 template <PrimitiveType T, typename Data>
 class AggregateFunctionAvg final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>,
+          UnaryExpression,
+          NullableAggregateFunction {
 public:
     using ResultType = std::conditional_t<
             T == TYPE_DECIMALV2, Decimal128V2,

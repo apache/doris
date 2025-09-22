@@ -221,56 +221,18 @@ inline bool CastToTimeV2::from_integer(T input, TimeValue::TimeType& val, CastPa
 }
 
 /**
-<datetime>       ::= <date> (("T" | " ") <time> <whitespace>* <offset>?)?
+<time> ::= ("+" | "-")? (<colon-format> | <numeric-format>)
 
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+<colon-format> ::= <hour> ":" <minute> (":" <second> (<microsecond>)?)?
+<hour> ::= <digit>+
+<minute> ::= <digit>{1,2}
+<second> ::= <digit>{1,2}
 
-<date>           ::= <year> "-" <month1> "-" <day1>
-                   | <year> <month2> <day2>
+<numeric-format> ::= <digit>+ (<microsecond>)?
 
-<year>           ::= <digit>{2} | <digit>{4} ; 1970 为界
-<month1>         ::= <digit>{1,2}            ; 01–12
-<day1>           ::= <digit>{1,2}            ; 01–28/29/30/31 视月份而定
+<microsecond> ::= "." <digit>*
 
-<month2>         ::= <digit>{2}              ; 01–12
-<day2>           ::= <digit>{2}              ; 01–28/29/30/31 视月份而定
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-<time>           ::= <hour1> (":" <minute1> (":" <second1> <fraction>?)?)?
-                   | <hour2> (<minute2> (<second2> <fraction>?)?)?
-
-<hour1>           ::= <digit>{1,2}      ; 00–23
-<minute1>         ::= <digit>{1,2}      ; 00–59
-<second1>         ::= <digit>{1,2}      ; 00–59
-
-<hour2>           ::= <digit>{2}        ; 00–23
-<minute2>         ::= <digit>{2}        ; 00–59
-<second2>         ::= <digit>{2}        ; 00–59
-
-<fraction>        ::= "." <digit>*
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-<offset>         ::= ( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]
-                   | <tz-name>
-
-<tz-name>        ::= <short-tz> | <long-tz> 
-
-<short-tz>       ::= "CST" | "UTC" | "GMT" | "ZULU" | "Z"   ; 忽略大小写
-<long-tz>        ::= <area> "/" <location>                  ; e.g. America/New_York
-
-<hour-offset>    ::= <digit>{1,2}      ; 0–14
-<minute-offset>  ::= <digit>{2}        ; 00/30/45
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-<digit>          ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-
-<area>           ::= <alpha>+
-<location>       ::= (<alpha> | "_")+
-<alpha>          ::= "A" | … | "Z" | "a" | … | "z"
-<whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
+<digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 */
 template <bool IsStrict>
 inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValue::TimeType& res,
@@ -299,13 +261,13 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
 
     // Check if we have colon format by looking ahead
     const char* temp = ptr;
-    SET_PARAMS_RET_FALSE_IF_ERR(skip_any_digit(temp, end));
+    static_cast<void>(skip_any_digit(temp, end));
     bool colon_format = (temp < end && *temp == ':');
 
     if (colon_format) {
         // Parse hour
         const auto* start = ptr;
-        SET_PARAMS_RET_FALSE_IF_ERR(skip_any_digit(ptr, end));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != end, "no digits in hour part");
 
         StringParser::ParseResult success;
@@ -315,12 +277,14 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                                  "invalid hour part in time string '{}'", std::string {start, ptr});
 
         // Check and consume colon
-        SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
+        SET_PARAMS_RET_FALSE_IFN(in_bound(ptr, end, 0), "expected ':' after hour but got nothing");
         SET_PARAMS_RET_FALSE_IFN(*ptr == ':', "expected ':' after hour but got {}", *ptr);
         ++ptr;
 
         // Parse minute (1 or 2 digits)
-        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<uint32_t, 1, 2>(ptr, end, minute)));
+        SET_PARAMS_RET_FALSE_IFN((consume_digit<uint32_t, 1, 2>(ptr, end, minute)),
+                                 "failed to consume 1 or 2 digits for minute, got {}",
+                                 std::string {ptr, end});
         SET_PARAMS_RET_FALSE_IFN(minute < 60, "invalid minute {}", minute);
 
         // Check if we have seconds
@@ -328,7 +292,9 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
             ++ptr;
 
             // Parse second (1 or 2 digits)
-            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<uint32_t, 1, 2>(ptr, end, second)));
+            SET_PARAMS_RET_FALSE_IFN((consume_digit<uint32_t, 1, 2>(ptr, end, second)),
+                                     "failed to consume 1 or 2 digits for second, got {}",
+                                     std::string {ptr, end});
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
             // Check if we have microseconds
@@ -336,7 +302,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
                 ++ptr;
 
                 const auto* ms_start = ptr;
-                SET_PARAMS_RET_FALSE_IF_ERR(skip_any_digit(ptr, end));
+                static_cast<void>(skip_any_digit(ptr, end));
                 auto length = ptr - ms_start;
 
                 if (length > 0) {
@@ -375,7 +341,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
     } else {
         // numeric-format
         const auto* start = ptr;
-        SET_PARAMS_RET_FALSE_IF_ERR(skip_any_digit(ptr, end));
+        static_cast<void>(skip_any_digit(ptr, end));
         SET_PARAMS_RET_FALSE_IFN(ptr != start, "no digits in numeric time format");
 
         StringParser::ParseResult success;
@@ -409,7 +375,7 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
             ++ptr;
 
             const auto* ms_start = ptr;
-            SET_PARAMS_RET_FALSE_IF_ERR(skip_any_digit(ptr, end));
+            static_cast<void>(skip_any_digit(ptr, end));
             auto length = ptr - ms_start;
 
             if (length > 0) {
@@ -459,46 +425,19 @@ inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValu
 }
 
 /**
-<datetime> ::= <whitespace>* <date> (<delimiter> <time> <whitespace>* <timezone>?)? <whitespace>*
+<time> ::= <whitespace>* ("+" | "-")? (<colon-format> | <numeric-format>) <whitespace>*
 
-<date> ::= <year> <separator> <month> <separator> <day>
-<time> ::= <hour> <separator> <minute> <separator> <second> [<fraction>]
-
-<year> ::= <digit>{4} | <digit>{2}
-<month> ::= <digit>{1,2}
-<day> ::= <digit>{1,2}
-<hour> ::= <digit>{1,2}
+<colon-format> ::= <hour> ":" <minute> (":" <second> (<microsecond>)?)?
+<hour> ::= <digit>+
 <minute> ::= <digit>{1,2}
 <second> ::= <digit>{1,2}
 
-<separator> ::= ^(<digit> | <alpha>)
-<delimiter> ::= " " | "T"
+<numeric-format> ::= <digit>+ (<microsecond>)?
 
-<fraction> ::= "." <digit>*
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-<offset>         ::= ( "+" | "-" ) <hour-offset> [ ":"? <minute-offset> ]
-                   | <tz-name>
-
-<tz-name>        ::= <short-tz> | <long-tz> 
-
-<short-tz>       ::= "CST" | "UTC" | "GMT" | "ZULU" | "Z"   ; 忽略大小写
-<long-tz>        ::= <area> "/" <location>                  ; e.g. America/New_York
-
-<hour-offset>    ::= <digit>{1,2}      ; 0–14
-<minute-offset>  ::= <digit>{2}        ; 00/30/45
-
-<area>           ::= <alpha>+
-<location>       ::= (<alpha> | "_")+
-
-––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-<whitespace> ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
+<microsecond> ::= "." <digit>*
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
-
-<alpha>          ::= "A" | … | "Z" | "a" | … | "z"
+<whitespace> ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
 inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                                            TimeValue::TimeType& res,
@@ -546,12 +485,12 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
                                  "invalid hour part in time string '{}'", std::string {start, ptr});
 
         // Check and consume colon
-        SET_PARAMS_RET_FALSE_IF_ERR(assert_within_bound(ptr, end, 0));
+        PROPAGATE_FALSE(in_bound(ptr, end, 0));
         SET_PARAMS_RET_FALSE_IFN(*ptr == ':', "expected ':' after hour but got {}", *ptr);
         ++ptr;
 
         // Parse minute (1 or 2 digits)
-        SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<uint32_t, 1, 2>(ptr, end, minute)));
+        PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, minute)));
         SET_PARAMS_RET_FALSE_IFN(minute < 60, "invalid minute {}", minute);
 
         // Check if we have seconds
@@ -559,7 +498,7 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
             ++ptr;
 
             // Parse second (1 or 2 digits)
-            SET_PARAMS_RET_FALSE_IF_ERR((consume_digit<uint32_t, 1, 2>(ptr, end, second)));
+            PROPAGATE_FALSE((consume_digit<uint32_t, 1, 2>(ptr, end, second)));
             SET_PARAMS_RET_FALSE_IFN(second < 60, "invalid second {}", second);
 
             // Check if we have microseconds

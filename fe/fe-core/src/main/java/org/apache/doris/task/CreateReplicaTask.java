@@ -31,6 +31,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TEncryptionAlgorithm;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTableIndex;
@@ -133,6 +134,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean variantEnableFlattenNested;
 
+    private TEncryptionAlgorithm tdeAlgorithm;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -159,7 +162,7 @@ public class CreateReplicaTask extends AgentTask {
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
                              boolean variantEnableFlattenNested,
-                             long storagePageSize,
+                             long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
@@ -210,6 +213,7 @@ public class CreateReplicaTask extends AgentTask {
         this.variantEnableFlattenNested = variantEnableFlattenNested;
         this.storagePageSize = storagePageSize;
         this.storageDictPageSize = storageDictPageSize;
+        this.tdeAlgorithm = tdeAlgorithm;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -420,6 +424,7 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+        createTabletReq.setTdeAlgorithm(tdeAlgorithm);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

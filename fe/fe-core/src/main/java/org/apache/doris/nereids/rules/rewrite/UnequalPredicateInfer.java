@@ -282,7 +282,7 @@ public class UnequalPredicateInfer {
                 return false;
             }
             TableIf tableIf = checkSlot.getOriginalTable().get();
-            if (tableIf.isPartitionedTable() && tableIf.isPartitionColumn(column.getName())) {
+            if (tableIf.isPartitionedTable() && tableIf.isPartitionColumn(column)) {
                 return true;
             }
             /* Indexes are seldom used and are not supported temporarily

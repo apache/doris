@@ -47,13 +47,18 @@ public class Atan extends ScalarFunction
         super("atan", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private Atan(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Atan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Atan(children.get(0));
+        return new Atan(getFunctionParams(children));
     }
 
     @Override

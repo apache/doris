@@ -29,11 +29,10 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeString;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpAddressInRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
@@ -42,9 +41,30 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IPv4Type;
+import org.apache.doris.nereids.types.IPv6Type;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,8 +112,9 @@ import java.util.Set;
  * 3. CAST Expressions: CAST operations are lightweight and creating virtual columns for them
  *    may not provide significant benefit while adding complexity.
  *
- * 4. Lambda-containing Expressions: Expressions with lambda functions have complex evaluation
- *    contexts that make virtual column optimization problematic.
+ * 4. Lambda-containing Expressions: Expression trees that contain lambda functions anywhere
+ *    are completely skipped from optimization. Lambda functions have complex evaluation contexts
+ *    that make virtual column optimization problematic.
  */
 public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
@@ -106,6 +127,30 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
     // Logger for debugging
     private static final Logger logger = LogManager.getLogger(PushDownVirtualColumnsIntoOlapScan.class);
+
+    // Supported data types for virtual columns based on TabletColumn::get_field_length_by_type
+    // Using Nereids DataType instead of TPrimitiveType for better type safety
+    private static final ImmutableSet<Class<? extends DataType>> SUPPORTED_VIRTUAL_COLUMN_TYPES = ImmutableSet.of(
+            TinyIntType.class,
+            BooleanType.class,
+            SmallIntType.class,
+            IntegerType.class,
+            BigIntType.class,
+            LargeIntType.class,
+            IPv4Type.class,
+            IPv6Type.class,
+            DateType.class,
+            DateV2Type.class,
+            DateTimeType.class,
+            DateTimeV2Type.class,
+            FloatType.class,
+            DoubleType.class,
+            CharType.class,
+            VarcharType.class,
+            StringType.class,
+            DecimalV2Type.class,
+            DecimalV3Type.class
+    );
 
     @Override
     public List<Rule> buildRules() {
@@ -137,14 +182,15 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     private Plan pushDown(LogicalFilter<LogicalOlapScan> filter, LogicalOlapScan logicalOlapScan,
             Optional<LogicalProject<?>> optionalProject) {
         // 1. extract repeated sub-expressions from filter conjuncts
-        // 2. generate virtual columns and add them to scan
+        // 2. generate virtual columns
         // 3. replace filter and project
+        // 4. add useful virtual columns to scan
 
         Map<Expression, Expression> replaceMap = Maps.newHashMap();
-        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
+        Map<Expression, NamedExpression> virtualColumnsMap = Maps.newHashMap();
 
         // Extract repeated sub-expressions
-        extractRepeatedSubExpressions(filter, optionalProject, replaceMap, virtualColumnsBuilder);
+        extractRepeatedSubExpressions(filter, optionalProject, replaceMap, virtualColumnsMap);
 
         if (replaceMap.isEmpty()) {
             return null;
@@ -155,17 +201,41 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                     replaceMap.size(), replaceMap.keySet());
         }
 
-        // Create new scan with virtual columns
-        logicalOlapScan = logicalOlapScan.withVirtualColumns(virtualColumnsBuilder.build());
-
         // Replace expressions in filter and project
-        Set<Expression> conjuncts = ExpressionUtils.replace(filter.getConjuncts(), replaceMap);
-        Plan plan = filter.withConjunctsAndChild(conjuncts, logicalOlapScan);
-
+        Map<Expression, Integer> counterMap = Maps.newHashMap();
+        Set<Expression> conjuncts = ExpressionUtils.replaceWithCounter(filter.getConjuncts(), replaceMap, counterMap);
+        List<NamedExpression> projections = null;
         if (optionalProject.isPresent()) {
             LogicalProject<?> project = optionalProject.get();
-            List<NamedExpression> projections = ExpressionUtils.replace(
-                    (List) project.getProjects(), replaceMap);
+            projections = ExpressionUtils.replaceWithCounter(
+                    (List) project.getProjects(), replaceMap, counterMap);
+        }
+
+        // generate a map that only contains the expression really used in conjuncts and projections
+        Map<Expression, Expression> realReplacedMap = Maps.newHashMap();
+        for (Map.Entry<Expression, Integer> entry : counterMap.entrySet()) {
+            realReplacedMap.put(entry.getKey(), replaceMap.get(entry.getKey()));
+        }
+        // use replace map to replace virtual column expression
+        for (Map.Entry<Expression, NamedExpression> entry : virtualColumnsMap.entrySet()) {
+            Expression value = entry.getValue();
+            NamedExpression afterReplacement = (NamedExpression) ExpressionUtils.replaceIf(
+                    value, replaceMap, e -> !e.equals(value.child(0)), false);
+            if (afterReplacement != value) {
+                virtualColumnsMap.put(entry.getKey(), afterReplacement);
+            }
+        }
+
+        // replace virtual columns with other virtual columns
+        ImmutableList.Builder<NamedExpression> virtualColumnsBuilder = ImmutableList.builder();
+        for (Map.Entry<Expression, Expression> entry : replaceMap.entrySet()) {
+            virtualColumnsBuilder.add(virtualColumnsMap.get(entry.getKey()));
+        }
+
+        logicalOlapScan = logicalOlapScan.withVirtualColumns(virtualColumnsBuilder.build());
+        Plan plan = filter.withConjunctsAndChild(conjuncts, logicalOlapScan);
+        if (optionalProject.isPresent()) {
+            LogicalProject<?> project = optionalProject.get();
             plan = project.withProjectsAndChild(projections, plan);
         } else {
             plan = new LogicalProject<>((List) filter.getOutput(), plan);
@@ -179,7 +249,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     private void extractRepeatedSubExpressions(LogicalFilter<LogicalOlapScan> filter,
             Optional<LogicalProject<?>> optionalProject,
             Map<Expression, Expression> replaceMap,
-            ImmutableList.Builder<NamedExpression> virtualColumnsBuilder) {
+            Map<Expression, NamedExpression> virtualColumnsMap) {
 
         // Collect all expressions from filter and project
         Set<Expression> allExpressions = new HashSet<>();
@@ -197,6 +267,14 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         Map<Expression, Integer> expressionCounts = new HashMap<>();
 
         for (Expression expr : allExpressions) {
+            // Skip expressions that contain lambda functions anywhere in the tree
+            if (expr.anyMatch(e -> e instanceof Lambda)
+                    || expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Skipping expression containing lambda/grouping: {}", expr.toSql());
+                }
+                continue;
+            }
             collectSubExpressions(expr, expressionCounts);
         }
 
@@ -205,6 +283,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         expressionCounts.entrySet().stream()
                 .filter(entry -> entry.getValue() >= MIN_OCCURRENCE_COUNT)
                 .filter(entry -> !replaceMap.containsKey(entry.getKey()))
+                .filter(entry -> isSupportedVirtualColumnType(entry.getKey())) // Check virtual column type support
                 .sorted((e1, e2) -> {
                     // Sort by benefit: (occurrence_count - 1) * expression_complexity
                     int benefit1 = (e1.getValue() - 1) * getExpressionComplexity(e1.getKey());
@@ -216,12 +295,17 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
                     Expression expr = entry.getKey();
                     Alias alias = new Alias(expr);
                     replaceMap.put(expr, alias.toSlot());
-                    virtualColumnsBuilder.add(alias);
+                    virtualColumnsMap.put(expr, alias);
+
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("Created virtual column for expression: {} with type: {}",
+                                 expr.toSql(), expr.getDataType().simpleString());
+                    }
                 });
 
         // Logging for debugging
         if (LOG.isDebugEnabled()) {
-            logger.debug("Extracted virtual columns: {}", virtualColumnsBuilder.build());
+            logger.debug("Extracted virtual columns: {}", virtualColumnsMap.values());
         }
     }
 
@@ -229,51 +313,33 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * Recursively collect all sub-expressions and count their occurrences
      */
     private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts) {
-        collectSubExpressions(expr, expressionCounts, false);
-    }
-
-    /**
-     * Recursively collect all sub-expressions and count their occurrences
-     * @param expr the expression to analyze
-     * @param expressionCounts map to store expression occurrence counts
-     * @param insideLambda whether we are currently inside a lambda function
-     */
-    private void collectSubExpressions(Expression expr, Map<Expression, Integer> expressionCounts,
-                                    boolean insideLambda) {
         // Check if we should skip this expression and how to handle it
-        SkipResult skipResult = shouldSkipExpression(expr, insideLambda);
+        SkipResult skipResult = shouldSkipExpression(expr);
 
         if (skipResult.shouldTerminate()) {
-            // Examples: x (slot), 10 (constant), expressions inside lambda functions
+            // Examples: x (slot), 10 (constant)
             // These expressions are completely skipped - no counting, no recursion
-            return;
-        }
-
-        if (skipResult.shouldSkipCounting() || skipResult.isNotBeneficial()) {
-            // Examples for SKIP_COUNTING: CAST(x AS VARCHAR)
-            // Examples for SKIP_NOT_BENEFICIAL:
-            //   - encode_as_bigint(x), decode_as_varchar(x)
-            //   - x > 10, x IN (1,2,3), x IS NULL (ColumnPredicate convertible)
-            //   - is_ip_address_in_range(ip, '192.168.1.0/24'), multi_match(text, 'query') (index pushdown)
-            //   - expressions containing lambda functions
-            // These expressions are not counted but we continue processing their children
-            for (Expression child : expr.children()) {
-                collectSubExpressions(child, expressionCounts, insideLambda);
-            }
             return;
         }
 
         // CONTINUE case: Examples like x + y, func(a, b), (x + y) * z
         // Only count expressions that meet minimum complexity requirements
-        if (expr.getDepth() >= MIN_EXPRESSION_DEPTH && expr.children().size() > 0) {
-            expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
+        if (!(skipResult.shouldSkipCounting() || skipResult.isNotBeneficial())) {
+            if (expr.getDepth() >= MIN_EXPRESSION_DEPTH
+                    && expr.children().size() > 0
+                    && !ExpressionUtils.containUniqueFunctionExistMultiple(ImmutableList.of(expr))) {
+                expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
+            }
+        }
+
+        // if the Expression has been collected, we do not collect it's children again
+        if (expressionCounts.getOrDefault(expr, 0) > 1) {
+            return;
         }
 
         // Recursively process children
         for (Expression child : expr.children()) {
-            // Check if we're entering a lambda function
-            boolean enteringLambda = insideLambda || (expr instanceof Lambda);
-            collectSubExpressions(child, expressionCounts, enteringLambda);
+            collectSubExpressions(child, expressionCounts);
         }
     }
 
@@ -281,34 +347,27 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
      * Determine how to handle an expression during sub-expression collection
      * This method consolidates ALL skip logic in one place
      * @param expr the expression to check
-     * @param insideLambda whether we are currently inside a lambda function
      * @return SkipResult indicating how to handle this expression
      */
-    private SkipResult shouldSkipExpression(Expression expr, boolean insideLambda) {
+    private SkipResult shouldSkipExpression(Expression expr) {
+        // Grouping scalar functions can't be materialized into project/virtual columns.
+        // If an expression tree contains any grouping function, skip it entirely.
+        if (expr.anyMatch(e -> e instanceof GroupingScalarFunction)) {
+            return SkipResult.TERMINATE;
+        }
         // Skip simple slots and literals as they don't benefit from being pushed down
         if (expr instanceof Slot || expr.isConstant()) {
             return SkipResult.TERMINATE;
         }
 
-        // Skip expressions inside lambda functions - they shouldn't be optimized
-        if (insideLambda) {
-            return SkipResult.TERMINATE;
-        }
-
-        // Skip CAST expressions - they shouldn't be optimized as common sub-expressions
+        // Skip CAST and WhenClause expressions - they shouldn't be optimized as common sub-expressions
         // but we still need to process their children
-        if (expr instanceof Cast) {
+        if (expr instanceof Cast || expr instanceof WhenClause) {
             return SkipResult.SKIP_COUNTING;
         }
 
         // Skip expressions with decode_as_varchar or encode_as_bigint as root
-        if (expr instanceof DecodeAsVarchar || expr instanceof EncodeAsBigInt || expr instanceof EncodeAsInt
-                || expr instanceof EncodeAsLargeInt || expr instanceof EncodeAsSmallInt) {
-            return SkipResult.SKIP_NOT_BENEFICIAL;
-        }
-
-        // Skip expressions that contain lambda functions anywhere in the tree
-        if (containsLambdaFunction(expr)) {
+        if (expr instanceof DecodeAsVarchar || expr instanceof EncodeString) {
             return SkipResult.SKIP_NOT_BENEFICIAL;
         }
 
@@ -320,23 +379,6 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
 
         // Continue normal processing
         return SkipResult.CONTINUE;
-    }
-
-    /**
-     * Check if an expression contains lambda functions
-     */
-    private boolean containsLambdaFunction(Expression expr) {
-        if (expr instanceof Lambda) {
-            return true;
-        }
-
-        for (Expression child : expr.children()) {
-            if (containsLambdaFunction(child)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -357,11 +399,10 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         //   - encode_as_bigint(x), decode_as_varchar(x) - encoding/decoding functions
         //   - x > 10, x IN (1,2,3) - ColumnPredicate convertible expressions
         //   - is_ip_address_in_range(ip, '192.168.1.0/24') - index pushdown functions
-        //   - expressions containing lambda functions
         SKIP_NOT_BENEFICIAL,
 
         // Stop processing entirely (don't count, don't recurse)
-        // Examples: x (slot), 10 (constant), expressions inside lambda functions
+        // Examples: x (slot), 10 (constant)
         TERMINATE;
 
         public boolean shouldTerminate() {
@@ -434,6 +475,32 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         if (expr instanceof MultiMatch || expr instanceof MultiMatchAny || expr instanceof Match) {
             return true;
         } else {
+            return false;
+        }
+    }
+
+    /**
+     * Check if an expression's return type is supported for virtual columns
+     * Based on TabletColumn::get_field_length_by_type implementation
+     */
+    private boolean isSupportedVirtualColumnType(Expression expr) {
+        try {
+            DataType dataType = expr.getDataType();
+            Class<? extends DataType> typeClass = dataType.getClass();
+
+            boolean isSupported = SUPPORTED_VIRTUAL_COLUMN_TYPES.contains(typeClass);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Expression {} has type {} (class: {}), supported: {}",
+                         expr.toSql(), dataType.simpleString(), typeClass.getSimpleName(), isSupported);
+            }
+
+            return isSupported;
+        } catch (Exception e) {
+            // If we can't determine the type, it's safer to not create virtual column
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Failed to determine type for expression {}: {}", expr.toSql(), e.getMessage());
+            }
             return false;
         }
     }

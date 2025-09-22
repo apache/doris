@@ -32,7 +32,7 @@
 #include <string_view>
 #include <vector>
 
-#include "gutil/hash/city.h"
+#include "util/hash/city.h"
 #include "util/hash_util.hpp"
 #include "util/slice.h"
 #include "util/sse_util.hpp"
@@ -220,6 +220,8 @@ struct StringRef {
 
     // Trims leading and trailing spaces.
     StringRef trim() const;
+    StringRef trim_whitespace() const;
+    StringRef trim_quote() const;
 
     bool empty() const { return size == 0; }
 

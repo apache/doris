@@ -153,17 +153,20 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
      * border predicate are rewritten, and if a node not match predicate, then its descendant will not rewrite.
      */
     default NODE_TYPE rewriteDownShortCircuitDown(Function<NODE_TYPE, NODE_TYPE> rewriteFunction,
-            Predicate predicate) {
+            Predicate predicate, boolean stopWhenNotMatched) {
         NODE_TYPE currentNode = (NODE_TYPE) this;
-        if (!predicate.test(this)) {
+        boolean matched = predicate.test(this);
+        if (stopWhenNotMatched && !matched) {
             return currentNode;
         }
-        currentNode = rewriteFunction.apply(currentNode);
+        if (matched) {
+            currentNode = rewriteFunction.apply(currentNode);
+        }
         if (currentNode == this) {
             Builder<NODE_TYPE> newChildren = ImmutableList.builderWithExpectedSize(arity());
             boolean changed = false;
             for (NODE_TYPE child : children()) {
-                NODE_TYPE newChild = child.rewriteDownShortCircuitDown(rewriteFunction, predicate);
+                NODE_TYPE newChild = child.rewriteDownShortCircuitDown(rewriteFunction, predicate, stopWhenNotMatched);
                 if (child != newChild) {
                     changed = true;
                 }

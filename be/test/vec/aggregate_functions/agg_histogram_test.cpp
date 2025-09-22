@@ -214,10 +214,7 @@ TEST_F(VAggHistogramTest, test_empty) {
     test_agg_histogram<DataTypeFloat32>();
     test_agg_histogram<DataTypeFloat64>();
 
-    test_agg_histogram<DataTypeDate>();
-    test_agg_histogram<DataTypeDateTime>();
     test_agg_histogram<DataTypeString>();
-    test_agg_histogram<DataTypeDecimalV2>();
 }
 
 TEST_F(VAggHistogramTest, test_with_data) {
@@ -231,13 +228,9 @@ TEST_F(VAggHistogramTest, test_with_data) {
     test_agg_histogram<DataTypeFloat32>(100, 5);
     test_agg_histogram<DataTypeFloat64>(100, 5);
 
-    test_agg_histogram<DataTypeDate>(100, 5);
     test_agg_histogram<DataTypeDateV2>(100, 5);
 
-    test_agg_histogram<DataTypeDateTime>(100, 5);
     test_agg_histogram<DataTypeDateTimeV2>(100, 5);
-
-    test_agg_histogram<DataTypeDecimalV2>(100, 5);
 }
 
 } // namespace doris::vectorized

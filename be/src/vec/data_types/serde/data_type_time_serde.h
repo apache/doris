@@ -39,6 +39,12 @@ public:
                                  int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override;
 
+    Status from_string(StringRef& str, IColumn& column,
+                       const FormatOptions& options) const override;
+
+    Status from_string_strict_mode(StringRef& str, IColumn& column,
+                                   const FormatOptions& options) const override;
+
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
 
@@ -65,6 +71,7 @@ public:
     template <typename DecimalDataType>
     Status from_decimal_strict_mode_batch(const DecimalDataType::ColumnType& decimal_col,
                                           IColumn& target_col) const;
+    int get_scale() const override { return _scale; }
 
 private:
     template <bool is_binary_format>

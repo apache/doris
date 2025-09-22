@@ -18,11 +18,9 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -34,14 +32,12 @@ import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHMSProperties;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.logging.log4j.LogManager;
@@ -94,14 +90,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsProperties;
     }
 
-    private void initAndCheckHmsProperties() {
-        try {
-            this.hmsProperties = (AbstractHMSProperties) MetastoreProperties.create(catalogProperty.getProperties());
-        } catch (UserException e) {
-            throw new RuntimeException("Failed to create HMSProperties from catalog properties", e);
-        }
-    }
-
     @VisibleForTesting
     public HMSExternalCatalog() {
         catalogProperty = new CatalogProperty(null, null);
@@ -134,41 +122,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
             throw new DdlException(
                     "The parameter " + PARTITION_CACHE_TTL_SECOND + " is wrong, value is " + partitionCacheTtlSecond);
         }
-
-        // check the dfs.ha properties
-        // 'dfs.nameservices'='your-nameservice',
-        // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-        // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-        // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-        // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
-        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
-        if (Strings.isNullOrEmpty(dfsNameservices)) {
-            return;
-        }
-
-        String[] nameservices = dfsNameservices.split(",");
-        for (String dfsservice : nameservices) {
-            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
-            if (Strings.isNullOrEmpty(namenodes)) {
-                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
-            }
-            String[] names = namenodes.split(",");
-            for (String name : names) {
-                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
-                        "");
-                if (Strings.isNullOrEmpty(address)) {
-                    throw new DdlException(
-                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
-                }
-            }
-            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
-                    "");
-            if (Strings.isNullOrEmpty(failoverProvider)) {
-                throw new DdlException(
-                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
-            }
-        }
-        initAndCheckHmsProperties();
+        catalogProperty.checkMetaStoreAndStorageProperties(AbstractHMSProperties.class);
     }
 
     @Override
@@ -180,7 +134,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        initAndCheckHmsProperties();
+        this.hmsProperties = (AbstractHMSProperties) catalogProperty.getMetastoreProperties();
         initPreExecutionAuthenticator();
         HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hmsProperties.getHiveConf(), this);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
@@ -190,7 +144,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 true,
                 executionAuthenticator);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
-                 this.catalogProperty.getStoragePropertiesMap());
+                this.catalogProperty.getStoragePropertiesMap());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,

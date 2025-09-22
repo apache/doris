@@ -23,13 +23,11 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <numeric>
 #include <optional>
 #include <ostream>
 #include <ranges>
 #include <string>
 
-#include "common/defer.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/txn_kv_error.h"
@@ -646,6 +644,14 @@ TxnErrorCode Transaction::commit() {
         return code;
     }
     commited_ = true;
+
+    // Generate versionstamp if enabled
+    if (versionstamp_enabled_) {
+        // For MemTxnKv, generate a fake versionstamp based on committed_version_
+        // In real FDB, this would be the actual 10-byte versionstamp
+        versionstamp_result_ = Versionstamp(static_cast<uint64_t>(committed_version_), 0);
+    }
+
     op_list_.clear();
     read_set_.clear();
     writes_.clear();
@@ -672,6 +678,25 @@ TxnErrorCode Transaction::abort() {
     return TxnErrorCode::TXN_OK;
 }
 
+void Transaction::enable_get_versionstamp() {
+    versionstamp_enabled_ = true;
+}
+
+TxnErrorCode Transaction::get_versionstamp(Versionstamp* versionstamp) {
+    if (!versionstamp_enabled_) {
+        LOG(WARNING) << "get_versionstamp called but versionstamp not enabled";
+        return TxnErrorCode::TXN_INVALID_ARGUMENT;
+    }
+
+    if (versionstamp_result_ == Versionstamp()) {
+        LOG(WARNING) << "versionstamp not available, commit may not have been called or failed";
+        return TxnErrorCode::TXN_KEY_NOT_FOUND;
+    }
+
+    *versionstamp = versionstamp_result_;
+    return TxnErrorCode::TXN_OK;
+}
+
 TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res,
                                     const std::vector<std::string>& keys,
                                     const BatchGetOptions& opts) {
@@ -692,6 +717,49 @@ TxnErrorCode Transaction::batch_get(std::vector<std::optional<std::string>>* res
     }
     kv_->get_count_ += keys.size();
     num_get_keys_ += keys.size();
+    return TxnErrorCode::TXN_OK;
+}
+
+TxnErrorCode Transaction::batch_scan(
+        std::vector<std::optional<std::pair<std::string, std::string>>>* res,
+        const std::vector<std::pair<std::string, std::string>>& ranges,
+        const BatchGetOptions& opts) {
+    if (ranges.empty()) {
+        return TxnErrorCode::TXN_OK;
+    }
+    std::lock_guard<std::mutex> l(lock_);
+    res->reserve(ranges.size());
+
+    for (const auto& [start_key, end_key] : ranges) {
+        if (unreadable_keys_.count(start_key) != 0) {
+            aborted_ = true;
+            LOG(WARNING) << "read unreadable key, abort";
+            return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+        }
+
+        RangeGetOptions range_opts;
+        range_opts.snapshot = opts.snapshot;
+        range_opts.batch_limit = 1;
+        range_opts.reverse = opts.reverse;
+        range_opts.begin_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+        range_opts.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
+
+        std::unique_ptr<cloud::RangeGetIterator> iter;
+        auto ret = inner_get(start_key, end_key, &iter, range_opts);
+        if (ret != TxnErrorCode::TXN_OK) {
+            return ret;
+        }
+
+        if (iter->has_next()) {
+            auto [found_key, found_value] = iter->next();
+            res->push_back(std::make_pair(std::string(found_key), std::string(found_value)));
+        } else {
+            res->push_back(std::nullopt);
+        }
+    }
+
+    kv_->get_count_ += ranges.size();
+    num_get_keys_ += ranges.size();
     return TxnErrorCode::TXN_OK;
 }
 

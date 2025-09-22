@@ -47,6 +47,7 @@
 #include "util/cpu_info.h"
 
 namespace doris::config {
+#include "common/compile_check_avoid_begin.h"
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
@@ -213,6 +214,8 @@ DEFINE_Int32(tablet_publish_txn_max_thread, "32");
 DEFINE_Int32(publish_version_task_timeout_s, "8");
 // the count of thread to calc delete bitmap
 DEFINE_Int32(calc_delete_bitmap_max_thread, "32");
+// the num of threads to calc delete bitmap when building rowset, 0 = auto
+DEFINE_Int32(calc_delete_bitmap_for_load_max_thread, "0");
 // the count of thread to calc delete bitmap worker, only used for cloud
 DEFINE_Int32(calc_delete_bitmap_worker_count, "8");
 // the count of thread to calc tablet delete bitmap task, only used for cloud
@@ -246,7 +249,7 @@ DEFINE_mBool(report_random_wait, "true");
 // the interval time(seconds) for agent report tasks signature to FE
 DEFINE_mInt32(report_task_interval_seconds, "10");
 // the interval time(seconds) for agent report disk state to FE
-DEFINE_mInt32(report_disk_state_interval_seconds, "60");
+DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
 // the max download speed(KB/s)
@@ -314,7 +317,7 @@ DEFINE_Validator(task_executor_initial_max_concurrency_per_task, [](const int co
     return true;
 });
 // Enable task executor in internal table scan.
-DEFINE_Bool(enable_task_executor_in_internal_table, "true");
+DEFINE_Bool(enable_task_executor_in_internal_table, "false");
 // Enable task executor in external table scan.
 DEFINE_Bool(enable_task_executor_in_external_table, "true");
 
@@ -642,7 +645,7 @@ DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_min, "16");
-DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "512");
+DEFINE_Int32(fragment_mgr_async_work_pool_thread_num_max, "2048");
 DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
@@ -685,8 +688,7 @@ DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
-DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
-
+DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
@@ -803,6 +805,8 @@ DEFINE_String(default_rowset_type, "BETA");
 // Maximum size of a single message body in all protocols
 DEFINE_Int64(brpc_max_body_size, "3147483648");
 DEFINE_Int64(brpc_socket_max_unwritten_bytes, "-1");
+DEFINE_mBool(brpc_usercode_in_pthread, "false");
+
 // TODO(zxy): expect to be true in v1.3
 // Whether to embed the ProtoBuf Request serialized string together with Tuple/Block data into
 // Controller Attachment and send it through http brpc when the length of the Tuple/Block data
@@ -826,7 +830,7 @@ DEFINE_Int32(txn_map_shard_size, "1024");
 DEFINE_Int32(txn_shard_size, "1024");
 
 // Whether to continue to start be when load tablet from header failed.
-DEFINE_Bool(ignore_load_tablet_failure, "false");
+DEFINE_Bool(ignore_load_tablet_failure, "true");
 
 // Whether to continue to start be when load tablet from header failed.
 DEFINE_mBool(ignore_rowset_stale_unconsistent_delete, "false");
@@ -862,7 +866,7 @@ DEFINE_mInt32(zone_map_row_num_threshold, "20");
 //    Info = 4,
 //    Debug = 5,
 //    Trace = 6
-DEFINE_Int32(aws_log_level, "3");
+DEFINE_Int32(aws_log_level, "2");
 DEFINE_Validator(aws_log_level,
                  [](const int config) -> bool { return config >= 0 && config <= 6; });
 
@@ -871,7 +875,7 @@ DEFINE_Validator(aws_log_level,
 //    Informational = 2,
 //    Warning = 3,
 //    Error = 4
-DEFINE_Int32(azure_log_level, "3");
+DEFINE_Int32(azure_log_level, "4");
 DEFINE_Validator(azure_log_level,
                  [](const int config) -> bool { return config >= 1 && config <= 4; });
 
@@ -1021,7 +1025,6 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -1081,6 +1084,8 @@ DEFINE_Bool(enable_java_support, "true");
 // Set config randomly to check more issues in github workflow
 DEFINE_Bool(enable_fuzzy_mode, "false");
 
+DEFINE_Bool(enable_graceful_exit_check, "false");
+
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
@@ -1089,9 +1094,9 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Whether use schema dict in backend side instead of MetaService side(cloud mode)
 DEFINE_mBool(variant_use_cloud_schema_dict_cache, "true");
-DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
+DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1132,9 +1137,18 @@ DEFINE_mBool(enbale_dump_error_file, "false");
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 DEFINE_mInt64(cache_lock_wait_long_tail_threshold_us, "30000000");
 DEFINE_mInt64(cache_lock_held_long_tail_threshold_us, "30000000");
+
+// enable_file_cache_keep_base_compaction_output true means force base compaction output rowsets
+// write to file cache, enable_file_cache_adaptive_write true means when file cache is enough, it
+// will write to file cache; satisfying any of the two conditions will write to file cache.
 DEFINE_mBool(enable_file_cache_keep_base_compaction_output, "false");
+DEFINE_mBool(enable_file_cache_adaptive_write, "true");
+DEFINE_mDouble(file_cache_keep_base_compaction_output_min_hit_ratio, "0.7");
+
 DEFINE_mInt64(file_cache_remove_block_qps_limit, "1000");
 DEFINE_mInt64(file_cache_background_gc_interval_ms, "100");
+DEFINE_mInt64(file_cache_background_block_lru_update_interval_ms, "5000");
+DEFINE_mInt64(file_cache_background_block_lru_update_qps_limit, "1000");
 DEFINE_mBool(enable_reader_dryrun_when_download_file_cache, "true");
 DEFINE_mInt64(file_cache_background_monitor_interval_ms, "5000");
 DEFINE_mInt64(file_cache_background_ttl_gc_interval_ms, "3000");
@@ -1285,7 +1299,7 @@ DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
 
 // The secure path with user files, used in the `local` table function.
-DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
+DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1370,18 +1384,11 @@ DEFINE_String(spill_storage_root_path, "");
 DEFINE_String(spill_storage_limit, "20%");    // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
-DEFINE_Int32(spill_io_thread_pool_thread_num, "-1");
-DEFINE_Validator(spill_io_thread_pool_thread_num, [](const int config) -> bool {
-    if (config == -1) {
-        CpuInfo::init();
-        spill_io_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 2);
-    }
-    return true;
-});
-DEFINE_Int32(spill_io_thread_pool_queue_size, "102400");
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
+
+DEFINE_Int64(wait_cancel_release_memory_ms, "5000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
@@ -1570,6 +1577,26 @@ DEFINE_String(fuzzy_test_type, "");
 DEFINE_mBool(enable_auto_clone_on_compaction_missing_version, "false");
 
 DEFINE_mBool(enable_auto_clone_on_mow_publish_missing_version, "false");
+
+// The maximum csv line reader output buffer size
+DEFINE_mInt64(max_csv_line_reader_output_buffer_size, "4294967296");
+
+// Maximum number of openmp threads can be used by each doris threads.
+// This configuration controls the parallelism level for OpenMP operations within Doris,
+// helping to prevent resource contention and ensure stable performance when multiple
+// Doris threads are executing OpenMP-accelerated operations simultaneously.
+DEFINE_mInt32(omp_threads_limit, "8");
+// The capacity of segment partial column cache, used to cache column readers for each segment.
+DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
+
+DEFINE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction, "true");
+DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
+
+DEFINE_mBool(enable_wal_tde, "false");
+
+DEFINE_mBool(print_stack_when_cache_miss, "false");
+
+DEFINE_mBool(read_cluster_cache_opt_verbose_log, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -2020,6 +2047,10 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["string_overflow_size"] =
             ((distribution(*generator) % 2) == 0) ? "10" : "4294967295";
+    fuzzy_field_and_value["skip_writing_empty_rowset_metadata"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
+            ((distribution(*generator) % 2) == 0) ? "5" : "10";
 
     std::uniform_int_distribution<int64_t> distribution2(-2, 10);
     fuzzy_field_and_value["segments_key_bounds_truncation_threshold"] =
@@ -2106,4 +2137,5 @@ std::vector<std::vector<std::string>> get_config_info() {
     return configs;
 }
 
+#include "common/compile_check_avoid_end.h"
 } // namespace doris::config

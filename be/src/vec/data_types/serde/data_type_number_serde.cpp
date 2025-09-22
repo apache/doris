@@ -21,7 +21,9 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "util/jsonb_document.h"
+#include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
@@ -29,6 +31,7 @@
 #include "vec/core/types.h"
 #include "vec/functions/cast/cast_to_basic_number_common.h"
 #include "vec/functions/cast/cast_to_boolean.h"
+#include "vec/functions/cast/cast_to_string.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -175,11 +178,9 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
     if constexpr (T == TYPE_IPV6) {
         std::string hex = int128_to_string(data);
         bw.write(hex.data(), hex.size());
-    } else if constexpr (T == TYPE_FLOAT) {
-        // fmt::format_to maybe get inaccurate results at float type, so we use gutil implement.
-        char buf[MAX_FLOAT_STR_LENGTH + 2];
-        int len = to_buffer(data, MAX_FLOAT_STR_LENGTH + 2, buf);
-        bw.write(buf, len);
+    } else if constexpr (T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        auto str = CastToString::from_number(data);
+        bw.write(str.data(), str.size());
     } else if constexpr (is_int_or_bool(T) ||
                          std::numeric_limits<
                                  typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
@@ -270,11 +271,26 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 template <PrimitiveType T>
 constexpr bool can_write_to_jsonb_from_number() {
     return T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
-           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE;
+           T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE ||
+           T == TYPE_DATEV2 || T == TYPE_DATETIMEV2 || T == TYPE_IPV4 || T == TYPE_IPV6 ||
+           T == TYPE_TIMEV2;
 }
 
 template <PrimitiveType T>
-bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
+bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
+    auto jsonb_writer_string = [](JsonbWriter& writer, const std::string& str) -> bool {
+        if (!writer.writeStartString()) {
+            return false;
+        }
+        if (!writer.writeString(str)) {
+            return false;
+        }
+        if (!writer.writeEndString()) {
+            return false;
+        }
+        return true;
+    };
+
     if constexpr (T == TYPE_BOOLEAN) {
         return writer.writeBool(data);
     } else if constexpr (T == TYPE_TINYINT) {
@@ -291,6 +307,21 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer) {
         return writer.writeFloat(data);
     } else if constexpr (T == TYPE_DOUBLE) {
         return writer.writeDouble(data);
+    } else if constexpr (T == TYPE_DATEV2) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_datev2(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(data)));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        return jsonb_writer_string(
+                writer,
+                CastToString::from_datetimev2(
+                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data), scale));
+    } else if constexpr (T == TYPE_IPV4) {
+        return jsonb_writer_string(writer, CastToString::from_ip(data));
+    } else if constexpr (T == TYPE_IPV6) {
+        return jsonb_writer_string(writer, CastToString::from_ip(data));
+    } else if constexpr (T == TYPE_TIMEV2) {
+        return jsonb_writer_string(writer, CastToString::from_time(data, scale));
     } else {
         return false;
     }
@@ -304,7 +335,7 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_col
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
     const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
-    if (!write_to_jsonb_from_number<T>(data, writer)) {
+    if (!write_to_jsonb_from_number<T>(data, writer, get_scale())) {
         return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
     }
 
@@ -320,15 +351,94 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
     const auto size = from_column.size();
     JsonbWriter writer;
     const auto& data = assert_cast<const ColumnType&>(from_column).get_data();
+    const auto scale = get_scale();
     for (int i = 0; i < size; i++) {
         writer.reset();
-        if (!write_to_jsonb_from_number<T>(data[i], writer)) {
+        if (!write_to_jsonb_from_number<T>(data[i], writer, scale)) {
             return Status::InvalidArgument(
                     "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
         }
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                             const JsonbValue* jsonb_value,
+                                                             CastParameters& castParms) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        typename PrimitiveTypeTraits<T>::ColumnItemType to;
+        auto cast_to_basic_number = [&]() {
+            if constexpr (T == TYPE_BOOLEAN) {
+                return JsonbCast::cast_from_json_to_boolean(jsonb_value, to, castParms);
+            } else if constexpr (is_int(T)) {
+                return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
+            } else if constexpr (is_float_or_double(T)) {
+                return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+            } else {
+                return false;
+            }
+        };
+        if (!cast_to_basic_number()) {
+            return JsonbCast::report_error(jsonb_value, T);
+        }
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        data.push_back(to);
+        return Status::OK();
+    }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json,
+        CastParameters& castParms) const {
+    if constexpr (!can_write_to_jsonb_from_number<T>()) {
+        return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
+    } else {
+        const size_t size = col_from_json.size();
+        const bool is_strict = castParms.is_strict;
+
+        auto& null_map = column_to.get_null_map_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+
+        null_map.resize_fill(size, false);
+        data.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            const auto& val = col_from_json.get_data_at(i);
+            auto* jsonb_value = handle_jsonb_value(val);
+            if (!jsonb_value) {
+                null_map[i] = true;
+                continue;
+            }
+
+            typename PrimitiveTypeTraits<T>::ColumnItemType to;
+            auto cast_to_basic_number = [&]() {
+                if constexpr (T == TYPE_BOOLEAN) {
+                    return JsonbCast::cast_from_json_to_boolean(jsonb_value, to, castParms);
+                } else if constexpr (is_int(T)) {
+                    return JsonbCast::cast_from_json_to_int(jsonb_value, to, castParms);
+                } else if constexpr (is_float_or_double(T)) {
+                    return JsonbCast::cast_from_json_to_float(jsonb_value, to, castParms);
+                } else {
+                    return false;
+                }
+            };
+            if (!cast_to_basic_number()) {
+                if (is_strict) {
+                    return JsonbCast::report_error(jsonb_value, T);
+                } else {
+                    null_map[i] = true;
+                    continue;
+                }
+            }
+            data[i] = to;
+        }
+        return Status::OK();
+    }
 }
 
 template <PrimitiveType T>
@@ -542,69 +652,6 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     }
 }
 
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_one_cell_to_json(const IColumn& column,
-                                                      rapidjson::Value& result,
-                                                      rapidjson::Document::AllocatorType& allocator,
-                                                      Arena& mem_pool, int64_t row_num) const {
-    const auto& data = reinterpret_cast<const ColumnType&>(column).get_data();
-    if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT) {
-        result.SetInt(data[row_num]);
-    } else if constexpr (T == TYPE_BOOLEAN || T == TYPE_DATEV2 || T == TYPE_IPV4) {
-        result.SetUint(data[row_num]);
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME) {
-        result.SetInt64(data[row_num]);
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        result.SetUint64(data[row_num]);
-    } else if constexpr (T == TYPE_FLOAT) {
-        result.SetFloat(data[row_num]);
-    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIME || T == TYPE_TIMEV2) {
-        result.SetDouble(data[row_num]);
-    } else {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "unknown column type {} for writing to jsonb " + column.get_name());
-        __builtin_unreachable();
-    }
-    return Status::OK();
-}
-
-template <PrimitiveType PT, bool is_strict_mode>
-bool read_number_text_impl(StringRef& str, typename PrimitiveTypeTraits<PT>::ColumnItemType& val) {
-    if constexpr (PT == TYPE_BOOLEAN) {
-        return try_read_bool_text(val, str);
-    }
-    // else if constexpr (){
-
-    // }
-
-    DCHECK(false);
-    return false;
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
-                                           const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
-    if (!read_number_text_impl<T, false>(str, val)) {
-        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
-    }
-    column_data.insert_value(val);
-    return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
-                                                       const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
-    typename PrimitiveTypeTraits<T>::ColumnItemType val;
-    if (!read_number_text_impl<T, true>(str, val)) {
-        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
-    }
-    column_data.insert_value(val);
-    return Status::OK();
-}
-
 template <PrimitiveType PT>
 bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, const StringRef& str_ref,
                     CastParameters& params) {
@@ -618,6 +665,34 @@ bool try_parse_impl(typename PrimitiveTypeTraits<PT>::ColumnItemType& x, const S
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "try_parse_impl not implemented for type: {}", type_to_string(PT));
     }
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
+                                           const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    CastParameters params;
+    params.is_strict = false;
+    if (!try_parse_impl<T>(val, str, params)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                       const FormatOptions& options) const {
+    auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
+    typename PrimitiveTypeTraits<T>::ColumnItemType val;
+    CastParameters params;
+    params.is_strict = true;
+    if (!try_parse_impl<T>(val, str, params)) {
+        return Status::InvalidArgument("parse number fail, string: '{}'", str.to_string());
+    }
+    column_data.insert_value(val);
+    return Status::OK();
 }
 
 template <PrimitiveType T>
@@ -643,39 +718,6 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
         StringRef str_ref(&(*chars)[current_offset], string_size);
         null_map[i] = !try_parse_impl<T>(vec_to[i], str_ref, params);
         current_offset = next_offset;
-    }
-    return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::read_one_cell_from_json(IColumn& column,
-                                                       const rapidjson::Value& value) const {
-    auto& col = reinterpret_cast<ColumnType&>(column);
-    switch (value.GetType()) {
-    case rapidjson::Type::kNumberType:
-        if (value.IsUint()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint());
-        } else if (value.IsInt()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt());
-        } else if (value.IsUint64()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetUint64());
-        } else if (value.IsInt64()) {
-            col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)value.GetInt64());
-        } else if (value.IsFloat() || value.IsDouble()) {
-            col.insert_value(typename PrimitiveTypeTraits<T>::ColumnItemType(value.GetDouble()));
-        } else {
-            CHECK(false) << "Improssible";
-        }
-        break;
-    case rapidjson::Type::kFalseType:
-        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)0);
-        break;
-    case rapidjson::Type::kTrueType:
-        col.insert_value((typename PrimitiveTypeTraits<T>::ColumnItemType)1);
-        break;
-    default:
-        col.insert_default();
-        break;
     }
     return Status::OK();
 }
@@ -711,6 +753,69 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
         current_offset = next_offset;
     }
     return Status::OK();
+}
+
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                      ColumnString::Chars& chars,
+                                                      int64_t row_num) const {
+    const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
+    const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
+
+    const size_t old_size = chars.size();
+    const size_t new_size = old_size + sizeof(uint8_t) + data_ref.size;
+    chars.resize(new_size);
+
+    memcpy(chars.data() + old_size, reinterpret_cast<const char*>(&type), sizeof(uint8_t));
+    memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
+}
+
+template <PrimitiveType T>
+void value_to_string(const typename PrimitiveTypeTraits<T>::ColumnItemType value,
+                     BufferWritable& bw, int scale) {
+    if constexpr (T == TYPE_BOOLEAN || T == TYPE_TINYINT || T == TYPE_SMALLINT || T == TYPE_INT ||
+                  T == TYPE_BIGINT || T == TYPE_LARGEINT || T == TYPE_FLOAT || T == TYPE_DOUBLE) {
+        CastToString::push_number(value, bw);
+    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
+        VecDateTimeValue dt = binary_cast<Int64, VecDateTimeValue>(value);
+        CastToString::push_date_or_datetime(dt, bw);
+    } else if constexpr (T == TYPE_DATEV2) {
+        DateV2Value<doris::DateV2ValueType> dt =
+                binary_cast<UInt32, DateV2Value<doris::DateV2ValueType>>(value);
+        CastToString::push_datev2(dt, bw);
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        DateV2Value<doris::DateTimeV2ValueType> dt =
+                binary_cast<UInt64, DateV2Value<doris::DateTimeV2ValueType>>(value);
+        CastToString::push_datetimev2(dt, scale, bw);
+    } else if constexpr (T == TYPE_TIME || T == TYPE_TIMEV2) {
+        CastToString::push_time(value, scale, bw);
+    } else if constexpr (T == TYPE_IPV4 || T == TYPE_IPV6) {
+        CastToString::push_ip(value, bw);
+    } else {
+        static_assert(std::is_same_v<decltype(T), void>, "non-exhaustive visitor!");
+    }
+}
+
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num,
+                                       BufferWritable& bw) const {
+    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    value_to_string<T>(data[row_num], bw, get_scale());
+}
+
+template <PrimitiveType T>
+void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to) const {
+    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    const size_t size = column.size();
+    const auto maybe_reserve_size = CastToString::string_length<T>;
+    column_to.get_chars().reserve(size * maybe_reserve_size);
+    column_to.get_offsets().reserve(size);
+    BufferWriter bw(column_to);
+    const auto scale = get_scale();
+    for (size_t i = 0; i < size; ++i) {
+        value_to_string<T>(data[i], bw, scale);
+        bw.commit();
+    }
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

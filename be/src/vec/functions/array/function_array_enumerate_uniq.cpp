@@ -28,6 +28,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -60,6 +61,7 @@ template <typename, typename>
 struct DefaultHash;
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class FunctionArrayEnumerateUniq : public IFunction {
 private:
@@ -216,6 +218,12 @@ public:
             case TYPE_DECIMAL256:
                 _execute_number<ColumnDecimal256>(data_columns, *offsets, null_map, dst_values);
                 break;
+            case TYPE_IPV4:
+                _execute_number<ColumnIPv4>(data_columns, *offsets, null_map, dst_values);
+                break;
+            case TYPE_IPV6:
+                _execute_number<ColumnIPv6>(data_columns, *offsets, null_map, dst_values);
+                break;
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING:
@@ -254,7 +262,7 @@ private:
                           [[maybe_unused]] const NullMap* null_map,
                           ColumnInt64::Container& dst_values) const {
         HashTableContext ctx;
-        ctx.init_serialized_keys(columns, columns[0]->size(),
+        ctx.init_serialized_keys(columns, static_cast<uint32_t>(columns[0]->size()),
                                  null_map ? null_map->data() : nullptr);
 
         using KeyGetter = typename HashTableContext::State;
@@ -315,5 +323,5 @@ private:
 void register_function_array_enumerate_uniq(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayEnumerateUniq>();
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

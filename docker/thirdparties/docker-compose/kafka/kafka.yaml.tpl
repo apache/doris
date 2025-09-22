@@ -25,7 +25,7 @@ networks:
         - subnet: 168.51.0.0/24
 services:
     doris--zookeeper:
-        image: bitnami/zookeeper
+        image: doristhirdpartydocker/zookeeper
         restart: always
         container_name: doris--zookeeper
         ports:
@@ -43,7 +43,7 @@ services:
         networks:
             - doris--kafka--network
     doris--kafka:
-        image: bitnami/kafka:2
+        image: doristhirdpartydocker/kafka
         restart: always
         container_name: doris--kafka
         depends_on:

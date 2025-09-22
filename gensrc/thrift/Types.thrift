@@ -76,7 +76,7 @@ enum TPrimitiveType {
   VARCHAR = 15,
   HLL = 16,
   DECIMALV2 = 17,
-  TIME = 18,
+  // TIME = 18, deprecated, use TIMEV2 instead
   BITMAP = 19,
   ARRAY = 20,
   MAP = 21,
@@ -101,6 +101,7 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
+  VARBINARY = 43 // represent varbinary type
 }
 
 enum TTypeNodeType {
@@ -463,6 +464,7 @@ struct TJdbcExecutorCtorParams {
   15: optional bool connection_pool_keep_alive
   16: optional i64 catalog_id
   17: optional string jdbc_driver_checksum
+  18: optional bool is_tvf
 }
 
 struct TJavaUdfExecutorCtorParams {
@@ -683,13 +685,6 @@ struct TResourceInfo {
     2: required string group
 }
 
-enum TExportState {
-    RUNNING = 0,
-    FINISHED = 1,
-    CANCELLED = 2,
-    UNKNOWN = 3
-}
-
 enum TFileType {
     FILE_LOCAL = 0,
     FILE_BROKER = 1,
@@ -755,6 +750,11 @@ enum TMetadataType {
   PARTITION_VALUES = 10,
   HUDI = 11,
   PAIMON = 12,
+}
+
+// deprecated
+enum TIcebergQueryType {
+  SNAPSHOTS
 }
 
 enum THudiQueryType {

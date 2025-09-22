@@ -44,6 +44,11 @@ public class JsonSet extends ScalarFunction implements CustomSignature, AlwaysNu
         super("json_set", ExpressionUtils.mergeArguments(arg0, arg1, arg2, varArgs));
     }
 
+    /** constructor for withChildren and reuse signature */
+    private JsonSet(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public FunctionSignature customSignature() {
         List<DataType> arguments = new ArrayList<>();
@@ -64,8 +69,7 @@ public class JsonSet extends ScalarFunction implements CustomSignature, AlwaysNu
     @Override
     public JsonSet withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 3);
-        return new JsonSet(children.get(0), children.get(1), children.get(2),
-            children.subList(3, children.size()).toArray(new Expression[0]));
+        return new JsonSet(getFunctionParams(children));
     }
 
     @Override

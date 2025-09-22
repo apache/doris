@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <utility>
 
 #include "common/exception.h"
@@ -46,6 +47,8 @@ class IDataType;
 
 struct AggregateFunctionAttr {
     bool enable_decimal256 {false};
+    bool is_window_function {false};
+    bool is_foreach {false};
     std::vector<std::string> column_names;
 };
 
@@ -251,6 +254,15 @@ public:
     /// eg sum(col) over (rows between 3 preceding and 3 following), could resue the previous result
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
+
+    virtual void set_query_context(QueryContext* context) {
+        throw Exception(ErrorCode::FATAL_ERROR,
+                        "set_query_context is not supported by aggregate function '{}'; "
+                        "only LLM aggregate functions implement this method",
+                        get_name());
+    }
+
+    virtual bool is_blockable() const { return false; }
 
     /**
     * Executes the aggregate function in incremental mode.
@@ -662,6 +674,15 @@ private:
     const IAggregateFunction* _function;
     std::unique_ptr<AggregateData[]> _data;
 };
+
+//Hint information of AggregateFunction signature
+
+struct NullableAggregateFunction {};    // Function's return value can be nullable
+struct NotNullableAggregateFunction {}; // Function's return value cannot be nullable
+
+struct UnaryExpression {};   // Can only have one parameter
+struct MultiExpression {};   // Must have multiple parameters (more than 1)
+struct VarargsExpression {}; // Uncertain number of parameters
 
 } // namespace doris::vectorized
 

@@ -60,7 +60,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz1>[+-]\\d{1,2}(?::?(?:00|30|45))?|(?i)([A-Za-z]+\\S*)))?)";
     public static final String toDateUnStrictRegex
             = "^\\s*((?<year>\\d{2}|\\d{4})[^a-zA-Z\\d](?<month>\\d{1,2})[^a-zA-Z\\d](?<date>\\d{1,2}))"
-            + "(?:[ T]"
+            + "(?:[ T:]"
             + "(?<hour>\\d{1,2})[^a-zA-Z\\d](?<minute>\\d{1,2})[^a-zA-Z\\d](?<"
             + "second>\\d{1,2})(?<fraction>\\.\\d*)?"
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
@@ -195,13 +195,13 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     protected Expression castToFloat() {
         String trimmedValue = value.trim();
         if (doublePattern.matcher(trimmedValue).matches()) {
-            if (isPosInf(trimmedValue)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.POSITIVE_INFINITY);
             }
-            if (isNegInf(trimmedValue)) {
+            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.NEGATIVE_INFINITY);
             }
-            if (isNaN(trimmedValue)) {
+            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Float.NaN);
             }
             return Literal.of(Float.parseFloat(value.trim()));
@@ -212,13 +212,13 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     protected Expression castToDouble() {
         String trimmedValue = value.trim();
         if (doublePattern.matcher(trimmedValue).matches()) {
-            if (isPosInf(trimmedValue)) {
+            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.POSITIVE_INFINITY);
             }
-            if (isNegInf(trimmedValue)) {
+            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.NEGATIVE_INFINITY);
             }
-            if (isNaN(trimmedValue)) {
+            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
                 return Literal.of(Double.NaN);
             }
             return Literal.of(Double.parseDouble(value.trim()));
@@ -437,6 +437,24 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         }
         StringLikeLiteral that = (StringLikeLiteral) o;
         return Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int fastChildrenHashCode() {
+        return doComputeHashCode();
+    }
+
+    @Override
+    protected int computeHashCode() {
+        return doComputeHashCode();
+    }
+
+    private int doComputeHashCode() {
+        if (value != null && value.length() > 36) {
+            return value.substring(0, 36).hashCode();
+        } else {
+            return Objects.hashCode(getValue());
+        }
     }
 
     @Override

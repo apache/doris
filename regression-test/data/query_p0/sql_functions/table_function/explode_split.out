@@ -20,3 +20,39 @@
 6	b
 6	c
 
+-- !explode_split_outer1 --
+1	a,b,c	a
+1	a,b,c	b
+1	a,b,c	c
+
+-- !explode_split_outer2 --
+1	a,b,c	a	a
+1	a,b,c	a	b
+1	a,b,c	a	c
+1	a,b,c	b	a
+1	a,b,c	b	b
+1	a,b,c	b	c
+1	a,b,c	c	a
+1	a,b,c	c	b
+1	a,b,c	c	c
+
+-- !explode_split_outer3 --
+6	a
+6	b
+6	c
+
+-- !explode_split_outer4 --
+1	a,b,c	a	\N
+1	a,b,c	b	\N
+1	a,b,c	c	\N
+
+-- !explode_split_outer5 --
+1	a,b,c	a	\N
+1	a,b,c	b	\N
+1	a,b,c	c	\N
+
+-- !explode_split_empty_delimiter --
+a
+a
+a
+

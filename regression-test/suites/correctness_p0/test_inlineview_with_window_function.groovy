@@ -106,14 +106,16 @@ suite("test_inlineview_with_window_function") {
 
     sql """DROP MATERIALIZED VIEW IF EXISTS ods_zn_dnt_max1 ON test_table_aaa;"""
     sql """create materialized view ods_zn_dnt_max1 as
-            select ordernum,max(dnt) as dnt from test_table_aaa
+            select ordernum as a1,max(dnt) as a2 from test_table_aaa
             group by ordernum
             ORDER BY ordernum;"""
 
+    sql "set enable_insert_strict=false;"
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:55:33','{"DB1":168939,"DNT":"2023-06-10 03:55:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:56:33','{"DB1":168939,"DNT":"2023-06-10 03:56:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:57:33','{"DB1":168939,"DNT":"2023-06-10 03:57:33"}');"""
     sql """insert into test_table_aaa values('cib2205045_1_1s','2023/6/10 3:58:33','{"DB1":168939,"DNT":"2023-06-10 03:58:33"}');"""
+    sql "set enable_insert_strict=true;"
 
     qt_order """select
                 '2023-06-10',

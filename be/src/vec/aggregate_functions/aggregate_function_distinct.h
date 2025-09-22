@@ -24,10 +24,6 @@
 #include <glog/logging.h>
 #include <stddef.h>
 
-#include <algorithm>
-#include <memory>
-#include <new>
-#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -38,8 +34,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/io/io_helper.h"
-#include "vec/io/var_int.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -269,7 +263,9 @@ struct AggregateFunctionDistinctMultipleGenericData
 template <template <bool stable> typename Data, bool stable = false>
 class AggregateFunctionDistinct
         : public IAggregateFunctionDataHelper<Data<stable>,
-                                              AggregateFunctionDistinct<Data, stable>> {
+                                              AggregateFunctionDistinct<Data, stable>>,
+          VarargsExpression,
+          NullableAggregateFunction {
 private:
     size_t prefix_size;
     AggregateFunctionPtr nested_func;

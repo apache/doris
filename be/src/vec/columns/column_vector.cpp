@@ -197,8 +197,7 @@ struct ColumnVector<T>::less {
     less(const Self& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return CompareHelper<value_type>::less(parent.data[lhs], parent.data[rhs],
-                                               nan_direction_hint);
+        return Compare::less(parent.data[lhs], parent.data[rhs]);
     }
 };
 
@@ -209,8 +208,7 @@ struct ColumnVector<T>::greater {
     greater(const Self& parent_, int nan_direction_hint_)
             : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return CompareHelper<value_type>::greater(parent.data[lhs], parent.data[rhs],
-                                                  nan_direction_hint);
+        return Compare::greater(parent.data[lhs], parent.data[rhs]);
     }
 };
 
@@ -431,31 +429,6 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
 }
 
 template <PrimitiveType T>
-ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
-    size_t size = data.size();
-    column_match_offsets_size(size, offsets.size());
-
-    auto res = this->create();
-    if (0 == size) return res;
-
-    typename Self::Container& res_data = res->get_data();
-    res_data.reserve(offsets.back());
-
-    // vectorized this code to speed up
-    auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
-    IColumn::Offset* counts = counts_uptr.get();
-    for (ssize_t i = 0; i < size; ++i) {
-        counts[i] = offsets[i] - offsets[i - 1];
-    }
-
-    for (size_t i = 0; i < size; ++i) {
-        res_data.resize_fill(res_data.size() + counts[i], data[i]);
-    }
-
-    return res;
-}
-
-template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
     auto s = size();
     size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
@@ -464,6 +437,27 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
     }
     for (size_t i = 0; i < s; ++i) {
         data[i] = null_map[i] ? default_value() : data[i];
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::replace_float_special_values() {
+    if constexpr (is_float_or_double(T)) {
+        static constexpr float f_neg_zero = -0.0F;
+        static constexpr double d_neg_zero = -0.0;
+        static constexpr size_t byte_size = sizeof(value_type);
+        static const void* p_neg_zero = (byte_size == 4 ? static_cast<const void*>(&f_neg_zero)
+                                                        : static_cast<const void*>(&d_neg_zero));
+        auto s = size();
+        auto* data_ptr = data.data();
+        for (size_t i = 0; i < s; ++i) {
+            // replace negative zero with positive zero
+            if (0 == std::memcmp(data_ptr + i, p_neg_zero, byte_size)) {
+                data[i] = 0.0;
+            } else if (is_nan(data[i])) {
+                data[i] = std::numeric_limits<value_type>::quiet_NaN();
+            }
+        }
     }
 }
 

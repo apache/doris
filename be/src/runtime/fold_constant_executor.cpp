@@ -162,15 +162,11 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals,
     TPlanFragmentExecParams params;
     params.fragment_instance_id = _query_id;
     params.query_id = _query_id;
-    TExecPlanFragmentParams fragment_params;
-    fragment_params.params = params;
-    fragment_params.protocol_version = PaloInternalServiceVersion::V1;
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("FoldConstant:query_id={}", print_id(_query_id)));
-    _runtime_state =
-            RuntimeState::create_unique(fragment_params.params, query_options, query_globals,
-                                        ExecEnv::GetInstance(), nullptr, _mem_tracker);
+    _runtime_state = RuntimeState::create_unique(params, query_options, query_globals,
+                                                 ExecEnv::GetInstance(), nullptr, _mem_tracker);
     DescriptorTbl* desc_tbl = nullptr;
     Status status =
             DescriptorTbl::create(_runtime_state->obj_pool(), TDescriptorTable(), &desc_tbl);

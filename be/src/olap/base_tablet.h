@@ -50,10 +50,32 @@ struct TabletWithVersion {
     int64_t version;
 };
 
+struct CaptureRsReaderOptions {
+    // Used by local mode only.
+    // If true, allows skipping missing versions during rowset capture.
+    // This can be useful when some versions are temporarily unavailable.
+    bool skip_missing_version {false};
+
+    // ======== only take effect in cloud mode ========
+
+    // Enable preference for cached/warmed-up rowsets when building version paths.
+    // When enabled, the capture process will prioritize already cached rowsets
+    // to avoid cold data reads and improve query performance.
+    bool enable_prefer_cached_rowset {false};
+
+    // Query freshness tolerance in milliseconds.
+    // Defines the time window for considering data as "fresh enough".
+    // Rowsets that became visible within this time range can be skipped if not warmed up,
+    // but older rowsets (before current_time - query_freshness_tolerance_ms) that are
+    // not warmed up will trigger fallback to normal capture.
+    // Set to -1 to disable freshness tolerance checking.
+    int64_t query_freshness_tolerance_ms {-1};
+};
+
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
-class BaseTablet {
+class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
     explicit BaseTablet(TabletMetaSharedPtr tablet_meta);
     virtual ~BaseTablet();
@@ -93,8 +115,6 @@ public:
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
-    Status update_by_least_common_schema(const TabletSchemaSPtr& update_schema);
-
     TabletSchemaSPtr tablet_schema() const {
         std::shared_lock rlock(_meta_lock);
         return _max_version_schema;
@@ -115,7 +135,7 @@ public:
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) = 0;
+                                      const CaptureRsReaderOptions& opts) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
@@ -193,7 +213,8 @@ public:
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr);
 
     Status calc_delete_bitmap_between_segments(
-            RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            TabletSchemaSPtr schema, RowsetId rowset_id,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
             DeleteBitmapPtr delete_bitmap);
 
     static Status commit_phase_update_delete_bitmap(
@@ -295,15 +316,14 @@ public:
                                         const std::vector<RowsetSharedPtr>& candidate_rowsets,
                                         int64_t limit);
 
-    // Return the merged schema of all rowsets
-    virtual TabletSchemaSPtr merged_tablet_schema() const {
-        std::shared_lock rlock(_meta_lock);
-        return _max_version_schema;
-    }
-
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
+        traverse_rowsets_unlocked(visitor, include_stale);
+    }
+
+    void traverse_rowsets_unlocked(std::function<void(const RowsetSharedPtr&)> visitor,
+                                   bool include_stale = false) {
         for (auto& [v, rs] : _rs_version_map) {
             visitor(rs);
         }
@@ -328,6 +348,9 @@ public:
     virtual Status check_delete_bitmap_cache(int64_t txn_id, DeleteBitmap* expected_delete_bitmap) {
         return Status::OK();
     }
+
+    void prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version);
+    void prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& output_rowset);
 
 protected:
     // Find the missed versions until the spec_version.

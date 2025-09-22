@@ -61,6 +61,7 @@ import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
@@ -357,7 +358,8 @@ public class GsonUtils {
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
-            .registerSubtype(EsResource.class, EsResource.class.getSimpleName());
+            .registerSubtype(EsResource.class, EsResource.class.getSimpleName())
+            .registerSubtype(AIResource.class, AIResource.class.getSimpleName());
 
     // runtime adapter for class "AlterJobV2"
     private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory;

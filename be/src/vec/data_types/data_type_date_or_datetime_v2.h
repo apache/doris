@@ -42,7 +42,6 @@ class PColumnMeta;
 
 namespace vectorized {
 class BufferWritable;
-class ReadBuffer;
 class IColumn;
 } // namespace vectorized
 } // namespace doris
@@ -89,7 +88,6 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt32 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -139,7 +137,6 @@ public:
     void push_number(ColumnString::Chars& chars, const UInt64& num) const;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(UInt64 int_val) const;
-    Status from_string(ReadBuffer& rb, IColumn* column) const override;
     using SerDeType = DataTypeDateTimeV2SerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(_scale, nesting_level);
@@ -163,6 +160,9 @@ public:
     UInt32 get_scale() const override { return _scale; }
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override;
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);

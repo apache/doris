@@ -41,6 +41,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 
@@ -124,7 +125,8 @@ public class ShowTableStatusCommand extends ShowCommand {
     /**
      * validate
      */
-    private void validate(ConnectContext ctx) throws AnalysisException {
+    @VisibleForTesting
+    protected void validate(ConnectContext ctx) throws AnalysisException {
         if (Strings.isNullOrEmpty(db)) {
             db = ctx.getDatabase();
             if (Strings.isNullOrEmpty(db)) {

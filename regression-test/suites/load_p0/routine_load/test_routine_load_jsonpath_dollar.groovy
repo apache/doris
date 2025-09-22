@@ -41,7 +41,6 @@ suite("test_routine_load_jsonpath_dollar", "p0") {
             def record = new ProducerRecord<>(jobName, null, line)
             producer.send(record)
         }
-        producer.close()
 
         try {
             sql """

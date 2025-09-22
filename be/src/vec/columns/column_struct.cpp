@@ -90,15 +90,6 @@ ColumnStruct::MutablePtr ColumnStruct::create(const TupleColumns& tuple_columns)
     return column_struct;
 }
 
-MutableColumnPtr ColumnStruct::clone_empty() const {
-    const size_t tuple_size = columns.size();
-    MutableColumns new_columns(tuple_size);
-    for (size_t i = 0; i < tuple_size; ++i) {
-        new_columns[i] = columns[i]->clone_empty();
-    }
-    return ColumnStruct::create(std::move(new_columns));
-}
-
 MutableColumnPtr ColumnStruct::clone_resized(size_t new_size) const {
     const size_t tuple_size = columns.size();
     MutableColumns new_columns(tuple_size);
@@ -333,17 +324,6 @@ MutableColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) co
     return ColumnStruct::create(new_columns);
 }
 
-ColumnPtr ColumnStruct::replicate(const Offsets& offsets) const {
-    const size_t tuple_size = columns.size();
-    Columns new_columns(tuple_size);
-
-    for (size_t i = 0; i < tuple_size; ++i) {
-        new_columns[i] = columns[i]->replicate(offsets);
-    }
-
-    return ColumnStruct::create(new_columns);
-}
-
 void ColumnStruct::shrink_padding_chars() {
     for (auto& column : columns) {
         column->shrink_padding_chars();
@@ -474,6 +454,12 @@ size_t ColumnStruct::get_max_row_byte_size() const {
         max_row_byte_sz += col->get_max_row_byte_size();
     }
     return max_row_byte_sz;
+}
+
+void ColumnStruct::replace_float_special_values() {
+    for (auto& col : columns) {
+        col->replace_float_special_values();
+    }
 }
 
 } // namespace doris::vectorized

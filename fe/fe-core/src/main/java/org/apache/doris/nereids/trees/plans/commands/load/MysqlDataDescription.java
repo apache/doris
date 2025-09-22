@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans.commands.load;
 
 import org.apache.doris.analysis.ImportColumnDesc;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -26,6 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -54,8 +54,8 @@ public class MysqlDataDescription {
     private String dbName;
     private String tableName;
     private final PartitionNamesInfo partitionNamesInfo;
-    private final Separator columnSeparator;
-    private Separator lineDelimiter;
+    private final String columnSeparator;
+    private final String lineDelimiter;
     private int skipLines = 0;
     private List<String> columns;
     private final List<Expression> columnMappingList;
@@ -97,8 +97,8 @@ public class MysqlDataDescription {
         this.tableName = tableNameInfo.getTbl();
         this.clientLocal = clientLocal;
         this.partitionNamesInfo = partitionNamesInfo;
-        this.columnSeparator = new Separator(columnSeparator.orElse(null));
-        this.lineDelimiter = new Separator(lineDelimiter.orElse(null));
+        this.columnSeparator = columnSeparator.orElse(null);
+        this.lineDelimiter = lineDelimiter.orElse(null);
         this.skipLines = skipLines;
         this.columns = columns;
         this.columnMappingList = columnMappingList;
@@ -120,24 +120,6 @@ public class MysqlDataDescription {
 
     public PartitionNamesInfo getPartitionNamesInfo() {
         return partitionNamesInfo;
-    }
-
-    public String getColumnSeparator() {
-        if (columnSeparator == null) {
-            return null;
-        }
-        return columnSeparator.getSeparator();
-    }
-
-    public String getLineDelimiter() {
-        if (lineDelimiter == null) {
-            return null;
-        }
-        return lineDelimiter.getSeparator();
-    }
-
-    public int getSkipLines() {
-        return skipLines;
     }
 
     public List<String> getColumns() {
@@ -199,7 +181,18 @@ public class MysqlDataDescription {
         analyzeLoadAttributes();
         analyzeColumns();
 
-        fileFormatProperties = FileFormatProperties.createFileFormatProperties(analysisMap);
+        // get csv properties to analysisMap first
+        if (!Strings.isNullOrEmpty(columnSeparator)) {
+            analysisMap.put(CsvFileFormatProperties.PROP_COLUMN_SEPARATOR, columnSeparator);
+        }
+        if (!Strings.isNullOrEmpty(lineDelimiter)) {
+            analysisMap.put(CsvFileFormatProperties.PROP_LINE_DELIMITER, lineDelimiter);
+        }
+        if (skipLines > 0) {
+            analysisMap.put(CsvFileFormatProperties.PROP_SKIP_LINES, String.valueOf(skipLines));
+        }
+        fileFormatProperties = FileFormatProperties.createFileFormatPropertiesOrDeferred(
+                analysisMap.getOrDefault(FileFormatProperties.PROP_FORMAT, ""));
         fileFormatProperties.analyzeFileFormatProperties(analysisMap, false);
     }
 
@@ -211,14 +204,6 @@ public class MysqlDataDescription {
     }
 
     private void analyzeLoadAttributes() throws UserException {
-        if (columnSeparator.getOriSeparator() != null) {
-            columnSeparator.analyze(false);
-        }
-
-        if (lineDelimiter.getOriSeparator() != null) {
-            lineDelimiter.analyze(true);
-        }
-
         if (partitionNamesInfo.getPartitionNames() != null && !partitionNamesInfo.getPartitionNames().isEmpty()) {
             partitionNamesInfo.validate();
         }
@@ -253,10 +238,10 @@ public class MysqlDataDescription {
         sb.append(partitionNamesInfo.toSql());
 
         if (columnSeparator != null) {
-            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+            sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator);
         }
         if (lineDelimiter != null) {
-            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
+            sb.append(" LINES TERMINATED BY ").append(lineDelimiter);
         }
         if (!columns.isEmpty()) {
             sb.append(" (");
@@ -275,3 +260,4 @@ public class MysqlDataDescription {
         return sb.toString();
     }
 }
+

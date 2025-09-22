@@ -31,7 +31,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
-#include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
@@ -140,7 +139,9 @@ struct SampData : BaseData<T> {
 
 template <typename Data>
 class AggregateFunctionSampCovariance
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>,
+          MultiExpression,
+          NullableAggregateFunction {
 public:
     AggregateFunctionSampCovariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSampCovariance<Data>>(

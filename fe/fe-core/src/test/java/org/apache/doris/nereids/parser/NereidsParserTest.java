@@ -36,8 +36,13 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.OptimizeTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -57,14 +62,17 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -592,6 +600,41 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testOptimizeTable() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // Basic optimize table
+        String sql = "optimize table t1 properties('action' = 'compact')";
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with partition
+        sql = "optimize table t1 partition(p1, p2) properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with where clause
+        sql = "optimize table t1 where id > 100 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with partition and where clause
+        sql = "optimize table t1 partition(p1) where id > 100 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with catalog and database
+        sql = "optimize table catalog1.db1.t1 properties('action' = 'compact')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+
+        // Optimize table with multiple properties
+        sql = "optimize table t1 properties('action' = 'compact', 'max_files' = '10')";
+        logicalPlan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(OptimizeTableCommand.class, logicalPlan);
+    }
+
+    @Test
     public void testKill() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "kill 1234";
@@ -1036,4 +1079,83 @@ public class NereidsParserTest extends ParserTestBase {
             Assertions.assertThrows(ParseException.class, () -> parser.parseSingle(sql), sql);
         }
     }
+
+    @Test
+    public void testLambdaSelect() {
+        parsePlan("SELECT  x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaGroupBy() {
+        parsePlan("SELECT 1 from ( select 2 ) t group by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaSort() {
+        parsePlan("SELECT 1 from ( select 2 ) t order by x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaHaving() {
+        parsePlan("SELECT 1 from ( select 2 ) t having x -> x + 1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testLambdaJoin() {
+        parsePlan("SELECT 1 from ( select 2 as a1 ) t1 join ( select 2 as a2 ) as t2 on x -> x + 1 = t1.a1")
+                .assertThrowsExactly(ParseException.class)
+                .assertMessageContains("mismatched input '->' expecting {<EOF>, ';'}");
+    }
+
+    @Test
+    public void testCtasWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE TABLE t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateTableCommand.class, logicalPlan);
+        CreateTableCommand createTableCommand = (CreateTableCommand) logicalPlan;
+        Assertions.assertTrue(createTableCommand.getCtasQuery().isPresent());
+    }
+
+    @Test
+    public void testCreateViewWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testCreateMvWithoutAs() {
+        NereidsParser parser = new NereidsParser();
+        String sql = "CREATE MATERIALIZED VIEW t1 SELECT * FROM t2";
+        LogicalPlan logicalPlan = parser.parseSingle(sql);
+        Assertions.assertInstanceOf(CreateMaterializedViewCommand.class, logicalPlan);
+    }
+
+    @Test
+    public void testDropTemporaryTable() throws Exception {
+        NereidsParser parser = new NereidsParser();
+        Map<String, Boolean> mustTemporaryResult = ImmutableMap.of(
+                "DROP TEMPORARY TABLE t1", true,
+                "DROP TABLE t1", false);
+        for (Map.Entry<String, Boolean> entry : mustTemporaryResult.entrySet()) {
+            LogicalPlan logicalPlan = parser.parseSingle(entry.getKey());
+            Assertions.assertInstanceOf(DropTableCommand.class, logicalPlan);
+            DropTableCommand dropTableCommand = (DropTableCommand) logicalPlan;
+            Field mustTemporary = DropTableCommand.class.getDeclaredField("mustTemporary");
+            mustTemporary.setAccessible(true);
+            Object value = mustTemporary.get(dropTableCommand);
+            Assertions.assertEquals(entry.getValue(), (boolean) value);
+        }
+    }
+
 }

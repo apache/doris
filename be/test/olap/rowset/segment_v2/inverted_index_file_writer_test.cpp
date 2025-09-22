@@ -993,7 +993,6 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
@@ -1054,7 +1053,6 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
@@ -1086,7 +1084,6 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
@@ -1118,7 +1115,6 @@ TEST_F(IndexFileWriterTest, CacheEvictionTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
     EXPECT_CALL(writer3, _construct_index_searcher_builder(testing::_))
@@ -1188,7 +1184,6 @@ TEST_F(IndexFileWriterTest, CacheUpdateTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
@@ -1227,7 +1222,6 @@ TEST_F(IndexFileWriterTest, CacheUpdateTest) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
 
@@ -1276,7 +1270,6 @@ TEST_F(IndexFileWriterTest, AddIntoSearcherCacheV1Test) {
                         auto close_directory = true;
                         auto bkd_reader = std::make_shared<lucene::util::bkd::bkd_reader>(
                                 directory, close_directory);
-                        _CLDECDELETE(directory)
                         return bkd_reader;
                     }));
     EXPECT_CALL(writer, _construct_index_searcher_builder(testing::_))

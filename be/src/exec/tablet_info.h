@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -45,6 +46,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class MemTracker;
 class SlotDescriptor;
 class TExprNode;
@@ -247,16 +249,16 @@ public:
                         hash_val = HashUtil::zlib_crc_hash_null(hash_val);
                     }
                 }
-                return hash_val % partition.num_buckets;
+                return cast_set<uint32_t>(hash_val % partition.num_buckets);
             };
         } else { // random distribution
             compute_function = [](vectorized::Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
                     // for compatible with old version, just do random
-                    return butil::fast_rand() % partition.num_buckets;
+                    return cast_set<uint32_t>(butil::fast_rand() % partition.num_buckets);
                 }
-                return partition.load_tablet_idx % partition.num_buckets;
+                return cast_set<uint32_t>(partition.load_tablet_idx % partition.num_buckets);
             };
         }
 
@@ -269,7 +271,7 @@ public:
                 auto* partition = partitions[index];
                 if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
-                    tablet_indexes[index] = it->second; // tablet
+                    tablet_indexes[index] = cast_set<uint32_t>(it->second); // tablet
                 } else {
                     // compute and save in buffer
                     (*partition_tablets_buffer)[partition] = tablet_indexes[index] =
@@ -439,4 +441,5 @@ private:
     std::unordered_map<int64_t, NodeInfo> _nodes;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris

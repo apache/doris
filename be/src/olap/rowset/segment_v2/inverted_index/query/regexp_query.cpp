@@ -27,12 +27,12 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
-RegexpQuery::RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
-        : _searcher(searcher),
-          _io_ctx(io_ctx),
-          _max_expansions(query_options.inverted_index_max_expansions),
-          _query(searcher, query_options, io_ctx) {}
+RegexpQuery::RegexpQuery(SearcherPtr searcher, IndexQueryContextPtr context)
+        : _searcher(std::move(searcher)),
+          _context(std::move(context)),
+          _query(_searcher, _context) {
+    _max_expansions = _context->runtime_state->query_options().inverted_index_max_expansions;
+}
 
 void RegexpQuery::add(const InvertedIndexQueryInfo& query_info) {
     if (query_info.term_infos.empty()) {
@@ -131,9 +131,9 @@ void RegexpQuery::collect_matching_terms(const std::wstring& field_name,
         if (prefix) {
             std::wstring ws_prefix = StringUtil::string_to_wstring(*prefix);
             Term prefix_term(field_name.c_str(), ws_prefix.c_str());
-            enumerator = _searcher->getReader()->terms(&prefix_term, _io_ctx);
+            enumerator = _searcher->getReader()->terms(&prefix_term, _context->io_ctx);
         } else {
-            enumerator = _searcher->getReader()->terms(nullptr, _io_ctx);
+            enumerator = _searcher->getReader()->terms(nullptr, _context->io_ctx);
             enumerator->next();
         }
         do {

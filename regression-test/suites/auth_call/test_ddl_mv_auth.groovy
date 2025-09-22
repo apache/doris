@@ -55,7 +55,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     // ddl create
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
-            sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
+            sql """create materialized view ${mvName} as select username as a1 from ${dbName}.${tableName};"""
             exception "denied"
         }
         test {
@@ -67,7 +67,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
         test {
-            sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
+            sql """create materialized view ${mvName} as select username as a2 from ${dbName}.${tableName};"""
             exception "denied"
         }
         test {
@@ -78,7 +78,7 @@ suite("test_ddl_mv_auth","p0,auth_call") {
     sql """grant alter_priv on ${dbName}.${tableName} to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """use ${dbName}"""
-        sql """create materialized view ${mvName} as select username from ${dbName}.${tableName};"""
+        sql """create materialized view ${mvName} as select username as a3 from ${dbName}.${tableName};"""
         waitingMVTaskFinishedByMvName(dbName, tableName, mvName)
         sql """alter table ${dbName}.${tableName} add rollup ${rollupName}(username)"""
         waitingMVTaskFinishedByMvName(dbName, tableName, rollupName)

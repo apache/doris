@@ -30,6 +30,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_buffer.hpp"
+#include "vec/functions/cast/cast_to_string.h"
 
 namespace doris::vectorized {
 class IColumn;
@@ -48,7 +49,7 @@ size_t DataTypeTimeV2::number_length() const {
     return 14;
 }
 void DataTypeTimeV2::push_number(ColumnString::Chars& chars, const Float64& num) const {
-    auto timev2_str = timev2_to_buffer_from_double(num, _scale);
+    auto timev2_str = CastToString::from_time(num, _scale);
     chars.insert(timev2_str.begin(), timev2_str.end());
 }
 
@@ -77,4 +78,5 @@ MutableColumnPtr DataTypeTimeV2::create_column() const {
 Field DataTypeTimeV2::get_field(const TExprNode& node) const {
     return Field::create_field<TYPE_TIMEV2>(node.timev2_literal.value);
 }
+
 } // namespace doris::vectorized

@@ -369,16 +369,16 @@ private:
     const UniqueId _id {UniqueId::gen_uid()};
 
     std::shared_ptr<MetricEntity> _metric_entity;
-    IntGauge* split_thread_pool_active_threads = nullptr;
-    IntGauge* split_thread_pool_queue_size = nullptr;
-    IntGauge* split_thread_pool_max_queue_size = nullptr;
-    IntGauge* split_thread_pool_max_threads = nullptr;
-    IntCounter* split_thread_pool_task_execution_time_ns_total = nullptr;
-    IntCounter* split_thread_pool_task_execution_count_total = nullptr;
-    IntCounter* split_thread_pool_task_wait_worker_time_ns_total = nullptr;
-    IntCounter* split_thread_pool_task_wait_worker_count_total = nullptr;
+    IntGauge* thread_pool_active_threads = nullptr;
+    IntGauge* thread_pool_queue_size = nullptr;
+    IntGauge* thread_pool_max_queue_size = nullptr;
+    IntGauge* thread_pool_max_threads = nullptr;
+    IntCounter* thread_pool_task_execution_time_ns_total = nullptr;
+    IntCounter* thread_pool_task_execution_count_total = nullptr;
+    IntCounter* thread_pool_task_wait_worker_time_ns_total = nullptr;
+    IntCounter* thread_pool_task_wait_worker_count_total = nullptr;
 
-    IntCounter* split_thread_pool_submit_failed = nullptr;
+    IntCounter* thread_pool_submit_failed = nullptr;
 
     bool _enable_concurrency_control = true;
 };

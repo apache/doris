@@ -161,6 +161,9 @@ public class PrivBitSet {
     }
 
     public static void convertResourcePrivToCloudPriv(ResourcePattern resourcePattern, Set<Privilege> privileges) {
+        if (privileges.size() != 1 || !privileges.contains(Privilege.USAGE_PRIV)) {
+            return;
+        }
         switch (resourcePattern.getResourceType()) {
             case CLUSTER:
                 privileges.clear();

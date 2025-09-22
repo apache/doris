@@ -176,6 +176,18 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
     k13.column_type.type = TPrimitiveType::VARCHAR;
     request->tablet_schema.columns.push_back(k13);
 
+    TColumn k14;
+    k14.column_name = "k14";
+    k14.__set_is_key(true);
+    k14.column_type.type = TPrimitiveType::IPV4;
+    request->tablet_schema.columns.push_back(k14);
+
+    TColumn k15;
+    k15.column_name = "k15";
+    k15.__set_is_key(true);
+    k15.column_type.type = TPrimitiveType::IPV6;
+    request->tablet_schema.columns.push_back(k15);
+
     TColumn v;
     v.column_name = "v";
     v.__set_is_key(false);
@@ -261,6 +273,18 @@ static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     k13.column_type.__set_len(64);
     k13.column_type.type = TPrimitiveType::VARCHAR;
     request->tablet_schema.columns.push_back(k13);
+
+    TColumn k14;
+    k14.column_name = "k14";
+    k14.__set_is_key(true);
+    k14.column_type.type = TPrimitiveType::IPV4;
+    request->tablet_schema.columns.push_back(k14);
+
+    TColumn k15;
+    k15.column_name = "k15";
+    k15.__set_is_key(true);
+    k15.column_type.type = TPrimitiveType::IPV6;
+    request->tablet_schema.columns.push_back(k15);
 
     TColumn v;
     v.column_name = "v";
@@ -380,13 +404,27 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
+    condition.column_name = "k14";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("127.0.0.1");
+    conditions.push_back(condition);
+
+    condition.column_name = "k15";
+    condition.condition_op = "*=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+    condition.condition_values.emplace_back("::1");
+    condition.condition_values.emplace_back("::FFFF:192.168.1.1");
+    conditions.push_back(condition);
+
     DeletePredicatePB del_pred;
     success_res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                            &del_pred);
     EXPECT_EQ(Status::OK(), success_res);
 
     // 验证存储在header中的过滤条件正确
-    EXPECT_EQ(size_t(7), del_pred.sub_predicates_size());
+    EXPECT_EQ(size_t(8), del_pred.sub_predicates_size());
     EXPECT_STREQ("k1='1'", del_pred.sub_predicates(0).c_str());
     EXPECT_STREQ("k2>>'3'", del_pred.sub_predicates(1).c_str());
     EXPECT_STREQ("k3<='5'", del_pred.sub_predicates(2).c_str());
@@ -394,10 +432,11 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k5='7'", del_pred.sub_predicates(4).c_str());
     EXPECT_STREQ("k12!='9'", del_pred.sub_predicates(5).c_str());
     EXPECT_STREQ("k$1>>'1'", del_pred.sub_predicates(6).c_str());
+    EXPECT_STREQ("k14='127.0.0.1'", del_pred.sub_predicates(7).c_str());
 
     // check sub predicate v2
 
-    EXPECT_EQ(size_t(7), del_pred.sub_predicates_v2_size());
+    EXPECT_EQ(size_t(8), del_pred.sub_predicates_v2_size());
     EXPECT_STREQ("k1", del_pred.sub_predicates_v2(0).column_name().c_str());
     EXPECT_STREQ("k2", del_pred.sub_predicates_v2(1).column_name().c_str());
     EXPECT_STREQ("k3", del_pred.sub_predicates_v2(2).column_name().c_str());
@@ -405,6 +444,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("k5", del_pred.sub_predicates_v2(4).column_name().c_str());
     EXPECT_STREQ("k12", del_pred.sub_predicates_v2(5).column_name().c_str());
     EXPECT_STREQ("k$1", del_pred.sub_predicates_v2(6).column_name().c_str());
+    EXPECT_STREQ("k14", del_pred.sub_predicates_v2(7).column_name().c_str());
 
     EXPECT_STREQ("=", del_pred.sub_predicates_v2(0).op().c_str());
     EXPECT_STREQ(">>", del_pred.sub_predicates_v2(1).op().c_str());
@@ -413,6 +453,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("=", del_pred.sub_predicates_v2(4).op().c_str());
     EXPECT_STREQ("!=", del_pred.sub_predicates_v2(5).op().c_str());
     EXPECT_STREQ(">>", del_pred.sub_predicates_v2(6).op().c_str());
+    EXPECT_STREQ("=", del_pred.sub_predicates_v2(7).op().c_str());
 
     EXPECT_STREQ("1", del_pred.sub_predicates_v2(0).cond_value().c_str());
     EXPECT_STREQ("3", del_pred.sub_predicates_v2(1).cond_value().c_str());
@@ -421,11 +462,15 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     EXPECT_STREQ("7", del_pred.sub_predicates_v2(4).cond_value().c_str());
     EXPECT_STREQ("9", del_pred.sub_predicates_v2(5).cond_value().c_str());
     EXPECT_STREQ("1", del_pred.sub_predicates_v2(6).cond_value().c_str());
+    EXPECT_STREQ("127.0.0.1", del_pred.sub_predicates_v2(7).cond_value().c_str());
 
-    EXPECT_EQ(size_t(1), del_pred.in_predicates_size());
+    EXPECT_EQ(size_t(2), del_pred.in_predicates_size());
     EXPECT_FALSE(del_pred.in_predicates(0).is_not_in());
     EXPECT_STREQ("k13", del_pred.in_predicates(0).column_name().c_str());
     EXPECT_EQ(std::size_t(2), del_pred.in_predicates(0).values().size());
+    EXPECT_FALSE(del_pred.in_predicates(1).is_not_in());
+    EXPECT_STREQ("k15", del_pred.in_predicates(1).column_name().c_str());
+    EXPECT_EQ(std::size_t(3), del_pred.in_predicates(1).values().size());
 }
 
 // 检测参数不正确的情况，包括：空的过滤条件字符串
@@ -641,6 +686,25 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_8);
     EXPECT_EQ(Status::OK(), res);
+
+    // k14,k15类型分别为ipv4, ipv6
+    conditions.clear();
+    condition.column_name = "k14";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("10.16.10.3");
+    conditions.push_back(condition);
+
+    condition.column_name = "k15";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+    conditions.push_back(condition);
+
+    DeletePredicatePB del_pred_9;
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_9);
+    EXPECT_EQ(Status::OK(), res);
 }
 
 TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
@@ -849,6 +913,40 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     DeletePredicatePB del_pred_24;
     res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
                                                    &del_pred_24);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    DeletePredicatePB del_pred_25;
+    conditions[0].column_name = "k14";
+    conditions[0].condition_values.clear();
+    conditions[0].condition_values.emplace_back("127.266.0.1");
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_25);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    conditions[0].condition_values.clear();
+    conditions[0].condition_values.emplace_back("127.0.0.256");
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_25);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    DeletePredicatePB del_pred_26;
+    conditions[0].column_name = "k15";
+    conditions[0].condition_values.clear();
+    conditions[0].condition_values.emplace_back("2001:0db8:85a3:0000:0000:8a2e:0370:HHHH");
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_26);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    conditions[0].condition_values.clear();
+    conditions[0].condition_values.emplace_back("::HHHH:192.168.1.255");
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_26);
+    EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
+
+    conditions[0].condition_values.clear();
+    conditions[0].condition_values.emplace_back("::HHHH:192.168.1.aa");
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_26);
     EXPECT_EQ(Status::Error<INVALID_ARGUMENT>(""), res);
 }
 
@@ -1184,8 +1282,34 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     EXPECT_EQ(Status::OK(), res);
     add_delete_predicate(del_pred_2, 4);
 
-    // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
-    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 4);
+    conditions.clear();
+    condition.column_name = "k14";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("127.0.0.1");
+    conditions.push_back(condition);
+
+    DeletePredicatePB del_pred_3;
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_3);
+    EXPECT_EQ(Status::OK(), res);
+    add_delete_predicate(del_pred_3, 5);
+
+    conditions.clear();
+    condition.column_name = "k15";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.emplace_back("::FF:127.0.0.1");
+    conditions.push_back(condition);
+
+    DeletePredicatePB del_pred_4;
+    res = DeleteHandler::generate_delete_predicate(*tablet->tablet_schema(), conditions,
+                                                   &del_pred_3);
+    EXPECT_EQ(Status::OK(), res);
+    add_delete_predicate(del_pred_4, 6);
+
+    // 指定版本号为6以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
+    res = _delete_handler.init(tablet->tablet_schema(), get_delete_predicates(), 6);
     EXPECT_EQ(Status::OK(), res);
 }
 

@@ -18,7 +18,10 @@
 suite("cast_to_time") {
     sql "set debug_skip_fold_constant = true"
     sql "set enable_strict_cast = false"
-
+qt_sql_base0 """ select cast("12:34:56.123456" as time(6)) """
+qt_sql_base1 """ select cast("812:34:56.123456" as time(6)) """
+qt_sql_base2 """ select cast("0:34:56.1234566" as time(6)) """
+qt_sql_base3 """ select cast("1:34:56.9999999" as time(6)) """
 qt_sql1 """ select cast("0" as time(6)) """
 qt_sql2 """ select cast("1" as time(6)) """
 qt_sql3 """ select cast("123" as time(6)) """
@@ -129,4 +132,10 @@ qt_sql100 """ select cast(cast("2012-02-05 12:12:12.123456" as datetime(6)) as t
 
 qt_sql101 "select cast('11:12:13.123456' as time) = cast('11:12:13.12' as time)"
 qt_sql102 "select cast('11:12:13.123456' as time(3)) = cast('11:12:13.12' as time(3))"
+
+    sql "set enable_strict_cast = true"
+qt_sql_base4 """ select cast("12:34:56.123456" as time(4)) """
+qt_sql_base5 """ select cast("812:34:56.123456" as time(4)) """
+qt_sql_base6 """ select cast("0:34:56.1234566" as time(4)) """
+qt_sql_base7 """ select cast("1:34:56.9999999" as time(4)) """
 }

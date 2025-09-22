@@ -44,8 +44,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -492,7 +492,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     upperProjects.addAll(projects.build());
                     projects.add(new Alias(new AssertTrue(
                             ExpressionUtils.or(new IsNull(countSlot),
-                                    new LessThanEqual(countSlot, new IntegerLiteral(1))),
+                                    new LessThanEqual(countSlot, new BigIntLiteral(1))),
                             new VarcharLiteral("correlate scalar subquery must return only 1 row"))));
                     logicalProject = new LogicalProject(projects.build(), newApply);
                 } else {

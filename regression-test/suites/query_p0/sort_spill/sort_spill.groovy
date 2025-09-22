@@ -32,7 +32,7 @@ suite("sort_spill") {
     sql """ set parallel_pipeline_task_num = 2; """
     sql """ set batch_size = 100; """
     sql """ set enable_force_spill=true; """
-    sql """ set enable_topn_lazy_materialization=false;"""
+    sql """ set topn_lazy_materialization_threshold=-1;"""
     sql """ set enable_reserve_memory=true; """
     sql """ set force_sort_algorithm = "full"; """
     sql """ set enable_parallel_result_sink=true; """

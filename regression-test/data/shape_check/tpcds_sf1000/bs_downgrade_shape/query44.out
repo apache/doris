@@ -13,14 +13,14 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i2.i_product_name)] apply RFs: RF1
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V21.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------PhysicalPartitionTopN
 ----------------------------------PhysicalProject
-------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 --------------------------------------PhysicalProject
 ----------------------------------------hashAgg[GLOBAL]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -43,14 +43,14 @@ PhysicalResultSink
 --------------------PhysicalProject
 ----------------------PhysicalLazyMaterializeOlapScan[item lazySlots:(i1.i_product_name)] apply RFs: RF0
 --------------------PhysicalProject
-----------------------filter((rnk < 11))
+----------------------filter((V11.rnk < 11))
 ------------------------PhysicalWindow
 --------------------------PhysicalQuickSort[MERGE_SORT]
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------PhysicalQuickSort[LOCAL_SORT]
 --------------------------------PhysicalPartitionTopN
 ----------------------------------PhysicalProject
-------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DOUBLE) > cast((0.9 * rank_col) as DOUBLE))
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 --------------------------------------PhysicalProject
 ----------------------------------------hashAgg[GLOBAL]
 ------------------------------------------PhysicalDistribute[DistributionSpecHash]

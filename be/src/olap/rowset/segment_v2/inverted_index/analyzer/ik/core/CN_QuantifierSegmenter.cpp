@@ -113,20 +113,34 @@ void CN_QuantifierSegmenter::processCount(AnalyzeContext& context) {
                 }
             }
         }
-        // Perform a single-character match at the current pointer position.
-        auto singleCharHit = Dictionary::getSingleton()->matchInQuantifierDict(
-                typedRuneArray, context.getCursor(), 1);
-        if (singleCharHit.isMatch()) {
-            Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
-                             context.getCurrentCharLen(), Lexeme::Type::Count, context.getCursor(),
-                             context.getCursor());
-            context.addLexeme(newLexeme);
 
-            if (singleCharHit.isPrefix()) {
+        // Check if single character quantifier matching should be performed
+        // Only perform single character quantifier matching when there are preceding numerals
+        bool shouldMatchSingleChar = false;
+        if (!context.getOrgLexemes()->isEmpty()) {
+            auto l = context.getOrgLexemes()->peekLast();
+            if ((l->getType() == Lexeme::Type::CNum || l->getType() == Lexeme::Type::Arabic) &&
+                (l->getCharEnd() + 1 == context.getCursor())) {
+                shouldMatchSingleChar = true;
+            }
+        }
+
+        if (shouldMatchSingleChar || !count_hits_.empty()) {
+            // Perform a single-character match at the current pointer position.
+            auto singleCharHit = Dictionary::getSingleton()->matchInQuantifierDict(
+                    typedRuneArray, context.getCursor(), 1);
+            if (singleCharHit.isMatch()) {
+                Lexeme newLexeme(context.getBufferOffset(), context.getCurrentCharOffset(),
+                                 context.getCurrentCharLen(), Lexeme::Type::Count,
+                                 context.getCursor(), context.getCursor());
+                context.addLexeme(newLexeme);
+
+                if (singleCharHit.isPrefix()) {
+                    count_hits_.push_back(singleCharHit);
+                }
+            } else if (singleCharHit.isPrefix()) {
                 count_hits_.push_back(singleCharHit);
             }
-        } else if (singleCharHit.isPrefix()) {
-            count_hits_.push_back(singleCharHit);
         }
     } else {
         count_hits_.clear();

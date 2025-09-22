@@ -355,6 +355,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                     in_block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
             key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            key_columns[i]->assume_mutable()->replace_float_special_values();
         }
     }
 
@@ -637,7 +638,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
                 _pool, tnode.agg_node.aggregate_functions[i],
                 tnode.agg_node.__isset.agg_sort_infos ? tnode.agg_node.agg_sort_infos[i] : dummy,
-                tnode.agg_node.grouping_exprs.empty(), &evaluator));
+                tnode.agg_node.grouping_exprs.empty(), false, &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
 

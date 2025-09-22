@@ -24,6 +24,7 @@
 
 #include "jni.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "util/jni-util.h"
 #include "vec/columns/column_array.h"
@@ -31,14 +32,17 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
+#include "vec/columns/column_varbinary.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
+#include "vec/data_types/data_type_varbinary.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 } // namespace doris
 
@@ -354,6 +358,8 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     }
     // Date and DateTime are deprecated and not supported.
     switch (logical_type) {
+        //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
+        // should add check otherwise it may break some of our assumption now.
 #define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
     case TYPE_INDEX:                                             \
         return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \
@@ -372,18 +378,35 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         return _fill_map_column(address, data_column, data_type, num_rows);
     case PrimitiveType::TYPE_STRUCT:
         return _fill_struct_column(address, data_column, data_type, num_rows);
+    case PrimitiveType::TYPE_VARBINARY:
+        return _fill_varbinary_column(address, data_column, num_rows);
     default:
         return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
     }
     return Status::OK();
 }
 
+Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
+                                            MutableColumnPtr& doris_column, size_t num_rows) {
+    auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
+    int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
+    char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
+    if (num_rows == 0) {
+        return Status::OK();
+    }
+    for (size_t i = 0; i < num_rows; ++i) {
+        int start_offset = (i == 0) ? 0 : offsets[i - 1];
+        int end_offset = offsets[i];
+        varbinary_col.insert_data(chars + start_offset, end_offset - start_offset);
+    }
+    return Status::OK();
+}
+
 Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
                                          size_t num_rows) {
-    auto& string_col = static_cast<const ColumnString&>(*doris_column);
-    ColumnString::Chars& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
-    ColumnString::Offsets& string_offsets =
-            const_cast<ColumnString::Offsets&>(string_col.get_offsets());
+    const auto& string_col = static_cast<const ColumnString&>(*doris_column);
+    auto& string_chars = const_cast<ColumnString::Chars&>(string_col.get_chars());
+    auto& string_offsets = const_cast<ColumnString::Offsets&>(string_col.get_offsets());
     int* offsets = reinterpret_cast<int*>(address.next_meta_as_ptr());
     char* chars = reinterpret_cast<char*>(address.next_meta_as_ptr());
 
@@ -402,7 +425,8 @@ Status JniConnector::_fill_string_column(TableMetaAddress& address, MutableColum
     size_t start_offset = string_offsets[origin_offsets_size - 1];
     string_offsets.resize(origin_offsets_size + num_rows);
     for (size_t i = 0; i < num_rows; ++i) {
-        string_offsets[origin_offsets_size + i] = offsets[i] + start_offset;
+        string_offsets[origin_offsets_size + i] =
+                static_cast<unsigned int>(offsets[i] + start_offset);
     }
     return Status::OK();
 }
@@ -451,8 +475,9 @@ Status JniConnector::_fill_map_column(TableMetaAddress& address, MutableColumnPt
 
     RETURN_IF_ERROR(_fill_column(address, key_column, key_type,
                                  map_offsets[origin_size + num_rows - 1] - start_offset));
-    return _fill_column(address, value_column, value_type,
-                        map_offsets[origin_size + num_rows - 1] - start_offset);
+    RETURN_IF_ERROR(_fill_column(address, value_column, value_type,
+                                 map_offsets[origin_size + num_rows - 1] - start_offset));
+    return map.deduplicate_keys();
 }
 
 Status JniConnector::_fill_struct_column(TableMetaAddress& address, MutableColumnPtr& doris_column,
@@ -564,6 +589,8 @@ std::string JniConnector::get_jni_type(const DataTypePtr& data_type) {
                << get_jni_type(map_type->get_value_type()) << ">";
         return buffer.str();
     }
+    case TYPE_VARBINARY:
+        return "varbinary";
     default:
         return "unsupported";
     }
@@ -621,6 +648,11 @@ std::string JniConnector::get_jni_type_with_different_string(const DataTypePtr& 
     }
     case TYPE_STRING:
         return "string";
+    case TYPE_VARBINARY:
+        buffer << "varbinary("
+               << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
+               << ")";
+        return buffer.str();
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();
@@ -751,6 +783,15 @@ Status JniConnector::_fill_column_meta(const ColumnPtr& doris_column, const Data
         RETURN_IF_ERROR(_fill_column_meta(value_column, value_type, meta_data));
         break;
     }
+    case PrimitiveType::TYPE_VARBINARY: {
+        // TODO, here is maybe not efficient, need optimize later
+        const auto& varbinary_col = assert_cast<const ColumnVarbinary&>(*data_column);
+        auto string_column_ptr = varbinary_col.convert_to_string_column();
+        const auto& string_col = assert_cast<const ColumnString&>(*string_column_ptr);
+        meta_data.emplace_back((long)string_col.get_offsets().data());
+        meta_data.emplace_back((long)string_col.get_chars().data());
+        break;
+    }
     default:
         return Status::InternalError("Unsupported type: {}", data_type->get_name());
     }
@@ -861,4 +902,5 @@ void JniConnector::_collect_profile_before_close() {
         }
     }
 }
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

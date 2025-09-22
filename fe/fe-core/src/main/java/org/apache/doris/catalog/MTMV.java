@@ -196,9 +196,10 @@ public class MTMV extends OlapTable {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
+                    ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
                     mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, null);
+                            true, currentContext);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;

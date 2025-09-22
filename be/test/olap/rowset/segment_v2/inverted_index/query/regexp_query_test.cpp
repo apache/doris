@@ -26,6 +26,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::segment_v2 {
 
@@ -192,11 +193,20 @@ TEST_F(RegexpQueryTest, MultipleRegexPatternsWithCaretPrefix) {
 TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
     // Create a mock searcher and query options for testing
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+
+    RegexpQuery regexp_query(searcher, context);
 
     // Test with empty terms (size == 0) - this should throw before accessing searcher
     {
@@ -211,11 +221,20 @@ TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
 TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
     // Create a mock searcher and query options for testing
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    RegexpQuery regexp_query(searcher, context);
 
     // Test with invalid regex pattern that causes hs_compile to fail
     // This should fail during hyperscan compilation, before accessing searcher
@@ -233,11 +252,21 @@ TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
 TEST_F(RegexpQueryTest, SearchWithEmptyTerms) {
     // Create a mock searcher and query options for testing
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    RegexpQuery regexp_query(searcher, context);
+
     roaring::Roaring result;
 
     // Search without adding any terms should not crash
@@ -257,11 +286,20 @@ TEST_F(RegexpQueryTest, GetRegexPrefixWithDebugPoint) {
 TEST_F(RegexpQueryTest, AddWithPatternThatFailsCompilation) {
     // Test add method with pattern that should fail hs_compile
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    RegexpQuery regexp_query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";
@@ -280,39 +318,70 @@ TEST_F(RegexpQueryTest, AddWithPatternThatFailsCompilation) {
 TEST_F(RegexpQueryTest, ConstructorTest) {
     // Test constructor with different configurations
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
     // Test basic constructor
-    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+    EXPECT_NO_THROW(RegexpQuery(searcher, context));
 
     // Test constructor with different max expansions
     query_options.inverted_index_max_expansions = 100;
-    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+    runtime_state.set_query_options(query_options);
+
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    EXPECT_NO_THROW(RegexpQuery(searcher, context));
 }
 
 TEST_F(RegexpQueryTest, MaxExpansionsConfiguration) {
     // Test that max expansions is properly configured
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 100;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
 
     // This tests the constructor and member initialization
-    EXPECT_NO_THROW(RegexpQuery(searcher, query_options, &io_ctx));
+    EXPECT_NO_THROW(RegexpQuery(searcher, context));
 }
 
 TEST_F(RegexpQueryTest, AddWithUnsupportedRegexFeatures) {
     // Test patterns that use regex features not supported by hyperscan
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    RegexpQuery regexp_query(searcher, context);
 
     // Test with lookahead assertion (not supported by hyperscan)
     InvertedIndexQueryInfo query_info;
@@ -328,11 +397,20 @@ TEST_F(RegexpQueryTest, AddWithUnsupportedRegexFeatures) {
 TEST_F(RegexpQueryTest, AddWithBackreferencePattern) {
     // Test with backreference pattern that should fail hyperscan compilation
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
     TQueryOptions query_options;
     query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
     io::IOContext io_ctx;
 
-    RegexpQuery regexp_query(searcher, query_options, &io_ctx);
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->io_ctx = &io_ctx;
+
+    RegexpQuery regexp_query(searcher, context);
 
     InvertedIndexQueryInfo query_info;
     query_info.field_name = L"test_field";

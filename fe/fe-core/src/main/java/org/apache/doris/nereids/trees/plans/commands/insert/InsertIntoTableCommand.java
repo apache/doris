@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -209,6 +210,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
         AbstractInsertExecutor insertExecutor;
         int retryTimes = 0;
+        ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth
@@ -218,7 +220,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                        targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
+                        targetTableIf.getDatabase().getFullName()
+                                + "." + Util.getTempTableDisplayName(targetTableIf.getName()));
             }
             BuildInsertExecutorResult buildResult;
             try {
@@ -515,7 +518,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                    targetTableIf.getDatabase().getFullName() + "." + targetTableIf.getName());
+                    targetTableIf.getDatabase().getFullName() + "."
+                            + Util.getTempTableDisplayName(targetTableIf.getName()));
         }
         return targetTableIf;
     }

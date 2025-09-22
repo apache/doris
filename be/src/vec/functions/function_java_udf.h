@@ -24,8 +24,6 @@
 
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <ostream>
 
 #include "common/logging.h"
 #include "common/status.h"
@@ -33,7 +31,6 @@
 #include "util/jni-util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
-#include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -143,9 +140,7 @@ private:
                 return status;
             }
             env->CallNonvirtualVoidMethodA(executor, executor_cl, executor_close_id, nullptr);
-            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor);
-            RETURN_ERROR_IF_EXC(env);
             env->DeleteGlobalRef(executor_cl);
             RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
             is_closed = true;

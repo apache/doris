@@ -59,7 +59,6 @@ public:
 
     bool equals(const IDataType& rhs) const override;
 
-    bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
 
@@ -82,11 +81,14 @@ public:
                                "Unimplemented get_field for Nothing");
     }
 
-    bool have_subtypes() const override { return false; }
     using SerDeType = DataTypeNothingSerde;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>();
     };
+    FieldWithDataType get_field_with_data_type(const IColumn& column,
+                                               size_t row_num) const override {
+        return FieldWithDataType {.field = Field(), .base_scalar_type_id = get_primitive_type()};
+    }
 };
 
 } // namespace doris::vectorized

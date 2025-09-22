@@ -46,7 +46,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -60,6 +62,7 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     private final boolean isForce;
     private boolean isWarmUpWithTable;
     private List<Triple<String, String, String>> tables = new ArrayList<>();
+    private Map<String, String> properties = new HashMap<>();
 
     /**
      * WarmUpClusterCommand
@@ -75,6 +78,16 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
         this.dstCluster = dstCluster;
         this.isForce = isForce;
         this.isWarmUpWithTable = isWarmUpWithTable;
+    }
+
+    public WarmUpClusterCommand(List<WarmUpItem> warmUpItems,
+                                String srcCluster,
+                                String dstCluster,
+                                boolean isForce,
+                                boolean isWarmUpWithTable,
+                                Map<String, String> properties) {
+        this(warmUpItems, srcCluster, dstCluster, isForce, isWarmUpWithTable);
+        this.properties = properties;
     }
 
     public List<WarmUpItem> getWarmUpItems() {
@@ -191,5 +204,9 @@ public class WarmUpClusterCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitWarmUpClusterCommand(this, context);
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
     }
 }

@@ -46,15 +46,17 @@ public class PaimonColumnValue implements ColumnValue {
     private DataGetters record;
     private ColumnType dorisType;
     private DataType dataType;
+    private String timeZone;
 
     public PaimonColumnValue() {
     }
 
-    public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType, DataType dataType) {
+    public PaimonColumnValue(DataGetters record, int idx, ColumnType columnType, DataType dataType, String timeZone) {
         this.idx = idx;
         this.record = record;
         this.dorisType = columnType;
         this.dataType = dataType;
+        this.timeZone = timeZone;
     }
 
     public void setIdx(int idx, ColumnType dorisType, DataType dataType) {
@@ -65,6 +67,10 @@ public class PaimonColumnValue implements ColumnValue {
 
     public void setOffsetRow(InternalRow record) {
         this.record = record;
+    }
+
+    public void setTimeZone(String timeZone) {
+        this.timeZone = timeZone;
     }
 
     @Override
@@ -136,7 +142,8 @@ public class PaimonColumnValue implements ColumnValue {
     public LocalDateTime getDateTime() {
         Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
         if (dataType instanceof LocalZonedTimestampType) {
-            return LocalDateTime.ofInstant(ts.toInstant(), ZoneId.systemDefault());
+            return ts.toLocalDateTime().atZone(ZoneId.of("UTC"))
+                    .withZoneSameInstant(ZoneId.of(timeZone)).toLocalDateTime();
         } else {
             return ts.toLocalDateTime();
         }
@@ -157,7 +164,7 @@ public class PaimonColumnValue implements ColumnValue {
         InternalArray recordArray = record.getArray(idx);
         for (int i = 0; i < recordArray.size(); i++) {
             PaimonColumnValue arrayColumnValue = new PaimonColumnValue((DataGetters) recordArray, i,
-                    dorisType.getChildTypes().get(0), ((ArrayType) dataType).getElementType());
+                    dorisType.getChildTypes().get(0), ((ArrayType) dataType).getElementType(), timeZone);
             values.add(arrayColumnValue);
         }
     }
@@ -168,13 +175,13 @@ public class PaimonColumnValue implements ColumnValue {
         InternalArray key = map.keyArray();
         for (int i = 0; i < key.size(); i++) {
             PaimonColumnValue keyColumnValue = new PaimonColumnValue((DataGetters) key, i,
-                    dorisType.getChildTypes().get(0), ((MapType) dataType).getKeyType());
+                    dorisType.getChildTypes().get(0), ((MapType) dataType).getKeyType(), timeZone);
             keys.add(keyColumnValue);
         }
         InternalArray value = map.valueArray();
         for (int i = 0; i < value.size(); i++) {
             PaimonColumnValue valueColumnValue = new PaimonColumnValue((DataGetters) value, i,
-                    dorisType.getChildTypes().get(1), ((MapType) dataType).getValueType());
+                    dorisType.getChildTypes().get(1), ((MapType) dataType).getValueType(), timeZone);
             values.add(valueColumnValue);
         }
     }
@@ -185,7 +192,7 @@ public class PaimonColumnValue implements ColumnValue {
         InternalRow row = record.getRow(idx, structFieldIndex.size());
         for (int i : structFieldIndex) {
             values.add(new PaimonColumnValue(row, i, dorisType.getChildTypes().get(i),
-                    ((RowType) dataType).getFields().get(i).type()));
+                    ((RowType) dataType).getFields().get(i).type(), timeZone));
         }
     }
 }

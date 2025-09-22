@@ -47,13 +47,18 @@ public class InttoUuid extends ScalarFunction
         super("int_to_uuid", arg);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private InttoUuid(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public InttoUuid withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new InttoUuid(children.get(0));
+        return new InttoUuid(getFunctionParams(children));
     }
 
     @Override

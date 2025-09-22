@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateOrTimeLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -35,22 +35,25 @@ import java.util.List;
 /**
  * ScalarFunction 'MicroSeconds_add'.
  */
-public class MicroSecondsAdd extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateOrTimeLikeV2Args,
-        DateAddSubMonotonic {
+public class MicroSecondsAdd extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
+        PropagateNullableOnDateOrTimeLikeV2Args, DateAddSubMonotonic {
 
-    private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeV2Type.MAX)
-                    .args(DateTimeV2Type.MAX, IntegerType.INSTANCE));
+    private static final List<FunctionSignature> SIGNATURES = ImmutableList
+            .of(FunctionSignature.ret(DateTimeV2Type.MAX).args(DateTimeV2Type.MAX, BigIntType.INSTANCE));
 
     public MicroSecondsAdd(Expression arg0, Expression arg1) {
         super("microseconds_add", arg0, arg1);
     }
 
+    /** constructor for withChildren and reuse signature */
+    private MicroSecondsAdd(ScalarFunctionParams functionParams) {
+        super(functionParams);
+    }
+
     @Override
     public MicroSecondsAdd withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new MicroSecondsAdd(children.get(0), children.get(1));
+        return new MicroSecondsAdd(getFunctionParams(children));
     }
 
     @Override

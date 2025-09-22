@@ -33,6 +33,7 @@ OPTS="$(getopt \
     -l 'console' \
     -l 'version' \
     -l 'benchmark' \
+    -l 'benchmark_filter:' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -41,6 +42,7 @@ RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
 RUN_BENCHMARK=0
+BENCHMARK_FILTER=""
 
 while true; do
     case "$1" in
@@ -59,6 +61,10 @@ while true; do
     --benchmark)
         RUN_BENCHMARK=1
         shift
+        ;;
+    --benchmark_filter)
+        BENCHMARK_FILTER="$2"
+        shift 2
         ;;
     --)
         shift
@@ -107,9 +113,9 @@ log() {
     cur_date=$(date +"%Y-%m-%d %H:%M:%S,$(date +%3N)")
     if [[ "${RUN_CONSOLE}" -eq 1 ]]; then
         echo "StdoutLogger ${cur_date} $1"
-    else
-        echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
     fi
+    # always output start time info into be.out file
+    echo "StdoutLogger ${cur_date} $1" >>"${STDOUT_LOGGER}"
 }
 
 jdk_version() {
@@ -447,10 +453,16 @@ else
 fi
 
 if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    BENCHMARK_ARGS=()
+
+    if [[ -n ${BENCHMARK_FILTER} ]]; then
+        BENCHMARK_ARGS+=("--benchmark_filter=${BENCHMARK_FILTER}")
+    fi
+
     if [[ "$(uname -s)" == 'Darwin' ]]; then
-        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     else
-        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test" "${BENCHMARK_ARGS[@]}"
     fi
 elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -459,8 +471,10 @@ elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
         nohup ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     fi
 elif [[ "${RUN_CONSOLE}" -eq 1 ]]; then
+    # stdout outputs console
+    # stderr outputs be.out
     export DORIS_LOG_TO_STDERR=1
-    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>&1 </dev/null
+    ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" 2>>"${LOG_DIR}/be.out" </dev/null
 else
     ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null
 fi

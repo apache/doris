@@ -28,7 +28,6 @@
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
-#include "vec/io/reader_buffer.h"
 
 namespace doris {
 namespace vectorized {
@@ -58,17 +57,6 @@ void DataTypeJsonb::to_string(const class doris::vectorized::IColumn& column, si
         std::string str = JsonbToJson::jsonb_to_json_string(s.data, s.size);
         ostr.write(str.c_str(), str.size());
     }
-}
-
-Status DataTypeJsonb::from_string(ReadBuffer& rb, IColumn* column) const {
-    JsonBinaryValue value;
-    // Throw exception if rb.count is large than INT32_MAX
-    RETURN_IF_ERROR(value.from_json_string(rb.position(), cast_set<Int32>(rb.count())));
-
-    auto* column_string = static_cast<ColumnString*>(column);
-    column_string->insert_data(value.value(), value.size());
-
-    return Status::OK();
 }
 
 Field DataTypeJsonb::get_default() const {
@@ -115,6 +103,15 @@ char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_versio
 const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column,
                                        int data_version) const {
     return data_type_string.deserialize(buf, column, data_version);
+}
+
+FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,
+                                                          size_t row_num) const {
+    const auto& column_data = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
+    Field field = Field::create_field<TYPE_JSONB>(JsonbField(
+            column_data.get_data_at(row_num).data, column_data.get_data_at(row_num).size));
+    return FieldWithDataType {.field = std::move(field),
+                              .base_scalar_type_id = get_primitive_type()};
 }
 
 } // namespace doris::vectorized

@@ -18,8 +18,6 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.analysis.ColumnPosition;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -51,18 +49,17 @@ import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
-import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.persist.CreateDbInfo;
-import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.TableBranchOrTagInfo;
@@ -81,6 +78,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -158,18 +156,16 @@ public abstract class ExternalCatalog
     @SerializedName(value = "comment")
     private String comment;
 
+    // Save the error info if initialization fails.
+    // can be seen in `show catalogs` result.
+    // no need to persist this field.
+    private String errorMsg = "";
+
     // db name does not contains "default_cluster"
     protected Map<String, Long> dbNameToId = Maps.newConcurrentMap();
     private boolean objectCreated = false;
     protected ExternalMetadataOps metadataOps;
     protected TransactionManager transactionManager;
-
-    private ExternalSchemaCache schemaCache;
-    // A cached and being converted properties for external catalog.
-    // generated from catalog properties.
-    private byte[] propLock = new byte[0];
-    private Map<String, String> convertedProperties = null;
-
     protected Optional<Boolean> useMetaCache = Optional.empty();
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     protected ExecutionAuthenticator executionAuthenticator;
@@ -333,7 +329,12 @@ public abstract class ExternalCatalog
                     init();
                 }
                 initialized = true;
+                this.errorMsg = "";
             }
+        } catch (Exception e) {
+            LOG.warn("failed to init catalog {}:{}", name, id, e);
+            this.errorMsg = ExceptionUtils.getRootCauseMessage(e);
+            throw new RuntimeException("Failed to init catalog: " + name + ", error: " + this.errorMsg, e);
         } finally {
             isInitializing = false;
         }
@@ -570,10 +571,6 @@ public abstract class ExternalCatalog
     public synchronized void resetToUninitialized(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
-        synchronized (this.propLock) {
-            this.convertedProperties = null;
-        }
-
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
@@ -639,6 +636,11 @@ public abstract class ExternalCatalog
         this.comment = comment;
     }
 
+    @Override
+    public String getErrorMsg() {
+        return errorMsg;
+    }
+
     /**
      * Different from 'listDatabases()', this method will return dbnames from cache.
      * while 'listDatabases()' will return dbnames from remote datasource.
@@ -673,11 +675,6 @@ public abstract class ExternalCatalog
     public TableName getTableNameByTableId(Long tableId) {
         throw new UnsupportedOperationException("External catalog does not support getTableNameByTableId() method."
                 + ", table id: " + tableId);
-    }
-
-    @Override
-    public String getResource() {
-        return catalogProperty.getResource();
     }
 
     @Nullable
@@ -743,17 +740,7 @@ public abstract class ExternalCatalog
 
     @Override
     public Map<String, String> getProperties() {
-        // convert properties may be a heavy operation, so we cache the result.
-        if (convertedProperties != null) {
-            return convertedProperties;
-        }
-        synchronized (propLock) {
-            if (convertedProperties != null) {
-                return convertedProperties;
-            }
-            convertedProperties = PropertyConverter.convertToMetaProperties(catalogProperty.getProperties());
-            return convertedProperties;
-        }
+        return catalogProperty.getProperties();
     }
 
     @Override
@@ -1030,7 +1017,6 @@ public abstract class ExternalCatalog
                 }
             }
         }
-        this.propLock = new byte[0];
         this.confLock = new byte[0];
         this.initialized = false;
         setDefaultPropsIfMissing(true);
@@ -1108,10 +1094,9 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public boolean createTable(CreateTableCommand command) throws UserException {
+    public boolean createTable(CreateTableInfo createTableInfo) throws UserException {
         makeSureInitialized();
-        org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo createTableInfo =
-                command.getCreateTableInfo();
+
         if (metadataOps == null) {
             throw new DdlException("Create table is not supported for catalog: " + getName());
         }
@@ -1120,33 +1105,13 @@ public abstract class ExternalCatalog
             if (!res) {
                 // res == false means the table does not exist before, and we create it.
                 // we should get the table stored in Doris, and use local name in edit log.
-                CreateTableInfo info = new CreateTableInfo(getName(), createTableInfo.getDbName(),
+                org.apache.doris.persist.CreateTableInfo info = new org.apache.doris.persist.CreateTableInfo(
+                        getName(),
+                        createTableInfo.getDbName(),
                         createTableInfo.getTableName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
                 LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
                         createTableInfo.getTableName());
-            }
-            return res;
-        } catch (Exception e) {
-            LOG.warn("Failed to create a table.", e);
-            throw e;
-        }
-    }
-
-    @Override
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
-        makeSureInitialized();
-        if (metadataOps == null) {
-            throw new DdlException("Create table is not supported for catalog: " + getName());
-        }
-        try {
-            boolean res = metadataOps.createTable(stmt);
-            if (!res) {
-                // res == false means the table does not exist before, and we create it.
-                // we should get the table stored in Doris, and use local name in edit log.
-                CreateTableInfo info = new CreateTableInfo(getName(), stmt.getDbName(), stmt.getTableName());
-                Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                LOG.info("finished to create table {}.{}.{}", getName(), stmt.getDbName(), stmt.getTableName());
             }
             return res;
         } catch (Exception e) {
@@ -1180,7 +1145,7 @@ public abstract class ExternalCatalog
 
     @Override
     public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-                          boolean force) throws DdlException {
+            boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());
@@ -1318,8 +1283,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void truncateTable(String dbName, String tableName, PartitionNames partitionNames, boolean forceDrop,
-            String rawTruncateSql) throws DdlException {
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo, boolean forceDrop,
+                              String rawTruncateSql) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Truncate table is not supported for catalog: " + getName());
@@ -1327,8 +1292,8 @@ public abstract class ExternalCatalog
         try {
             // delete all table data if null
             List<String> partitions = null;
-            if (partitionNames != null) {
-                partitions = partitionNames.getPartitionNames();
+            if (partitionNamesInfo != null) {
+                partitions = partitionNamesInfo.getPartitionNames();
             }
             ExternalTable dorisTable = getDbOrDdlException(dbName).getTableOrDdlException(tableName);
             metadataOps.truncateTable(dorisTable, partitions);
