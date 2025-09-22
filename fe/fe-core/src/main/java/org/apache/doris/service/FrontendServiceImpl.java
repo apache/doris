@@ -2234,6 +2234,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             ctx.getSessionVariable().enableMemtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
         }
         ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
+        ctx.getSessionVariable().setEnableInsertStrict(false);
         if (request.isSetPartialUpdate() && !request.isPartialUpdate()) {
             ctx.getSessionVariable().setEnableUniqueKeyPartialUpdate(false);
         }
