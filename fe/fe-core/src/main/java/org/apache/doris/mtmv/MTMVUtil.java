@@ -94,7 +94,7 @@ public class MTMVUtil {
      * @return
      */
     public static boolean mtmvContainsExternalTable(MTMV mtmv) {
-        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevel();
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTablesOneLevelAndFromView();
         for (BaseTableInfo baseTableInfo : baseTables) {
             if (!baseTableInfo.isInternalTable()) {
                 return true;

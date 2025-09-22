@@ -180,7 +180,7 @@ public class MTMVService implements EventListener {
         } catch (AnalysisException e) {
             throw new EventException(e);
         }
-        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
+        Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevelAndFromView(
                 new BaseTableInfo(table));
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {

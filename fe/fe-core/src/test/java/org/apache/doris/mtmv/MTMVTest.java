@@ -75,7 +75,8 @@ public class MTMVTest {
         mtmv.setStatus(new MTMVStatus());
         mtmv.setJobInfo(buildMTMVJobInfo(mtmv));
         mtmv.setMvProperties(new HashMap<>());
-        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet()));
+        mtmv.setRelation(new MTMVRelation(Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet(),
+                Sets.newHashSet()));
         mtmv.setMvPartitionInfo(new MTMVPartitionInfo());
         mtmv.setRefreshSnapshot(new MTMVRefreshSnapshot());
         Assert.assertEquals(expect, mtmv.toInfoString());

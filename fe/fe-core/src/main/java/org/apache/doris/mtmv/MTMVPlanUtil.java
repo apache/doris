@@ -52,6 +52,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -139,24 +140,35 @@ public class MTMVPlanUtil {
         ctx.setDatabase(databaseIf.get().getFullName());
     }
 
-    public static MTMVRelation generateMTMVRelation(Set<TableIf> tablesInPlan, ConnectContext ctx) {
+    public static MTMVRelation generateMTMVRelation(Set<TableIf> tablesInPlan, ConnectContext ctx, String querySql) {
         Set<BaseTableInfo> oneLevelTables = Sets.newHashSet();
         Set<BaseTableInfo> allLevelTables = Sets.newHashSet();
         Set<BaseTableInfo> oneLevelViews = Sets.newHashSet();
+        Set<BaseTableInfo> allLevelViews = Sets.newHashSet();
+        Set<BaseTableInfo> oneLevelTablesAndFromView = Sets.newHashSet();
         for (TableIf table : tablesInPlan) {
             BaseTableInfo baseTableInfo = new BaseTableInfo(table);
             if (table.getType() == TableType.VIEW) {
-                // TODO reopen it after we support mv on view
-                // oneLevelViews.add(baseTableInfo);
+                allLevelViews.add(baseTableInfo);
             } else {
-                oneLevelTables.add(baseTableInfo);
+                oneLevelTablesAndFromView.add(baseTableInfo);
                 allLevelTables.add(baseTableInfo);
                 if (table instanceof MTMV) {
                     allLevelTables.addAll(((MTMV) table).getRelation().getBaseTables());
                 }
             }
         }
-        return new MTMVRelation(allLevelTables, oneLevelTables, oneLevelViews);
+        Map<List<String>, TableIf> oneLevels = PlanUtils.tableCollect(querySql, ctx);
+        for (TableIf table : oneLevels.values()) {
+            BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+            if (table.getType() == TableType.VIEW) {
+                oneLevelViews.add(baseTableInfo);
+            } else {
+                oneLevelTables.add(baseTableInfo);
+            }
+        }
+        return new MTMVRelation(allLevelTables, oneLevelTables, oneLevelTablesAndFromView, allLevelViews,
+                oneLevelViews);
     }
 
     public static Set<TableIf> getBaseTableFromQuery(String querySql, ConnectContext ctx) {

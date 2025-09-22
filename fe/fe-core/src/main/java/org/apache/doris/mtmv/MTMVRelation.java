@@ -25,22 +25,36 @@ import org.apache.commons.collections.CollectionUtils;
 import java.util.Set;
 
 public class MTMVRelation {
-    // if mtmv query sql is `select * from view1`;
-    // and `view1` query sql is `select * from table1 join table2`
-    // then baseTables will include: `table1` and `table2`
-    // baseViews will include `view1`
+    // t1 => v1 => v2
+    // t2 => mv1
+    // mv1 join v2 => mv2
+    //
+    // data of mv2 is:
+    //
+    // baseTables => mv1,t1,t2
+    // baseTablesWithView => mv1,t1
+    // baseTablesOneLevel => mv1
+    // baseViews => v2,v1
+    // baseViewsOneLevel => v2
     @SerializedName("bt")
     private Set<BaseTableInfo> baseTables;
     @SerializedName("bv")
     private Set<BaseTableInfo> baseViews;
     @SerializedName("btol")
     private Set<BaseTableInfo> baseTablesOneLevel;
+    @SerializedName("btwv")
+    private Set<BaseTableInfo> baseTablesOneLevelAndFromView;
+    @SerializedName("btol")
+    private Set<BaseTableInfo> baseViewsOneLevel;
 
     public MTMVRelation(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseTablesOneLevel,
-            Set<BaseTableInfo> baseViews) {
+            Set<BaseTableInfo> baseTablesOneLevelAndFromView, Set<BaseTableInfo> baseViews,
+            Set<BaseTableInfo> baseViewsOneLevel) {
         this.baseTables = baseTables;
         this.baseTablesOneLevel = baseTablesOneLevel;
+        this.baseTablesOneLevelAndFromView = baseTablesOneLevelAndFromView;
         this.baseViews = baseViews;
+        this.baseViewsOneLevel = baseViewsOneLevel;
     }
 
     public Set<BaseTableInfo> getBaseTables() {
@@ -50,6 +64,16 @@ public class MTMVRelation {
     public Set<BaseTableInfo> getBaseTablesOneLevel() {
         // For compatibility, previously created MTMV may not have baseTablesOneLevel
         return baseTablesOneLevel == null ? baseTables : baseTablesOneLevel;
+    }
+
+    public Set<BaseTableInfo> getBaseTablesOneLevelAndFromView() {
+        // For compatibility, previously created MTMV may not have baseTablesOneLevelAndFromView
+        return CollectionUtils.isEmpty(baseTablesOneLevelAndFromView) ? baseTablesOneLevel
+                : baseTablesOneLevelAndFromView;
+    }
+
+    public Set<BaseTableInfo> getBaseViewsOneLevel() {
+        return baseViewsOneLevel;
     }
 
     public Set<BaseTableInfo> getBaseViews() {

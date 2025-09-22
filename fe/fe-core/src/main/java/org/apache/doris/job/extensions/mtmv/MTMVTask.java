@@ -193,7 +193,7 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             Set<TableIf> tablesInPlan = MTMVPlanUtil.getBaseTableFromQuery(mtmv.getQuerySql(), ctx);
-            this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan, ctx);
+            this.relation = MTMVPlanUtil.generateMTMVRelation(tablesInPlan, ctx, mtmv.getQuerySql());
             beforeMTMVRefresh();
             List<TableIf> tableIfs = Lists.newArrayList(tablesInPlan);
             tableIfs.sort(Comparator.comparing(TableIf::getId));
@@ -253,7 +253,7 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, Math.min(end, needRefreshPartitions.size())));
                 // need get names before exec
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
-                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevel(), execPartitionNames);
+                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(), execPartitionNames);
                 try {
                     executeWithRetry(execPartitionNames, tableWithPartKey);
                 } catch (Exception e) {
@@ -471,7 +471,7 @@ public class MTMVTask extends AbstractTask {
      * @throws DdlException
      */
     private void beforeMTMVRefresh() throws AnalysisException, DdlException {
-        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevel()) {
+        for (BaseTableInfo tableInfo : relation.getBaseTablesOneLevelAndFromView()) {
             TableIf tableIf = MTMVUtil.getTable(tableInfo);
             if (tableIf instanceof MTMVBaseTableIf) {
                 MTMVBaseTableIf baseTableIf = (MTMVBaseTableIf) tableIf;
@@ -634,7 +634,7 @@ public class MTMVTask extends AbstractTask {
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevel(),
+        boolean fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
                 mtmv.getExcludedTriggerTables());
         if (fresh) {
             return Lists.newArrayList();
@@ -645,7 +645,7 @@ public class MTMVTask extends AbstractTask {
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
-        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevel());
+        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevelAndFromView());
     }
 
     public MTMVTaskContext getTaskContext() {
