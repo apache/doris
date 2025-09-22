@@ -177,7 +177,7 @@ Status GzipDecompressor::init() {
     int window_bits = _is_deflate ? WINDOW_BITS : (WINDOW_BITS | DETECT_CODEC);
     int ret = inflateInit2(&_z_strm, window_bits);
     if (ret < 0) {
-        return Status::InternalError("Failed to init inflate. status code: {}", ret);
+        return Status::InternalError("Failed to do gzip decompress. status code: {}", ret);
     }
 
     return Status::OK();
@@ -251,7 +251,7 @@ Status Bzip2Decompressor::init() {
     bzero(&_bz_strm, sizeof(_bz_strm));
     int ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
     if (ret != BZ_OK) {
-        return Status::InternalError("Failed to init bz2. status code: {}", ret);
+        return Status::InternalError("Failed to do bz2 decompress. status code: {}", ret);
     }
 
     return Status::OK();
@@ -277,19 +277,19 @@ Status Bzip2Decompressor::decompress(uint8_t* input, uint32_t input_len, size_t*
         if (ret == BZ_DATA_ERROR || ret == BZ_DATA_ERROR_MAGIC) {
             LOG(INFO) << "input_bytes_read: " << *input_bytes_read
                       << " decompressed_len: " << *decompressed_len;
-            return Status::InternalError("Failed to bz2 decompress. status code: {}", ret);
+            return Status::InternalError("Failed to do bz2 decompress. status code: {}", ret);
         } else if (ret == BZ_STREAM_END) {
             *stream_end = true;
             ret = BZ2_bzDecompressEnd(&_bz_strm);
             if (ret != BZ_OK) {
                 return Status::InternalError(
-                        "Failed to end bz2 after meet BZ_STREAM_END. status code: {}", ret);
+                        "Failed to do bz2 decompress. status code: {}", ret);
             }
 
             ret = BZ2_bzDecompressInit(&_bz_strm, 0, 0);
             if (ret != BZ_OK) {
                 return Status::InternalError(
-                        "Failed to init bz2 after meet BZ_STREAM_END. status code: {}", ret);
+                        "Failed to do bz2 decompress. status code: {}", ret);
             }
         } else if (ret != BZ_OK) {
             return Status::InternalError("Failed to bz2 decompress. status code: {}", ret);
@@ -338,7 +338,7 @@ Status ZstdDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* 
     *decompressed_len = outputBuffer.pos;
 
     if (ZSTD_isError(ret)) {
-        return Status::InternalError("Failed to zstd decompress: {}", ZSTD_getErrorName(ret));
+        return Status::InternalError("Failed to do zstd decompress: {}", ZSTD_getErrorName(ret));
     }
 
     *stream_end = ret == 0;
@@ -549,7 +549,7 @@ Status Lz4BlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
                     reinterpret_cast<const char*>(input_ptr), reinterpret_cast<char*>(output_ptr),
                     compressed_small_block_len, remaining_output_len);
             if (decompressed_small_block_len < 0) {
-                return Status::InvalidArgument("Failed to Lz4Block decompress, error = {}",
+                return Status::InvalidArgument("Failed to do Lz4Block decompress, error = {}",
                                                LZ4F_getErrorName(decompressed_small_block_len));
             }
             input_ptr += compressed_small_block_len;
@@ -666,14 +666,13 @@ Status SnappyBlockDecompressor::decompress(uint8_t* input, uint32_t input_len,
             if (!snappy::GetUncompressedLength(reinterpret_cast<const char*>(input_ptr),
                                                compressed_small_block_len,
                                                &decompressed_small_block_len)) {
-                return Status::InternalError(
-                        "snappy block decompress failed to get uncompressed len");
+                return Status::InternalError("Failed to do snappy decompress.");
             }
             if (!snappy::RawUncompress(reinterpret_cast<const char*>(input_ptr),
                                        compressed_small_block_len,
                                        reinterpret_cast<char*>(output_ptr))) {
                 return Status::InternalError(
-                        "snappy block decompress failed. uncompressed_len: {}, compressed_len: {}",
+                        "Failed to do snappy decompress. uncompressed_len: {}, compressed_len: {}",
                         decompressed_small_block_len, compressed_small_block_len);
             }
             input_ptr += compressed_small_block_len;
