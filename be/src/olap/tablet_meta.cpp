@@ -987,8 +987,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             if (_enable_unique_key_merge_on_write) {
                 rowset_cache_version_size = _delete_bitmap->remove_rowset_cache_version(rowset_id);
             }
-            // there should be only one rowset match the version
-            break;
         }
     }
     if (!same_version) {
