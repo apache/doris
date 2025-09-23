@@ -429,4 +429,48 @@ suite("test_string_function", "arrow_flight_sql") {
         sql("""select/*+SET_VAR(enable_fold_constant_by_be=true)*/ random(10) from numbers("number" = "10");""")
         contains "final projections: random(10)"
     }
+
+    sql "DROP TABLE IF EXISTS test_make_set;"
+    sql"""CREATE TABLE test_make_set (
+        id int,
+        bit_num BIGINT,
+        vc1 VARCHAR(50),
+        vc2 VARCHAR(50),
+        vc3 VARCHAR(50)
+    )
+    DUPLICATE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ( 'replication_num' = '1' );"""
+
+    sql"""INSERT INTO test_make_set (id, bit_num, vc1, vc2, vc3) VALUES
+    (1, 1, 'apple', 'orange', NULL),
+    (2, 2, 'red', 'blue', NULL),
+    (3, 3, 'dog', 'cat', 'bird'),
+    (4, 4, 'small', 'medium', 'large'),
+    (5, 5, 'hot', 'warm', NULL),
+    (6, 6, 'monday', 'tuesday', 'wednesday'),
+    (7, 7, 'one', 'two', 'three'),
+    (8, 0, 'hello', 'world', NULL),
+    (9, -2, 'test1', 'test2', 'test3'),
+    (10, -3, '汽车', '自行车', '火车'),
+    (11, NULL, 'a', 'b', 'c'),
+    (12, 1, NULL, NULL, NULL);"""
+
+    qt_mask_set_1"""SELECT MAKE_SET(bit_num, vc1, vc2, vc3) FROM test_make_set;"""
+    qt_mask_set_2"""SELECT MAKE_SET(id, vc1, vc2, vc3) FROM test_make_set;"""
+    testFoldConst("SELECT MAKE_SET(1, 'Doris', 'Apache', 'Database');")
+    testFoldConst("SELECT MAKE_SET(2, 'hello', 'goodbye', 'world');")
+    testFoldConst("SELECT MAKE_SET(3, NULL, '你好', '世界');")
+    testFoldConst("SELECT MAKE_SET(-2, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(NULL, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(4, 'a', 'b', NULL);")
+    testFoldConst("SELECT MAKE_SET(4611686018427387903, 'a', 'b', 'c');")
+
+    test {
+        sql"""SELECT MAKE_SET(184467440737095516156, 'a', 'b', 'c');"""
+        exception "Can not find the compatibility function signature"
+    }
+
+    sql """DROP TABLE IF EXISTS test_make_set;"""
+
 }

@@ -4957,6 +4957,103 @@ private:
     }
 };
 
+class FunctionMakeSet : public IFunction {
+public:
+    static constexpr auto name = "make_set";
+    static FunctionPtr create() { return std::make_shared<FunctionMakeSet>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 0; }
+    bool is_variadic() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (arguments[0].get()->is_nullable()) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto res_col = ColumnString::create();
+        auto null_map = ColumnUInt8::create();
+
+        const auto& [bit_col, bit_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        if (bit_const) {
+            if (bit_col->is_null_at(0)) {
+                res_col->insert_many_defaults(input_rows_count);
+                null_map->insert_many_vals(1, input_rows_count);
+            } else {
+                const int64_t bit_data =
+                        assert_cast<const ColumnInt64*>(bit_col.get())->get_element(0);
+                vector_execute<true>(block, arguments, input_rows_count, *res_col, bit_data,
+                                     null_map->get_data());
+            }
+        } else if (const auto* bit_data = check_and_get_column<ColumnNullable>(bit_col.get())) {
+            null_map->insert_range_from(bit_data->get_null_map_column(), 0, input_rows_count);
+            vector_execute<false>(block, arguments, input_rows_count, *res_col,
+                                  assert_cast<const ColumnInt64&>(bit_data->get_nested_column()),
+                                  null_map->get_data());
+
+        } else {
+            null_map->get_data().resize_fill(input_rows_count, 0);
+            vector_execute<false>(block, arguments, input_rows_count, *res_col,
+                                  assert_cast<const ColumnInt64&>(*bit_col.get()),
+                                  null_map->get_data());
+        }
+
+        if (block.get_by_position(arguments[0]).type.get()->is_nullable()) {
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
+        } else {
+            block.replace_by_position(result, std::move(res_col));
+        }
+        return Status::OK();
+    }
+
+private:
+    template <bool bit_const>
+    void vector_execute(const Block& block, const ColumnNumbers& arguments, size_t input_rows_count,
+                        ColumnString& res_col, const ColumnInt64& bit_col,
+                        PaddedPODArray<uint8_t>& null_map) const {
+        if constexpr (bit_const) {
+            int64_t bit = bit_col.get_element(0);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                execute_one_row(block, arguments, res_col, bit, i);
+            }
+        } else {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                if (null_map[i]) {
+                    res_col.insert_default();
+                    continue;
+                }
+                execute_one_row(block, arguments, res_col, bit_col.get_element(i), i);
+            }
+        }
+    }
+
+    void execute_one_row(const Block& block, const ColumnNumbers& arguments, ColumnString& res_col,
+                         int64_t bit, int row_num) const {
+        static constexpr char SEPARATOR = ',';
+        int64_t pos = __builtin_ffs(bit);
+        ColumnString::Chars data;
+        while (pos != 0 && pos < arguments.size() && bit != 0) {
+            auto col = block.get_by_position(arguments[pos]).column;
+            if (!col->is_null_at(row_num)) {
+                auto s_ref = col->get_data_at(row_num);
+                if (data.size()) {
+                    data.push_back(SEPARATOR);
+                }
+                data.insert(s_ref.data, s_ref.data + s_ref.size);
+            }
+            bit &= ~(1 << (pos - 1));
+            pos = __builtin_ffs(bit);
+        }
+        res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+};
+
 // ATTN: for debug only
 // compute crc32 hash value as the same way in `VOlapTablePartitionParam::find_tablets()`
 class FunctionCrc32Internal : public IFunction {

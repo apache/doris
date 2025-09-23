@@ -1114,4 +1114,23 @@ public class StringArithmetic {
 
         return castStringLikeLiteral(first, result);
     }
+
+    /**
+     * Executable arithmetic functions make_set
+     */
+    @ExecFunction(name = "make_set")
+    public static Expression make_set(BigIntLiteral bitLiteral, StringLikeLiteral... args) {
+        long bit = bitLiteral.getValue();
+        final StringBuilder sb = new StringBuilder();
+        int pos = Long.numberOfTrailingZeros(bit);
+        while (pos != 64 && pos < args.length && bit != 0) {
+            if (!sb.toString().isEmpty()) {
+                sb.append(',');
+            }
+            sb.append(args[pos].getValue());
+            bit &= ~(1 << pos);
+            pos = Long.numberOfTrailingZeros(bit);
+        }
+        return castStringLikeLiteral(args[0], sb.toString());
+    }
 }
