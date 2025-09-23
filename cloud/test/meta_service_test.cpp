@@ -11563,7 +11563,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11595,7 +11596,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11609,7 +11611,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "DISABLED";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "false";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11623,7 +11626,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "invalid";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11637,7 +11641,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "0";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "0";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11651,7 +11656,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "35";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "35";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11665,7 +11671,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11679,7 +11686,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "-1";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "-1";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11693,7 +11701,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "36";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "36";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11707,7 +11716,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "abc";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "abc";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11721,7 +11731,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "3600";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11735,7 +11746,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "14400";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "14400";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11749,7 +11761,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "3599";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3599";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11763,7 +11776,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "invalid";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11805,9 +11819,12 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
-        (*req.mutable_properties())["max_reserved_snapshots"] = "20";
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "12000";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "20";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11821,13 +11838,17 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
-        (*req.mutable_properties())["invalid_property"] = "value";
-        (*req.mutable_properties())["max_reserved_snapshots"] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "12000";
+        (*req.mutable_properties())["unsupported_property"] = "value";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.ShortDebugString();
     }
 
     // Test case 19: Non-existent instance ID
@@ -11837,7 +11858,8 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("non_existent_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11908,7 +11930,8 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse alter_res;
         alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         alter_req.set_instance_id("test_snapshot_config_instance");
-        (*alter_req.mutable_properties())["status"] = "enabled";
+        (*alter_req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &alter_req, &alter_res, nullptr);
@@ -11930,7 +11953,8 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_config_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "1799"; // Below min limit
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "1799"; // Below min limit
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11945,7 +11969,8 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_config_instance");
-        (*req.mutable_properties())["snapshot_interval_seconds"] = "3600"; // Within limits
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::SNAPSHOT_INTERVAL_SECONDS)] = "3600"; // Within limits
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11959,7 +11984,8 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_config_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "21"; // Above max limit
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "21"; // Above max limit
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11974,11 +12000,28 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_config_instance");
-        (*req.mutable_properties())["max_reserved_snapshots"] = "10"; // Within limits
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::MAX_RESERVED_SNAPSHOTS)] = "10"; // Within limits
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Test case 5: unknown property should fail
+    {
+        brpc::Controller cntl;
+        AlterInstanceRequest req;
+        AlterInstanceResponse res;
+        req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
+        req.set_instance_id("test_snapshot_config_instance");
+        (*req.mutable_properties())["unknown_property"] = "value";
+
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_TRUE(res.status().msg().find("unknown snapshot property: unknown_property") !=
+                    std::string::npos);
     }
 
     // Restore original config values
@@ -12045,7 +12088,8 @@ TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_instance");
-        (*req.mutable_properties())["status"] = "ENABLED";
+        (*req.mutable_properties())[AlterInstanceRequest_SnapshotProperty_Name(
+                AlterInstanceRequest::ENABLE_SNAPSHOT)] = "true";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);

@@ -68,7 +68,15 @@ public class AdminSetAutoClusterSnapshotCommand extends Command implements Forwa
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            builder.putProperties(entry.getKey().toLowerCase(), entry.getValue().toLowerCase());
+            String property;
+            if (entry.getKey().equalsIgnoreCase(PROP_MAX_RESERVED_SNAPSHOTS)) {
+                property = Cloud.AlterInstanceRequest.SnapshotProperty.MAX_RESERVED_SNAPSHOTS.name();
+            } else if (entry.getKey().equalsIgnoreCase(PROP_SNAPSHOT_INTERVAL_SECONDS)) {
+                property = Cloud.AlterInstanceRequest.SnapshotProperty.SNAPSHOT_INTERVAL_SECONDS.name();
+            } else {
+                throw new RuntimeException("Unknown property: " + entry.getKey());
+            }
+            builder.putProperties(property, entry.getValue().toLowerCase());
         }
         CloudSnapshotHandler cloudSnapshotHandler = ((CloudEnv) ctx.getEnv()).getCloudSnapshotHandler();
         cloudSnapshotHandler.alterInstance(builder.build());
