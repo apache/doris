@@ -21,6 +21,7 @@
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/buffered_union_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/match_all_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
@@ -47,9 +48,11 @@ public:
                 auto boolean_weight =
                         std::dynamic_pointer_cast<BooleanWeight<ScoreCombinerPtrT>>(sub_weight);
                 if (boolean_weight != nullptr && boolean_weight->_type == OperatorType::OP_NOT) {
-                    auto exclude = boolean_weight->scorer(composite_reader);
-                    if (exclude != nullptr) {
-                        exclude_scorers.emplace_back(std::move(exclude));
+                    auto excludes = boolean_weight->per_scorers(composite_reader);
+                    for (auto& exclude : excludes) {
+                        if (exclude != nullptr) {
+                            exclude_scorers.emplace_back(std::move(exclude));
+                        }
                     }
                     continue;
                 }
@@ -73,8 +76,24 @@ public:
                                                   std::move(exclude_scorers));
         }
 
+        if (_type == OperatorType::OP_NOT) {
+            uint32_t max_doc = composite_reader->max_doc();
+            if (max_doc == 0) {
+                return std::make_shared<EmptyScorer>();
+            }
+            auto match_all = std::make_shared<MatchAllScorer>(max_doc, composite_reader->readers());
+            if (_sub_weights.empty()) {
+                return match_all;
+            }
+            auto excludes = per_scorers(composite_reader);
+            if (excludes.empty()) {
+                return match_all;
+            }
+            return std::make_shared<AndNotScorer>(std::move(match_all), std::move(excludes));
+        }
+
         std::vector<ScorerPtr> sub_scorers = per_scorers(composite_reader);
-        if (_type == OperatorType::OP_OR || _type == OperatorType::OP_NOT) {
+        if (_type == OperatorType::OP_OR) {
             if (sub_scorers.empty()) {
                 return std::make_shared<EmptyScorer>();
             }
