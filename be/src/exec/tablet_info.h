@@ -167,6 +167,9 @@ struct VOlapTablePartition {
     int64_t load_tablet_idx = -1;
     int total_replica_num = 0;
     int load_required_replica_num = 0;
+    // for random tablet switching optimization
+    mutable int64_t current_tablet_rows = 0;
+    mutable int64_t switching_threshold = 0;
 
     VOlapTablePartition(vectorized::Block* partition_block)
             // the default value of partition bound is -1.
@@ -258,6 +261,7 @@ public:
                     // for compatible with old version, just do random
                     return cast_set<uint32_t>(butil::fast_rand() % partition.num_buckets);
                 }
+
                 return cast_set<uint32_t>(partition.load_tablet_idx % partition.num_buckets);
             };
         }

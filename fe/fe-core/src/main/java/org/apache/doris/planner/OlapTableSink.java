@@ -148,6 +148,13 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, 0L);
+    }
+
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
+            boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS, long randomTabletSwitchingThreshold)
+            throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);
@@ -166,6 +173,9 @@ public class OlapTableSink extends DataSink {
         }
         tSink.setLoadToSingleTablet(loadToSingleTablet);
         tSink.setTxnTimeoutS(txnExpirationS);
+        if (randomTabletSwitchingThreshold > 0) {
+            tSink.setRandomTabletSwitchingThreshold(randomTabletSwitchingThreshold);
+        }
         String vaultId = dstTable.getStorageVaultId();
         if (vaultId != null && !vaultId.isEmpty()) {
             tSink.setStorageVaultId(vaultId);
@@ -253,12 +263,23 @@ public class OlapTableSink extends DataSink {
             long txnExpirationS, TUniqueKeyUpdateMode uniquekeyUpdateMode,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             HashSet<String> partialUpdateInputColumns) throws UserException {
+        init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
+                isStrictMode, txnExpirationS, 0L, uniquekeyUpdateMode, partialUpdateNewKeyPolicy,
+                partialUpdateInputColumns);
+    }
+
+    // init for nereids stream load with random tablet switching threshold
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+            int sendBatchParallelism, boolean loadToSingleTablet, boolean isStrictMode,
+            long txnExpirationS, long randomTabletSwitchingThreshold, TUniqueKeyUpdateMode uniquekeyUpdateMode,
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
+            HashSet<String> partialUpdateInputColumns) throws UserException {
         setPartialUpdateInfo(uniquekeyUpdateMode, partialUpdateInputColumns);
         if (uniquekeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
             setPartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
         }
         init(loadId, txnId, dbId, loadChannelTimeoutS, sendBatchParallelism, loadToSingleTablet,
-                isStrictMode, txnExpirationS);
+                isStrictMode, txnExpirationS, randomTabletSwitchingThreshold);
         for (Long partitionId : partitionIds) {
             Partition partition = dstTable.getPartition(partitionId);
             if (dstTable.getIndexNumber() != partition.getMaterializedIndices(IndexExtState.ALL).size()) {
