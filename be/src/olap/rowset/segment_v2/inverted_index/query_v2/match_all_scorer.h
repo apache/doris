@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/index/IndexReader.h"
-
 #include <utility>
 #include <vector>
 
+#include "CLucene.h" // IWYU pragma: keep
+#include "CLucene/index/IndexReader.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
