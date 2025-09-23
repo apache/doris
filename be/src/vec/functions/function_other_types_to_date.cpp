@@ -259,7 +259,8 @@ private:
         auto& ts_val = *reinterpret_cast<DateValueType*>(&res[index]);
         if (!ts_val.from_date_format_str(r_raw_str, r_str_size, l_raw_str, l_str_size))
                 [[unlikely]] {
-            throw_invalid_string("str_to_date", std::string_view(l_raw_str, l_str_size));
+            throw_invalid_strings("str_to_date", std::string_view(l_raw_str, l_str_size),
+                                  std::string_view(r_raw_str, r_str_size));
         }
         if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
             if (context->get_return_type()->get_primitive_type() ==
