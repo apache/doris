@@ -139,6 +139,8 @@ public:
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;
 
+    virtual bool equals_ignore_precision(const IDataType& rhs) const { return equals(rhs); }
+
     /** Example: numbers, Date, DateTime, FixedString, Enum... Nullable and Tuple of such types.
       * Counterexamples: String, Array.
       * It's Ok to return false for AggregateFunction despite the fact that some of them have fixed size state.

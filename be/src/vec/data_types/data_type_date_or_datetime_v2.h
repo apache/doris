@@ -124,9 +124,14 @@ public:
         return doris::FieldType::OLAP_FIELD_TYPE_DATETIMEV2;
     }
     const std::string get_family_name() const override { return "DateTimeV2"; }
-    std::string do_get_name() const override { return "DateTimeV2"; }
+    std::string do_get_name() const override {
+        return "DateTimeV2(" + std::to_string(_scale) + ")";
+    }
 
     bool equals(const IDataType& rhs) const override;
+    bool equals_ignore_precision(const IDataType& rhs) const override {
+        return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
+    }
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
         DataTypeNumberBase<PrimitiveType::TYPE_DATETIMEV2>::template to_string_batch_impl<

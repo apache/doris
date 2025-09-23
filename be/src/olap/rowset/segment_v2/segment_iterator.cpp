@@ -1890,9 +1890,10 @@ void SegmentIterator::_vec_init_char_column_id(vectorized::Block* block) {
             if (_has_char_type(*column_desc)) {
                 _char_type_idx.emplace_back(i);
             }
-            if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                _is_char_type[cid] = true;
-            }
+        }
+
+        if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _is_char_type[cid] = true;
         }
     }
 }

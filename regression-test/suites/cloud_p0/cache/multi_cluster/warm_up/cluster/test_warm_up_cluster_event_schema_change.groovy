@@ -179,12 +179,12 @@ suite('test_warm_up_cluster_event_schema_change', 'docker') {
         sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
 
         // add, drop materialized view
-        createMV("""create materialized view var_order as select vs, k, v from ${table_name} order by vs""")    
+        createMV("""create materialized view var_order as select vs as vs_view, k as k_view, v as v_view from ${table_name} order by vs""")
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 4096"""
-        createMV("""create materialized view var_cnt as select k, count(k) from ${table_name} group by k""")    
+        createMV("""create materialized view var_cnt as select k as v_view_1, count(k) from ${table_name} group by k""")
         sql """INSERT INTO ${table_name} SELECT k, v, v from ${table_name} limit 8101"""
         sql """DROP MATERIALIZED VIEW var_cnt ON ${table_name}"""
-        sql """INSERT INTO ${table_name} SELECT k, v,v  from ${table_name} limit 1111"""
+        sql """INSERT INTO ${table_name} SELECT k, v, v  from ${table_name} limit 1111"""
         // select from mv
         sql """select v['k1'], cast(v['k2'] as string) from ${table_name} order by k desc limit 10"""
     }

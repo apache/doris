@@ -111,6 +111,20 @@ public:
         return columns_with_type_and_name;
     }
 
+    // Helper function to extract null map from column (including ColumnConst cases)
+    static const NullMap* get_null_map(const ColumnPtr& col) {
+        if (col->is_nullable()) {
+            return &static_cast<const ColumnNullable&>(*col).get_null_map_data();
+        }
+        // Handle Const(Nullable) case
+        if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
+            const_col != nullptr && const_col->is_concrete_nullable()) {
+            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
+                            .get_null_map_data();
+        }
+        return nullptr;
+    };
+
     // is_single: whether src is null map of a ColumnConst
     static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
         size_t size = dst.size();

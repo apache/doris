@@ -8,7 +8,69 @@ true
 
 -- !sql2 --
 \N
+false
+false
+false
+true
+
+-- !sql3 --
+\N
 true
 false
 true
 false
+
+-- !sql4 --
+\N
+true
+false
+true
+false
+
+-- !sql5 --
+\N
+
+-- !sql6 --
+false
+
+-- !sql7 --
+false
+
+-- !sql8 --
+true
+
+-- !sql9 --
+true
+
+-- !sql10 --
+false
+
+-- !sql11 --
+false
+
+-- !sql12 --
+\N
+
+-- !sql13 --
+false
+
+-- !sql14 --
+false
+
+-- !sql15 --
+false
+
+-- !sql16 --
+false
+
+-- !sql17 --
+true
+
+-- !sql18 --
+true
+
+-- !sql19 --
+true
+
+-- !sql20 --
+true

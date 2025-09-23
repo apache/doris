@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * table ref info
@@ -51,6 +52,7 @@ public class TableRefInfo {
                         TableSnapshot tableSnapShot, PartitionNamesInfo partitionNamesInfo,
                         List<Long> tabletIdList, String tableAlias,
                         TableSample tableSample, List<String> relationHints) {
+        Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
         this.tableNameInfo = tableNameInfo;
         this.scanParams = scanParams;
         this.tableSnapShot = tableSnapShot;
@@ -87,7 +89,7 @@ public class TableRefInfo {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append(tableNameInfo.getTbl());
+        sb.append(tableNameInfo);
         if (partitionNamesInfo != null) {
             sb.append(partitionNamesInfo.toSql());
         }

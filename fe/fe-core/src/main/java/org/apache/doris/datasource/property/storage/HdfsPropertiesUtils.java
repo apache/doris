@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.storage.exception.StoragePropertiesE
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -38,6 +40,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class HdfsPropertiesUtils {
+    private static final Logger LOG = LogManager.getLogger(HdfsPropertiesUtils.class);
     private static final String URI_KEY = "uri";
     private static final String STANDARD_HDFS_PREFIX = "hdfs://";
     private static final String EMPTY_HDFS_PREFIX = "hdfs:///";
@@ -63,7 +66,15 @@ public class HdfsPropertiesUtils {
         if (StringUtils.isBlank(uriStr)) {
             return false;
         }
-        URI uri = URI.create(uriStr);
+        URI uri;
+        try {
+            uri = URI.create(uriStr);
+        } catch (Exception ex) {
+            // The glob syntax of s3 contains {, which will cause an error here.
+            LOG.warn("Failed to validate uri is hdfs uri, {}", ex.getMessage());
+            return false;
+        }
+
         String schema = uri.getScheme();
         if (StringUtils.isBlank(schema)) {
             throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");

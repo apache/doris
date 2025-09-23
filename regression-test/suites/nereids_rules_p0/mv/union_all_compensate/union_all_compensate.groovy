@@ -24,6 +24,8 @@ suite("union_all_compensate") {
         sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
         sql "set enable_sql_cache=true"
         sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('expire_sql_cache_in_fe_second' = '300')"
 
         sql """
         drop table if exists test_table1

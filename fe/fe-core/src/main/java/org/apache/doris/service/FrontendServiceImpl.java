@@ -2803,16 +2803,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<Replica> replicas = Env.getCurrentEnv().getCurrentInvertedIndex()
                     .getReplicasByTabletId(tabletId);
             for (Replica replica : replicas) {
-                // TODO(dx)
-                //if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
-                if (!replica.isNormal()) {
+                if (!replica.isNormal() && !request.isSetWarmUpJobId()) {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
                 Backend backend;
                 if (Config.isCloudMode() && request.isSetWarmUpJobId()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
-                    backend = cloudReplica.getPrimaryBackend(clusterId);
+                    // On the cloud, the PrimaryBackend of a tablet indicates the BE where the tablet is stably located,
+                    // while the SecondBackend refers to a BE selected by a new hash when the PrimaryBackend
+                    // is temporarily unavailable. Once the PrimaryBackend recovers,
+                    // the system will switch back to using it. During the preheating phase,
+                    // data needs to be synchronized downstream, which requires a stable BE,
+                    // so the PrimaryBackend is used in this case.
+                    backend = cloudReplica.getPrimaryBackend(clusterId, true);
                 } else {
                     backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
                 }
@@ -3265,9 +3269,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TableSnapshot tableSnapshot = tableRef.getTableSnapshot();
             TableScanParams tableScanParams = tableRef.getScanParams();
 
-            TableNameInfo tableNameInfo = null;
+            TableNameInfo tableNameInfo;
             if (tableName != null) {
                 tableNameInfo = new TableNameInfo(tableName.getCtl(), tableName.getDb(), tableName.getTbl());
+            } else {
+                tableNameInfo = new TableNameInfo();
             }
 
             String tableAlias = aliases.length >= 1 ? aliases[0] : null;

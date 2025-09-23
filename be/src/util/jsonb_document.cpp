@@ -124,6 +124,22 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         if (results.empty()) {
             result.value = nullptr; // No values found
         } else {
+            /// if supper wildcard, need distinct results
+            /// because supper wildcard will traverse all nodes
+            ///
+            /// `select json_extract( '[1]', '$**[0]' );`
+            /// +---------------------------------+
+            /// | json_extract( '[1]', '$**[0]' ) |
+            /// +---------------------------------+
+            /// | [1,1]                           |
+            /// +---------------------------------+
+            if (results.size() > 1 && path.is_supper_wildcard()) [[unlikely]] {
+                std::set<const JsonbValue*> distinct_results;
+                for (const auto* pval : results) {
+                    distinct_results.insert(pval);
+                }
+                results.assign(distinct_results.begin(), distinct_results.end());
+            }
             result.writer = std::make_unique<JsonbWriter>();
             result.writer->writeStartArray();
             for (const auto* pval : results) {

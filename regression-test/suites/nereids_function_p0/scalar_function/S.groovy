@@ -213,10 +213,22 @@ suite("nereids_scalar_fn_S") {
 	qt_sql_starts_with_Varchar_Varchar_notnull "select starts_with(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_starts_with_String_String "select starts_with(kstr, kstr) from fn_test order by kstr, kstr"
 	qt_sql_starts_with_String_String_notnull "select starts_with(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-	qt_sql_str_to_date_Varchar_Varchar "select str_to_date(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	qt_sql_str_to_date_Varchar_Varchar_notnull "select str_to_date(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	qt_sql_str_to_date_String_String "select str_to_date(kstr, kstr) from fn_test order by kstr, kstr"
-	qt_sql_str_to_date_String_String_notnull "select str_to_date(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	test{
+		sql "select str_to_date(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kstr, kstr) from fn_test order by kstr, kstr"
+		exception "is invalid"
+	}
+	test{
+		sql "select str_to_date(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+		exception "is invalid"
+	}
 	qt_sql_strleft_Varchar_Integer "select strleft(kvchrs1, kint) from fn_test order by kvchrs1, kint"
 	qt_sql_strleft_Varchar_Integer_notnull "select strleft(kvchrs1, kint) from fn_test_not_nullable order by kvchrs1, kint"
 	qt_sql_strleft_String_Integer "select strleft(kstr, kint) from fn_test order by kstr, kint"
