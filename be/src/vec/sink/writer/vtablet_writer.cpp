@@ -94,6 +94,17 @@ class TExpr;
 namespace vectorized {
 #include "common/compile_check_begin.h"
 
+// Global state for tracking tablet switching across different stream load requests
+struct TabletSwitchingState {
+    int64_t current_tablet_idx = 0;
+    int64_t current_tablet_rows = 0;
+    int64_t switching_threshold = 0;
+};
+
+// Global map to track tablet switching state per table partition (using partition_id as key)
+std::unordered_map<int64_t, TabletSwitchingState> g_tablet_switching_states;
+std::mutex g_tablet_switching_mutex;
+
 bvar::Adder<int64_t> g_sink_write_bytes;
 bvar::PerSecond<bvar::Adder<int64_t>> g_sink_write_bytes_per_second("sink_throughput_byte",
                                                                     &g_sink_write_bytes, 60);
@@ -1467,6 +1478,30 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _vpartition = _pool->add(new doris::VOlapTablePartitionParam(_schema, table_sink.partition));
     _tablet_finder = std::make_unique<OlapTabletFinder>(_vpartition, find_tablet_mode);
     RETURN_IF_ERROR(_vpartition->init());
+
+    if (table_sink.partition.distributed_columns.empty()) {
+        int64_t threshold = (table_sink.__isset.random_tablet_switching_threshold &&
+                             table_sink.random_tablet_switching_threshold > 0)
+                                    ? table_sink.random_tablet_switching_threshold
+                                    : config::random_distribution_tablet_switching_threshold;
+
+        std::lock_guard<std::mutex> lock(g_tablet_switching_mutex);
+        for (auto& partition : _vpartition->get_partitions()) {
+            auto& global_state = g_tablet_switching_states[partition->id];
+            if (global_state.switching_threshold == 0) {
+                global_state.switching_threshold = threshold;
+                global_state.current_tablet_idx = 0;
+                global_state.current_tablet_rows = 0;
+            }
+
+            const_cast<VOlapTablePartition*>(partition)->switching_threshold =
+                    global_state.switching_threshold;
+            const_cast<VOlapTablePartition*>(partition)->load_tablet_idx =
+                    global_state.current_tablet_idx;
+            const_cast<VOlapTablePartition*>(partition)->current_tablet_rows =
+                    global_state.current_tablet_rows;
+        }
+    }
 
     _state = state;
     _operator_profile = profile;

@@ -53,6 +53,8 @@ static const std::string HTTP_SEQUENCE_COL = "sequence_col";
 static const std::string HTTP_COMPRESS_TYPE = "compress_type";
 static const std::string HTTP_SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 static const std::string HTTP_LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
+static const std::string HTTP_RANDOM_TABLET_SWITCHING_THRESHOLD =
+        "random_tablet_switching_threshold";
 static const std::string HTTP_HIDDEN_COLUMNS = "hidden_columns";
 static const std::string HTTP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 static const std::string HTTP_SKIP_LINES = "skip_lines";
