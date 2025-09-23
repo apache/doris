@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <deque>
 #include <initializer_list>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <string_view>
@@ -535,7 +536,9 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           instance_info_(instance),
           inverted_index_id_cache_(std::make_unique<InvertedIndexIdCache>(instance_id_, txn_kv_)),
           _thread_pool_group(std::move(thread_pool_group)),
-          txn_lazy_committer_(std::move(txn_lazy_committer)) {};
+          txn_lazy_committer_(std::move(txn_lazy_committer)) {
+    snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+};
 
 InstanceRecycler::~InstanceRecycler() = default;
 
@@ -692,12 +695,19 @@ int InstanceRecycler::do_recycle() {
         segment_metrics_context_.finish_report();
     };
     if (instance_info_.status() == InstanceInfoPB::DELETED) {
+        int res = recycle_cluster_snapshots();
+        if (res != 0) {
+            return -1;
+        }
         return recycle_deleted_instance();
     } else if (instance_info_.status() == InstanceInfoPB::NORMAL) {
         SyncExecutor<int> sync_executor(_thread_pool_group.group_recycle_function_pool,
                                         fmt::format("instance id {}", instance_id_),
                                         [](int r) { return r != 0; });
         sync_executor
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_cluster_snapshots(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }))
                 .add(task_wrapper( // dropped table and dropped partition need to be recycled in series
                                    // becase they may both recycle the same set of tablets
                         // recycle dropped table or idexes(mv, rollup)
@@ -715,7 +725,6 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_restore_jobs(); }));
         bool finished = true;
         std::vector<int> rets = sync_executor.when_all(&finished);
@@ -1474,8 +1483,10 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
-    // TODO:
-    // recycle_orphan_partitions();
+    if (instance_info_.has_multi_version_status() &&
+        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+        return recycle_orphan_partitions();
+    }
 
     int64_t num_scanned = 0;
     int64_t num_recycled = 0;
@@ -1673,9 +1684,6 @@ int InstanceRecycler::recycle_orphan_partitions() {
         return 0;
     };
 
-    // if (config::enable_recycler_stats_metrics) {
-    //     scan_and_statistics_versions();
-    // }
     // recycle_func and loop_done for scan and recycle
     return scan_and_recycle(
             versioned::partition_inverted_index_key({instance_id_, 0, 0, 0}),
@@ -5396,30 +5404,6 @@ int InstanceRecycler::scan_and_statistics_restore_jobs() {
     int ret = scan_and_recycle(restore_job_key0, restore_job_key1, std::move(scan_and_statistics));
     metrics_context.report(true);
     return ret;
-}
-
-int InstanceRecycler::has_cluster_snapshots(bool *any) {
-    std::string snapshot_key = versioned::snapshot_full_key({instance_id_});
-    std::string begin_key = encode_versioned_key(snapshot_key, Versionstamp::min());
-    std::string end_key = encode_versioned_key(snapshot_key, Versionstamp::max());
-
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn. instance_id=" << instance_id_
-                        << ", err=" << err;
-        return -1;
-    }
-
-    std::unique_ptr<RangeGetIterator> iter;
-    err = txn->get(begin_key, end_key, &iter, false, 1);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to get snapshot key. instance_id=" << instance_id_ << ", err=" << err;
-        return -1;
-    }
-
-    *any = iter->has_next();
-    return 0;
 }
 
 } // namespace doris::cloud

@@ -1426,7 +1426,7 @@ static void versionstamp_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
     // Test without enabling versionstamp
     {
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        std::string versionstamp;
+        Versionstamp versionstamp;
         ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_INVALID_ARGUMENT)
                 << txn_kv_class;
     }
@@ -1435,7 +1435,7 @@ static void versionstamp_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
     {
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         txn->enable_get_versionstamp();
-        std::string versionstamp;
+        Versionstamp versionstamp;
         ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_KEY_NOT_FOUND)
                 << txn_kv_class;
     }
@@ -1453,19 +1453,14 @@ static void versionstamp_test(std::shared_ptr<cloud::TxnKv> txn_kv) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << txn_kv_class;
 
         // Get versionstamp
-        std::string versionstamp;
+        Versionstamp versionstamp;
         ASSERT_EQ(txn->get_versionstamp(&versionstamp), TxnErrorCode::TXN_OK) << txn_kv_class;
-        ASSERT_EQ(versionstamp.size(), 10) << txn_kv_class; // Versionstamp should be 10 bytes
 
-        std::cout << txn_kv_class << " Versionstamp: ";
-        for (int i = 0; i < versionstamp.size(); i++) {
-            std::cout << std::hex << (int)(unsigned char)versionstamp[i];
-        }
-        std::cout << std::dec << std::endl;
+        std::cout << txn_kv_class << " Versionstamp: " << versionstamp.to_string() << std::endl;
     }
 
     // Test multiple transactions get different versionstamps
-    std::string versionstamp1, versionstamp2;
+    Versionstamp versionstamp1, versionstamp2;
     {
         // First transaction
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);

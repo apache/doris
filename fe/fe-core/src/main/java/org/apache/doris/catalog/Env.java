@@ -28,7 +28,6 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddPartitionLikeClause;
 import org.apache.doris.analysis.AlterMultiPartitionClause;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.Expr;
@@ -260,6 +259,7 @@ import org.apache.doris.statistics.StatisticsAutoCollector;
 import org.apache.doris.statistics.StatisticsCache;
 import org.apache.doris.statistics.StatisticsCleaner;
 import org.apache.doris.statistics.StatisticsJobAppender;
+import org.apache.doris.statistics.StatisticsMetricCollector;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.HeartbeatMgr;
@@ -352,7 +352,7 @@ public class Env {
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
 
-    private String metaDir;
+    protected String metaDir;
     private String bdbDir;
     protected String imageDir;
 
@@ -429,7 +429,7 @@ public class Env {
     protected int clusterId;
     protected String token;
     // For checkpoint and observer memory replayed marker
-    private AtomicLong replayedJournalId;
+    protected AtomicLong replayedJournalId;
 
     private static Env CHECKPOINT = null;
     private static long checkpointThreadId = -1;
@@ -582,6 +582,8 @@ public class Env {
     private KeyManagerStore keyManagerStore;
 
     private KeyManagerInterface keyManager;
+
+    private StatisticsMetricCollector statisticsMetricCollector;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -816,6 +818,7 @@ public class Env {
         this.statisticsCleaner = new StatisticsCleaner();
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.statisticsJobAppender = new StatisticsJobAppender();
+        this.statisticsMetricCollector = new StatisticsMetricCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
         this.computeGroupMgr = new ComputeGroupMgr(systemInfo);
@@ -1133,11 +1136,15 @@ public class Env {
             File bdbDir = new File(this.bdbDir);
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
+            } else {
+                checkClusterSnapshot(bdbDir);
             }
         }
         File imageDir = new File(this.imageDir);
         if (!imageDir.exists()) {
             imageDir.mkdirs();
+        } else {
+            checkClusterSnapshot(imageDir);
         }
 
         // init plugin manager
@@ -1154,6 +1161,8 @@ public class Env {
             nodeName = genFeNodeName(selfNode.getHost(),
                     selfNode.getPort(), false /* new style */);
         }
+
+        cloneClusterSnapshot();
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
@@ -1958,6 +1967,7 @@ public class Env {
         statisticsCleaner.start();
         statisticsAutoCollector.start();
         statisticsJobAppender.start();
+        statisticsMetricCollector.start();
         if (keyManager != null) {
             keyManager.init();
         }
@@ -3279,6 +3289,17 @@ public class Env {
         }
     }
 
+    public boolean invalidCacheForCloud() {
+        if (Config.isCloudMode()) {
+            // the cloud mode will not update table version when use recover partition,
+            // so we should invalidate all cache to avoid bugs
+            getSqlCacheManager().invalidateAll();
+            getSortedPartitionsCacheManager().invalidateAll();
+            return true;
+        }
+        return false;
+    }
+
     private void removeDroppedFrontends(ConcurrentLinkedQueue<String> removedFrontends) {
         if (removedFrontends.size() == 0) {
             return;
@@ -3467,33 +3488,6 @@ public class Env {
     }
 
     /**
-     * Following is the step to create an olap table:
-     * 1. create columns
-     * 2. create partition info
-     * 3. create distribution info
-     * 4. set table id and base index id
-     * 5. set bloom filter columns
-     * 6. set and build TableProperty includes:
-     * 6.1. dynamicProperty
-     * 6.2. replicationNum
-     * 6.3. inMemory
-     * 6.4. storageFormat
-     * 6.5. compressionType
-     * 7. set index meta
-     * 8. check colocation properties
-     * 9. create tablet in BE
-     * 10. add this table to FE's meta
-     * 11. add this table to ColocateGroup if necessary
-     * @return if CreateTableStmt.isIfNotExists is true, return true if table already exists
-     * otherwise return false
-     */
-    public boolean createTable(CreateTableStmt stmt) throws UserException {
-        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(stmt.getCatalogName(),
-                catalog -> new DdlException(("Unknown catalog " + catalog)));
-        return catalogIf.createTable(stmt);
-    }
-
-    /**
      * Adds a partition to a table
      *
      * @param db
@@ -3568,7 +3562,7 @@ public class Env {
         try {
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
             sb.append(mtmv.getName());
-            addMTMVCols(mtmv, sb);
+            addColNameAndComment(mtmv, sb);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
             addMTMVKeyInfo(mtmv, sb);
@@ -3617,9 +3611,9 @@ public class Env {
         sb.append(")");
     }
 
-    private static void addMTMVCols(MTMV mtmv, StringBuilder sb) {
+    private static void addColNameAndComment(TableIf tableIf, StringBuilder sb) {
         sb.append("\n(");
-        List<Column> columns = mtmv.getBaseSchema();
+        List<Column> columns = tableIf.getBaseSchema();
         for (int i = 0; i < columns.size(); i++) {
             if (i != 0) {
                 sb.append(",");
@@ -4337,6 +4331,8 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
+            addColNameAndComment(view, sb);
+            sb.append("\n");
             if (StringUtils.isNotBlank(table.getComment())) {
                 sb.append(" COMMENT '").append(table.getComment()).append("'");
             }
@@ -6489,8 +6485,7 @@ public class Env {
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
         TableNameInfo nameInfo = command.getTableNameInfo();
         PartitionNamesInfo partitionNamesInfo = command.getPartitionNamesInfo().orElse(null);
-        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(),
-                partitionNamesInfo == null ? null : partitionNamesInfo.translateToLegacyPartitionNames(),
+        catalogIf.truncateTable(nameInfo.getDb(), nameInfo.getTbl(), partitionNamesInfo,
                 command.isForceDrop(), command.toSqlWithoutTable());
     }
 
@@ -6865,6 +6860,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -6972,6 +6968,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
+                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
             } finally {
                 table.writeUnlock();
             }
@@ -7051,6 +7048,8 @@ public class Env {
                 LOG.info("set partition {} visible version from {} to {}. Database {}, Table {}, is replay:"
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
+
+            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7263,6 +7262,10 @@ public class Env {
         return statisticsAutoCollector;
     }
 
+    public StatisticsMetricCollector getStatisticsMetricCollector() {
+        return statisticsMetricCollector;
+    }
+
     public MasterDaemon getTabletStatMgr() {
         return tabletStatMgr;
     }
@@ -7397,5 +7400,13 @@ public class Env {
     public List<String> getAllAliveSessionIds() {
         return new ArrayList<>(aliveSessionSet);
     }
+
+    public void setClusterSnapshotFile(String clusterSnapshotFile) throws Exception {
+        throw new Exception("cluster snapshot only support cloud mode");
+    }
+
+    protected void checkClusterSnapshot(File dir) {}
+
+    protected void cloneClusterSnapshot() throws Exception {}
 }
 

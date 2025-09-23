@@ -59,32 +59,11 @@
 -- !x2 --
 0001-01-01T00:00
 
--- !x3 --
-\N
-
--- !x4 --
-\N
-
 -- !x6 --
 0001-01-01T00:00
 
--- !x7 --
-\N
-
--- !x8 --
-\N
-
--- !x9 --
-\N
-
 -- !x11 --
 0001-08-01T00:00
-
--- !x12 --
-\N
-
--- !x13 --
-\N
 
 -- !x14 --
 9999-12-31T23:55
@@ -110,27 +89,6 @@
 -- !f_positive_7 --
 2021-01-01T00:00
 
--- !f_neg_1 --
-\N
-
--- !f_neg_2 --
-\N
-
--- !f_neg_3 --
-\N
-
--- !f_neg_4 --
-\N
-
--- !f_neg_5 --
-\N
-
--- !f_neg_6 --
-\N
-
--- !f_neg_7 --
-\N
-
 -- !c_positive_1 --
 2023-07-14T15:30:45
 
@@ -151,33 +109,6 @@
 
 -- !c_positive_7 --
 2026-01-01T00:00
-
--- !c_neg_1 --
-\N
-
--- !c_neg_2 --
-\N
-
--- !c_neg_3 --
-\N
-
--- !c_neg_4 --
-\N
-
--- !c_neg_5 --
-\N
-
--- !c_neg_6 --
-\N
-
--- !c_neg_7 --
-\N
-
--- !zero_interval_1 --
-\N
-
--- !zero_interval_2 --
-\N
 
 -- !boundary_1 --
 9999-12-31T23:59:58
@@ -469,4 +400,88 @@
 
 -- !three_param_91 --
 2024-01-01T00:00
+
+-- !second_ceil_ms_test_1 --
+2001-01-01T12:00:01
+
+-- !second_ceil_ms_test_2 --
+2001-01-01T12:00:20
+
+-- !second_ceil_ms_test_3 --
+2001-01-01T12:00:01
+
+-- !second_ceil_ms_test_4 --
+2001-01-01T12:00:20
+
+-- !minute_ceil_ms_test_1 --
+2001-01-01T12:01
+
+-- !minute_ceil_ms_test_2 --
+2001-01-01T12:20
+
+-- !minute_ceil_ms_test_3 --
+2001-01-01T12:01
+
+-- !minute_ceil_ms_test_4 --
+2001-01-01T12:20
+
+-- !hour_ceil_ms_test_1 --
+2001-01-01T13:00
+
+-- !hour_ceil_ms_test_2 --
+2001-01-02T00:00
+
+-- !hour_ceil_ms_test_3 --
+2001-01-01T13:00
+
+-- !hour_ceil_ms_test_4 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_1 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_2 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_3 --
+2001-01-02T00:00
+
+-- !day_ceil_ms_test_4 --
+2001-01-02T00:00
+
+-- !month_ceil_ms_test_1 --
+2001-02-01T00:00
+
+-- !month_ceil_ms_test_2 --
+2001-02-01T00:00
+
+-- !month_ceil_ms_test_3 --
+2001-01-04T00:00
+
+-- !month_ceil_ms_test_4 --
+2001-01-04T00:00
+
+-- !quarter_ceil_ms_test_1 --
+2001-04-01T00:00
+
+-- !quarter_ceil_ms_test_2 --
+2001-04-01T00:00
+
+-- !quarter_ceil_ms_test_3 --
+2001-01-04T00:00
+
+-- !quarter_ceil_ms_test_4 --
+2001-01-04T00:00
+
+-- !year_ceil_ms_test_1 --
+2002-01-01T00:00
+
+-- !year_ceil_ms_test_2 --
+2011-01-01T00:00
+
+-- !year_ceil_ms_test_3 --
+2002-01-01T00:00
+
+-- !year_ceil_ms_test_4 --
+2010-01-01T00:00
 

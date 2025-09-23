@@ -43,17 +43,22 @@ public:
                                DropSnapshotResponse* response);
     virtual void list_snapshot(std::string_view instance_id, const ListSnapshotRequest& request,
                                ListSnapshotResponse* response);
-    virtual void clone_instance(std::string_view instance_id, const CloneInstanceRequest& request,
+    virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
+    virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
+            std::string_view instance_id, std::string_view cloud_unique_id,
+            MultiVersionStatus multi_version_status);
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.
     virtual int recycle_snapshots(InstanceRecycler* recycler);
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    virtual int recycle_snapshot_meta_and_data(StorageVaultAccessor* accessor,
-                                               Versionstamp* snapshot_version,
-                                               const SnapshotPB* snapshot_pb);
+    virtual int recycle_snapshot_meta_and_data(std::string_view instance_id,
+                                               std::string_view resource_id,
+                                               StorageVaultAccessor* accessor,
+                                               Versionstamp snapshot_version,
+                                               const SnapshotPB& snapshot_pb);
 
 private:
     SnapshotManager(const SnapshotManager&) = delete;

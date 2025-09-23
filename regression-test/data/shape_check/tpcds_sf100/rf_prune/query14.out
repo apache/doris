@@ -80,7 +80,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalRepeat
 ----------------------PhysicalUnion
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DECIMALV3(38, 4)) > avg_sales.average_sales)
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -98,12 +98,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalProject
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+----------------------------PhysicalAssertNumRows
+------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DECIMALV3(38, 4)) > avg_sales.average_sales)
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -121,12 +120,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalProject
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+----------------------------PhysicalAssertNumRows
+------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 ------------------------PhysicalProject
---------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DOUBLE) > cast(average_sales as DOUBLE))
+--------------------------NestedLoopJoin[INNER_JOIN](cast(sales as DECIMALV3(38, 4)) > avg_sales.average_sales)
 ----------------------------PhysicalProject
 ------------------------------hashAgg[GLOBAL]
 --------------------------------PhysicalDistribute[DistributionSpecHash]
@@ -144,8 +142,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[item]
-----------------------------PhysicalProject
-------------------------------PhysicalAssertNumRows
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+----------------------------PhysicalAssertNumRows
+------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------PhysicalCteConsumer ( cteId=CTEId#1 )
 

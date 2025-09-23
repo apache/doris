@@ -235,6 +235,9 @@ public:
                               std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
+    std::string_view instance_id() const { return instance_id_; }
+    const InstanceInfoPB& instance_info() const { return instance_info_; }
+
     // returns 0 for success otherwise error
     int init();
 
@@ -329,6 +332,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_restore_jobs();
 
+    // scan and recycle snapshots
+    // returns 0 for success otherwise error
+    int recycle_cluster_snapshots();
+
     bool check_recycle_tasks();
 
     int scan_and_statistics_indexes();
@@ -356,6 +363,11 @@ public:
     void TEST_add_accessor(std::string_view id, std::shared_ptr<StorageVaultAccessor> accessor) {
         accessor_map_.insert({std::string(id), std::move(accessor)});
     }
+
+    // Recycle snapshot meta and data, return 0 for success otherwise error.
+    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+                                       Versionstamp snapshot_version,
+                                       const SnapshotPB& snapshot_pb);
 
 private:
     // returns 0 for success otherwise error
@@ -446,6 +458,7 @@ private:
     RecyclerThreadPoolGroup _thread_pool_group;
 
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 
     TabletRecyclerMetricsContext tablet_metrics_context_;
     SegmentRecyclerMetricsContext segment_metrics_context_;

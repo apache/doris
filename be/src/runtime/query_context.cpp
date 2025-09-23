@@ -234,6 +234,8 @@ QueryContext::~QueryContext() {
     _merge_controller_handler.reset();
 
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
+    // TODO(gabriel): we need to clear outdated query contexts on time
+    // ExecEnv::GetInstance()->fragment_mgr()->remove_query_context(this->_query_id);
     // the only one msg shows query's end. any other msg should append to it if need.
     LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
@@ -312,6 +314,16 @@ void QueryContext::set_load_error_url(std::string error_url) {
 std::string QueryContext::get_load_error_url() {
     std::lock_guard<std::mutex> lock(_error_url_lock);
     return _load_error_url;
+}
+
+void QueryContext::set_first_error_msg(std::string error_msg) {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    _first_error_msg = error_msg;
+}
+
+std::string QueryContext::get_first_error_msg() {
+    std::lock_guard<std::mutex> lock(_error_url_lock);
+    return _first_error_msg;
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {

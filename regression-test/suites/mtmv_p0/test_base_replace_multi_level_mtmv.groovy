@@ -135,7 +135,7 @@ suite("test_base_replace_multi_level_mtmv","mtmv") {
     mv_not_part_in(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName3)
-    mv_not_part_in(querySql, mvName4)
+    mv_rewrite_fail(querySql, mvName4)
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName1} auto

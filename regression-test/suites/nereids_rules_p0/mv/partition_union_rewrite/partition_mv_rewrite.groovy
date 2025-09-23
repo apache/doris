@@ -209,7 +209,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // should rewrite successful when union rewrite enalbe if sub partition is invalid
+    // should rewrite successful when union rewrite enable if sub partition is invalid
     mv_rewrite_success(query_all_partition_sql, mv_1_partition_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
     order_qt_query_3_0_after "${query_all_partition_sql}"
@@ -236,7 +236,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_7_0_before "${query_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    // should rewrite successful when union rewrite enalbe if base table add new partition
+    // should rewrite successful when union rewrite enable if base table add new partition
     mv_rewrite_success(query_all_partition_sql, mv_1_partition_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
     order_qt_query_7_0_after "${query_all_partition_sql}"
@@ -261,7 +261,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=false"
     order_qt_query_11_0_before "${query_all_partition_sql}"
     sql "SET enable_materialized_view_rewrite=true"
-    // should rewrite successful when union rewrite enalbe if base table delete partition
+    // should rewrite successful when union rewrite enable if base table delete partition
     mv_rewrite_success(query_all_partition_sql, mv_1_partition_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
     order_qt_query_11_0_after "${query_all_partition_sql}"
@@ -386,7 +386,7 @@ suite("partition_mv_rewrite") {
 
     // test when mv is partition roll up
     sql "SET enable_materialized_view_rewrite=true"
-    // should rewrite successful when union rewrite enalbe and mv is ttl, query the partition which is in mv
+    // should rewrite successful when union rewrite enable and mv is ttl, query the partition which is in mv
     mv_rewrite_success(query_ttl_all_partition_sql, ttl_mv_name,
             is_partition_statistics_ready(db, ["lineitem_static", "orders", ttl_mv_name]))
 
@@ -472,7 +472,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // should rewrite successful when union rewrite enalbe if base table add new partition
+    // should rewrite successful when union rewrite enable if base table add new partition
     mv_rewrite_success(query_roll_up_all_partition_sql, mv_1_partition_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
     order_qt_query_17_0_after "${query_roll_up_all_partition_sql}"
@@ -502,7 +502,7 @@ suite("partition_mv_rewrite") {
     sql "SET enable_materialized_view_rewrite=true"
 
 
-    // should rewrite successful when union rewrite enalbe if base table add new partition
+    // should rewrite successful when union rewrite enable if base table add new partition
     mv_rewrite_success(query_roll_up_all_partition_sql, mv_1_partition_name,
             is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
     order_qt_query_19_0_after "${query_roll_up_all_partition_sql}"

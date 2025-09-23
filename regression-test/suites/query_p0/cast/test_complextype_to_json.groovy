@@ -24,7 +24,7 @@ suite('test_complextype_to_json', "query_p0") {
     qt_select """SELECT CAST([] AS JSON)"""
     qt_select """SELECT CAST([123, 456] AS JSON)"""
     qt_select """SELECT CAST(["abc", "def"] AS JSON)"""
-    qt_select """SELECT CAST([null, true, false, 100, 6.18, "abc"] AS JSON)"""
+    qt_select """SELECT CAST([null, true, false, 100, 6.18, "1.68"] AS JSON)"""
     qt_select """SELECT CAST(struct('a', 1, 'doris', 'aaaaa', 1.32) AS JSON)"""
     // invalid map key cast
     test {
@@ -32,7 +32,7 @@ suite('test_complextype_to_json', "query_p0") {
         exception "errCode = 2,"
     }
     test {
-        sql """SELECT CAST([{1:"v41", 2: 400}] AS JSON)"""
+        sql """SELECT CAST([{1:"v41", 2: "400"}] AS JSON)"""
         exception "errCode = 2,"
     }
 

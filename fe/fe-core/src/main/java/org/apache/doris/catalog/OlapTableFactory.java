@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateMTMVStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -70,16 +67,6 @@ public class OlapTableFactory {
             return TableType.OLAP;
         } else {
             throw new IllegalArgumentException("Invalid DDL statement: " + createTableInfo.toSql());
-        }
-    }
-
-    public static TableType getTableType(DdlStmt stmt) {
-        if (stmt instanceof CreateMTMVStmt) {
-            return TableType.MATERIALIZED_VIEW;
-        } else if (stmt instanceof CreateTableStmt) {
-            return TableType.OLAP;
-        } else {
-            throw new IllegalArgumentException("Invalid DDL statement: " + stmt.toSql());
         }
     }
 
@@ -202,21 +189,6 @@ public class OlapTableFactory {
                 .withMvProperties(createMTMVInfo.getMvProperties())
                 .withMvPartitionInfo(createMTMVInfo.getMvPartitionInfo())
                 .withMvRelation(createMTMVInfo.getRelation());
-        }
-    }
-
-    public OlapTableFactory withExtraParams(DdlStmt stmt) {
-        boolean isMaterializedView = stmt instanceof CreateMTMVStmt;
-        if (!isMaterializedView) {
-            CreateTableStmt createOlapTableStmt = (CreateTableStmt) stmt;
-            return withIndexes(new TableIndexes(createOlapTableStmt.getIndexes()));
-        } else {
-            CreateMTMVStmt createMTMVStmt = (CreateMTMVStmt) stmt;
-            return withRefreshInfo(createMTMVStmt.getRefreshInfo())
-                    .withQuerySql(createMTMVStmt.getQuerySql())
-                    .withMvProperties(createMTMVStmt.getMvProperties())
-                    .withMvPartitionInfo(createMTMVStmt.getMvPartitionInfo())
-                    .withMvRelation(createMTMVStmt.getRelation());
         }
     }
 }

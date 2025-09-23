@@ -150,7 +150,21 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
     ReadStatistics stats;
     stats.bytes_read += bytes_req;
+    MonotonicStopWatch read_at_sw;
+    read_at_sw.start();
     auto defer_func = [&](int*) {
+        if (config::print_stack_when_cache_miss) {
+            if (io_ctx->file_cache_stats == nullptr && !stats.hit_cache && !io_ctx->is_warmup) {
+                LOG_INFO("[verbose] {}", Status::InternalError<true>("not hit cache"));
+            }
+        }
+        if (!stats.hit_cache && config::read_cluster_cache_opt_verbose_log) {
+            LOG_INFO(
+                    "[verbose] not hit cache, path: {}, offset: {}, size: {}, cost: {} ms, warmup: "
+                    "{}",
+                    path().native(), offset, bytes_req, read_at_sw.elapsed_time_milliseconds(),
+                    io_ctx->is_warmup);
+        }
         if (io_ctx->file_cache_stats && !is_dryrun) {
             // update stats in io_ctx, for query profile
             _update_stats(stats, io_ctx->file_cache_stats, io_ctx->is_inverted_index);
@@ -226,6 +240,9 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     for (auto& block : holder.file_blocks) {
         switch (block->state()) {
         case FileBlock::State::EMPTY:
+            VLOG_DEBUG << fmt::format("Block EMPTY path={} hash={}:{}:{} offset={} cache_path={}",
+                                      path().native(), _cache_hash.to_string(), _cache_hash.high(),
+                                      _cache_hash.low(), block->offset(), block->get_cache_file());
             block->get_or_set_downloader();
             if (block->is_downloader()) {
                 empty_blocks.push_back(block);
@@ -234,6 +251,10 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.hit_cache = false;
             break;
         case FileBlock::State::SKIP_CACHE:
+            VLOG_DEBUG << fmt::format(
+                    "Block SKIP_CACHE path={} hash={}:{}:{} offset={} cache_path={}",
+                    path().native(), _cache_hash.to_string(), _cache_hash.high(), _cache_hash.low(),
+                    block->offset(), block->get_cache_file());
             empty_blocks.push_back(block);
             stats.hit_cache = false;
             stats.skip_cache = true;
