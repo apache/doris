@@ -899,6 +899,7 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
         }
     }
     query_ctx->cancel(reason);
+    remove_query_context(query_id);
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
