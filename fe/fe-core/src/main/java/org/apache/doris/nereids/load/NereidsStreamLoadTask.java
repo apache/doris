@@ -432,7 +432,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         if (request.isSetStrictMode()) {
             strictMode = request.isStrictMode();
         }
-        // if not set timezone, use the global time_zone
+        // global time_zone if not set
         if (request.isSetTimezone()) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
         } else if (ConnectContext.get() != null) {
