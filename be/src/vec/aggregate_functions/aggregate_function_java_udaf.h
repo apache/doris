@@ -122,7 +122,7 @@ public:
         // invoke add batch
         // Keep consistent with the function signature of executor_add_batch_id.
 
-        return executor_obj.call_object_method(env, executor_add_batch_id)
+        return executor_obj.call_void_method(env, executor_add_batch_id)
                 .with_arg((jboolean)is_single_place)
                 .with_arg(cast_set<jint>(row_num_start))
                 .with_arg(cast_set<jint>(row_num_end))

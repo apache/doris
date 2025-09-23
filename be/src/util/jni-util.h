@@ -1115,7 +1115,7 @@ public:
             RETURN_IF_ERROR(javaKey.get_string_chars(env, &key));
 
             LocalStringBufferGuard value;
-            RETURN_IF_ERROR(javaKey.get_string_chars(env, &value));
+            RETURN_IF_ERROR(javaValue.get_string_chars(env, &value));
 
             // Store the key-value pair in the map
             (*resultMap)[key.get()] = value.get();
