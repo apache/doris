@@ -310,7 +310,7 @@ bool insert_datetime_cell(MutableColumnPtr& column, DataTypePtr date_type_ptr, c
             result = date_value.from_date_str(datetime_str.c_str(), datetime_str.size());
         }
     } else {
-        date_value = any_cast<PrimitiveTypeTraits<PType>::CppType>(cell);
+        date_value = any_cast<typename PrimitiveTypeTraits<PType>::CppType>(cell);
     }
     // deal for v1
     if constexpr (PType == PrimitiveType::TYPE_DATE) {
