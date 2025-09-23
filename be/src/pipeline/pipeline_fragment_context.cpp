@@ -2034,5 +2034,10 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
                                                       _runtime_state->profile_level());
     return load_channel_profile;
 }
+
+Status PipelineFragmentContext::reset() {
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

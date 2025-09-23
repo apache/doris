@@ -144,6 +144,10 @@ public:
                                 const PTransmitRecCTEBlockParams* request,
                                 PTransmitRecCTEBlockResult* response,
                                 google::protobuf::Closure* done) override;
+    void reset_fragment(google::protobuf::RpcController* controller,
+                                const PResetFragmentParams* request,
+                                PResetFragmentResult* response,
+                                google::protobuf::Closure* done) override;
     void transmit_block(::google::protobuf::RpcController* controller,
                         const ::doris::PTransmitDataParams* request,
                         ::doris::PTransmitDataResult* response,

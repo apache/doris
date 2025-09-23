@@ -111,7 +111,22 @@ private:
     }
 
     Status _recursive_process(RuntimeState* state, size_t last_round_offset) {
-        
+        for (auto fragment : _fragments_to_reset) {
+            auto stub =
+                    state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
+                            fragment.addr);
+
+            PResetFragmentParams request;
+            request.mutable_query_id()->CopyFrom(UniqueId(state->query_id()).to_proto());
+            request.set_fragment_id(fragment.fragment_id);
+
+            PResetFragmentResult result;
+            brpc::Controller controller;
+            stub->reset_fragment(&controller, &request, &result, brpc::DoNothing());
+            brpc::Join(controller.call_id());
+
+            RETURN_IF_ERROR(Status::create(result.status()));
+        }
 
         RETURN_IF_ERROR(_send_data_to_targets(state, last_round_offset));
         return Status::OK();

@@ -125,6 +125,8 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
+    Status reset();
+
 private:
     Status _build_pipelines(ObjectPool* pool, const DescriptorTbl& descs, OperatorPtr* root,
                             PipelinePtr cur_pipe);
