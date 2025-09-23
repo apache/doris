@@ -2069,6 +2069,7 @@ nonReserved
     | NON_NULLABLE
     | NULLS
     | OF
+    | OFF
     | OFFSET
     | ONLY
     | OPEN
