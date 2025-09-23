@@ -35,7 +35,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -94,6 +96,8 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                 return search;
             }
 
+            Map<String, String> normalizedFields = new HashMap<>();
+
             // Create slot reference children from field bindings
             List<Expression> slotChildren = new ArrayList<>();
             for (SearchDslParser.QsFieldBinding binding : qsPlan.fieldBindings) {
@@ -103,11 +107,16 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                             "Field '%s' not found in table for search: %s",
                             binding.fieldName, search.getDslString()));
                 }
+                String normalized = slot.getName();
+                normalizedFields.put(binding.fieldName, normalized);
+                binding.fieldName = normalized;
                 slotChildren.add(slot);
             }
 
             LOG.info("Rewriting search function: dsl='{}' with {} slot children",
                     search.getDslString(), slotChildren.size());
+
+            normalizePlanFields(qsPlan.root, normalizedFields);
 
             // Create SearchExpression with slot children
             return new SearchExpression(search.getDslString(), qsPlan, slotChildren);
@@ -124,6 +133,25 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
             }
         }
         return null;
+    }
+
+    private void normalizePlanFields(SearchDslParser.QsNode node, Map<String, String> normalized) {
+        if (node == null) {
+            return;
+        }
+        if (node.field != null) {
+            for (Map.Entry<String, String> entry : normalized.entrySet()) {
+                if (entry.getKey().equalsIgnoreCase(node.field)) {
+                    node.field = entry.getValue();
+                    break;
+                }
+            }
+        }
+        if (node.children != null) {
+            for (SearchDslParser.QsNode child : node.children) {
+                normalizePlanFields(child, normalized);
+            }
+        }
     }
 
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
@@ -24,12 +25,17 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 
@@ -218,5 +224,46 @@ public class RewriteSearchToSlotsTest {
         Assertions.assertEquals(1, expr.children().size());
         Assertions.assertEquals(slot, expr.children().get(0));
         Assertions.assertEquals(fieldName, ((SlotReference) expr.children().get(0)).getName());
+    }
+
+    @Test
+    public void testRewriteSearchHandlesCaseInsensitiveField() throws Exception {
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of("db"));
+        Search searchFunc = new Search(new StringLiteral("NAME:alice"));
+
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Assertions.assertInstanceOf(SearchExpression.class, rewritten);
+
+        SearchExpression searchExpression = (SearchExpression) rewritten;
+        Assertions.assertEquals(1, searchExpression.getSlotChildren().size());
+        Assertions.assertTrue(searchExpression.getSlotChildren().get(0) instanceof SlotReference);
+        SlotReference slot = (SlotReference) searchExpression.getSlotChildren().get(0);
+        Assertions.assertEquals("name", slot.getName());
+
+        SearchDslParser.QsPlan normalizedPlan = searchExpression.getQsPlan();
+        Assertions.assertEquals("name", normalizedPlan.fieldBindings.get(0).fieldName);
+        Assertions.assertEquals("name", normalizedPlan.root.field);
+    }
+
+    @Test
+    public void testRewriteSearchThrowsWhenFieldMissing() throws Exception {
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(),
+                PlanConstructor.student, ImmutableList.of("db"));
+        Search searchFunc = new Search(new StringLiteral("unknown_field:value"));
+
+        Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
+                "rewriteSearch", Search.class, LogicalOlapScan.class);
+        rewriteMethod.setAccessible(true);
+
+        InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
+                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan));
+        Assertions.assertNotNull(thrown.getCause());
+        Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
+        Assertions.assertTrue(thrown.getCause().getMessage().contains("unknown_field"));
     }
 }

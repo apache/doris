@@ -111,65 +111,65 @@ suite("test_search_inverted_index") {
     Thread.sleep(10000)
 
     // Verify data insertion
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex}"
-    qt_sql "SELECT COUNT(*) FROM ${tableWithoutIndex}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithoutIndex}"
 
     // Test 1: Basic search functionality on indexed table
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine')"
 
     // Test 2: Compare results between indexed and non-indexed tables
-    qt_sql "SELECT id FROM ${tableWithIndex} WHERE search('title:Learning') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id FROM ${tableWithIndex} WHERE search('title:Learning') ORDER BY id"
     //qt_sql "SELECT id FROM ${tableWithoutIndex} WHERE search('title:Learning') ORDER BY id"
 
     // Test 3: Complex search with multiple fields
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine AND category:Technology')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine AND category:Technology')"
 
     // Test 4: Search with phrase queries
     //qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('content:\"comprehensive content\"')"
 
     // Test 5: Search with boolean operators
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('(title:Learning OR title:Guide) AND category:Technology')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('(title:Learning OR title:Guide) AND category:Technology')"
 
     // Test 6: Search with NOT operator
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('NOT title:Machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('NOT title:Machine')"
 
     // Test 7: Wildcard searches
     //qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:Learn*')"
 
     // Test 8: Search in tags field (test tokenized field)
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('tags:tutorial')"
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('tags:devops')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('tags:tutorial')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('tags:devops')"
     // Test 9: Search by author
     //qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('author:\"John Smith\"')"
 
     // Test 10: Search combined with regular WHERE clauses
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('category:Technology') AND view_count > 3000"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('category:Technology') AND view_count > 3000"
 
     // Test 11: Search with GROUP BY
-    qt_sql "SELECT category, COUNT(*) as cnt FROM ${tableWithIndex} WHERE search('title:Learning') GROUP BY category ORDER BY cnt DESC"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ category, COUNT(*) as cnt FROM ${tableWithIndex} WHERE search('title:Learning') GROUP BY category ORDER BY cnt DESC, category ASC"
 
     // Test 12: Search with ORDER BY and LIMIT
-    qt_sql "SELECT id, title FROM ${tableWithIndex} WHERE search('title:Advanced') ORDER BY view_count DESC LIMIT 10"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableWithIndex} WHERE search('title:Advanced') ORDER BY view_count DESC LIMIT 10"
 
     // Test 13: Search with aggregation functions
-    qt_sql "SELECT AVG(rating), MAX(view_count), MIN(view_count) FROM ${tableWithIndex} WHERE search('category:Technology')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ AVG(rating), MAX(view_count), MIN(view_count) FROM ${tableWithIndex} WHERE search('category:Technology')"
 
     // Test 14: Search with HAVING clause
     qt_sql """
-            SELECT category, COUNT(*) as cnt 
-            FROM ${tableWithIndex} 
-            WHERE search('tags:guide OR tags:tutorial') 
-            GROUP BY category 
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ category, COUNT(*) as cnt
+            FROM ${tableWithIndex}
+            WHERE search('tags:guide OR tags:tutorial')
+            GROUP BY category
             HAVING cnt > 10
             ORDER BY cnt DESC
     """
-    
+
     // Test 15: Nested search queries
     qt_sql """
-            SELECT id, title FROM ${tableWithIndex} 
-            WHERE search('title:Complete OR title:Advanced') 
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableWithIndex}
+            WHERE search('title:Complete OR title:Advanced')
             AND id IN (
-                SELECT id FROM ${tableWithIndex} 
+                SELECT id FROM ${tableWithIndex}
                 WHERE search('category:Technology OR category:Science')
             )
             ORDER BY id LIMIT 5
@@ -180,29 +180,25 @@ suite("test_search_inverted_index") {
     //qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:\"Complete Guide\"')"
 
     // Edge Case 2: Search with very common terms
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('content:the')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('content:the')"
 
     // Edge Case 3: Search with numeric-like terms
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('content:2023')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('content:2023')"
 
     // Edge Case 4: Case sensitivity test
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:MACHINE')"
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:machine')"
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('title:MACHINE')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('title:machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('title:Machine')"
 
     // Index effectiveness test
     //qt_sql "SELECT id, title FROM ${tableWithIndex} WHERE search('title:Introduction AND content:\"practical examples\" AND tags:tutorial') ORDER BY view_count DESC LIMIT 100"
 
     // Test ANY query performance
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('tags:ANY(tutorial guide example)')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('tags:ANY(tutorial guide example)')"
 
     // Test ALL query performance  
-    qt_sql "SELECT COUNT(*) FROM ${tableWithIndex} WHERE search('tags:ALL(machine learning)')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableWithIndex} WHERE search('tags:ALL(machine learning)')"
 
     // Test complex ANY/ALL combinations
-    qt_sql "SELECT id, title FROM ${tableWithIndex} WHERE search('(tags:ANY(java python) OR tags:ALL(tutorial guide)) AND category:Technology') order by id LIMIT 10"
-
-    // Cleanup
-    sql "DROP TABLE IF EXISTS ${tableWithIndex}"
-    sql "DROP TABLE IF EXISTS ${tableWithoutIndex}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableWithIndex} WHERE search('(tags:ANY(java python) OR tags:ALL(tutorial guide)) AND category:Technology') order by id LIMIT 10"
 }
