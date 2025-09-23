@@ -256,6 +256,27 @@ TEST_F(JsonbDocumentTest, forobject) {
     for (auto it = root_obj->begin(); it != root_obj->end(); ++it) {
         std::cout << "key: " << std::string(it->getKeyStr(), it->klen()) << std::endl;
     }
+
+    {
+        std::string key = "key_null";
+        {
+            auto val = root_obj->search(key.data(), key.size());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+        {
+            auto val = root_obj->search(key.c_str());
+            EXPECT_TRUE(val != root_obj->end());
+        }
+
+        {
+            auto* val = root_obj->find(key.data(), key.size());
+            EXPECT_TRUE(val != nullptr);
+        }
+        {
+            auto* val = root_obj->find(key.c_str());
+            EXPECT_TRUE(val != nullptr);
+        }
+    }
 }
 
 } // namespace doris
