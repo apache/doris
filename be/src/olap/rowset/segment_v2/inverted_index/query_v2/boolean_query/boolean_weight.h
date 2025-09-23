@@ -88,7 +88,8 @@ public:
             if (max_doc == 0) {
                 return make_empty();
             }
-            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, composite_reader->readers());
+            auto match_all =
+                    std::make_shared<MatchAllDocsScorer>(max_doc, composite_reader->readers());
             if (_sub_weights.empty()) {
                 return match_all;
             }
