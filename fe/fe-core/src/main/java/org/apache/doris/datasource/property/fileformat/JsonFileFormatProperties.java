@@ -70,10 +70,10 @@ public class JsonFileFormatProperties extends FileFormatProperties {
             } else {
                 readJsonByLine = Boolean.valueOf(
                         getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
-                                "", isRemoveOriginProperty)).booleanValue();
+                                "false", isRemoveOriginProperty)).booleanValue();
                 stripOuterArray = Boolean.valueOf(
                         getOrDefault(formatProperties, PROP_STRIP_OUTER_ARRAY,
-                                "", isRemoveOriginProperty)).booleanValue();
+                                "false", isRemoveOriginProperty)).booleanValue();
             }
             numAsString = Boolean.valueOf(
                     getOrDefault(formatProperties, PROP_NUM_AS_STRING,
