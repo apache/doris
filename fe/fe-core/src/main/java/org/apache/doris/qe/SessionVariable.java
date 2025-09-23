@@ -4674,7 +4674,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         tResult.setExchangeMultiBlocksByteSize(exchangeMultiBlocksByteSize);
-        tResult.setEnableStrictCast(enableStrictCast);
+        tResult.setEnableStrictCast(enableStrictCast());
+        tResult.setEnableInsertStrict(enableInsertStrict);
         tResult.setNewVersionUnixTimestamp(true); // once FE upgraded, always use new version
 
         tResult.setHnswEfSearch(hnswEFSearch);
@@ -5422,8 +5423,13 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public static boolean enableStrictCast() {
-        if (ConnectContext.get() != null) {
-            return ConnectContext.get().getSessionVariable().enableStrictCast;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext != null && statementContext.isInsert()) {
+                return connectContext.getSessionVariable().enableInsertStrict;
+            }
+            return connectContext.getSessionVariable().enableStrictCast;
         } else {
             return Boolean.parseBoolean(VariableMgr.getDefaultValue("ENABLE_STRICT_CAST"));
         }

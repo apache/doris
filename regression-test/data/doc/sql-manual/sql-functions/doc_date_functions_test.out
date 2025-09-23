@@ -17,14 +17,8 @@
 -- !convert_tz_6 --
 \N
 
--- !convert_tz_7 --
-\N
-
 -- !convert_tz_8 --
 2019-07-31T22:21:03.636
-
--- !convert_tz_9 --
-2019-08-01T20:21:03
 
 -- !date_add_1 --
 2010-12-02T23:59:59
@@ -188,9 +182,6 @@ Sun Oct 10
 -- !day_ceil_6 --
 2023-07-14
 
--- !day_ceil_7 --
-\N
-
 -- !day_ceil_8 --
 \N
 
@@ -275,9 +266,6 @@ Sunday
 -- !from_days_1 --
 2000-07-03	0000-01-05	0000-02-28	0000-03-01
 
--- !from_days_2 --
-\N
-
 -- !from_days_3 --
 \N
 
@@ -295,15 +283,6 @@ Sunday
 
 -- !from_iso8601_date_5 --
 0521-12-29
-
--- !from_iso8601_date_6 --
-\N
-
--- !from_iso8601_date_7 --
-\N
-
--- !from_iso8601_date_8 --
-\N
 
 -- !from_iso8601_date_9 --
 \N
@@ -499,9 +478,6 @@ gdaskpdp
 
 -- !makedate_2 --
 2024-01-01	2024-02-29	2024-12-31
-
--- !makedate_3 --
-\N
 
 -- !makedate_4 --
 2022-02-04
@@ -1139,29 +1115,17 @@ July
 -- !str_to_date_3 --
 2023-07-13
 
--- !str_to_date_4 --
-
-
 -- !str_to_date_5 --
 2004-10-18
 
 -- !str_to_date_6 --
 2023-10-05T15:45
 
--- !str_to_date_7 --
-\N
-
--- !str_to_date_8 --
-2023-01-01T10:00
-
 -- !str_to_date_9 --
 2023-07-13T12:34:56.789
 
 -- !str_to_date_10 --
 \N	\N
-
--- !str_to_date_11 --
-\N
 
 -- !timediff_1 --
 216:24:09
@@ -1393,9 +1357,6 @@ July
 
 -- !week_floor_7 --
 2023-07-03T12:00
-
--- !week_floor_8 --
-\N
 
 -- !week_floor_9 --
 \N

@@ -216,6 +216,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
         AbstractInsertExecutor insertExecutor;
         int retryTimes = 0;
+        ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             // check auth

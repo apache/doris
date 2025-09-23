@@ -326,9 +326,9 @@ public class JdbcMySQLClient extends JdbcClient {
         Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
-        queryBuf.append(remoteTableName);
+        queryBuf.append("`").append(remoteTableName).append("`");
         queryBuf.append(" FROM ");
-        queryBuf.append(remoteDbName);
+        queryBuf.append("`").append(remoteDbName).append("`");
         try {
             conn = getConnection();
             stmt = conn.createStatement();
