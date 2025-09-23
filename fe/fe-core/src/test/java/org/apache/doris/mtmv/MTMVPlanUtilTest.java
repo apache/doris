@@ -17,15 +17,27 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
+import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
@@ -278,5 +290,207 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 MTMVPlanUtil.generateColumns(plan, connectContext, null, null,
                         Lists.newArrayList(new SimpleColumnDefinition("col1", "c1"),
                                 new SimpleColumnDefinition("col1", "c2")), null));
+    }
+
+    @Test
+    public void testAnalyzeQuerynNonDeterministic() throws Exception {
+        String querySql = "select *,now() from test.T1";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.SELF_MANAGE);
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
+                    MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), querySql, mtmvPartitionDefinition,
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan);
+                });
+        Assertions.assertTrue(exception.getMessage().contains("nonDeterministic"));
+    }
+
+    @Test
+    public void testAnalyzeQueryFromTablet() throws Exception {
+        String querySql = "select * from test.T1 tablet (20001)";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.SELF_MANAGE);
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
+                    MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), querySql, mtmvPartitionDefinition,
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan);
+                });
+        Assertions.assertTrue(exception.getMessage().contains("invalid expression"));
+    }
+
+    @Test
+    public void testAnalyzeQueryFromTempTable() throws Exception {
+        createTables(
+                "CREATE TEMPORARY TABLE IF NOT EXISTS temp_t1 (\n"
+                        + "    id varchar(10),\n"
+                        + "    score String\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(id)\n"
+                        + "AUTO PARTITION BY LIST(`id`)\n"
+                        + "(\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "  \"replication_num\" = \"1\"\n"
+                        + ")\n"
+        );
+        String querySql = "select * from test.temp_t1";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.SELF_MANAGE);
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
+                    MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), querySql, mtmvPartitionDefinition,
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan);
+                });
+        Assertions.assertTrue(exception.getMessage().contains("temporary"));
+    }
+
+    @Test
+    public void testAnalyzeQueryFollowBaseTableFailed() throws Exception {
+        String querySql = "select * from test.T4";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        mtmvPartitionDefinition.setPartitionCol("score");
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        AnalysisException exception = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
+                    MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), querySql, mtmvPartitionDefinition,
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan);
+                });
+        Assertions.assertTrue(exception.getMessage().contains("suitable"));
+    }
+
+    @Test
+    public void testAnalyzeQueryNormal() throws Exception {
+        String querySql = "select * from test.T4";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        mtmvPartitionDefinition.setPartitionCol("id");
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
+                querySql, mtmvPartitionDefinition,
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan);
+        Assertions.assertTrue(mtmvAnalyzeQueryInfo.getRelation().getBaseTables().size() == 1);
+        Assertions.assertTrue(mtmvAnalyzeQueryInfo.getMvPartitionInfo().getRelatedCol().equals("id"));
+        Assertions.assertTrue(mtmvAnalyzeQueryInfo.getColumnDefinitions().size() == 2);
+    }
+
+    @Test
+    public void testEnsureMTMVQueryUsable() throws Exception {
+        createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
+        Assertions.assertDoesNotThrow(
+                () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv)));
+    }
+
+    @Test
+    public void testEnsureMTMVQueryAnalyzeFailed() throws Exception {
+        createTable( "CREATE TABLE IF NOT EXISTS t_partition (\n"
+                + "    id bigint not null,\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id)\n"
+                + "AUTO PARTITION BY LIST(`score`)\n"
+                + "(\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")\n");
+        createTable( "CREATE TABLE IF NOT EXISTS t_not_partition (\n"
+                + "    id bigint not null,\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id)\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")\n");
+        createView("create view v1 as select * from test.t_partition");
+
+        createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        PARTITION BY (score)\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.v1;");
+        dropView("drop view v1");
+        createView("create view v1 as select * from test.t_not_partition");
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
+        JobException exception = Assertions.assertThrows(
+                org.apache.doris.job.exception.JobException.class, () -> {
+                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
+                });
+        Assertions.assertTrue(exception.getMessage().contains("suitable"));
+    }
+
+    @Test
+    public void testEnsureMTMVQueryNotEqual() throws Exception {
+        createTable( "CREATE TABLE IF NOT EXISTS t_partition1 (\n"
+                + "    id bigint not null,\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id)\n"
+                + "AUTO PARTITION BY LIST(`score`)\n"
+                + "(\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")\n");
+        createTable( "CREATE TABLE IF NOT EXISTS t_partition2 (\n"
+                + "    id bigint not null,\n"
+                + "    score bigint\n"
+                + ")\n"
+                + "DUPLICATE KEY(id)\n"
+                + "AUTO PARTITION BY LIST(`score`)\n"
+                + "(\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")\n");
+        createView("create view v1 as select * from test.t_partition1");
+
+        createMvByNereids("create materialized view mv1 BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        PARTITION BY (score)\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.v1;");
+        dropView("drop view v1");
+        createView("create view v1 as select * from test.t_partition2");
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
+        JobException exception = Assertions.assertThrows(
+                org.apache.doris.job.exception.JobException.class, () -> {
+                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, MTMVPlanUtil.createMTMVContext(mtmv));
+                });
+        Assertions.assertTrue(exception.getMessage().contains("changed"));
     }
 }

@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
@@ -708,6 +709,12 @@ public abstract class TestWithFeService {
     public void createView(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         CreateViewCommand command = (CreateViewCommand) nereidsParser.parseSingle(sql);
+        command.run(connectContext, new StmtExecutor(connectContext, sql));
+    }
+
+    public void dropView(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        DropViewCommand command = (DropViewCommand) nereidsParser.parseSingle(sql);
         command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 

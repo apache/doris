@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -45,7 +44,6 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -60,7 +58,6 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -91,7 +88,6 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -208,7 +204,7 @@ public class MTMVTask extends AbstractTask {
                 // if mtmv is schema_change, check if column type has changed
                 // If it's not in the schema_change state, the column type definitely won't change.
                 if (MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
-                    checkColumnTypeIfChange(mtmv, ctx);
+                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx);
                 }
                 if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
                     MTMVRelatedTableIf relatedTable = mtmv.getMvPartitionInfo().getRelatedTable();
@@ -275,43 +271,6 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
-        }
-    }
-
-    private void checkColumnTypeIfChange(MTMV mtmv, ConnectContext ctx) throws JobException {
-        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo;
-        try {
-            mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx);
-        } catch (UserException e) {
-            throw new JobException("analyze querySql failed", e);
-        }
-        List<ColumnDefinition> currentColumnsDefinition = mtmvAnalyzeQueryInfo.getColumnDefinitions();
-        List<Column> currentColumns = currentColumnsDefinition.stream()
-                .map(ColumnDefinition::translateToCatalogStyle)
-                .collect(Collectors.toList());
-        List<Column> originalColumns = mtmv.getBaseSchema(true);
-        if (currentColumns.size() != originalColumns.size()) {
-            throw new JobException(String.format(
-                    "column length not equals, please check whether columns of base table have changed, "
-                            + "original length is: %s, current length is: %s",
-                    originalColumns.size(), currentColumns.size()));
-        }
-        for (int i = 0; i < originalColumns.size(); i++) {
-            if (!isTypeLike(originalColumns.get(i).getType(), currentColumns.get(i).getType())) {
-                throw new JobException(String.format(
-                        "column type not same, please check whether columns of base table have changed, "
-                                + "column name is: %s, original type is: %s, current type is: %s",
-                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
-                        currentColumns.get(i).getType().toSql()));
-            }
-        }
-    }
-
-    private boolean isTypeLike(Type type, Type typeOther) {
-        if (type.isStringType()) {
-            return typeOther.isStringType();
-        } else {
-            return type.equals(typeOther);
         }
     }
 

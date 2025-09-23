@@ -40,6 +40,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -411,7 +412,7 @@ public class MTMVPlanUtil {
             try {
                 // must disable constant folding by be, because be constant folding may return wrong type
                 ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-                plan = planner.planWithLock(logicalQuery, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+                plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
             } finally {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
@@ -521,5 +522,54 @@ public class MTMVPlanUtil {
 
     private static MTMVRelation getMTMVRelation(Set<TableIf> tables, ConnectContext ctx, String querySql) {
         return MTMVPlanUtil.generateMTMVRelation(tables, ctx, querySql);
+    }
+
+    public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
+        MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
+        try {
+            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx);
+        } catch (Exception e) {
+            throw new JobException(e.getMessage(), e);
+        }
+        checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
+        checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+    }
+
+    private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo) throws JobException {
+        MTMVPartitionInfo originalMvPartitionInfo = mtmv.getMvPartitionInfo();
+        if (!analyzedMvPartitionInfo.equals(originalMvPartitionInfo)) {
+            throw new JobException("async materialized view partition info changed, analyzed: %s, original: %s",
+                    analyzedMvPartitionInfo.toInfoString(), originalMvPartitionInfo.toInfoString());
+        }
+    }
+
+    private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions) throws JobException {
+        List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
+                .map(ColumnDefinition::translateToCatalogStyle)
+                .collect(Collectors.toList());
+        List<Column> originalColumns = mtmv.getBaseSchema(true);
+        if (analyzedColumns.size() != originalColumns.size()) {
+            throw new JobException(String.format(
+                    "column length not equals, please check whether columns of base table have changed, "
+                            + "original length is: %s, current length is: %s",
+                    originalColumns.size(), analyzedColumns.size()));
+        }
+        for (int i = 0; i < originalColumns.size(); i++) {
+            if (!isTypeLike(originalColumns.get(i).getType(), analyzedColumns.get(i).getType())) {
+                throw new JobException(String.format(
+                        "column type not same, please check whether columns of base table have changed, "
+                                + "column name is: %s, original type is: %s, current type is: %s",
+                        originalColumns.get(i).getName(), originalColumns.get(i).getType().toSql(),
+                        analyzedColumns.get(i).getType().toSql()));
+            }
+        }
+    }
+
+    private static boolean isTypeLike(Type type, Type typeOther) {
+        if (type.isStringType()) {
+            return typeOther.isStringType();
+        } else {
+            return type.equals(typeOther);
+        }
     }
 }
