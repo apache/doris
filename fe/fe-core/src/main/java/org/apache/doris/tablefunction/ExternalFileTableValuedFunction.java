@@ -154,7 +154,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
-                S3Util.fastFailConnect(endpoint);
+                S3Util.validateAndTestEndpoint(endpoint);
             }
             BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
         } catch (UserException e) {

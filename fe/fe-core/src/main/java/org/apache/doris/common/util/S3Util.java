@@ -251,7 +251,10 @@ public class S3Util {
         return globPattern.substring(0, earliestSpecialCharIndex);
     }
 
-    public static void fastFailConnect(String endpoint) throws UserException {
+     // Fast fail validation for S3 endpoint connectivity to avoid retries and long waits
+     // when network conditions are poor. Validates endpoint format, whitelist, security,
+     // and tests connection with 10s timeout.
+    public static void validateAndTestEndpoint(String endpoint) throws UserException {
         HttpURLConnection connection = null;
         try {
             String urlStr = endpoint;

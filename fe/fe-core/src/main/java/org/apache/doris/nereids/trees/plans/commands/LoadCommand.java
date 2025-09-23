@@ -448,7 +448,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)) {
                 ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
                 String endpoint = storageProperties.getEndpoint();
-                S3Util.fastFailConnect(endpoint);
+                S3Util.validateAndTestEndpoint(endpoint);
             }
         } else {
             etlJobType = EtlJobType.UNKNOWN;
