@@ -186,7 +186,8 @@ public:
 
     Status transmit_rec_cte_block(const TUniqueId& query_id, const TUniqueId& instance_id,
                                   int node_id,
-                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks);
+                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
+                                  bool eos);
     Status reset_fragment(const TUniqueId& query_id, int fragment);
 
 private:

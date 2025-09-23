@@ -508,7 +508,7 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() {
 
 Status QueryContext::send_block_to_cte_scan(
         const TUniqueId& instance_id, int node_id,
-        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks) {
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto it = _cte_scan.find(std::make_pair(instance_id, node_id));
     if (it == _cte_scan.end()) {
@@ -517,6 +517,9 @@ Status QueryContext::send_block_to_cte_scan(
     }
     for (const auto& pblock : pblocks) {
         RETURN_IF_ERROR(it->second->add_block(pblock));
+    }
+    if (eos) {
+        it->second->set_ready();
     }
     return Status::OK();
 }

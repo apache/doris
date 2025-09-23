@@ -36,6 +36,9 @@ public:
             : PipelineXLocalState<>(state, parent) {
         state->get_query_ctx()->registe_cte_scan(state->fragment_instance_id(), parent->node_id(),
                                                  this);
+        _scan_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                     _parent->get_name() + "_DEPENDENCY");
+        _scan_dependency->block();
     }
     ~RecCTEScanLocalState() override {
         state()->get_query_ctx()->deregiste_cte_scan(state()->fragment_instance_id(),
@@ -49,9 +52,14 @@ public:
         return Status::OK();
     }
 
+    void set_ready() { _scan_dependency->set_ready(); }
+
+    std::vector<Dependency*> dependencies() const override { return {_scan_dependency.get()}; }
+
 private:
     friend class RecCTEScanOperatorX;
     std::vector<vectorized::Block> _blocks;
+    DependencySPtr _scan_dependency = nullptr;
 };
 
 class RecCTEScanOperatorX final : public OperatorX<RecCTEScanLocalState> {

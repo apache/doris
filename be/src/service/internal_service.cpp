@@ -1581,7 +1581,7 @@ void PInternalService::transmit_rec_cte_block(google::protobuf::RpcController* c
         auto st = _exec_env->fragment_mgr()->transmit_rec_cte_block(
                 UniqueId(request->query_id()).to_thrift(),
                 UniqueId(request->fragment_instance_id()).to_thrift(), request->node_id(),
-                request->blocks());
+                request->blocks(), request->eos());
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {

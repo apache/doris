@@ -296,7 +296,8 @@ public:
     std::string get_first_error_msg();
 
     Status send_block_to_cte_scan(const TUniqueId& instance_id, int node_id,
-                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks);
+                                  const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
+                                  bool eos);
     void registe_cte_scan(const TUniqueId& instance_id, int node_id,
                           pipeline::RecCTEScanLocalState* scan);
     void deregiste_cte_scan(const TUniqueId& instance_id, int node_id);
