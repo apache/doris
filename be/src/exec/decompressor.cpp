@@ -221,10 +221,18 @@ Status GzipDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* 
             // reset _z_strm to continue decoding a subsequent gzip stream
             ret = inflateReset(&_z_strm);
             if (ret != Z_OK) {
-                return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
+                if (_is_deflate) {
+                    return Status::InternalError("Failed to do deflate decompress. return code: {}", ret);
+                } else {
+                    return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
+                }
             }
         } else if (ret != Z_OK) {
-            return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
+            if (_is_deflate) {
+                return Status::InternalError("Failed to do deflate decompress. return code: {}", ret);
+            } else {
+                return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
+            }
         } else {
             // here ret must be Z_OK.
             // we continue if avail_out and avail_in > 0.
