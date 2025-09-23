@@ -130,7 +130,21 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
         }
     }
 
-<<<<<<< HEAD
+    auto get_result = [&result, &results]() {
+        result.writer = std::make_unique<JsonbWriter>();
+        result.writer->writeStartArray();
+        for (const auto* pval : results) {
+            result.writer->writeValue(pval);
+        }
+        result.writer->writeEndArray();
+
+        JsonbDocument* doc = nullptr;
+        THROW_IF_ERROR(
+                JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(),
+                                                      result.writer->getOutput()->getSize(), &doc));
+        result.value = doc->getValue();
+    };
+
     if (is_wildcard) {
         result.is_wildcard = true;
         if (results.empty()) {
@@ -152,44 +166,6 @@ JsonbFindResult JsonbValue::findValue(JsonbPath& path) const {
                 }
                 results.assign(distinct_results.begin(), distinct_results.end());
             }
-            result.writer = std::make_unique<JsonbWriter>();
-            result.writer->writeStartArray();
-            for (const auto* pval : results) {
-                result.writer->writeValue(pval);
-            }
-            result.writer->writeEndArray();
-
-            JsonbDocument* doc = nullptr;
-            THROW_IF_ERROR(JsonbDocument::checkAndCreateDocument(
-                    result.writer->getOutput()->getBuffer(), result.writer->getOutput()->getSize(),
-                    &doc));
-            result.value = doc->getValue();
-        }
-    } else if (results.size() == 1) {
-        result.value = results[0];
-    } else if (results.size() > 1) {
-=======
-    auto get_result = [&result, &results]() {
->>>>>>> 72f13f6ca7 (update test out)
-        result.writer = std::make_unique<JsonbWriter>();
-        result.writer->writeStartArray();
-        for (const auto* pval : results) {
-            result.writer->writeValue(pval);
-        }
-        result.writer->writeEndArray();
-
-        JsonbDocument* doc = nullptr;
-        THROW_IF_ERROR(
-                JsonbDocument::checkAndCreateDocument(result.writer->getOutput()->getBuffer(),
-                                                      result.writer->getOutput()->getSize(), &doc));
-        result.value = doc->getValue();
-    };
-
-    if (is_wildcard) {
-        result.is_wildcard = true;
-        if (results.empty()) {
-            result.value = nullptr; // No values found
-        } else {
             get_result();
         }
     } else if (results.size() == 1) {
