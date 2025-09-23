@@ -24,7 +24,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.JobUtils;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TaskDisruptor;
 import org.apache.doris.job.exception.JobException;
@@ -110,7 +109,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     public void scheduleOneJob(T job) throws JobException {
-        if (!JobUtils.checkNeedSchedule(job)) {
+        if (!job.isJobRunning()) {
             return;
         }
         // not-schedule task
@@ -145,7 +144,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
     public void cycleTimerJobScheduler(T job) {
-        if (!JobUtils.checkNeedSchedule(job)) {
+        if (!job.isJobRunning()) {
             return;
         }
         if (!JobExecuteType.RECURRING.equals(job.getJobConfig().getExecuteType())) {
@@ -226,7 +225,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
                 clearEndJob(job);
                 continue;
             }
-            if (JobUtils.checkNeedSchedule(job) && job.getJobConfig().checkIsTimerJob()) {
+            if (job.isJobRunning() && job.getJobConfig().checkIsTimerJob()) {
                 cycleTimerJobScheduler(job, lastTimeWindowMs);
             }
         }

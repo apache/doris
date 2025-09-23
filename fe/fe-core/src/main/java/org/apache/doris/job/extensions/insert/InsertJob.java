@@ -100,8 +100,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             .add(new Column("Comment", ScalarType.createStringType()))
             // only execute type = streaming need record
             .add(new Column("Properties", ScalarType.createStringType()))
-            .add(new Column("ConsumedOffset", ScalarType.createStringType()))
-            .add(new Column("MaxOffset", ScalarType.createStringType()))
+            .add(new Column("CurrentOffset", ScalarType.createStringType()))
+            .add(new Column("EndOffset", ScalarType.createStringType()))
             .add(new Column("LoadStatistic", ScalarType.createStringType()))
             .add(new Column("ErrorMsg", ScalarType.createStringType()))
             .build();
@@ -114,15 +114,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                     .addColumn(new Column("EtlInfo", ScalarType.createVarchar(100)))
                     .addColumn(new Column("TaskInfo", ScalarType.createVarchar(100)))
                     .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(100)))
-
                     .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
                     .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
                     .addColumn(new Column("User", ScalarType.createVarchar(50)))
                     .addColumn(new Column("FirstErrorMsg", ScalarType.createVarchar(200)))
-                    // only execute type = streaming need record
-                    .addColumn(new Column("Offset", ScalarType.createStringType()))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;

@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
@@ -72,7 +73,6 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 String bucket = globListResult.getBucket();
                 String prefix = globListResult.getPrefix();
 
-                offset.setStartFile(startFile);
                 String bucketBase = "s3://" + bucket + "/";
                 // Get the path of the last directory
                 int lastSlash = prefix.lastIndexOf('/');
@@ -109,16 +109,18 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public String getConsumedOffset() {
+    public String getShowCurrentOffset() {
         if (currentOffset != null) {
-            return currentOffset.getEndFile();
+            return currentOffset.toSerializedJson();
         }
         return null;
     }
 
     @Override
-    public String getMaxOffset() {
-        return maxEndFile;
+    public String getShowMaxOffset() {
+        Map<String, String> res = new HashMap<>();
+        res.put("endFile", maxEndFile);
+        return new Gson().toJson(res);
     }
 
     @Override
