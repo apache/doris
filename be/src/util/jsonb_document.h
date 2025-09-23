@@ -1253,10 +1253,9 @@ inline bool JsonbValue::contains(JsonbValue* rhs) const {
         if (rhs->isObject()) {
             const auto* obj_value1 = unpack<ObjectVal>();
             const auto* obj_value2 = rhs->unpack<ObjectVal>();
-
-            for (auto it : *obj_value2) {
-                JsonbValue* value = obj_value1->find(it.getKeyStr(), it.klen());
-                if (value == nullptr || !value->contains(it.value())) {
+            for (auto it = obj_value2->begin(); it != obj_value2->end(); ++it) {
+                JsonbValue* value = obj_value1->find(it->getKeyStr(), it->klen());
+                if (value == nullptr || !value->contains(it->value())) {
                     return false;
                 }
             }
