@@ -33,7 +33,7 @@ false
 true
 
 -- !test_compare_expression_12 --
-2008-08-08T00:00
+2008-08-08 00:00:00
 
 -- !test_compare_expression_13 --
 true	false	true	false

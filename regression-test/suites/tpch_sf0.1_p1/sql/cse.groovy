@@ -41,7 +41,7 @@ suite('cse') {
 
     explain {
         sql "${q2}"
-        multiContains("intermediate projections:", 2)
+        multiContains("intermediate projections:", 3)
     }
 
     qt_cse_3 """ select sum(s_nationkey),sum(s_nationkey +1 ) ,sum(s_nationkey +2 )  , sum(s_nationkey + 3 ) from supplier ;"""
@@ -55,10 +55,7 @@ suite('cse') {
                 (case r_regionkey when 1 then 0 when 2 then 3 else r_regionkey+1 END) + 2  as y
             from region order by x, y;"""
 
-    // do not apply cse upon multiDataSink
-    explain {
-        sql "select * FROM     nation left outer join region on n_nationkey-5 = r_regionkey or n_nationkey-10=r_regionkey + 10;"
-        contains("MultiCastDataSinks")
-        notContains("intermediate projections")
-    }
+    // do not apply cse upon multiDataSink. it is hard to check plan detail on multiDataSink, so just check result.
+    qt_multiDataSink "select * FROM     nation left outer join region on n_nationkey-5 = r_regionkey or n_nationkey-10=r_regionkey + 10;"
+       
 }

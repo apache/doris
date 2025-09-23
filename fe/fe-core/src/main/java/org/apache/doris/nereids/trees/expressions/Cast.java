@@ -44,8 +44,8 @@ import java.util.Objects;
  */
 public class Cast extends Expression implements UnaryExpression, Monotonic {
 
-    // CAST can be from SQL Query or Type Coercion.
-    private final boolean isExplicitType;
+    // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
+    private final boolean isExplicitType; //FIXME: now not useful
 
     private final DataType targetType;
 

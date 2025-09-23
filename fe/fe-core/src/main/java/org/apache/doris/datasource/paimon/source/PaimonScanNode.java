@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -243,6 +242,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         if (paimonSplit.getRowCount().isPresent()) {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
+        } else {
+            // MUST explicitly set to -1, to be distinct from valid row count >= 0
+            tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
@@ -678,39 +680,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         return paimonScanParams;
     }
 
-    /**
-     * Processes and returns the appropriate Paimon table object based on scan parameters or table snapshot.
-     * <p>
-     * This method handles different scan modes including incremental reads and system tables,
-     * applying the necessary transformations to the base Paimon table.
-     *
-     * @return processed Paimon table object configured according to scan parameters
-     * @throws UserException when system table configuration is incorrect
-     */
     private Table getProcessedTable() throws UserException {
         Table baseTable = source.getPaimonTable();
-        if (getScanParams() != null && getQueryTableSnapshot() != null) {
+        TableScanParams theScanParams = getScanParams();
+        if (theScanParams != null && getQueryTableSnapshot() != null) {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
-        TableScanParams theScanParams = getScanParams();
-        if (theScanParams != null) {
-            if (theScanParams.incrementalRead()) {
-                return baseTable.copy(getIncrReadParams());
-            }
 
-            if (theScanParams.isBranch()) {
-                return PaimonUtil.getTableByBranch(source, baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
-            if (theScanParams.isTag()) {
-                return PaimonUtil.getTableByTag(baseTable, PaimonUtil.extractBranchOrTagName(theScanParams));
-            }
+        if (theScanParams != null && theScanParams.incrementalRead()) {
+            return baseTable.copy(getIncrReadParams());
         }
-
-        TableSnapshot theTableSnapshot = getQueryTableSnapshot();
-        if (theTableSnapshot != null) {
-            return PaimonUtil.getTableBySnapshot(baseTable, theTableSnapshot);
-        }
-
         return baseTable;
     }
 }
+

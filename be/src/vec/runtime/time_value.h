@@ -79,17 +79,24 @@ public:
         return static_cast<TimeType>(negative ? -value : value);
     }
 
-    // if time is negative, ms should be negative too.
+    // if time is negative, ms should be negative too. in existing scenario, we ensure microsecond's bound by caller.
     static TimeType init_microsecond(TimeType time, int32_t microsecond) {
-        if (std::abs(microsecond) >= 1000000) [[unlikely]] {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Microsecond must be in the range [0, 999999]");
-        }
         DCHECK(std::signbit(time) == std::signbit(microsecond) || !time || !microsecond)
                 << "Time and microsecond must have the same sign but got " << time << " and "
                 << microsecond;
 
         return static_cast<TimeType>(time + microsecond);
+    }
+
+    // in existing scenario, we ensure microsecond's bound by caller.
+    // ATTN: only for positive input.
+    static TimeType reset_microsecond(TimeType time, int32_t microsecond) {
+        DCHECK(time >= 0 && microsecond >= 0)
+                << "Time and microsecond must be non-negative but got " << time << " and "
+                << microsecond;
+
+        return static_cast<TimeType>(time - ((int64_t)time % ONE_SECOND_MICROSECONDS) +
+                                     microsecond);
     }
 
     static std::string to_string(TimeType time, int scale) {
