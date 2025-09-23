@@ -16,6 +16,7 @@
 // under the License.
 
 suite("return_in_advance_if_block_is_empty") {
+    sql "set experimental_enable_virtual_slot_for_cse=true;"
     sql """set enable_decimal256 = true """
     sql """drop table if exists return_in_advance_if_block_is_empty """
     sql """
