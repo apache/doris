@@ -239,27 +239,6 @@ public:
     DataTypeSerDe(int nesting_level = 1) : _nesting_level(nesting_level) {};
     virtual ~DataTypeSerDe();
 
-    static bool should_escape_sequence(char escape_char, char next_char) {
-        if (escape_char == 0) {
-            return false;
-        }
-
-        switch (next_char) {
-        case '"':  /* \" */
-        case '\'': /* \' */
-        case '\\': /* \\ */
-        case 'n':  /* \n */
-        case 't':  /* \t */
-        case 'r':  /* \r */
-        case 'b':  /* \b */
-        case 'f':  /* \f */
-        case '/':  /* \/ */
-            return true;
-        default:
-            return false;
-        }
-    }
-
     Status default_from_string(StringRef& str, IColumn& column) const;
 
     virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
