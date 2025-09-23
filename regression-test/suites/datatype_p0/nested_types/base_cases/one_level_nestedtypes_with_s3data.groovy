@@ -28,7 +28,6 @@ suite("one_level_nestedtypes_with_s3data") {
     sql """ set max_pushdown_conditions_per_column=1024 """
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
-//    def dataFilePath = "/mnt/disk1/wangqiannan/export/ol"
     def table_names = ["test_array_one_level", "test_map_one_level", "test_struct_one_level"]
 
     def colNameArr = ["c_bool", "c_tinyint", "c_smallint", "c_int", "c_bigint", "c_largeint", "c_float",
