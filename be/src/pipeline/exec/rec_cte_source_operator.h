@@ -16,9 +16,12 @@
 // under the License.
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include "common/status.h"
 #include "operator.h"
 #include "util/brpc_client_cache.h"
+#include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -108,6 +111,8 @@ private:
     }
 
     Status _recursive_process(RuntimeState* state, size_t last_round_offset) {
+        
+
         RETURN_IF_ERROR(_send_data_to_targets(state, last_round_offset));
         return Status::OK();
     }
@@ -129,7 +134,19 @@ private:
                                                  &uncompressed_bytes, &compressed_bytes,
                                                  state->fragement_transmission_compression_type()));
         }
-        return Status::OK();
+        request.set_eos(true);
+        request.set_node_id(_targets[0].node_id);
+        request.mutable_query_id()->CopyFrom(UniqueId(state->query_id()).to_proto());
+        request.mutable_fragment_instance_id()->CopyFrom(
+                UniqueId(state->fragment_instance_id()).to_proto());
+        request.set_node_id(_targets[0].node_id);
+
+        PTransmitRecCTEBlockResult result;
+        brpc::Controller controller;
+
+        stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
+        brpc::Join(controller.call_id());
+        return Status::create(result.status());
     }
 
     friend class RecCTESourceLocalState;
