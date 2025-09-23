@@ -25,6 +25,25 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 ScorerPtr intersection_scorer_build(std::vector<ScorerPtr>& scorers);
 
+class AndNotScorer final : public Scorer {
+public:
+    AndNotScorer(ScorerPtr include, std::vector<ScorerPtr> excludes);
+    ~AndNotScorer() override = default;
+
+    uint32_t advance() override;
+    uint32_t seek(uint32_t target) override;
+    uint32_t doc() const override;
+    uint32_t size_hint() const override;
+
+    float score() override;
+
+private:
+    uint32_t _align(uint32_t candidate);
+
+    ScorerPtr _include;
+    std::vector<ScorerPtr> _excludes;
+};
+
 template <typename PivotScorerPtr>
 class IntersectionScorer final : public Scorer {
 public:
