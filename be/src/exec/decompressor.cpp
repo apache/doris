@@ -222,14 +222,17 @@ Status GzipDecompressor::decompress(uint8_t* input, uint32_t input_len, size_t* 
             ret = inflateReset(&_z_strm);
             if (ret != Z_OK) {
                 if (_is_deflate) {
-                    return Status::InternalError("Failed to do deflate decompress. return code: {}", ret);
+                    return Status::InternalError("Failed to do deflate decompress. return code: {}",
+                                                 ret);
                 } else {
-                    return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
+                    return Status::InternalError("Failed to do gzip decompress. return code: {}",
+                                                 ret);
                 }
             }
         } else if (ret != Z_OK) {
             if (_is_deflate) {
-                return Status::InternalError("Failed to do deflate decompress. return code: {}", ret);
+                return Status::InternalError("Failed to do deflate decompress. return code: {}",
+                                             ret);
             } else {
                 return Status::InternalError("Failed to do gzip decompress. return code: {}", ret);
             }
