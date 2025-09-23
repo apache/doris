@@ -106,6 +106,8 @@ public class Backend implements Writable {
 
     private Long lastPublishTaskAccumulatedNum = 0L;
 
+    private Long runningTasks = 0L;
+
     private String heartbeatErrMsg = "";
 
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
@@ -957,6 +959,14 @@ public class Backend implements Writable {
 
     private int getDiskNum() {
         return disksRef.size();
+    }
+
+    public Long getRunningTasks() {
+        return runningTasks;
+    }
+
+    public void setRunningTasks(Long runningTasks) {
+        this.runningTasks = runningTasks;
     }
 
     /**
