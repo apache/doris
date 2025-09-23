@@ -1842,6 +1842,18 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
     }
     if (value == "true") {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
+
+        // Set default values when first enabling snapshot
+        if (!instance->has_snapshot_interval_seconds() ||
+            instance->snapshot_interval_seconds() == 0) {
+            instance->set_snapshot_interval_seconds(3600);
+            LOG(INFO) << "Set default snapshot_interval_seconds to 3600 for instance "
+                      << instance_id;
+        }
+        if (!instance->has_max_reserved_snapshot() || instance->max_reserved_snapshot() == 0) {
+            instance->set_max_reserved_snapshot(1);
+            LOG(INFO) << "Set default max_reserved_snapshots to 1 for instance " << instance_id;
+        }
     } else {
         instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
     }
@@ -1862,9 +1874,11 @@ std::pair<MetaServiceCode, std::string> handle_max_reserved_snapshots(
             return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
                                   "max_reserved_snapshots must be non-negative, got: " + value);
         }
-        if (max_snapshots > 35) {
+        if (max_snapshots > config::snapshot_max_reserved_num) {
             return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "max_reserved_snapshots too large, maximum is 35, got: " + value);
+                                  "max_reserved_snapshots too large, maximum is " +
+                                          std::to_string(config::snapshot_max_reserved_num) +
+                                          ", got: " + value);
         }
     } catch (const std::exception& e) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
@@ -1886,10 +1900,11 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::str
     int intervals;
     try {
         intervals = std::stoi(value);
-        if (intervals < 3600) {
-            return std::make_pair(
-                    MetaServiceCode::INVALID_ARGUMENT,
-                    "snapshot_intervals too small, minimum is 3600 seconds, got: " + value);
+        if (intervals < config::snapshot_min_interval_seconds) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "snapshot_intervals too small, minimum is " +
+                                          std::to_string(config::snapshot_min_interval_seconds) +
+                                          " seconds, got: " + value);
         }
     } catch (const std::exception& e) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
