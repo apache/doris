@@ -615,7 +615,7 @@ public class IcebergScanNode extends FileQueryScanNode {
              CREATE TABLE iceberg_tb(col1 INT,col2 STRING) USING ICEBERG PARTITIONED BY (bucket(10,col2));
              INSERT INTO iceberg_tb VALUES( ... );
              ALTER TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
-             ALTER TABLE iceberg_tb DROP COLUMNS col2 STRING;
+             ALTER TABLE iceberg_tb DROP COLUMNS col2;
         Link: https://github.com/apache/iceberg/pull/10755
             */
             LOG.warn("Unable to plan for iceberg table {}", this.desc.getTable().getName(), e);
