@@ -27,7 +27,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -432,11 +431,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         if (request.isSetStrictMode()) {
             strictMode = request.isStrictMode();
         }
-        // global time_zone if not set
         if (request.isSetTimezone()) {
             timezone = TimeUtils.checkTimeZoneValidAndStandardize(request.getTimezone());
-        } else if (ConnectContext.get() != null) {
-            timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
