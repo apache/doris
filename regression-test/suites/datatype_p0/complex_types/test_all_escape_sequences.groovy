@@ -28,7 +28,7 @@ suite("test_all_escape_sequences") {
           DUPLICATE KEY(`id`)  distributed by hash(`id`) buckets 1 properties("replication_num" = "1");
     """
 
-    // 测试用例1: 双引号转义 \" - Insert Values测试
+    // test case 1: double quote escape \" - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (1, 'double_quote_test', '["normal","with\\"quotes\\"","end\\"quote"]', 
@@ -51,7 +51,7 @@ suite("test_all_escape_sequences") {
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id <= 3 ORDER BY id
     """
 
-    // 测试用例2: 反斜杠转义 \\ - Insert Values测试
+    // test case 2: backslash escape \\ - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (4, 'backslash_test', '["normal","with\\\\backslash","end\\\\backslash"]', 
@@ -73,7 +73,7 @@ suite("test_all_escape_sequences") {
     qt_select_backslash_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 4 AND 6 ORDER BY id
     """
-    // 测试用例3: 换行符转义 \n - Insert Values测试
+    // test case 3: newline escape \n - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (7, 'newline_test', '["normal","with\\nnewline","end\\nnewline"]', 
@@ -95,7 +95,7 @@ suite("test_all_escape_sequences") {
     qt_select_newline_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 7 AND 9 ORDER BY id
     """
-    // 测试用例4: 制表符转义 \t - Insert Values测试
+    // test case 4: tab escape \t - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (10, 'tab_test', '["normal","with\\ttab","end\\ttab"]', 
@@ -117,7 +117,7 @@ suite("test_all_escape_sequences") {
     qt_select_tab_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 10 AND 12 ORDER BY id
     """
-    // 测试用例5: 回车符转义 \r - Insert Values测试
+    // test case 5: carriage return escape \r - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (13, 'carriage_return_test', '["normal","with\\rcarriage","end\\rcarriage"]', 
@@ -139,7 +139,7 @@ suite("test_all_escape_sequences") {
     qt_select_carriage_return_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 13 AND 15 ORDER BY id
     """
-    // 测试用例6: 退格符转义 \b - Insert Values测试
+    // test case 6: backspace escape \b - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (16, 'backspace_test', '["normal","with\\bbackspace","end\\bbackspace"]', 
@@ -161,7 +161,7 @@ suite("test_all_escape_sequences") {
     qt_select_backspace_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 16 AND 18 ORDER BY id
     """
-    // 测试用例7: 换页符转义 \f - Insert Values测试
+    // test case 7: form feed escape \f - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (19, 'form_feed_test', '["normal","with\\fform","end\\fform"]', 
@@ -183,7 +183,7 @@ suite("test_all_escape_sequences") {
     qt_select_form_feed_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 19 AND 21 ORDER BY id
     """
-    // 测试用例8: 正斜杠转义 \/ - Insert Values测试
+    // test case 8: forward slash escape \/ - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (22, 'forward_slash_test', '["normal","with\\/slash","end\\/slash"]', 
@@ -205,7 +205,7 @@ suite("test_all_escape_sequences") {
     qt_select_forward_slash_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 22 AND 24 ORDER BY id
     """
-    // 测试用例9: 混合所有转义字符 - Insert Values测试
+    // test case 9: mixed all escape characters - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
         (25, 'mixed_all_test', '["all\\"escape\\"chars\\\\here\\nwith\\tnewlines\\rand\\btabs\\fand\\/slashes"]', 
@@ -227,14 +227,14 @@ suite("test_all_escape_sequences") {
     qt_select_mixed_all_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id BETWEEN 25 AND 27 ORDER BY id
     """
-    // 测试用例10: 边界情况和错误处理 - Insert Values测试
+    // test case 10: boundary cases and error handling - Insert Values
     sql """
         INSERT INTO escape_sequences_test VALUES 
-        (28, 'empty_test', '["","\\"","\\\\","\\n","\\t","\\r","\\b","\\f","\\/"]', 
-         '{"empty":"","quote":"\\"","backslash":"\\\\","newline":"\\n","tab":"\\t","carriage":"\\r","backspace":"\\b","form":"\\f","slash":"\\/"}', 
+        (28, 'empty_test', '["","\"","\\"","\n","\t","\r","\b","\f","\\/"]', 
+         '{"empty":"","quote":"\"","backslash":"\\"","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
          '{"name":"empty","des":""}'),
         (29, 'empty_map', NULL, 
-         '{"empty":"","quote":"\\"","backslash":"\\\\","newline":"\\n","tab":"\\t","carriage":"\\r","backspace":"\\b","form":"\\f","slash":"\\/"}', 
+         '{"empty":"","quote":"\"","backslash":"\\"","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\\/"}', 
          NULL),
         (30, 'empty_struct', NULL, NULL, 
          '{"name":"empty","des":""}')
@@ -249,11 +249,29 @@ suite("test_all_escape_sequences") {
     qt_select_edge_cases_map_size """
         SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id >= 28 ORDER BY id
     """
-    // 测试用例11: 统一Stream Load测试 - 使用预定义的JSON文件
-    // 清空表数据
+
+    // insert usecases
+    sql """
+        INSERT INTO escape_sequences_test VALUES 
+        (31, 'usecase_test', '["标准单人间","特惠房</div><div class=\\\\"hotel_","标准双人房","特价房"]', 
+         '{"特惠房</div><div class=\\\\"hotel_":"特惠房</div><div class=\\\\"hotel_"}', 
+         '{"name":"特惠房</div><div class=\\\\"hotel_","des":"标准单人间"}')
+    """
+    qt_select_usecase """
+        SELECT id, test_name, arr, map_col, struct_col FROM escape_sequences_test WHERE id = 31 ORDER BY id
+    """
+    qt_select_usecase_array_size """
+        SELECT id, test_name, array_size(arr) FROM escape_sequences_test WHERE id = 31 ORDER BY id
+    """
+    qt_select_usecase_map_size """
+        SELECT id, test_name, map_size(map_col) FROM escape_sequences_test WHERE id = 31 ORDER BY id
+    """
+    
+    // test case 11: unified Stream Load - use predefined JSON file
+    // clear table data
     sql "TRUNCATE TABLE escape_sequences_test"
     
-    // 使用预定义的JSON文件进行Stream Load
+    // use predefined JSON file for Stream Load
     streamLoad {
         table "escape_sequences_test"
         set 'format', 'json'
@@ -263,12 +281,12 @@ suite("test_all_escape_sequences") {
         time 10000
     }
     
-    // 验证所有数据
+    // verify all data
     qt_select_count """
         SELECT COUNT(*) as count FROM escape_sequences_test
     """
     
-    // 验证所有数据
+    // verify all data
     qt_select_all_data """
         SELECT id, test_name, arr, map_col, struct_col FROM escape_sequences_test ORDER BY id
     """

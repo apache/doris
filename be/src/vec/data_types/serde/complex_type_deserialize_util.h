@@ -41,20 +41,17 @@ struct ComplexTypeDeserializeUtil {
         bool has_quote = false;
         char delimiter = 0;
         std::vector<SplitResult> elements;
-        bool escaped = false;
         for (int pos = 0; pos < str.size; ++pos) {
             char c = str.data[pos];
-            if (escaped) {
-                escaped = false;
-            } else if (c == escape_char && pos + 1 < str.size &&
-                       DataTypeSerDe::should_escape_sequence(escape_char, str.data[pos + 1])) {
-                // skip the escape character
-                escaped = true;
-            } else if (c == '"' || c == '\'') {
+            if (c == '"' || c == '\'') {
                 if (!has_quote) {
                     quote_char = c;
                     has_quote = !has_quote;
                 } else if (has_quote && quote_char == c) {
+                    // skip the quote character if it is escaped
+                    if (pos > 0 && str.data[pos - 1] == escape_char) {
+                        continue;
+                    }
                     quote_char = 0;
                     has_quote = !has_quote;
                 }

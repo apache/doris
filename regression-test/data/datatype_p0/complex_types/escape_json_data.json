@@ -28,3 +28,4 @@
 {"id": 28, "test_name": "empty_test", "arr": ["","\"","\\","\n","\t","\r","\b","\f","\/"], "map_col": {"empty":"","quote":"\"","backslash":"\\","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\/"}, "struct_col": {"name":"empty","des":""}}
 {"id": 29, "test_name": "empty_map", "arr": null, "map_col": {"empty":"","quote":"\"","backslash":"\\","newline":"\n","tab":"\t","carriage":"\r","backspace":"\b","form":"\f","slash":"\/"}, "struct_col": null}
 {"id": 30, "test_name": "empty_struct", "arr": null, "map_col": null, "struct_col": {"name":"empty","des":""}}
+{"id": 31, "test_name": "usecase_test", "arr": ["标准单人间","特惠房</div><div class=\"hotel_","标准双人房","特价房"], "map_col": {"特惠房</div><div class=\"hotel_":"特惠房</div><div class=\"hotel_"}, "struct_col": {"name":"特惠房</div><div class=\"hotel_","des":"标准单人间"}}

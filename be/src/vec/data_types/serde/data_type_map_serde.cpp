@@ -232,7 +232,6 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
     int idx = 0;
     int elem_deserialized = 0;
     char quote_char = 0;
-    bool escaped = false;
     for (; idx < slice_size; ++idx) {
         char c = slice[idx];
         if (c == '"' || c == '\'') {
@@ -240,14 +239,13 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& 
                 quote_char = c;
                 has_quote = !has_quote;
             } else if (has_quote && quote_char == c) {
+                // skip the quote character if it is escaped
+                if (pos > 0 && str.data[pos - 1] == escape_char) {
+                    continue;
+                }
                 quote_char = 0;
                 has_quote = !has_quote;
             }
-        } else if (escaped) {
-            escaped = false;
-        } else if (c == options.escape_char && idx + 1 < slice_size &&
-                   DataTypeSerDe::should_escape_sequence(options.escape_char, slice[idx + 1])) {
-            escaped = true;
         } else if (!has_quote && (c == '[' || c == '{')) {
             ++nested_level;
         } else if (!has_quote && (c == ']' || c == '}')) {

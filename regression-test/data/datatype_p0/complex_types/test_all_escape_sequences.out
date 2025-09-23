@@ -135,8 +135,8 @@
 27	mixed_all_struct	\N
 
 -- !select_edge_cases --
-28	empty_test	["", ""","", "\n", "\	", "\r", "", "f", "/"]	{"empty":"", "quote":""","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"f", "slash":"/"}	{"name":"empty", "des":""}
-29	empty_map	\N	{"empty":"", "quote":""","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"f", "slash":"/"}	\N
+28	empty_test	["", "","", "\n", "\	", "\r", "", "", "/"]	{"empty":"", "quote":"","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	{"name":"empty", "des":""}
+29	empty_map	\N	{"empty":"", "quote":"","backslash":"", "newline":"\n", "tab":"\	", "carriage":"\r", "backspace":"", "form":"", "slash":"/"}	\N
 30	empty_struct	\N	\N	{"name":"empty", "des":""}
 
 -- !select_edge_cases_array_size --
@@ -149,8 +149,17 @@
 29	empty_map	8
 30	empty_struct	\N
 
+-- !select_usecase --
+31	usecase_test	["标准单人间", "特惠房</div><div class="hotel_", "标准双人房", "特价房"]	{"特惠房</div><div class="hotel_":"特惠房</div><div class="hotel_"}	{"name":"特惠房</div><div class="hotel_", "des":"标准单人间"}
+
+-- !select_usecase_array_size --
+31	usecase_test	4
+
+-- !select_usecase_map_size --
+31	usecase_test	1
+
 -- !select_count --
-30
+31
 
 -- !select_all_data --
 1	double_quote_test	["normal", "with"quotes"", "end"quote"]	{"key1":"value1", "key2":"with"quotes"", "key3":"end"quote"}	{"name":"test", "des":"with"quotes"and"more"quotes"}
@@ -180,9 +189,10 @@
 25	mixed_all_test	["all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"]	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
 26	mixed_all_map	\N	{"all":""escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}	\N
 27	mixed_all_struct	\N	\N	{"name":"mixed", "des":"all"escape"chars\\herenwithtnewlinesrandbtabsfand/slashes"}
-28	empty_test	["", """, "\\", "n", "t", "r", "b", "f", "/"]	{"empty":"", "quote":""", "backslash":"\\", "newline":"n", "tab":"t", "carriage":"r", "backspace":"b", "form":"f", "slash":"/"}	{"name":"empty", "des":""}
-29	empty_map	\N	{"empty":"", "quote":""", "backslash":"\\", "newline":"n", "tab":"t", "carriage":"r", "backspace":"b", "form":"f", "slash":"/"}	\N
+28	empty_test	["", """, "\\","n","t","r","b","f","/"]	{"empty":"", "quote":""", "backslash":"\\","newline":"n","tab":"t","carriage":"r","backspace":"b","form":"f","slash":"/"}	{"name":"empty", "des":""}
+29	empty_map	\N	{"empty":"", "quote":""", "backslash":"\\","newline":"n","tab":"t","carriage":"r","backspace":"b","form":"f","slash":"/"}	\N
 30	empty_struct	\N	\N	{"name":"empty", "des":""}
+31	usecase_test	["标准单人间", "特惠房</div><div class="hotel_", "标准双人房", "特价房"]	{"特惠房</div><div class="hotel_":"特惠房</div><div class="hotel_"}	{"name":"特惠房</div><div class="hotel_", "des":"标准单人间"}
 
 -- !select_all_data_array_size --
 1	double_quote_test	3
@@ -212,9 +222,10 @@
 25	mixed_all_test	1
 26	mixed_all_map	\N
 27	mixed_all_struct	\N
-28	empty_test	9
+28	empty_test	3
 29	empty_map	\N
 30	empty_struct	\N
+31	usecase_test	4
 
 -- !select_all_data_map_size --
 1	double_quote_test	3
@@ -244,7 +255,8 @@
 25	mixed_all_test	1
 26	mixed_all_map	1
 27	mixed_all_struct	\N
-28	empty_test	9
-29	empty_map	9
+28	empty_test	3
+29	empty_map	3
 30	empty_struct	\N
+31	usecase_test	1
 
