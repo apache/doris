@@ -702,7 +702,7 @@ struct TRecCTETarget {
 
 struct TRecCTEResetInfo {
     1: optional Types.TNetworkAddress addr
-    2: optional Types.TUniqueId fragment_id
+    2: optional i32 fragment_id
 }
 
 struct TRecCTENode {
