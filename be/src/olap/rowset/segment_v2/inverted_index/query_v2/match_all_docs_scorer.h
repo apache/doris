@@ -21,14 +21,13 @@
 #include <vector>
 
 #include "CLucene.h" // IWYU pragma: keep
-#include "CLucene/index/IndexReader.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-class MatchAllScorer : public Scorer {
+class MatchAllDocsScorer : public Scorer {
 public:
-    MatchAllScorer(uint32_t max_doc, std::vector<lucene::index::IndexReader*> readers)
+    MatchAllDocsScorer(uint32_t max_doc, std::vector<lucene::index::IndexReader*> readers)
             : _max_doc(max_doc), _readers(std::move(readers)) {
         if (_max_doc == 0) {
             _doc = TERMINATED;
@@ -36,7 +35,7 @@ public:
             _doc = _next_live_doc(0);
         }
     }
-    ~MatchAllScorer() override = default;
+    ~MatchAllDocsScorer() override = default;
 
     uint32_t advance() override {
         if (_doc == TERMINATED) {

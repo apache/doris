@@ -17,11 +17,12 @@
 
 #pragma once
 
+#include <utility>
 #include <vector>
 
 #include "olap/rowset/segment_v2/inverted_index/query_v2/buffered_union_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/intersection_scorer.h"
-#include "olap/rowset/segment_v2/inverted_index/query_v2/match_all_scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/match_all_docs_scorer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/operator.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
 
@@ -38,11 +39,12 @@ public:
     ~BooleanWeight() override = default;
 
     ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
-        if (_type == OperatorType::OP_AND) {
-            std::vector<ScorerPtr> include_scorers;
-            std::vector<ScorerPtr> exclude_scorers;
-            include_scorers.reserve(_sub_weights.size());
-            exclude_scorers.reserve(_sub_weights.size());
+        const auto make_empty = []() -> ScorerPtr { return std::make_shared<EmptyScorer>(); };
+
+        auto collect_and_scorers = [&]() {
+            std::pair<std::vector<ScorerPtr>, std::vector<ScorerPtr>> result;
+            result.first.reserve(_sub_weights.size());
+            result.second.reserve(_sub_weights.size());
 
             for (const auto& sub_weight : _sub_weights) {
                 auto boolean_weight =
@@ -51,7 +53,7 @@ public:
                     auto excludes = boolean_weight->per_scorers(composite_reader);
                     for (auto& exclude : excludes) {
                         if (exclude != nullptr) {
-                            exclude_scorers.emplace_back(std::move(exclude));
+                            result.second.emplace_back(std::move(exclude));
                         }
                     }
                     continue;
@@ -59,12 +61,18 @@ public:
 
                 auto scorer = sub_weight->scorer(composite_reader);
                 if (scorer != nullptr) {
-                    include_scorers.emplace_back(std::move(scorer));
+                    result.first.emplace_back(std::move(scorer));
                 }
             }
 
+            return result;
+        };
+
+        switch (_type) {
+        case OperatorType::OP_AND: {
+            auto [include_scorers, exclude_scorers] = collect_and_scorers();
             if (include_scorers.empty()) {
-                return std::make_shared<EmptyScorer>();
+                return make_empty();
             }
 
             auto intersection = intersection_scorer_build(include_scorers);
@@ -75,13 +83,12 @@ public:
             return std::make_shared<AndNotScorer>(std::move(intersection),
                                                   std::move(exclude_scorers));
         }
-
-        if (_type == OperatorType::OP_NOT) {
+        case OperatorType::OP_NOT: {
             uint32_t max_doc = composite_reader->max_doc();
             if (max_doc == 0) {
-                return std::make_shared<EmptyScorer>();
+                return make_empty();
             }
-            auto match_all = std::make_shared<MatchAllScorer>(max_doc, composite_reader->readers());
+            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, composite_reader->readers());
             if (_sub_weights.empty()) {
                 return match_all;
             }
@@ -91,16 +98,16 @@ public:
             }
             return std::make_shared<AndNotScorer>(std::move(match_all), std::move(excludes));
         }
-
-        std::vector<ScorerPtr> sub_scorers = per_scorers(composite_reader);
-        if (_type == OperatorType::OP_OR) {
+        case OperatorType::OP_OR: {
+            auto sub_scorers = per_scorers(composite_reader);
             if (sub_scorers.empty()) {
-                return std::make_shared<EmptyScorer>();
+                return make_empty();
             }
             return buffered_union_scorer_build<ScoreCombinerPtrT>(sub_scorers, _score_combiner);
         }
-
-        return std::make_shared<EmptyScorer>();
+        default:
+            return make_empty();
+        }
     }
 
 private:
