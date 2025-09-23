@@ -17,33 +17,22 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
  * Dedicated tests for parsing VARBINARY literals (X'...').
  */
-public class VarBinaryLiteralParserTest {
-
-    static {
-        ConnectContext ctx = new ConnectContext();
-        new MockUp<ConnectContext>() {
-            @Mock
-            public ConnectContext get() {
-                return ctx;
-            }
-        };
-    }
+public class VarBinaryLiteralParserTest extends TestWithFeService {
 
     private VarBinaryLiteral extract(String sql) {
         NereidsParser parser = new NereidsParser();
@@ -123,14 +112,17 @@ public class VarBinaryLiteralParserTest {
     }
 
     @Test
-    public void testCreateTableVarbinaryDirect() {
-        Plan plan = new NereidsParser().parseSingle(
-                "CREATE TABLE t_vb (k1 INT, vb VARBINARY) DISTRIBUTED BY HASH(k1) BUCKETS 1");
-        Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
-        org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
-                (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
+    public void testCreateTableVarbinaryDirect() throws Exception {
+        String db = "exists_db";
+        String createDbStmtStr = "CREATE DATABASE IF NOT EXISTS " + db;
+        createDatabaseWithSql(createDbStmtStr);
+        useDatabase(db);
+        ExceptionChecker.expectThrowsWithMsg(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                "doris do not support varbinary create table, could use it by catalog",
+                () -> createTable("create table exists_db.test_varbinary\n"
+                        + "(k1 int, k2 VARBINARY)\n"
+                        + "duplicate key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n", true));
     }
 
     @Test
@@ -141,7 +133,7 @@ public class VarBinaryLiteralParserTest {
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
+                () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
     @Test
@@ -152,7 +144,7 @@ public class VarBinaryLiteralParserTest {
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
+                () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
     @Test
@@ -163,7 +155,7 @@ public class VarBinaryLiteralParserTest {
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
+                () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
     @Test
@@ -174,7 +166,7 @@ public class VarBinaryLiteralParserTest {
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> cmd.getCreateTableInfo().validate(ConnectContext.get()));
+                () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
     @Test
@@ -184,7 +176,7 @@ public class VarBinaryLiteralParserTest {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
         org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
-        Assertions.assertThrows(Throwable.class, () -> cmd.run(ConnectContext.get(), null));
+        Assertions.assertThrows(Throwable.class, () -> cmd.run(connectContext, null));
     }
 
     @Test
@@ -194,6 +186,6 @@ public class VarBinaryLiteralParserTest {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
         org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
-        Assertions.assertThrows(Throwable.class, () -> cmd.run(ConnectContext.get(), null));
+        Assertions.assertThrows(Throwable.class, () -> cmd.run(connectContext, null));
     }
 }

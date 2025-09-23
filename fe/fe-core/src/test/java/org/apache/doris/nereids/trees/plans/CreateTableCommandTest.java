@@ -1088,17 +1088,23 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testVarBinaryCreateTableRejected() {
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> createTable("create table test.vb_ct_1 (k1 int, vb VARBINARY)\n"
-                        + "duplicate key(k1)\n"
-                        + "distributed by hash(k1) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
-        checkThrow(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> createTable("create table test.vb_ct_2 (k1 int, vb ARRAY<VARBINARY>)\n"
-                        + "duplicate key(k1)\n"
-                        + "distributed by hash(k1) buckets 1\n"
-                        + "properties('replication_num' = '1');"));
+    public void testMTMVRejectVarbinary() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mv_vb\n"
+                + " BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT X'AB' as vb;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
+
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> cmd.getCreateMTMVInfo().analyze(connectContext));
+        System.out.println(ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
+        Assertions.assertTrue(ex.getMessage().contains("vb"));
     }
 
     @Test
@@ -1113,8 +1119,8 @@ public class CreateTableCommandTest extends TestWithFeService {
                         .parseSingle("alter table test.vb_alt modify column v1 VARBINARY");
         Assertions.assertTrue(
                 plan instanceof org.apache.doris.nereids.trees.plans.commands.AlterTableCommand);
-        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd =
+        org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd2 =
                 (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
-        Assertions.assertThrows(Throwable.class, () -> cmd.run(connectContext, null));
+        Assertions.assertThrows(Throwable.class, () -> cmd2.run(connectContext, null));
     }
 }
