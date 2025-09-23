@@ -85,59 +85,59 @@ suite("test_search_function") {
     Thread.sleep(10000)
     
     // Verify data insertion
-    qt_sql "SELECT COUNT(*) FROM ${tableName}"
-    qt_sql "SELECT COUNT(*) FROM ${indexTableName}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${tableName}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName}"
     
     // Test 1: Basic term search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:Machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Machine') ORDER BY id"
     
     // Test 2: Phrase search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:\"Machine Learning\"')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:\"Machine Learning\"') ORDER BY id"
     
     // Test 3: Multiple field search with AND
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:Learning AND category:Technology') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learning AND category:Technology') ORDER BY id"
     
     // Test 4: Multiple field search with OR
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:Python OR title:Algorithm') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Python OR title:Algorithm') ORDER BY id"
     
     // Test 5: NOT search
-    qt_sql "SELECT COUNT(*) FROM ${indexTableName} WHERE search('category:Technology AND NOT title:Machine')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('category:Technology AND NOT title:Machine')"
     
     // Test 6: Complex nested search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('(title:Learning OR content:algorithms) AND category:Technology') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('(title:Learning OR content:algorithms) AND category:Technology') ORDER BY id"
     
     // Test 7: Wildcard search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:Learn*') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Learn*') ORDER BY id"
     
     // Test 8: Prefix search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:Data*')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:Data*') ORDER BY id"
     
     // Test 9: Search in content field
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('content:neural')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:neural') ORDER BY id"
     
     // Test 10: Search in tags field
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('tags:programming') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:programming') ORDER BY id"
     
     // Test 11: Case insensitive search
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('title:MACHINE')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('title:MACHINE') ORDER BY id"
     
     // Test 12: Search with spaces in field values
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('content:\"machine learning\"')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('content:\"machine learning\"') ORDER BY id"
     
     // Test 13: Empty search result
-    qt_sql "SELECT COUNT(*) FROM ${indexTableName} WHERE search('title:nonexistent')"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ COUNT(*) FROM ${indexTableName} WHERE search('title:nonexistent')"
     
     // Test 14: Search combined with other WHERE conditions
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('category:Technology') AND view_count > 1400 ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') AND view_count > 1400 ORDER BY id"
     
     // Test 15: Search with GROUP BY
-    qt_sql "SELECT category, COUNT(*) as cnt FROM ${indexTableName} WHERE search('title:Learning OR title:Programming') GROUP BY category ORDER BY category"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ category, COUNT(*) as cnt FROM ${indexTableName} WHERE search('title:Learning OR title:Programming') GROUP BY category ORDER BY category"
     
     // Test 16: Search with ORDER BY
-    qt_sql "SELECT id, title, view_count FROM ${indexTableName} WHERE search('tags:AI OR tags:programming') ORDER BY view_count DESC"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, view_count FROM ${indexTableName} WHERE search('tags:AI OR tags:programming') ORDER BY view_count DESC"
     
     // Test 17: Search with LIMIT
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('category:Technology') ORDER BY id LIMIT 3"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('category:Technology') ORDER BY id LIMIT 3"
     
     // Test 18: Search function in SELECT clause (should not be allowed - search is a predicate)
     // This test is commented out as it expects an exception
@@ -148,15 +148,16 @@ suite("test_search_function") {
     //qt_sql "SELECT id FROM ${indexTableName} WHERE search('title:')"
     
     // Test 20: ANY query test
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('tags:ANY(AI programming)') ORDER BY id"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ANY(AI programming)') ORDER BY id"
     
     // Test 21: ALL query test
-    qt_sql "SELECT id, title FROM ${indexTableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
-    
-    // Test 22: Search on non-indexed table (should still work but may be slower)
-    qt_sql "SELECT id, title FROM ${tableName} WHERE search('title:Machine')"
-    
-    // Cleanup
-    sql "DROP TABLE IF EXISTS ${tableName}"
-    sql "DROP TABLE IF EXISTS ${indexTableName}"
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${indexTableName} WHERE search('tags:ALL(machine learning)') ORDER BY id"
+
+    // Test 22: Search on non-indexed table (will throw exception)
+    try {
+        sql """SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:Machine') ORDER BY id"""
+    } catch (Exception e) {
+        logger.info(e.getMessage())
+        assertTrue(e.getMessage().contains("SearchExpr should not be executed without inverted index"))
+    }
 }

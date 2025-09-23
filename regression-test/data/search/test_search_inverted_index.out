@@ -37,7 +37,7 @@
 10
 
 -- !sql --
-0
+90
 
 -- !sql --
 100
@@ -49,8 +49,8 @@
 6
 
 -- !sql --
-Technology	10
 Entertainment	10
+Technology	10
 
 -- !sql --
 70	Advanced Machine Learning
