@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <roaring/roaring.hh>
 
+#include "common/exception.h"
 #include "decimal12.h"
 #include "exprs/hybrid_set.h"
 #include "olap/column_predicate.h"
@@ -527,6 +528,11 @@ private:
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
                     vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(column);
+            if (nested_col_ptr == nullptr) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "InListPredicateBase: _base_evaluate_bit get invalid column type");
+            }
+
             auto& data_array = nested_col_ptr->get_data();
 
             for (uint16_t i = 0; i < size; i++) {
