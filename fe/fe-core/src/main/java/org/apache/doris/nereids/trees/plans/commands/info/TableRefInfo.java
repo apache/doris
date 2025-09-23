@@ -46,9 +46,9 @@ public class TableRefInfo {
     private TableScanParams scanParams;
     private TableSnapshot tableSnapShot;
     private PartitionNamesInfo partitionNamesInfo;
-    private List<Long> tabletIdList;
+    private List<Long> sampleTabletIds;
     private TableSample tableSample;
-    private List<String> relationHints;
+    private List<String> commonHints;
 
     /**
      * constructor
@@ -85,17 +85,17 @@ public class TableRefInfo {
      */
     public TableRefInfo(TableNameInfo tableNameInfo, TableScanParams scanParams,
                         TableSnapshot tableSnapShot, PartitionNamesInfo partitionNamesInfo,
-                        List<Long> tabletIdList, String tableAlias,
-                        TableSample tableSample, List<String> relationHints) {
+                        List<Long> sampleTabletIds, String tableAlias,
+                        TableSample tableSample, List<String> commonHints) {
         Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
         this.tableNameInfo = tableNameInfo;
         this.scanParams = scanParams;
         this.tableSnapShot = tableSnapShot;
         this.partitionNamesInfo = partitionNamesInfo;
-        this.tabletIdList = tabletIdList;
+        this.sampleTabletIds = sampleTabletIds;
         this.tableAlias = tableAlias;
         this.tableSample = tableSample;
-        this.relationHints = relationHints;
+        this.commonHints = commonHints;
     }
 
     protected TableRefInfo(TableRefInfo other) {
@@ -106,8 +106,8 @@ public class TableRefInfo {
         tableSnapShot = (other.tableSnapShot != null) ? new TableSnapshot(other.tableSnapShot) : null;
         scanParams = other.scanParams;
         tableSample = other.tableSample;
-        relationHints = other.relationHints;
-        tabletIdList = other.tabletIdList;
+        commonHints = other.commonHints;
+        sampleTabletIds = other.sampleTabletIds;
     }
 
     public TableNameInfo getTableNameInfo() {
@@ -157,16 +157,16 @@ public class TableRefInfo {
         return tableSnapShot;
     }
 
-    public List<Long> getTabletIdList() {
-        return tabletIdList;
+    public List<Long> getSampleTabletIds() {
+        return sampleTabletIds;
     }
 
     public TableSample getTableSample() {
         return tableSample;
     }
 
-    public List<String> getRelationHints() {
-        return relationHints;
+    public List<String> getCommonHints() {
+        return commonHints;
     }
 
     @Override
