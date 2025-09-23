@@ -17,6 +17,7 @@
 
 
 import com.google.common.util.concurrent.Uninterruptibles
+import org.apache.doris.regression.util.JdbcUtils
 
 import java.util.concurrent.TimeUnit
 import java.util.stream.Collectors
@@ -1147,6 +1148,26 @@ suite("parse_sql_from_sql_cache") {
 
                         sql "insert into test_use_plan_cache32 values (1, 1)"
                         assertNoCache "select * from test_use_plan_cache32_view"
+                    }
+                }),
+                extraThread("explain plan process", {
+                    retryTestSqlCache(3, 1000) {
+                        createTestTable "test_use_plan_cache33"
+
+                        // after partition changed 10s, the sql cache can be used
+                        sleep(10000)
+
+                        retryUntilHasSqlCache("select * from test_use_plan_cache33")
+                        test {
+                            sql "explain logical plan process select * from test_use_plan_cache33"
+                            rowNum(0)
+                        }
+                        test {
+                            sql "explain plan process select * from test_use_plan_cache33"
+                            check { rs, t, s, e ->
+                                assertTrue(rs[0][1].toString().contains("LogicalSqlCache") && rs[0][2].toString().contains("PhysicalSqlCache"))
+                            }
+                        }
                     }
                 })
             ).get()
