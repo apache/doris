@@ -183,7 +183,7 @@ setup_java_env() {
 setup_java_env || true
 
 if [[ ! -x "${DORIS_HOME}/lib/doris_be" || ! -r "${DORIS_HOME}/lib/doris_be" ]]; then
-    chmod 755 "${DORIS_HOME}/lib/doris_be"
+    chmod 550 "${DORIS_HOME}/lib/doris_be"
 fi
 
 if [[ "${RUN_VERSION}" -eq 1 ]]; then

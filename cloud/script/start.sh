@@ -102,7 +102,12 @@ lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/${process_name}"
 export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH}"
 
-chmod 550 "${DORIS_HOME}/lib/${process_name}"
+if [[ ! -x "${DORIS_HOME}/lib/${process_name}" || ! -r "${DORIS_HOME}/lib/${process_name}" ]]; then
+    chmod 550 "${DORIS_HOME}/lib/${process_name}"
+
+    echo "Error: ${DORIS_HOME}/lib/${process_name} is not executable or not readable."
+    exit 1
+fi
 
 if [[ ${enable_hdfs} -eq 1 ]]; then
     if [[ -z "${JAVA_HOME}" ]]; then
