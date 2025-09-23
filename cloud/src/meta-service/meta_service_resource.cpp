@@ -1806,7 +1806,14 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         LOG(WARNING) << msg;
     }
 
-    async_notify_refresh_instance(txn_kv_, request->instance_id());
+    async_notify_refresh_instance(
+            txn_kv_, request->instance_id(),
+            [instance_id = request->instance_id()](const KVStats& stats) {
+                if (config::use_detailed_metrics && !instance_id.empty()) {
+                    g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);
+                    g_bvar_rpc_kv_create_instance_get_counter.put({instance_id}, stats.get_counter);
+                }
+            });
 }
 
 std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string& instance_id,
