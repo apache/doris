@@ -59,7 +59,8 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     "", isRemoveOriginProperty);
             jsonPaths = getOrDefault(formatProperties, PROP_JSON_PATHS,
                     "", isRemoveOriginProperty);
-            if (formatProperties.containsKey(PROP_READ_JSON_BY_LINE) || formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY)) {
+            if (formatProperties.containsKey(PROP_READ_JSON_BY_LINE) 
+                    || formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY)) {
                 readJsonByLine = true;
                 stripOuterArray = false;
                 if (isRemoveOriginProperty) {
