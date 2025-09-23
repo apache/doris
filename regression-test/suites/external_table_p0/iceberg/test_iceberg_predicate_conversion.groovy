@@ -47,7 +47,7 @@ suite("test_iceberg_predicate_conversion", "p0,external,doris,external_docker,ex
         order_qt_q01 """${sqlstr}""" 
         explain {
             sql("""${sqlstr}""")
-            contains """(CAST(glue_varchar[#0] AS datetimev2(0)) > '2023-03-07 00:00:00')"""
+            contains """(CAST(glue_varchar[#0] AS datetimev2(6)) > '2023-03-07 00:00:00.000000')"""
         }
 
         sqlstr = """select l_shipdate from tb_predict where l_shipdate in ("1997-05-18", "1996-05-06"); """
