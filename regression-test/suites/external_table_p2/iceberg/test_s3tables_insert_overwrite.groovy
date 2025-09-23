@@ -23,7 +23,7 @@ suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,ext
         def format = parts[0]
         def compression = parts[1]
         def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
-        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master_2"
         sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
         CREATE TABLE `${all_types_table}`(

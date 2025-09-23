@@ -25,7 +25,7 @@ suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,externa
         def format = parts[0]
         def compression = parts[1]
         def all_types_table = "iceberg_all_types_${format_compression}_master_"+ ThreadLocalRandom.current().nextInt(1000)
-        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master"
+        def all_types_partition_table = "iceberg_all_types_par_${format_compression}_master_1"
         sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
         CREATE TABLE `${all_types_table}`(
