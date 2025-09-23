@@ -390,7 +390,7 @@ Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
                                             MutableColumnPtr& doris_column, size_t num_rows) {
     auto* meta_base = reinterpret_cast<char*>(address.next_meta_as_ptr());
     auto& varbinary_col = assert_cast<ColumnVarbinary&>(*doris_column);
-
+    LOG(INFO) << "asd asd asd check coverage go into varbinary";
     // Java side writes per-row metadata as 16 bytes: [len: long][addr: long]
     for (size_t i = 0; i < num_rows; ++i) {
         // Read length (first 8 bytes)

@@ -39,7 +39,7 @@ jlongArray JavaNativeMethods::memoryMallocBatch(JNIEnv* env, jclass clazz, jintA
     DCHECK(sizes != nullptr);
     jsize n = env->GetArrayLength(sizes);
     DCHECK(n > 0);
-
+    LOG(INFO) << "asd asd asd check coverage go into memoryMallocBatch";
     jint* elems = env->GetIntArrayElements(sizes, nullptr);
     if (elems == nullptr) {
         return nullptr;
