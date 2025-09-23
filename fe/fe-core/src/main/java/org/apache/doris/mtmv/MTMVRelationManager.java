@@ -287,7 +287,7 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
-        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
+        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevel(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
         }
