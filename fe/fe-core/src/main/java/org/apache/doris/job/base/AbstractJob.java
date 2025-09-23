@@ -179,6 +179,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     @Override
+    public boolean isJobRunning() {
+        return JobStatus.RUNNING.equals(getJobStatus());
+    }
+
+    @Override
     public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
             throw new JobException("no running task");
@@ -483,9 +488,5 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     public boolean needPersist() {
         return true;
-    }
-
-    public boolean isFinalStatus() {
-        return jobStatus.equals(JobStatus.STOPPED) || jobStatus.equals(JobStatus.FINISHED);
     }
 }

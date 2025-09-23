@@ -97,10 +97,10 @@ suite("test_streaming_insert_job") {
 
 
     def jobOffset = sql """
-        select ConsumedOffset, MaxOffset from jobs("type"="insert") where Name='${jobName}'
+        select currentOffset, endoffset from jobs("type"="insert") where Name='${jobName}'
     """
-    assert jobOffset.get(0).get(0) == "regression/load/data/example_1.csv"
-    assert jobOffset.get(0).get(1) == "regression/load/data/example_1.csv"
+    assert jobOffset.get(0).get(0) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
+    assert jobOffset.get(0).get(1) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
 
     // alter streaming job
     sql """
@@ -123,21 +123,21 @@ suite("test_streaming_insert_job") {
     """
 
     def alterJobProperties = sql """
-        select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
+        select status,properties,currentOffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert alterJobProperties.get(0).get(0) == "PAUSED"
     assert alterJobProperties.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert alterJobProperties.get(0).get(2) == "regression/load/data/example_1.csv"
+    assert alterJobProperties.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
 
     sql """
         RESUME JOB where jobname =  '${jobName}'
     """
     def resumeJobStatus = sql """
-        select status,properties,ConsumedOffset from jobs("type"="insert") where Name='${jobName}'
+        select status,properties,currentOffset from jobs("type"="insert") where Name='${jobName}'
     """
     assert resumeJobStatus.get(0).get(0) == "RUNNING" || resumeJobStatus.get(0).get(0) == "PENDING"
     assert resumeJobStatus.get(0).get(1) == "{\"s3.max_batch_files\":\"1\",\"session.insert_max_filter_ratio\":\"0.5\"}"
-    assert resumeJobStatus.get(0).get(2) == "regression/load/data/example_1.csv"
+    assert resumeJobStatus.get(0).get(2) == "{\"endFile\":\"regression/load/data/example_1.csv\"}";
 
     Awaitility.await().atMost(60, SECONDS)
             .pollInterval(1, SECONDS).until(

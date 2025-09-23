@@ -63,6 +63,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -203,7 +204,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     @Override
     public boolean isReadyForScheduling(Map<Object, Object> taskContext) {
-        return CollectionUtils.isEmpty(getRunningTasks());
+        return CollectionUtils.isEmpty(getRunningTasks()) && !isFinalStatus();
+    }
+
+    @Override
+    public boolean isJobRunning() {
+        return !isFinalStatus();
+    }
+
+    private boolean isFinalStatus() {
+        return getJobStatus().equals(JobStatus.STOPPED) || getJobStatus().equals(JobStatus.FINISHED);
     }
 
     @Override
@@ -354,14 +364,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(properties != null
                 ? GsonUtils.GSON.toJson(properties) : FeConstants.null_string));
 
-        if (offsetProvider != null && offsetProvider.getConsumedOffset() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getConsumedOffset()));
+        if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowCurrentOffset())) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowCurrentOffset()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
 
-        if (offsetProvider != null && offsetProvider.getMaxOffset() != null) {
-            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getMaxOffset()));
+        if (offsetProvider != null && StringUtils.isNotEmpty(offsetProvider.getShowMaxOffset())) {
+            trow.addToColumnValue(new TCell().setStringVal(offsetProvider.getShowMaxOffset()));
         } else {
             trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         }
