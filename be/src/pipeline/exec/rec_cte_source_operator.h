@@ -52,11 +52,11 @@ public:
     using Base = OperatorX<RecCTESourceLocalState>;
     RecCTESourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                           const DescriptorTbl& descs)
-            : Base(pool, tnode, operator_id, descs) {
+            : Base(pool, tnode, operator_id, descs),
+              _is_union_all(tnode.rec_cte_node.is_union_all),
+              _targets(tnode.rec_cte_node.targets),
+              _fragments_to_reset(tnode.rec_cte_node.fragments_to_reset) {
         DCHECK(tnode.__isset.rec_cte_node);
-        _is_union_all = tnode.rec_cte_node.is_union_all;
-        _targets = tnode.rec_cte_node.targets;
-        _fragments_to_reset = tnode.rec_cte_node.fragments_to_reset;
     }
     ~RecCTESourceOperatorX() override = default;
 
@@ -69,7 +69,7 @@ public:
                     _blocks.emplace_back(std::move(anchor_block));
                 }
             } else {
-                RETURN_IF_ERROR(collect_child_block(state));
+                RETURN_IF_ERROR(_collect_child_block(state));
             }
 
             if (last_round_offset == _blocks.size() || _current_round >= max_recursion_depth) {
@@ -95,7 +95,7 @@ public:
     bool is_source() const override { return true; }
 
 private:
-    Status collect_child_block(RuntimeState* state) {
+    Status _collect_child_block(RuntimeState* state) {
         bool eos = false;
         vectorized::Block* block = nullptr;
         while (!eos) {
@@ -104,6 +104,9 @@ private:
             }
             RETURN_IF_ERROR(child()->get_block(state, block, &eos));
             if (block->rows() > 0) {
+                if (!_is_union_all) {
+                    // do something
+                }
                 _blocks.emplace_back(std::move(*block));
             }
         }
@@ -132,41 +135,73 @@ private:
         return Status::OK();
     }
 
-    Status _send_data_to_targets(RuntimeState* state, size_t last_round_offset) {
-        auto stub = state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
-                _targets[0].addr);
-        if (!stub) {
-            return Status::InternalError(fmt::format("Get rpc stub failed, host={}, port={}",
-                                                     _targets[0].addr.hostname,
-                                                     _targets[0].addr.port));
-        }
+    PTransmitRecCTEBlockParams _build_basic_param(RuntimeState* state,
+                                                  const TRecCTETarget& target) {
         PTransmitRecCTEBlockParams request;
-        for (size_t i = last_round_offset; i < _blocks.size(); i++) {
-            auto* pblock = request.add_blocks();
-            size_t uncompressed_bytes = 0;
-            size_t compressed_bytes = 0;
-            RETURN_IF_ERROR(_blocks[i].serialize(state->be_exec_version(), pblock,
-                                                 &uncompressed_bytes, &compressed_bytes,
-                                                 state->fragement_transmission_compression_type()));
-        }
-        request.set_eos(true);
-        request.set_node_id(_targets[0].node_id);
+        request.set_node_id(target.node_id);
         request.mutable_query_id()->CopyFrom(UniqueId(state->query_id()).to_proto());
         request.mutable_fragment_instance_id()->CopyFrom(
                 UniqueId(state->fragment_instance_id()).to_proto());
-        request.set_node_id(_targets[0].node_id);
+        return request;
+    }
 
-        PTransmitRecCTEBlockResult result;
-        brpc::Controller controller;
+    Status _send_data_to_targets(RuntimeState* state, size_t last_round_offset) {
+        int send_multi_blocks_byte_size = state->query_options().exchange_multi_blocks_byte_size;
+        int block_number_per_target =
+                int(_blocks.size() - last_round_offset + _targets.size() - 1) / _targets.size();
+        for (auto target : _targets) {
+            auto stub =
+                    state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(
+                            target.addr);
+            if (!stub) {
+                return Status::InternalError(fmt::format("Get rpc stub failed, host={}, port={}",
+                                                         target.addr.hostname, target.addr.port));
+            }
 
-        stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
-        brpc::Join(controller.call_id());
-        return Status::create(result.status());
+            // send blocks
+            int step = block_number_per_target;
+            while (last_round_offset < _blocks.size() && step > 0) {
+                PTransmitRecCTEBlockParams request = _build_basic_param(state, target);
+                auto current_bytes = 0;
+                while (last_round_offset < _blocks.size() && step > 0 &&
+                       current_bytes < send_multi_blocks_byte_size) {
+                    auto* pblock = request.add_blocks();
+                    size_t uncompressed_bytes = 0;
+                    size_t compressed_bytes = 0;
+                    RETURN_IF_ERROR(_blocks[last_round_offset].serialize(
+                            state->be_exec_version(), pblock, &uncompressed_bytes,
+                            &compressed_bytes, state->fragement_transmission_compression_type()));
+                    last_round_offset++;
+                    step--;
+                    current_bytes += compressed_bytes;
+                }
+                request.set_eos(false);
+
+                PTransmitRecCTEBlockResult result;
+                brpc::Controller controller;
+                stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
+                brpc::Join(controller.call_id());
+                RETURN_IF_ERROR(Status::create(result.status()));
+            }
+
+            // send eos
+            {
+                PTransmitRecCTEBlockParams request = _build_basic_param(state, target);
+                request.set_eos(true);
+
+                PTransmitRecCTEBlockResult result;
+                brpc::Controller controller;
+                stub->transmit_rec_cte_block(&controller, &request, &result, brpc::DoNothing());
+                brpc::Join(controller.call_id());
+                RETURN_IF_ERROR(Status::create(result.status()));
+            }
+        }
+        return Status::OK();
     }
 
     friend class RecCTESourceLocalState;
 
-    bool _is_union_all = false;
+    const bool _is_union_all = false;
     std::vector<TRecCTETarget> _targets;
     std::vector<TRecCTEResetInfo> _fragments_to_reset;
 
