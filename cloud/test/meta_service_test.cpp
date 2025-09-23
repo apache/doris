@@ -11546,6 +11546,15 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         sp->disable_processing();
     }
 
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
     // Test case 1: Snapshot not ready (SNAPSHOT_SWITCH_DISABLED) - should fail
     {
         brpc::Controller cntl;
@@ -11553,7 +11562,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11585,7 +11594,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11599,7 +11608,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "false";
+        (*req.mutable_properties())["status"] = "DISABLED";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11613,7 +11622,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "invalid";
+        (*req.mutable_properties())["status"] = "invalid";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -11795,7 +11804,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
         (*req.mutable_properties())["max_reserved_snapshots"] = "20";
         (*req.mutable_properties())["snapshot_interval_seconds"] = "12000";
 
@@ -11811,7 +11820,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_snapshot_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
         (*req.mutable_properties())["invalid_property"] = "value";
         (*req.mutable_properties())["max_reserved_snapshots"] = "10";
 
@@ -11827,7 +11836,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("non_existent_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
@@ -12026,7 +12035,7 @@ TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
         AlterInstanceResponse res;
         req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         req.set_instance_id("test_instance");
-        (*req.mutable_properties())["enabled"] = "true";
+        (*req.mutable_properties())["status"] = "ENABLED";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
