@@ -37,20 +37,62 @@ public:
     ~BooleanWeight() override = default;
 
     ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
-        std::vector<ScorerPtr> sub_scorers = per_scorers(composite_reader);
         if (_type == OperatorType::OP_AND) {
-            return intersection_scorer_build(sub_scorers);
-        } else if (_type == OperatorType::OP_OR) {
+            std::vector<ScorerPtr> include_scorers;
+            std::vector<ScorerPtr> exclude_scorers;
+            include_scorers.reserve(_sub_weights.size());
+            exclude_scorers.reserve(_sub_weights.size());
+
+            for (const auto& sub_weight : _sub_weights) {
+                auto boolean_weight =
+                        std::dynamic_pointer_cast<BooleanWeight<ScoreCombinerPtrT>>(sub_weight);
+                if (boolean_weight != nullptr && boolean_weight->_type == OperatorType::OP_NOT) {
+                    auto exclude = boolean_weight->scorer(composite_reader);
+                    if (exclude != nullptr) {
+                        exclude_scorers.emplace_back(std::move(exclude));
+                    }
+                    continue;
+                }
+
+                auto scorer = sub_weight->scorer(composite_reader);
+                if (scorer != nullptr) {
+                    include_scorers.emplace_back(std::move(scorer));
+                }
+            }
+
+            if (include_scorers.empty()) {
+                return std::make_shared<EmptyScorer>();
+            }
+
+            auto intersection = intersection_scorer_build(include_scorers);
+            if (exclude_scorers.empty()) {
+                return intersection;
+            }
+
+            return std::make_shared<AndNotScorer>(std::move(intersection),
+                                                  std::move(exclude_scorers));
+        }
+
+        std::vector<ScorerPtr> sub_scorers = per_scorers(composite_reader);
+        if (_type == OperatorType::OP_OR || _type == OperatorType::OP_NOT) {
+            if (sub_scorers.empty()) {
+                return std::make_shared<EmptyScorer>();
+            }
             return buffered_union_scorer_build<ScoreCombinerPtrT>(sub_scorers, _score_combiner);
         }
-        return nullptr;
+
+        return std::make_shared<EmptyScorer>();
     }
 
 private:
     std::vector<ScorerPtr> per_scorers(const CompositeReaderPtr& composite_reader) {
         std::vector<ScorerPtr> sub_scorers;
+        sub_scorers.reserve(_sub_weights.size());
         for (const auto& sub_weight : _sub_weights) {
-            sub_scorers.emplace_back(sub_weight->scorer(composite_reader));
+            auto scorer = sub_weight->scorer(composite_reader);
+            if (scorer != nullptr) {
+                sub_scorers.emplace_back(std::move(scorer));
+            }
         }
         return sub_scorers;
     }
