@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import  org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
@@ -114,5 +114,37 @@ public class ParamRulesTest {
         IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> rules.validate("Config Error"));
         Assertions.assertEquals("Config Error: Missing value", e.getMessage());
+    }
+
+    @Test
+    void testRequireTogether() {
+        ParamRules rules = new ParamRules()
+                .requireTogether(new String[]{"accessKey", ""}, "Both accessKey and secretKey are required together");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate());
+        Assertions.assertEquals("Both accessKey and secretKey are required together", e.getMessage());
+        ParamRules rightRule = new ParamRules()
+                .requireTogether(new String[]{"accessKey", "secretKey"}, "Both accessKey and secretKey are required together");
+        Assertions.assertDoesNotThrow(() -> rightRule.validate());
+    }
+
+    @Test
+    void testAtLeastOne() {
+        ParamRules rules = new ParamRules()
+                .requireAtLeastOne(new String[]{""}, "At least one of accessKey and iamrole is required");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> rules.validate());
+        Assertions.assertEquals("At least one of accessKey and iamrole is required", e.getMessage());
+        ParamRules rightRule1 = new ParamRules()
+                .requireAtLeastOne(new String[]{"accessKey", "iamrole"}, "At least one of accessKey and iamrole is required");
+        Assertions.assertDoesNotThrow(() -> rightRule1.validate());
+        ParamRules rightRule2 = new ParamRules()
+                .requireAtLeastOne(new String[]{"accessKey", ""}, "At least one of accessKey and iamrole is required");
+        Assertions.assertDoesNotThrow(() -> rightRule2.validate());
+        ParamRules rightRule3 = new ParamRules()
+                .requireAtLeastOne(
+                        new String[]{"", "iamrole"}, "At least one of accessKey and iamrole is required"
+                );
+        Assertions.assertDoesNotThrow(() -> rightRule3.validate());
     }
 }

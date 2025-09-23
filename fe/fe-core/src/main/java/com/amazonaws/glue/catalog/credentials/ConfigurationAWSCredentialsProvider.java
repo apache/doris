@@ -50,12 +50,12 @@ public class ConfigurationAWSCredentialsProvider implements AWSCredentialsProvid
         
         AWSCredentialsProvider longLivedProvider = new DefaultAWSCredentialsProviderChain();
 
-        if (roleArn != null && !roleArn.isEmpty()) {
+        if (!StringUtils.isNullOrEmpty(roleArn)) {
             STSAssumeRoleSessionCredentialsProvider.Builder builder =
                     new STSAssumeRoleSessionCredentialsProvider.Builder(roleArn, "local-session")
                             .withLongLivedCredentialsProvider(longLivedProvider);
 
-            if (externalId != null && !externalId.trim().isEmpty()) {
+            if (!StringUtils.isNullOrEmpty(externalId)) {
                 builder.withExternalId(externalId);
             }
             STSAssumeRoleSessionCredentialsProvider provider = builder.build();
