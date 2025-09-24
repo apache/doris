@@ -169,8 +169,11 @@ setup_java_env() {
 # prepare jvm if needed
 setup_java_env || true
 
+if [[ ! -x "${DORIS_HOME}/lib/doris_be" || ! -r "${DORIS_HOME}/lib/doris_be" ]]; then
+    chmod 550 "${DORIS_HOME}/lib/doris_be"
+fi
+
 if [[ "${RUN_VERSION}" -eq 1 ]]; then
-    chmod 755 "${DORIS_HOME}/lib/doris_be"
     "${DORIS_HOME}"/lib/doris_be --version
     exit 0
 fi
@@ -320,7 +323,6 @@ if [[ -f "${pidfile}" ]]; then
     fi
 fi
 
-chmod 550 "${DORIS_HOME}/lib/doris_be"
 log "Start time: $(date)"
 
 if [[ ! -f '/bin/limit3' ]]; then
