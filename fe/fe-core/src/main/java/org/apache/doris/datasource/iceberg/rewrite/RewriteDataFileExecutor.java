@@ -17,38 +17,36 @@
 
 package org.apache.doris.datasource.iceberg.rewrite;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableScan;
-import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
 
 /**
  * Executor for rewriting Iceberg data files.
- * This class coordinates the entire rewrite process:
- * 1. Parse SQL template using NereidsParser
- * 2. Generate physical plan using NereidsPlanner
- * 3. Plan FileScanTask from Iceberg table
- * 4. Group tasks into RewriteDataGroup by partition
- * 5. Filter groups and tasks based on parameters
- * 6. Execute rewrite by replacing IcebergScanNode in physical plan
+ * This class is responsible for executing individual RewriteDataGroup:
+ * 1. Initialize insert statement and prepared execution context
+ * 2. Execute rewrite for individual RewriteDataGroup
+ * 3. Collect execution statistics
+ * 
+ * Performance Optimizations:
+ * - Pre-parses SQL statement once during initialization
+ * - Reuses parsed StatementBase, LogicalPlan, and InsertIntoTableCommand across
+ * all groups
+ * - Avoids repeated SQL parsing and validation for each group execution
+ * - Caches SessionVariable to avoid repeated context access
  */
 public class RewriteDataFileExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFileExecutor.class);
@@ -57,14 +55,20 @@ public class RewriteDataFileExecutor {
     private static final String REWRITE_SQL_TEMPLATE = "INSERT INTO %s.%s.%s SELECT * FROM %s.%s.%s";
 
     private final IcebergExternalTable dorisTable;
+    @SuppressWarnings("unused") // Will be used in future implementation
     private final Table icebergTable;
+    @SuppressWarnings("unused") // Will be used in future implementation
     private final RewriteParameters parameters;
     private final ConnectContext connectContext;
 
-    // File scan task management
-    private Map<StructLikeWrapper, List<RewriteDataGroup>> partitionedGroups;
-    private Iterator<List<RewriteDataGroup>> partitionIterator;
-    private Iterator<RewriteDataGroup> groupIterator = Collections.emptyIterator();
+    // Pre-prepared execution context
+    private String rewriteSql;
+    private NereidsParser parser;
+    private boolean initialized = false;
+    private SessionVariable sessionVariable;
+    private StatementBase parsedStmt;
+    private LogicalPlan logicalPlan;
+    private InsertIntoTableCommand insertCmd;
 
     public RewriteDataFileExecutor(IcebergExternalTable dorisTable,
             Table icebergTable,
@@ -74,232 +78,74 @@ public class RewriteDataFileExecutor {
         this.icebergTable = icebergTable;
         this.parameters = parameters;
         this.connectContext = connectContext;
-        this.partitionedGroups = new HashMap<>();
     }
 
     /**
-     * Execute the complete rewrite process
+     * Initialize the executor with prepared SQL and parser
      */
-    public RewriteResult execute() throws UserException {
+    public void initialize() throws UserException {
+        if (initialized) {
+            return;
+        }
+
+        LOG.info("Initializing rewrite executor for table: {}", dorisTable.getName());
+
         try {
-            LOG.info("Starting rewrite data files for table: {}", dorisTable.getName());
+            // Generate SQL template
+            this.rewriteSql = generateRewriteSQL();
+            this.parser = new NereidsParser();
 
-            // Step 1: Plan FileScanTask from Iceberg table
-            planFileScanTasks();
+            // Pre-parse and prepare reusable components
+            this.sessionVariable = connectContext.getSessionVariable();
 
-            // Step 2: Group and filter tasks
-            groupAndFilterTasks();
+            // Parse SQL once and reuse
+            List<StatementBase> statements = parser.parseSQL(rewriteSql, sessionVariable);
+            if (statements.isEmpty()) {
+                throw new UserException("Failed to parse rewrite SQL: " + rewriteSql);
+            }
 
-            // Step 3: Execute rewrite for each group
-            RewriteResult result = executeRewriteGroups();
+            this.parsedStmt = statements.get(0);
+            if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+                throw new UserException("Parsed statement is not a LogicalPlanAdapter: " + parsedStmt.getClass());
+            }
 
-            LOG.info("Completed rewrite data files for table: {}, result: {}",
-                    dorisTable.getName(), result);
-            return result;
+            // Extract logical plan
+            LogicalPlanAdapter adapter = (LogicalPlanAdapter) parsedStmt;
+            this.logicalPlan = adapter.getLogicalPlan();
+
+            if (!(logicalPlan instanceof InsertIntoTableCommand)) {
+                throw new UserException("Expected InsertIntoTableCommand, got: " + logicalPlan.getClass());
+            }
+
+            this.insertCmd = (InsertIntoTableCommand) logicalPlan;
+            this.initialized = true;
+
+            LOG.debug("Initialized executor with SQL: {} and pre-parsed components", rewriteSql);
 
         } catch (Exception e) {
-            LOG.error("Failed to execute rewrite data files for table: " + dorisTable.getName(), e);
-            throw new UserException("Rewrite data files execution failed: " + e.getMessage());
+            LOG.error("Failed to initialize rewrite executor", e);
+            throw new UserException("Failed to initialize rewrite executor: " + e.getMessage());
         }
-    }
-
-    /**
-     * Plan FileScanTask from Iceberg table
-     */
-    private void planFileScanTasks() throws Exception {
-        LOG.info("Planning file scan tasks for table: {}", dorisTable.getName());
-
-        // Create table scan with optional filters
-        TableScan tableScan = icebergTable.newScan();
-
-        // Apply partition filters if specified
-        if (parameters.hasPartitionFilter()) {
-            // TODO: Convert partition filter to Iceberg expression
-            LOG.info("Partition filtering is specified but not yet implemented");
-        }
-
-        // Apply WHERE condition if specified
-        if (parameters.hasWhereCondition()) {
-            // TODO: Convert WHERE condition to Iceberg expression
-            LOG.info("Where condition filtering is specified but not yet implemented");
-        }
-
-        // Get all file scan tasks
-        List<FileScanTask> allTasks = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> tasks = tableScan.planFiles()) {
-            for (FileScanTask task : tasks) {
-                allTasks.add(task);
-            }
-        }
-
-        LOG.info("Found {} file scan tasks for table: {}", allTasks.size(), dorisTable.getName());
-
-        // Group tasks by partition
-        groupTasksByPartition(allTasks);
-    }
-
-    /**
-     * Group file scan tasks by partition
-     */
-    private void groupTasksByPartition(List<FileScanTask> allTasks) {
-        LOG.info("Grouping {} tasks by partition", allTasks.size());
-
-        for (FileScanTask task : allTasks) {
-            PartitionSpec spec = task.spec();
-            StructLikeWrapper partitionWrapper = StructLikeWrapper.forType(spec.partitionType());
-            StructLikeWrapper partition = partitionWrapper.copyFor(task.file().partition());
-
-            partitionedGroups.computeIfAbsent(partition, k -> new ArrayList<>());
-            List<RewriteDataGroup> groups = partitionedGroups.get(partition);
-
-            // Try to add task to existing group
-            boolean added = false;
-            for (RewriteDataGroup group : groups) {
-                if (group.canAddTask(task, parameters)) {
-                    group.addTask(task);
-                    added = true;
-                    break;
-                }
-            }
-
-            // Create new group if needed
-            if (!added) {
-                RewriteDataGroup newGroup = new RewriteDataGroup();
-                newGroup.addTask(task);
-                groups.add(newGroup);
-            }
-        }
-
-        LOG.info("Grouped tasks into {} partitions", partitionedGroups.size());
-        this.partitionIterator = partitionedGroups.values().iterator();
-    }
-
-    /**
-     * Filter groups and tasks based on rewrite parameters
-     */
-    private void groupAndFilterTasks() {
-        LOG.info("Filtering groups and tasks based on parameters");
-
-        int totalGroupsBefore = getTotalGroupCount();
-        int totalTasksBefore = getTotalTaskCount();
-
-        // Filter groups that don't meet rewrite criteria
-        partitionedGroups.entrySet().removeIf(entry -> {
-            List<RewriteDataGroup> groups = entry.getValue();
-            groups.removeIf(group -> !shouldRewriteGroup(group));
-            return groups.isEmpty();
-        });
-
-        int totalGroupsAfter = getTotalGroupCount();
-        int totalTasksAfter = getTotalTaskCount();
-
-        LOG.info("Filtered groups: {} -> {}, tasks: {} -> {}",
-                totalGroupsBefore, totalGroupsAfter, totalTasksBefore, totalTasksAfter);
-
-        // Refresh iterator after filtering
-        this.partitionIterator = partitionedGroups.values().iterator();
-    }
-
-    /**
-     * Check if a group should be rewritten based on parameters
-     */
-    private boolean shouldRewriteGroup(RewriteDataGroup group) {
-        // Always rewrite if rewrite_all is true
-        if (parameters.isRewriteAll()) {
-            return true;
-        }
-
-        // Check minimum number of files
-        if (group.getTaskCount() < parameters.getMinInputFiles()) {
-            return false;
-        }
-
-        // Check if any file needs rewriting based on size
-        for (FileScanTask task : group.getTasks()) {
-            long fileSize = task.file().fileSizeInBytes();
-            if (fileSize < parameters.getMinFileSizeBytes() ||
-                    fileSize > parameters.getMaxFileSizeBytes()) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Execute rewrite for all groups
-     */
-    private RewriteResult executeRewriteGroups() throws Exception {
-        RewriteResult totalResult = new RewriteResult();
-
-        while (hasMoreGroup()) {
-            RewriteDataGroup group = nextGroup();
-            RewriteResult groupResult = executeRewriteGroup(group);
-            totalResult.merge(groupResult);
-        }
-
-        return totalResult;
     }
 
     /**
      * Execute rewrite for a single group
      */
-    private RewriteResult executeRewriteGroup(RewriteDataGroup group) throws Exception {
+    public RewriteResult executeGroup(RewriteDataGroup group) throws UserException {
+        if (!initialized) {
+            throw new UserException("Executor not initialized. Call initialize() first.");
+        }
+
         LOG.info("Executing rewrite for group with {} tasks, total size: {} bytes",
                 group.getTaskCount(), group.getTotalSize());
 
         StmtExecutor executor = null;
         try {
-            // Step 1: Generate SQL template
-            String sql = generateRewriteSQL();
-            LOG.debug("Generated rewrite SQL: {}", sql);
-
-            // Step 2: Parse SQL using NereidsParser
-            NereidsParser parser = new NereidsParser();
-            SessionVariable sessionVariable = connectContext.getSessionVariable();
-            List<org.apache.doris.analysis.StatementBase> statements = parser.parseSQL(sql, sessionVariable);
-
-            if (statements.isEmpty()) {
-                throw new UserException("Failed to parse rewrite SQL: " + sql);
-            }
-
-            org.apache.doris.analysis.StatementBase parsedStmt = statements.get(0);
-            if (!(parsedStmt instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter)) {
-                throw new UserException("Parsed statement is not a LogicalPlanAdapter: " + parsedStmt.getClass());
-            }
-
-            // Step 3: Create StmtExecutor and customize the execution
+            // Step 1: Create StmtExecutor using pre-parsed statement
             executor = new StmtExecutor(connectContext, parsedStmt);
 
-            // Step 4: Initialize plan and get the insert executor
-            if (parsedStmt instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter) {
-                org.apache.doris.nereids.glue.LogicalPlanAdapter adapter = (org.apache.doris.nereids.glue.LogicalPlanAdapter) parsedStmt;
-                org.apache.doris.nereids.trees.plans.logical.LogicalPlan logicalPlan = adapter.getLogicalPlan();
-
-                if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand) {
-                    org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand insertCmd = (org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand) logicalPlan;
-
-                    // Step 5: Initialize execution plan
-                    org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor insertExecutor = insertCmd
-                            .initPlan(connectContext, executor);
-
-                    // Step 6: Customize the plan for Iceberg file rewrite
-                    customizeInsertExecutorForRewrite(insertExecutor, group);
-
-                    // Step 7: Execute the insert operation
-                    if (!insertExecutor.isEmptyInsert()) {
-                        insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
-                    }
-
-                    // Step 8: Collect execution statistics
-                    long processedRows = collectExecutionStatistics(insertExecutor);
-                    return createRewriteResult(group, processedRows);
-                } else {
-                    throw new UserException("Expected InsertIntoTableCommand, got: " + logicalPlan.getClass());
-                }
-            } else {
-                throw new UserException("Expected LogicalPlanAdapter, got: " + parsedStmt.getClass());
-            }
+            // Step 2: Execute the customized insert operation using pre-parsed components
+            return executeInsertWithGroup(executor, group);
 
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: ", e);
@@ -317,6 +163,28 @@ public class RewriteDataFileExecutor {
     }
 
     /**
+     * Execute insert operation with specific group customization
+     */
+    private RewriteResult executeInsertWithGroup(StmtExecutor executor, RewriteDataGroup group) throws Exception {
+
+        // Use pre-parsed insertCmd directly
+        IcebergInsertExecutor insertExecutor = (IcebergInsertExecutor) insertCmd
+                .initPlan(connectContext, executor);
+
+        // Customize the plan for Iceberg file rewrite
+        customizeInsertExecutorForRewrite(insertExecutor, group);
+
+        // Execute the insert operation
+        if (!insertExecutor.isEmptyInsert()) {
+            insertExecutor.executeSingleInsert(executor, System.currentTimeMillis());
+        }
+
+        // Collect execution statistics
+        long processedRows = collectExecutionStatistics(insertExecutor);
+        return createRewriteResult(group, processedRows);
+    }
+
+    /**
      * Customize insert executor for Iceberg file rewrite
      */
     private void customizeInsertExecutorForRewrite(
@@ -331,9 +199,6 @@ public class RewriteDataFileExecutor {
             throw new UserException("No coordinator found in insert executor");
         }
 
-        // For now, we'll need to access the planner through the coordinator's query
-        // fragments
-        // This is a workaround since AbstractInsertExecutor doesn't expose getPlanner()
         LOG.info("Insert executor prepared for rewrite with coordinator: {}",
                 coordinator.getClass().getSimpleName());
 
@@ -379,15 +244,10 @@ public class RewriteDataFileExecutor {
      */
     private RewriteResult createRewriteResult(RewriteDataGroup group, long processedRows) {
         // Create result based on the existing RewriteResult constructor
-        // Adjust the constructor call based on the actual RewriteResult class
-        // definition
         try {
-            // Try the existing constructor pattern from the original code
             return new RewriteResult(group.getTaskCount(), group.getTaskCount(), group.getTotalSize(), 0);
         } catch (Exception e) {
-            // Fallback: create a basic result object
             LOG.warn("Failed to create RewriteResult with standard constructor, using fallback", e);
-            // You may need to implement a proper RewriteResult class or adjust this
             throw new RuntimeException("RewriteResult constructor not compatible: " + e.getMessage());
         }
     }
@@ -403,34 +263,5 @@ public class RewriteDataFileExecutor {
         return String.format(REWRITE_SQL_TEMPLATE,
                 catalogName, dbName, tableName,
                 catalogName, dbName, tableName);
-    }
-
-    // Iterator methods for group processing
-    public boolean hasMoreGroup() {
-        while (!groupIterator.hasNext() && partitionIterator.hasNext()) {
-            groupIterator = partitionIterator.next().iterator();
-        }
-        return groupIterator.hasNext();
-    }
-
-    public RewriteDataGroup nextGroup() {
-        if (!hasMoreGroup()) {
-            throw new NoSuchElementException();
-        }
-        return groupIterator.next();
-    }
-
-    // Helper methods
-    private int getTotalGroupCount() {
-        return partitionedGroups.values().stream()
-                .mapToInt(List::size)
-                .sum();
-    }
-
-    private int getTotalTaskCount() {
-        return partitionedGroups.values().stream()
-                .flatMap(List::stream)
-                .mapToInt(RewriteDataGroup::getTaskCount)
-                .sum();
     }
 }

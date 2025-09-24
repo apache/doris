@@ -25,6 +25,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileManager;
+import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteParameters;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -175,14 +177,31 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 throw new UserException("No active connection context found");
             }
 
+            // Step 1: Plan and organize file scan tasks into groups
+            RewriteDataFileManager fileManager = new RewriteDataFileManager(icebergTable, parameters);
+            fileManager.planAndOrganizeTasks();
+
+            if (fileManager.getTotalGroupCount() == 0) {
+                LOG.info("No file groups need rewriting for table: {}", table.getName());
+                return Lists.newArrayList("0", "0", "0", "0");
+            }
+
+            // Step 2: Initialize executor for rewrite operations
             RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
                     this.icebergTable, icebergTable, parameters, connectContext);
+            executor.initialize();
 
-            RewriteResult result = executor.execute();
+            // Step 3: Execute rewrite for each group
+            RewriteResult totalResult = new RewriteResult();
+            while (fileManager.hasMoreGroup()) {
+                RewriteDataGroup group = fileManager.nextGroup();
+                RewriteResult groupResult = executor.executeGroup(group);
+                totalResult.merge(groupResult);
+            }
             
             LOG.info("Rewrite data files completed for table: {}, result: {}", 
-                table.getName(), result);
-            return result.toStringList();
+                table.getName(), totalResult);
+            return totalResult.toStringList();
 
         } catch (Exception e) {
             LOG.error("Failed to rewrite data files for table: " + table.getName(), e);
