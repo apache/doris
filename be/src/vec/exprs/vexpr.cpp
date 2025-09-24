@@ -1002,18 +1002,18 @@ Status VExpr::check_expr_exectued_type(Block* block, int* result_column_id) cons
     if (!return_type->equals(*_data_type)) {
         return Status::InternalError(
                 "expr execute type not match, expr name {}, expected type {} , real type {}",
-                expr_name(), _data_type->get_name(), return_type->get_name());
+                debug_string(), _data_type->get_name(), return_type->get_name());
     }
 
     if (!return_column) {
         return Status::InternalError("expr execute column is nullptr, expr name {}, type {}",
-                                     expr_name(), return_type->get_name());
+                                     debug_string(), return_type->get_name());
     }
 
     if (!return_type->check_column(*return_column)) {
         return Status::InternalError(
                 "expr execute column not match, expr name {}, type {} , column type {}",
-                expr_name(), return_type->get_name(), return_column->get_name());
+                debug_string(), return_type->get_name(), return_column->get_name());
     }
 
     return Status::OK();
