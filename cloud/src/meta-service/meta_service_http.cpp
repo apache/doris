@@ -693,14 +693,7 @@ static HttpResponse process_set_multi_version_status(MetaServiceImpl* service,
 
     // Prefer instance_id if provided, fallback to cloud_unique_id
     if (instance_id.empty()) {
-        if (cloud_unique_id.empty()) {
-            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                                   "either instance_id or cloud_unique_id must be provided");
-        }
-        instance_id = get_instance_id(service->resource_mgr(), cloud_unique_id);
-        if (instance_id.empty()) {
-            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "invalid cloud_unique_id");
-        }
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "empty instance id");
     }
 
     if (multi_version_status_str.empty()) {
