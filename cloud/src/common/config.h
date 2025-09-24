@@ -137,6 +137,7 @@ CONF_String(test_s3_endpoint, "");
 CONF_String(test_s3_region, "");
 CONF_String(test_s3_bucket, "");
 CONF_String(test_s3_prefix, "");
+CONF_String(test_s3_provider, "");
 
 CONF_String(test_hdfs_prefix, "");
 CONF_String(test_hdfs_fs_name, "");

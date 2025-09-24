@@ -343,6 +343,11 @@ if(BUILD_AZURE STREQUAL "ON")
     add_definitions(-DUSE_AZURE)
 endif()
 
+message(STATUS "enable vault: ${ENABLE_VAULT}")
+if(ENABLE_VAULT STREQUAL "ON")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_STORAGE_VAULT_FOR_TEST")
+endif()
+
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(ASAN_LIBS -static-libasan)
     set(LSAN_LIBS -static-liblsan)
