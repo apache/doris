@@ -5036,7 +5036,7 @@ private:
     void execute_one_row(const Block& block, const ColumnNumbers& arguments, ColumnString& res_col,
                          uint64_t bit, int row_num) const {
         static constexpr char SEPARATOR = ',';
-        uint64_t pos = __builtin_ffs(bit);
+        uint64_t pos = __builtin_ffsll(bit);
         ColumnString::Chars data;
         while (pos != 0 && pos < arguments.size() && bit != 0) {
             auto col = block.get_by_position(arguments[pos]).column;
