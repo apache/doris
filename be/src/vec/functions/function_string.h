@@ -403,11 +403,11 @@ private:
     }
 
     int32_t to_hash_code(const std::string& str) const {
-        int32_t h = 0;
+        uint64_t h = 0;
         for (uint8_t c : str) {
-            h = 31 * h + c;
+            h = (h * 31U + c) & 0xFFFFFFFFU;
         }
-        return h;
+        return static_cast<int32_t>(h);
     }
 };
 
