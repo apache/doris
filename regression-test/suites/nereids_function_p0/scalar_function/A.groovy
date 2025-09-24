@@ -156,4 +156,36 @@ suite("nereids_scalar_fn_A") {
 		sql """select auto_partition_name('range', 'years', 'hello');"""
 		exception "range auto_partition_name must accept year|month|day|hour|minute|second for 2nd argument"
 	}
+
+	sql"""DROP TABLE IF EXISTS test_partition_name_list;"""
+    sql"""CREATE TABLE test_partition_name_list (
+        id int,
+        name varchar(300)
+    ) ENGINE=OLAP
+    DUPLICATE KEY(id)
+    AUTO PARTITION BY LIST (name)()
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ( 'replication_num' = '1' );"""
+
+    def comparePartitionNameList = { test_msg ->
+        sql"""INSERT INTO test_partition_name_list VALUES (1, '${test_msg}');"""
+        def tblRes = sql"""SHOW PARTITIONS FROM test_partition_name_list;"""
+        def funcRes = sql"""SELECT AUTO_PARTITION_NAME('list', '${test_msg}');"""
+        assertEquals(tblRes[0][1], funcRes[0][0], "table partition name: ${tblRes[0][1]} should equal function result: ${funcRes[0][0]}");
+        sql"""TRUNCATE TABLE test_partition_name_list;"""
+        sql"""ALTER TABLE test_partition_name_list DROP PARTITION ${tblRes[0][1]};"""
+    }
+
+    comparePartitionNameList("short_name");
+    comparePartitionNameList("短的名字");
+    comparePartitionNameList("short_wi th_1234_&%^*")
+    comparePartitionNameList("特殊^的短 名字&@!")
+    comparePartitionNameList("this_is_a_very_long_tenant_group_name_that_will_cause_partition_name_to_exceed_fifty_characters");
+    comparePartitionNameList("世界");
+    comparePartitionNameList("Apache Doris 是一款基于 MPP 架构的高性能、实时分析型数据库，它以高效、简单和统一的特性著称，能够在亚秒级的时间内返回海量数据的查询结果。");
+    comparePartitionNameList("Apache Dorisは、MPPアーキテクチャに基づく高性能、リアルタイム分析型データベースです。効率的でシンプルであり、統一された特性で知られており、亜秒級の時間で大量データのクエリ結果を返すことができます。")
+    comparePartitionNameList("Apache Doris는 MPP 아키텍처를 기반으로 한 고성능, 실시간 분석형 데이터베이스로, 효율적이고 간단하며 일관된 특성으로 유명하며, 얼마 안 되는 시간 안에 대량의 데이터의 쿼리 결과를 반환할 수 있습니다.");
+    comparePartitionNameList("你好 hello!@#￥%~|world11111.... 世界");
+
+    sql"""DROP TABLE IF EXISTS test_partition_name_list;"""
 }
