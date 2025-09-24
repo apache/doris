@@ -84,7 +84,7 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
                         .toRule(RuleType.DISTINCT_AGGREGATE_SPLIT),
                 logicalAggregate()
                         .when(agg -> agg.getGroupByExpressions().isEmpty()
-                                && agg.mustUseMultiDistinctAgg())
+                                && agg.mustUseMultiDistinctAgg() && !AggregateUtils.containsCountDistinctMultiExpr(agg))
                         .then(this::convertToMultiDistinct)
                         .toRule(RuleType.PROCESS_SCALAR_AGG_MUST_USE_MULTI_DISTINCT)
         );

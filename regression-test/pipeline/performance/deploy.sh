@@ -82,6 +82,9 @@ exit_flag=0
 
     echo "#### 4. reset session variables"
     if ! reset_doris_session_variables; then exit 1; fi
+    session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/performance/conf/session_variables.sql"
+    echo -e "\n\ntuned session variables:\n$(cat "${session_variables_file}")\n\n"
+    set_doris_session_variables_from_file "${session_variables_file}"
 )
 exit_flag="$?"
 

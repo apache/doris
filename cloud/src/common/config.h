@@ -127,6 +127,7 @@ CONF_mBool(enable_txn_key_check, "false");
 CONF_mBool(enable_meta_key_check, "false");
 CONF_mBool(enable_version_key_check, "false");
 CONF_mBool(enable_meta_rowset_key_check, "false");
+CONF_mBool(enable_snapshot_check, "false");
 
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 

@@ -94,19 +94,20 @@ std::unique_ptr<MetaServiceProxy> get_meta_service() {
     return std::make_unique<MetaServiceProxy>(std::move(meta_service));
 }
 
-// Create a MULTI_VERSION_READ_WRITE instance and refresh the resource manager.
-void create_and_refresh_instance(MetaServiceProxy* service, std::string instance_id) {
+// Create a instance and refresh the resource manager.
+void create_and_refresh_instance(
+        MetaServiceProxy* service, std::string instance_id,
+        MultiVersionStatus multi_version_status = MultiVersionStatus::MULTI_VERSION_READ_WRITE) {
     // write instance
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
-    instance_info.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+    instance_info.set_multi_version_status(multi_version_status);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     txn->put(instance_key(instance_id), instance_info.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     service->resource_mgr()->refresh_instance(instance_id);
-    ASSERT_TRUE(service->resource_mgr()->is_version_write_enabled(instance_id));
 }
 
 void prepare_and_commit_index(MetaServiceProxy* service, const std::string& cloud_unique_id,
@@ -232,7 +233,7 @@ void begin_txn(MetaServiceProxy* meta_service, const std::string& cloud_unique_i
     txn_info->set_timeout_ms(36000);
     meta_service->begin_txn(&cntl, &req, &res, nullptr);
     ASSERT_FALSE(cntl.Failed()) << cntl.ErrorText();
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label << ", " << res.ShortDebugString();
     ASSERT_TRUE(res.has_txn_id()) << label;
     txn_id = res.txn_id();
 }
@@ -703,7 +704,8 @@ void check_no_specified_rowset_meta(TxnKv* txn_kv, std::string_view instance_id,
         std::string data_reference_value;
         auto rc = txn->get(data_reference_key, &data_reference_value);
         ASSERT_EQ(rc, TxnErrorCode::TXN_KEY_NOT_FOUND)
-                << "failed to get data reference key: " << data_reference_key;
+                << "failed to get data reference key: " << data_reference_key
+                << ", value=" << hex(data_reference_value);
     }
 }
 
@@ -1733,7 +1735,6 @@ TEST(RecycleVersionedKeysTest, RecycleTable) {
         ASSERT_EQ(recycler->recycle_operation_logs(), 0);
         ASSERT_EQ(recycler->recycle_indexes(), 0);
         ASSERT_EQ(recycler->recycle_versions(), 0);
-        ASSERT_EQ(recycler->recycle_orphan_partitions(), 0);
     }
 
     ASSERT_NO_FATAL_FAILURE({

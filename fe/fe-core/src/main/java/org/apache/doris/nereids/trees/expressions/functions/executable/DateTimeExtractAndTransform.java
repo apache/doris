@@ -749,10 +749,14 @@ public class DateTimeExtractAndTransform {
     }
 
     /**
-     * convert_tz
+     * date transformation function: convert_tz
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
+        // Validate timezone offset ranges before parsing
+        validateTimezoneOffset(fromTz.getStringValue());
+        validateTimezoneOffset(toTz.getStringValue());
+
         DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
                 .parseCaseInsensitive()
                 .appendZoneOrOffsetId()
@@ -764,6 +768,28 @@ public class DateTimeExtractAndTransform {
         LocalDateTime localDateTime = datetime.toJavaDateType();
         ZonedDateTime resultDateTime = localDateTime.atZone(fromZone).withZoneSameInstant(toZone);
         return DateTimeV2Literal.fromJavaDateType(resultDateTime.toLocalDateTime(), datetime.getDataType().getScale());
+    }
+
+    private static void validateTimezoneOffset(String timezone) {
+        // Pattern to match offset format like +HH:MM or -HH:MM
+        if (timezone.matches("^[+-]\\d{2}:\\d{2}$")) {
+            boolean positive = timezone.charAt(0) == '+';
+            int hour = Integer.parseInt(timezone.substring(1, 3));
+            int minute = Integer.parseInt(timezone.substring(4, 6));
+
+            if (!positive && hour > 12) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            } else if (positive && hour > 14) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Timezone offsets must be between -12:00 and +14:00");
+            }
+
+            if (minute != 0 && minute != 15 && minute != 30 && minute != 45) {
+                throw new AnalysisException("Invalid timezone offset: " + timezone
+                        + ". Minute part should be 00, 15, 30, or 45");
+            }
+        }
     }
 
     @ExecFunction(name = "weekday")

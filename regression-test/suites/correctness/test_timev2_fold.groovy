@@ -30,6 +30,14 @@ suite("test_timev2_fold") {
     qt_select13 """
         select CONVERT_TZ('9999-12-31 23:59:59.999999', 'Pacific/Galapagos', 'Pacific/GalapaGoS');
     """
+    test {
+        sql "select convert_tz('2020-05-01 12:00:00', '+08:00', '+15:00');"
+        exception "Operation convert_tz invalid timezone: +15:00"
+    }
+    test {
+        sql "select convert_tz('2020-05-01 12:00:00', '-13:00', '+12:00');"
+        exception "Operation convert_tz invalid timezone: -13:00"
+    }
     // FE + BE
     sql """ set enable_fold_constant_by_be=true """
     qt_select20 """

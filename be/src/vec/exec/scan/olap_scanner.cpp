@@ -277,11 +277,10 @@ Status OlapScanner::open(RuntimeState* state) {
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
-        std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet="
-           << _tablet_reader_params.tablet->tablet_id() << ", res=" << res
-           << ", backend=" << BackendOptions::get_localhost();
-        return Status::InternalError(ss.str());
+        res.append("failed to initialize storage reader. tablet=" +
+                   std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+                   ", backend=" + BackendOptions::get_localhost());
+        return res;
     }
 
     // Do not hold rs_splits any more to release memory.

@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <deque>
 #include <initializer_list>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <string_view>
@@ -704,6 +705,9 @@ int InstanceRecycler::do_recycle() {
                                         fmt::format("instance id {}", instance_id_),
                                         [](int r) { return r != 0; });
         sync_executor
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_cluster_snapshots(); }))
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }))
                 .add(task_wrapper( // dropped table and dropped partition need to be recycled in series
                                    // becase they may both recycle the same set of tablets
                         // recycle dropped table or idexes(mv, rollup)
@@ -721,10 +725,7 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_operation_logs(); }))
-                .add(task_wrapper([this]() { return InstanceRecycler::recycle_restore_jobs(); }))
-                .add(task_wrapper(
-                        [this]() { return InstanceRecycler::recycle_cluster_snapshots(); }));
+                .add(task_wrapper([this]() { return InstanceRecycler::recycle_restore_jobs(); }));
         bool finished = true;
         std::vector<int> rets = sync_executor.when_all(&finished);
         for (int ret : rets) {
@@ -1482,8 +1483,10 @@ int InstanceRecycler::recycle_partitions() {
 }
 
 int InstanceRecycler::recycle_versions() {
-    // TODO:
-    // recycle_orphan_partitions();
+    if (instance_info_.has_multi_version_status() &&
+        instance_info_.multi_version_status() != MultiVersionStatus::MULTI_VERSION_DISABLED) {
+        return recycle_orphan_partitions();
+    }
 
     int64_t num_scanned = 0;
     int64_t num_recycled = 0;
@@ -1681,9 +1684,6 @@ int InstanceRecycler::recycle_orphan_partitions() {
         return 0;
     };
 
-    // if (config::enable_recycler_stats_metrics) {
-    //     scan_and_statistics_versions();
-    // }
     // recycle_func and loop_done for scan and recycle
     return scan_and_recycle(
             versioned::partition_inverted_index_key({instance_id_, 0, 0, 0}),

@@ -97,4 +97,8 @@ suite("test_str_to_date") {
         """
         exception "is invalid"
     }
+    test {
+        sql "SELECT str_to_date('2022-09-18 00:00:59','%Y-%m-%d %H:%M:%S')"
+        exception "%Y-%m-%d %H:%M:%S is invalid"
+    }
 }
