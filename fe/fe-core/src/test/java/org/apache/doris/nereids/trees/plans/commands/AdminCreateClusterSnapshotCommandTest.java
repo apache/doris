@@ -29,7 +29,10 @@ import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class AdminShowClusterSnapshotCommandTest {
+import java.util.HashMap;
+import java.util.Map;
+
+public class AdminCreateClusterSnapshotCommandTest {
     @Mocked
     private Env env;
     @Mocked
@@ -67,12 +70,30 @@ public class AdminShowClusterSnapshotCommandTest {
     public void testValidateNormal() throws Exception {
         runBefore();
         Config.deploy_mode = "";
-        AdminShowClusterSnapshotCommand command = new AdminShowClusterSnapshotCommand(true);
+        Map<String, String> properties = new HashMap<>();
+        properties.put("ttl", "3600");
+        properties.put("label", "test_s_label");
+        AdminCreateClusterSnapshotCommand command = new AdminCreateClusterSnapshotCommand(properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "The sql is illegal in disk mode");
 
         Config.deploy_mode = "cloud";
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        // test invalid property
+        properties.put("a", "test_s_label");
+        AdminCreateClusterSnapshotCommand command1 = new AdminCreateClusterSnapshotCommand(properties);
+        Assertions.assertThrows(AnalysisException.class, () -> command1.validate(connectContext), "Unknown property");
+        properties.remove("a");
+
+        // test invalid ttl
+        properties.put("ttl", "a");
+        AdminCreateClusterSnapshotCommand command2 = new AdminCreateClusterSnapshotCommand(properties);
+        Assertions.assertThrows(AnalysisException.class, () -> command2.validate(connectContext), "Invalid value");
+
+        properties.put("ttl", "0");
+        AdminCreateClusterSnapshotCommand command3 = new AdminCreateClusterSnapshotCommand(properties);
+        Assertions.assertThrows(AnalysisException.class, () -> command3.validate(connectContext), "Invalid value");
     }
 
     @Test
@@ -94,7 +115,8 @@ public class AdminShowClusterSnapshotCommandTest {
         };
         Config.deploy_mode = "cloud";
 
-        AdminShowClusterSnapshotCommand command = new AdminShowClusterSnapshotCommand(false);
+        Map<String, String> properties = new HashMap<>();
+        AdminCreateClusterSnapshotCommand command = new AdminCreateClusterSnapshotCommand(properties);
         Assertions.assertThrows(AnalysisException.class, () -> command.validate(connectContext),
                 "Access denied; you need (at least one of) the (ADMIN) privilege(s) for this operation");
     }
