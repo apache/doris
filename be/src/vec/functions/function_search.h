@@ -68,6 +68,23 @@ public:
             std::unordered_map<std::string, segment_v2::IndexIterator*> iterators,
             uint32_t num_rows, segment_v2::InvertedIndexResultBitmap& bitmap_result) const;
 
+    // Public methods for testing
+    enum class ClauseTypeCategory {
+        NON_TOKENIZED, // TERM, PREFIX, WILDCARD, REGEXP, RANGE, LIST - no tokenization, use EQUAL_QUERY
+        TOKENIZED,     // PHRASE, MATCH, ANY, ALL - need tokenization, use MATCH_ANY_QUERY
+        COMPOUND       // AND, OR, NOT - boolean operations
+    };
+
+    ClauseTypeCategory get_clause_type_category(const std::string& clause_type) const;
+
+    // Analyze query type for a specific field in the search clause
+    segment_v2::InvertedIndexQueryType analyze_field_query_type(const std::string& field_name,
+                                                                const TSearchClause& clause) const;
+
+    // Map clause_type string to InvertedIndexQueryType
+    segment_v2::InvertedIndexQueryType clause_type_to_query_type(
+            const std::string& clause_type) const;
+
 private:
     std::shared_ptr<segment_v2::inverted_index::query_v2::BooleanQuery> build_query_from_clause(
             const TSearchClause& clause,
@@ -82,16 +99,6 @@ private:
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     data_type_with_names,
             const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators) const;
-
-    enum class ClauseTypeCategory {
-        NON_TOKENIZED, // TERM, PREFIX, WILDCARD, REGEXP, RANGE, LIST - no tokenization, use EQUAL_QUERY
-        TOKENIZED,     // PHRASE, MATCH, ANY, ALL - need tokenization, use MATCH_ANY_QUERY
-        COMPOUND       // AND, OR, NOT - boolean operations
-    };
-
-    ClauseTypeCategory get_clause_type_category(const std::string& clause_type) const;
-
-    segment_v2::InvertedIndexQueryType analyze_query_type(const TSearchClause& clause) const;
 
     segment_v2::InvertedIndexReaderPtr get_field_inverted_reader(
             const std::string& field_name,

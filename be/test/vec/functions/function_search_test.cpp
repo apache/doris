@@ -77,14 +77,14 @@ TEST_F(FunctionSearchTest, TestClauseTypeCategory) {
               function_search->get_clause_type_category("UNKNOWN"));
 }
 
-TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeSimpleLeaf) {
+TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeSimpleLeaf) {
     // Test TERM query
     TSearchClause termClause;
     termClause.clause_type = "TERM";
     termClause.field_name = "title";
     termClause.value = "hello";
 
-    auto query_type = function_search->analyze_query_type(termClause);
+    auto query_type = function_search->analyze_field_query_type("title", termClause);
     EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
 
     // Test PHRASE query
@@ -93,8 +93,8 @@ TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeSimpleLeaf) {
     phraseClause.field_name = "content";
     phraseClause.value = "machine learning";
 
-    query_type = function_search->analyze_query_type(phraseClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
+    query_type = function_search->analyze_field_query_type("content", phraseClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_type);
 
     // Test PREFIX query
     TSearchClause prefixClause;
@@ -102,11 +102,11 @@ TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeSimpleLeaf) {
     prefixClause.field_name = "title";
     prefixClause.value = "hello*";
 
-    query_type = function_search->analyze_query_type(prefixClause);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
+    query_type = function_search->analyze_field_query_type("title", prefixClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, query_type);
 }
 
-TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeCompound) {
+TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeCompound) {
     // Test AND query with mixed children
     TSearchClause termChild;
     termChild.clause_type = "TERM";
@@ -122,12 +122,15 @@ TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeCompound) {
     andClause.clause_type = "AND";
     andClause.children = {termChild, phraseChild};
 
-    auto query_type = function_search->analyze_query_type(andClause);
-    // Should be MATCH_ANY_QUERY because it contains tokenized child
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
+    // Test field-specific query type analysis
+    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
+
+    auto content_query_type = function_search->analyze_field_query_type("content", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
 }
 
-TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeCompoundNonTokenized) {
+TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryTypeCompoundNonTokenized) {
     // Test AND query with only non-tokenized children
     TSearchClause termChild1;
     termChild1.clause_type = "TERM";
@@ -143,9 +146,12 @@ TEST_F(FunctionSearchTest, TestAnalyzeQueryTypeCompoundNonTokenized) {
     andClause.clause_type = "AND";
     andClause.children = {termChild1, termChild2};
 
-    auto query_type = function_search->analyze_query_type(andClause);
-    // Should be EQUAL_QUERY because all children are non-tokenized
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
+    // Test field-specific query type analysis
+    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
+
+    auto category_query_type = function_search->analyze_field_query_type("category", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, category_query_type);
 }
 
 TEST_F(FunctionSearchTest, TestBuildSearchParam) {
@@ -240,8 +246,8 @@ TEST_F(FunctionSearchTest, TestPhraseClause) {
     EXPECT_EQ("content", searchParam.root.field_name);
     EXPECT_EQ("machine learning", searchParam.root.value);
 
-    auto query_type = function_search->analyze_query_type(searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
+    auto query_type = function_search->analyze_field_query_type("content", searchParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_type);
 }
 
 TEST_F(FunctionSearchTest, TestRegexpClause) {
@@ -264,8 +270,8 @@ TEST_F(FunctionSearchTest, TestRegexpClause) {
     EXPECT_EQ("title", searchParam.root.field_name);
     EXPECT_EQ("[a-z]+", searchParam.root.value);
 
-    auto query_type = function_search->analyze_query_type(searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
+    auto query_type = function_search->analyze_field_query_type("title", searchParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY, query_type);
 }
 
 TEST_F(FunctionSearchTest, TestRangeClause) {
@@ -288,8 +294,8 @@ TEST_F(FunctionSearchTest, TestRangeClause) {
     EXPECT_EQ("age", searchParam.root.field_name);
     EXPECT_EQ("[18 TO 65]", searchParam.root.value);
 
-    auto query_type = function_search->analyze_query_type(searchParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, query_type);
+    auto query_type = function_search->analyze_field_query_type("age", searchParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::RANGE_QUERY, query_type);
 }
 
 TEST_F(FunctionSearchTest, TestAnyAllClauses) {
@@ -303,7 +309,7 @@ TEST_F(FunctionSearchTest, TestAnyAllClauses) {
     anyClause.value = "java python";
     anyParam.root = anyClause;
 
-    auto query_type = function_search->analyze_query_type(anyParam.root);
+    auto query_type = function_search->analyze_field_query_type("tags", anyParam.root);
     EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
 
     // Test ALL clause
@@ -316,8 +322,81 @@ TEST_F(FunctionSearchTest, TestAnyAllClauses) {
     allClause.value = "programming language";
     allParam.root = allClause;
 
-    query_type = function_search->analyze_query_type(allParam.root);
-    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY, query_type);
+    query_type = function_search->analyze_field_query_type("tags", allParam.root);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY, query_type);
+}
+
+TEST_F(FunctionSearchTest, TestAnalyzeFieldQueryType) {
+    // Test compound query with different field types
+    TSearchClause termChild;
+    termChild.clause_type = "TERM";
+    termChild.field_name = "title";
+    termChild.value = "hello";
+
+    TSearchClause phraseChild;
+    phraseChild.clause_type = "PHRASE";
+    phraseChild.field_name = "content";
+    phraseChild.value = "machine learning";
+
+    TSearchClause andClause;
+    andClause.clause_type = "AND";
+    andClause.children = {termChild, phraseChild};
+
+    // Test field-specific query type analysis
+    auto title_query_type = function_search->analyze_field_query_type("title", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, title_query_type);
+
+    auto content_query_type = function_search->analyze_field_query_type("content", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, content_query_type);
+
+    // Test field not in query
+    auto other_query_type = function_search->analyze_field_query_type("other_field", andClause);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::UNKNOWN_QUERY, other_query_type);
+
+    // Test single field query
+    auto single_field_type = function_search->analyze_field_query_type("title", termChild);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY, single_field_type);
+
+    auto single_phrase_type = function_search->analyze_field_query_type("content", phraseChild);
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY, single_phrase_type);
+}
+
+TEST_F(FunctionSearchTest, TestClauseTypeToQueryType) {
+    // Test non-tokenized queries
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
+              function_search->clause_type_to_query_type("TERM"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
+              function_search->clause_type_to_query_type("PREFIX"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::WILDCARD_QUERY,
+              function_search->clause_type_to_query_type("WILDCARD"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY,
+              function_search->clause_type_to_query_type("REGEXP"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::RANGE_QUERY,
+              function_search->clause_type_to_query_type("RANGE"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::LIST_QUERY,
+              function_search->clause_type_to_query_type("LIST"));
+
+    // Test tokenized queries
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+              function_search->clause_type_to_query_type("PHRASE"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
+              function_search->clause_type_to_query_type("MATCH"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY,
+              function_search->clause_type_to_query_type("ANY"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY,
+              function_search->clause_type_to_query_type("ALL"));
+
+    // Test boolean operations
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
+              function_search->clause_type_to_query_type("AND"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
+              function_search->clause_type_to_query_type("OR"));
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY,
+              function_search->clause_type_to_query_type("NOT"));
+
+    // Test unknown clause type
+    EXPECT_EQ(segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
+              function_search->clause_type_to_query_type("UNKNOWN"));
 }
 
 } // namespace doris::vectorized

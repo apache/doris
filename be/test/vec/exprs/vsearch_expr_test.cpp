@@ -74,7 +74,7 @@ TEST_F(VSearchExprTest, TestConstruction) {
     auto vsearch_expr = VSearchExpr::create_shared(test_node);
 
     ASSERT_NE(nullptr, vsearch_expr);
-    EXPECT_EQ("vsearch_expr", vsearch_expr->expr_name());
+    EXPECT_EQ("VSearchExpr", vsearch_expr->expr_name());
 }
 
 TEST_F(VSearchExprTest, TestIsConstant) {

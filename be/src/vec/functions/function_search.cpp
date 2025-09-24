@@ -25,6 +25,7 @@
 #include <roaring/roaring.hh>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
@@ -357,8 +358,6 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         }
         LOG(INFO) << "search: Built leaf query for clause type: " << root_clause_type;
     }
-    // Analyze query type to determine appropriate InvertedIndexQueryType for reader selection
-    InvertedIndexQueryType query_type = analyze_query_type(search_param.root);
     // Initialize result bitmaps
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
     std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
@@ -377,27 +376,38 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             const vectorized::DataTypePtr& column_type = field_pair.second.second;
             std::wstring field_wstr = StringHelper::to_wstring(real_field_name);
 
-            // Use helper function to get inverted reader - eliminates ~25 lines of duplicate code
+            // Analyze query type specifically for this field
+            InvertedIndexQueryType field_query_type =
+                    analyze_field_query_type(field_name, search_param.root);
+            if (field_query_type == InvertedIndexQueryType::UNKNOWN_QUERY) {
+                LOG(WARNING) << "search: Unknown query type for field: " << field_name;
+                return Status::InternalError("Unknown query type for field: " + field_name);
+            }
+            LOG(INFO) << "search: Field '" << field_name
+                      << "' query type: " << segment_v2::query_type_to_string(field_query_type);
+
+            // Use helper function to get inverted reader with field-specific query type
             auto inverted_reader =
-                    get_field_inverted_reader(field_name, iterators, column_type, query_type);
+                    get_field_inverted_reader(field_name, iterators, column_type, field_query_type);
             if (!inverted_reader) {
-                LOG(INFO) << "search: Could not get inverted reader for field: " << field_name;
-                continue;
+                LOG(ERROR) << "search: Could not get inverted reader for field: " << field_name;
+                return Status::InternalError("Could not get inverted reader for field: " +
+                                             field_name);
             }
 
             // Directly access the index file and create directory
             auto index_file_reader = inverted_reader->get_index_file_reader();
             if (!index_file_reader) {
-                LOG(WARNING) << "search: No index file reader for field: " << field_name;
-                continue;
+                LOG(ERROR) << "search: No index file reader for field: " << field_name;
+                return Status::InternalError("No index file reader for field: " + field_name);
             }
 
             // Initialize index file reader
             auto st = index_file_reader->init(config::inverted_index_read_buffer_size,
                                               context->io_ctx);
             if (!st.ok()) {
-                LOG(WARNING) << "search: Failed to init index file reader for field: " << field_name
-                             << ", error: " << st.to_string();
+                LOG(ERROR) << "search: Failed to init index file reader for field: " << field_name
+                           << ", error: " << st.to_string();
                 return Status::InternalError("Failed to init index file reader for field: " +
                                              field_name + ", error: " + st.to_string());
             }
@@ -414,14 +424,14 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                                                          config::inverted_index_read_buffer_size,
                                                          false)); // don't close directory
             } catch (const CLuceneError& e) {
-                LOG(WARNING) << "search: Failed to open lucene IndexReader for field: "
-                             << field_name << ", error: " << e.what();
+                LOG(ERROR) << "search: Failed to open lucene IndexReader for field: " << field_name
+                           << ", error: " << e.what();
                 return Status::InternalError("Failed to open IndexReader for field: " + field_name +
                                              ", error: " + std::string(e.what()));
             }
 
             if (!index_reader) {
-                LOG(WARNING) << "search: lucene IndexReader is null for field: " << field_name;
+                LOG(ERROR) << "search: lucene IndexReader is null for field: " << field_name;
                 return Status::InternalError("IndexReader is null for field: " + field_name);
             }
 
@@ -504,34 +514,71 @@ FunctionSearch::ClauseTypeCategory FunctionSearch::get_clause_type_category(
     }
 }
 
-// Analyze query type to determine the appropriate InvertedIndexQueryType for reader selection
-segment_v2::InvertedIndexQueryType FunctionSearch::analyze_query_type(
-        const TSearchClause& clause) const {
+// Analyze query type for a specific field in the search clause
+segment_v2::InvertedIndexQueryType FunctionSearch::analyze_field_query_type(
+        const std::string& field_name, const TSearchClause& clause) const {
     const std::string& clause_type = clause.clause_type;
     ClauseTypeCategory category = get_clause_type_category(clause_type);
 
-    // Handle leaf queries
+    // Handle leaf queries - use direct mapping
     if (category != ClauseTypeCategory::COMPOUND) {
-        if (category == ClauseTypeCategory::NON_TOKENIZED) {
-            return InvertedIndexQueryType::EQUAL_QUERY;
-        } else { // ClauseTypeCategory::TOKENIZED
-            return InvertedIndexQueryType::MATCH_ANY_QUERY;
+        // Check if this clause targets the specific field
+        if (clause.field_name == field_name) {
+            // Use direct mapping from clause_type to InvertedIndexQueryType
+            return clause_type_to_query_type(clause_type);
         }
     }
 
     // Handle boolean queries - recursively analyze children
-    if (clause.__isset.children && !clause.children.empty()) {
+    if (!clause.children.empty()) {
         for (const auto& child_clause : clause.children) {
-            InvertedIndexQueryType child_type = analyze_query_type(child_clause);
-            // If any child needs MATCH_ANY_QUERY, the entire query needs MATCH_ANY_QUERY
-            if (child_type == InvertedIndexQueryType::MATCH_ANY_QUERY) {
-                return InvertedIndexQueryType::MATCH_ANY_QUERY;
+            // Recursively analyze each child
+            InvertedIndexQueryType child_type = analyze_field_query_type(field_name, child_clause);
+            // If this child targets the field (not default EQUAL_QUERY), return its query type
+            if (child_type != InvertedIndexQueryType::UNKNOWN_QUERY) {
+                return child_type;
             }
         }
     }
 
-    // If all children (or no children) use EQUAL_QUERY, return EQUAL_QUERY
-    return InvertedIndexQueryType::EQUAL_QUERY;
+    // If no children target this field, return UNKNOWN_QUERY as default
+    return InvertedIndexQueryType::UNKNOWN_QUERY;
+}
+
+// Map clause_type string to InvertedIndexQueryType
+segment_v2::InvertedIndexQueryType FunctionSearch::clause_type_to_query_type(
+        const std::string& clause_type) const {
+    // Use static map for better performance and maintainability
+    static const std::unordered_map<std::string, segment_v2::InvertedIndexQueryType>
+            clause_type_map = {
+                    // Boolean operations
+                    {"AND", segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY},
+                    {"OR", segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY},
+                    {"NOT", segment_v2::InvertedIndexQueryType::BOOLEAN_QUERY},
+
+                    // Non-tokenized queries (exact matching, pattern matching)
+                    {"TERM", segment_v2::InvertedIndexQueryType::EQUAL_QUERY},
+                    {"PREFIX", segment_v2::InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY},
+                    {"WILDCARD", segment_v2::InvertedIndexQueryType::WILDCARD_QUERY},
+                    {"REGEXP", segment_v2::InvertedIndexQueryType::MATCH_REGEXP_QUERY},
+                    {"RANGE", segment_v2::InvertedIndexQueryType::RANGE_QUERY},
+                    {"LIST", segment_v2::InvertedIndexQueryType::LIST_QUERY},
+
+                    // Tokenized queries (full-text search, phrase search)
+                    {"PHRASE", segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY},
+                    {"MATCH", segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY},
+                    {"ANY", segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY},
+                    {"ALL", segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY},
+            };
+
+    auto it = clause_type_map.find(clause_type);
+    if (it != clause_type_map.end()) {
+        return it->second;
+    }
+
+    // Unknown clause type
+    LOG(WARNING) << "Unknown clause type '" << clause_type << "', defaulting to EQUAL_QUERY";
+    return segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
 }
 
 // Helper function to get InvertedIndexReader for a field
