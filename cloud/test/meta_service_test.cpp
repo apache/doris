@@ -198,7 +198,8 @@ static void commit_txn(MetaServiceProxy* meta_service, int64_t db_id, int64_t tx
     req.set_db_id(db_id);
     req.set_txn_id(txn_id);
     meta_service->commit_txn(&cntl, &req, &res, nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << label;
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+            << label << ", res=" << res.ShortDebugString();
 }
 
 doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id = 10,

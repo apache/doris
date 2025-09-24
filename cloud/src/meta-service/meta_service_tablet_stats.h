@@ -19,7 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
-#include "meta-store/meta_reader.h"
+#include "meta-store/clone_chain_reader.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -56,7 +56,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 // NOTE: this function returns original `TabletStatsPB` and detached tablet stats val stored in kv store,
 //  MUST call `merge_tablet_stats(stats, detached_stats)` to get the real tablet stats.
 void internal_get_versioned_tablet_stats(MetaServiceCode& code, std::string& msg,
-                                         MetaReader& meta_reader, Transaction* txn,
+                                         CloneChainReader& meta_reader, Transaction* txn,
                                          const std::string& instance_id, const TabletIndexPB& idx,
                                          TabletStatsPB& stats, bool snapshot = false);
 

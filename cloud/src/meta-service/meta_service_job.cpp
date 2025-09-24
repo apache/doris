@@ -37,6 +37,7 @@
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/meta_reader.h"
@@ -44,6 +45,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "meta-store/versioned_value.h"
 #include "meta_service.h"
+#include "resource-manager/resource_manager.h"
 
 // Empty string not is not processed
 template <typename T, size_t S>
@@ -97,7 +99,8 @@ bool check_compaction_input_verions(const TabletCompactionJobPB& compaction,
 void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                           std::unique_ptr<Transaction>& txn, const StartTabletJobRequest* request,
                           StartTabletJobResponse* response, std::string& instance_id,
-                          bool& need_commit, bool is_versioned_read) {
+                          bool& need_commit, bool is_versioned_read,
+                          ResourceManager* resource_mgr) {
     auto& compaction = request->job().compaction(0);
     if (!compaction.has_id() || compaction.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -147,7 +150,7 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
         }
         CHECK(stats.ParseFromString(stats_val));
     } else {
-        MetaReader reader(instance_id);
+        CloneChainReader reader(instance_id, resource_mgr);
         TxnErrorCode err = reader.get_tablet_compact_stats(txn.get(), tablet_id, &stats, nullptr);
         if (err != TxnErrorCode::TXN_OK) {
             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
@@ -301,7 +304,8 @@ void start_compaction_job(MetaServiceCode& code, std::string& msg, std::stringst
 void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                              std::unique_ptr<Transaction>& txn,
                              const StartTabletJobRequest* request, StartTabletJobResponse* response,
-                             std::string& instance_id, bool& need_commit, bool is_versioned_read) {
+                             std::string& instance_id, bool& need_commit, bool is_versioned_read,
+                             ResourceManager* resource_mgr) {
     auto& schema_change = request->job().schema_change();
     if (!schema_change.has_id() || schema_change.id().empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -331,7 +335,7 @@ void start_schema_change_job(MetaServiceCode& code, std::string& msg, std::strin
         return;
     }
 
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr);
     auto& new_tablet_idx = const_cast<TabletIndexPB&>(schema_change.new_tablet_idx());
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
@@ -492,7 +496,7 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
             get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
             if (code != MetaServiceCode::OK) return;
         } else {
-            MetaReader reader(instance_id);
+            CloneChainReader reader(instance_id, resource_mgr_.get());
             err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
             if (err != TxnErrorCode::TXN_OK) {
                 code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
@@ -526,13 +530,13 @@ void MetaServiceImpl::start_tablet_job(::google::protobuf::RpcController* contro
 
     if (!request->job().compaction().empty()) {
         start_compaction_job(code, msg, ss, txn, request, response, instance_id, need_commit,
-                             is_versioned_read);
+                             is_versioned_read, resource_mgr_.get());
         return;
     }
 
     if (request->job().has_schema_change()) {
         start_schema_change_job(code, msg, ss, txn, request, response, instance_id, need_commit,
-                                is_versioned_read);
+                                is_versioned_read, resource_mgr_.get());
         return;
     }
 }
@@ -832,7 +836,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
                             std::string& use_version, bool is_versioned_read,
-                            bool is_versioned_write, TxnKv* txn_kv) {
+                            bool is_versioned_write, TxnKv* txn_kv, ResourceManager* resource_mgr) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -949,7 +953,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     //==========================================================================
     auto stats = response->mutable_stats();
 
-    MetaReader meta_reader(instance_id);
+    CloneChainReader meta_reader(instance_id, resource_mgr);
     TabletStats detached_stats;
     if (is_versioned_read) {
         TxnErrorCode err =
@@ -1417,7 +1421,8 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                                std::string& instance_id, std::string& job_key, bool& need_commit,
                                std::string& use_version, bool is_versioned_read,
-                               bool is_versioned_write, TxnKv* txn_kv) {
+                               bool is_versioned_write, TxnKv* txn_kv,
+                               ResourceManager* resource_mgr) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -1439,7 +1444,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         msg = "not allow new_tablet_id same with base_tablet_id";
         return;
     }
-    MetaReader reader(instance_id);
+    CloneChainReader reader(instance_id, resource_mgr);
     auto& new_tablet_idx = const_cast<TabletIndexPB&>(schema_change.new_tablet_idx());
     if (!new_tablet_idx.has_table_id() || !new_tablet_idx.has_index_id() ||
         !new_tablet_idx.has_partition_id()) {
@@ -1794,7 +1799,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     if (is_versioned_write) {
         // read new TabletLoadStatsKey -> TabletStatsPB
         TabletStatsPB new_tablet_stats;
-        MetaReader meta_reader(instance_id, txn_kv);
+        CloneChainReader meta_reader(instance_id, resource_mgr);
         Versionstamp* versionstamp = nullptr;
         TxnErrorCode err = TxnErrorCode::TXN_OK;
         if (is_versioned_read) {
@@ -2039,7 +2044,7 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
                 get_tablet_idx(code, msg, txn.get(), instance_id, tablet_id, tablet_idx);
                 if (code != MetaServiceCode::OK) return;
             } else {
-                MetaReader reader(instance_id);
+                CloneChainReader reader(instance_id, resource_mgr_.get());
                 err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
                 if (err != TxnErrorCode::TXN_OK) {
                     code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
@@ -2090,12 +2095,13 @@ void MetaServiceImpl::finish_tablet_job(::google::protobuf::RpcController* contr
             // Process compaction commit
             process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
                                    job_key, need_commit, use_version, is_versioned_read,
-                                   is_versioned_write, txn_kv_.get());
+                                   is_versioned_write, txn_kv_.get(), resource_mgr_.get());
         } else if (request->job().has_schema_change()) {
             // Process schema change commit
             process_schema_change_job(code, msg, ss, txn, request, response, recorded_job,
                                       instance_id, job_key, need_commit, use_version,
-                                      is_versioned_read, is_versioned_write, txn_kv_.get());
+                                      is_versioned_read, is_versioned_write, txn_kv_.get(),
+                                      resource_mgr_.get());
         }
 
         if (!need_commit) return;

@@ -18,35 +18,30 @@
 #pragma once
 
 #include <gen_cpp/cloud.pb.h>
-#include <gen_cpp/olap_file.pb.h>
 
 #include "meta-store/txn_kv.h"
-#include "meta-store/txn_kv_error.h"
 #include "meta-store/versionstamp.h"
 
 namespace doris::cloud {
 
-// A versioned meta reader that encapsulates the logic to read versioned metadata.
-//
-// This class is lightweight and does not hold any state. So constructing multiple instances
-// is cheap and does not require any cleanup.
-//
-// But the caller should ensure that the referenced instance_id and txn_kv are valid
-// throughout the lifetime of the MetaReader instance.
-class MetaReader {
+class ResourceManager;
+
+class CloneChainReader {
 public:
-    MetaReader(std::string_view instance_id) : MetaReader(instance_id, nullptr) {}
-    MetaReader(std::string_view instance_id, TxnKv* txn_kv)
-            : MetaReader(instance_id, txn_kv, Versionstamp::max()) {}
-    MetaReader(std::string_view instance_id, Versionstamp snapshot_version)
-            : MetaReader(instance_id, nullptr, snapshot_version) {}
-    MetaReader(std::string_view instance_id, TxnKv* txn_kv, Versionstamp snapshot_version)
+    CloneChainReader(std::string_view instance_id, ResourceManager* resource_mgr)
+            : CloneChainReader(instance_id, Versionstamp::max(), nullptr, resource_mgr) {}
+    CloneChainReader(std::string_view instance_id, Versionstamp snapshot_version,
+                     ResourceManager* resource_mgr)
+            : CloneChainReader(instance_id, snapshot_version, nullptr, resource_mgr) {}
+    CloneChainReader(std::string_view instance_id, TxnKv* txn_kv, ResourceManager* resource_mgr)
+            : CloneChainReader(instance_id, Versionstamp::max(), txn_kv, resource_mgr) {}
+    CloneChainReader(std::string_view instance_id, Versionstamp snapshot_version, TxnKv* txn_kv,
+                     ResourceManager* resource_mgr)
             : instance_id_(instance_id),
               snapshot_version_(snapshot_version),
               txn_kv_(txn_kv),
+              resource_mgr_(resource_mgr),
               min_read_versionstamp_(Versionstamp::max()) {}
-    MetaReader(const MetaReader&) = delete;
-    MetaReader& operator=(const MetaReader&) = delete;
 
     uint64_t min_read_version() const { return min_read_versionstamp_.version(); }
     Versionstamp min_read_versionstamp() const { return min_read_versionstamp_; }
@@ -171,26 +166,6 @@ public:
     TxnErrorCode get_load_rowset_meta(Transaction* txn, int64_t tablet_id, int64_t version,
                                       RowsetMetaCloudPB* rowset_meta, bool snapshot = false);
 
-    // Get the load rowset metas for the given tablet_id.
-    TxnErrorCode get_load_rowset_metas(
-            int64_t tablet_id,
-            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
-            bool snapshot = false);
-    TxnErrorCode get_load_rowset_metas(
-            Transaction* txn, int64_t tablet_id,
-            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
-            bool snapshot = false);
-
-    // Get the compact rowset metas for the given tablet_id.
-    TxnErrorCode get_compact_rowset_metas(
-            int64_t tablet_id,
-            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
-            bool snapshot = false);
-    TxnErrorCode get_compact_rowset_metas(
-            Transaction* txn, int64_t tablet_id,
-            std::vector<std::pair<RowsetMetaCloudPB, Versionstamp>>* rowset_metas,
-            bool snapshot = false);
-
     // Get the tablet meta keys.
     TxnErrorCode get_tablet_meta(int64_t tablet_id, TabletMetaCloudPB* tablet_meta,
                                  Versionstamp* versionstamp, bool snapshot = false);
@@ -246,31 +221,27 @@ public:
     TxnErrorCode is_partition_exists(int64_t partition_id, bool snapshot = false);
     TxnErrorCode is_partition_exists(Transaction* txn, int64_t partition_id, bool snapshot = false);
 
-    // Get the snapshots.
-    TxnErrorCode get_snapshots(Transaction* txn,
-                               std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
-    TxnErrorCode get_snapshots(std::vector<std::pair<SnapshotPB, Versionstamp>>* snapshots);
-
-    // Whether the snapshot has references.
-    TxnErrorCode has_snapshot_references(Versionstamp snapshot_version, bool* has_references,
-                                         bool snapshot = false);
-    TxnErrorCode has_snapshot_references(Transaction* txn, Versionstamp snapshot_version,
-                                         bool* has_references, bool snapshot = false);
-
     // Whether the table has no indexes.
     TxnErrorCode has_no_indexes(int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
     TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
 
-    static void merge_tablet_stats(const TabletStatsPB& load_stats,
-                                   const TabletStatsPB& compact_stats, TabletStatsPB* merged_stats);
-
 private:
-    const std::string_view instance_id_;
-    const Versionstamp snapshot_version_;
+    // Get the source snapshot info of the specified `instance_id`.
+    //
+    // Return false if there is no source snapshot info for the `instance_id`.
+    bool get_source_snapshot_info(const std::string& instance_id, std::string* source_instance_id,
+                                  Versionstamp* source_snapshot_version);
 
+    // The instance id this reader is working on
+    const std::string_view instance_id_;
+    // The snapshot version to read
+    const Versionstamp snapshot_version_;
+    // The txn kv to use for reading, optional.
     TxnKv* txn_kv_;
+    // The resource manager to use for reading.
+    ResourceManager* resource_mgr_;
     Versionstamp min_read_versionstamp_;
 };
 
