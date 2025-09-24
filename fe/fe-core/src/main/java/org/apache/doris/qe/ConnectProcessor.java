@@ -88,6 +88,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -127,8 +128,10 @@ public abstract class ConnectProcessor {
             catalogName = dbNames[0];
             dbName = dbNames[1];
         } else if (dbNames.length > 2) {
-            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
-            return;
+            catalogName = dbNames[0];
+            dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
+            // ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
+            // return;
         }
 
         //  mysql client

@@ -60,6 +60,7 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -68,6 +69,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class IcebergMetadataOps implements ExternalMetadataOps {
 
@@ -129,13 +131,24 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         try {
-            return executionAuthenticator.execute(() -> nsCatalog.listNamespaces(getNamespace())
-                   .stream()
-                   .map(n -> n.level(n.length() - 1))
-                   .collect(Collectors.toList()));
+            return executionAuthenticator.execute(() -> listNamespaces(getNamespace()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
+    }
+
+    @NotNull
+    private List<String> listNamespaces(Namespace parentNs) {
+        // return nsCatalog.listNamespaces(parentNs)
+        //         .stream()
+        //         .map(n -> n.level(n.length() - 1))
+        //         .collect(Collectors.toList());
+        return nsCatalog.listNamespaces(parentNs)
+                .stream()
+                .flatMap(childNs -> Stream.concat(
+                        Stream.of(childNs.toString()),
+                        listNamespaces(childNs).stream()
+                )).collect(Collectors.toList());
     }
 
     @Override

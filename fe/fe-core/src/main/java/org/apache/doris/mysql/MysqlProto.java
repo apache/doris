@@ -33,6 +33,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.stream.Stream;
 
 // MySQL protocol util
 public class MysqlProto {
@@ -233,9 +234,12 @@ public class MysqlProto {
                 catalogName = dbNames[0];
                 dbName = dbNames[1];
             } else if (dbNames.length > 2) {
-                context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
-                sendResponsePacket(context);
-                return false;
+                // use the first part as catalog name, the rest part as db name
+                catalogName = dbNames[0];
+                dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
+                // context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
+                // sendResponsePacket(context);
+                // return false;
             }
 
             // mysql -d
