@@ -318,7 +318,7 @@ static int do_gcm_decrypt(EVP_CIPHER_CTX* cipher_ctx, const EVP_CIPHER* cipher,
     }
     encrypt += real_encrypt_length;
     decrypt_content += u_len;
-
+    // Since a third-party library was used, `encrypt` ultimately remained unmodified, so `const_cast` can be used.
     void* tag = const_cast<void*>(reinterpret_cast<const void*>(encrypt));
     ret = EVP_CIPHER_CTX_ctrl(cipher_ctx, EVP_CTRL_GCM_SET_TAG, EncryptionUtil::GCM_TAG_SIZE, tag);
     if (ret != 1) {

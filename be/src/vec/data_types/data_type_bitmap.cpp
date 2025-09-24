@@ -50,7 +50,7 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
         auto allocate_len_size = sizeof(size_t) * real_need_copy_num;
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             allocate_content_size += bitmap.getSizeInBytes();
         }
         return size + allocate_len_size + allocate_content_size;
@@ -61,7 +61,7 @@ int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column,
         auto allocate_len_size = sizeof(size_t) * (column.size() + 1);
         size_t allocate_content_size = 0;
         for (size_t i = 0; i < column.size(); ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             allocate_content_size += bitmap.getSizeInBytes();
         }
 
@@ -79,14 +79,14 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         // serialize the bitmap size array
         auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             unaligned_store<size_t>(&meta_ptr[i], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
         char* data_ptr = buf + sizeof(size_t) * real_need_copy_num;
         for (size_t i = 0; i < real_need_copy_num; ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             bitmap.write_to(data_ptr);
             data_ptr += unaligned_load<size_t>(&meta_ptr[i]);
         }
@@ -99,14 +99,14 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf, int be_exec_ve
         auto* meta_ptr = reinterpret_cast<size_t*>(buf);
         meta_ptr[0] = column.size();
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             unaligned_store<size_t>(&meta_ptr[i + 1], bitmap.getSizeInBytes());
         }
 
         // serialize each bitmap
         char* data_ptr = buf + sizeof(size_t) * (meta_ptr[0] + 1);
         for (size_t i = 0; i < meta_ptr[0]; ++i) {
-            auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
+            auto& bitmap = data_column.get_element(i);
             bitmap.write_to(data_ptr);
             data_ptr += unaligned_load<size_t>(&meta_ptr[i + 1]);
         }
@@ -161,11 +161,10 @@ Status DataTypeBitMap::check_column(const IColumn& column) const {
 }
 
 void DataTypeBitMap::serialize_as_stream(const BitmapValue& cvalue, BufferWritable& buf) {
-    auto& value = const_cast<BitmapValue&>(cvalue);
     std::string memory_buffer;
-    size_t bytesize = value.getSizeInBytes();
+    size_t bytesize = cvalue.getSizeInBytes();
     memory_buffer.resize(bytesize);
-    value.write_to(const_cast<char*>(memory_buffer.data()));
+    cvalue.write_to(memory_buffer.data());
     buf.write_binary(memory_buffer);
 }
 
@@ -180,10 +179,9 @@ void DataTypeBitMap::to_string(const IColumn& column, size_t row_num, BufferWrit
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    auto& data =
-            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num));
+    auto& data = assert_cast<const ColumnBitmap&>(*ptr).get_element(row_num);
     std::string buffer(data.getSizeInBytes(), '0');
-    data.write_to(const_cast<char*>(buffer.data()));
+    data.write_to(buffer.data());
     ostr.write(buffer.c_str(), buffer.size());
 }
 } // namespace doris::vectorized

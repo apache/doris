@@ -80,7 +80,7 @@ TEST_F(S3ObjStorageClientRoleTest, put_list_delete_object) {
 
     auto response = S3ObjStorageClientRoleTest::obj_storage_client->put_object(
             {.bucket = bucket, .key = prefix + "S3ObjStorageClientRoleTest/put_list_delete_object"},
-            std::string("aaaa"));
+            Slice(std::string("aaaa")));
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     std::vector<io::FileInfo> files;
@@ -113,7 +113,7 @@ TEST_F(S3ObjStorageClientRoleTest, delete_objects_recursively) {
                           std::to_string(i);
 
         auto response = S3ObjStorageClientRoleTest::obj_storage_client->put_object(
-                {.bucket = bucket, .key = key}, std::string("aaaa"));
+                {.bucket = bucket, .key = key}, Slice(std::string("aaaa")));
         EXPECT_EQ(response.status.code, ErrorCode::OK);
         LOG(INFO) << "put " << key << " OK";
     }
@@ -157,7 +157,7 @@ TEST_F(S3ObjStorageClientRoleTest, multipart_upload) {
             {.bucket = bucket,
              .key = prefix + "S3ObjStorageClientRoleTest/multipart_upload",
              .upload_id = upload_id},
-            body, 1);
+            Slice(body), 1);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
     doris::io::ObjectCompleteMultiPart completed_part {
@@ -169,7 +169,7 @@ TEST_F(S3ObjStorageClientRoleTest, multipart_upload) {
             {.bucket = bucket,
              .key = prefix + "S3ObjStorageClientRoleTest/multipart_upload",
              .upload_id = upload_id},
-            body, 2);
+            Slice(body), 2);
 
     EXPECT_EQ(response.resp.status.code, ErrorCode::OK);
     doris::io::ObjectCompleteMultiPart completed_part2 {

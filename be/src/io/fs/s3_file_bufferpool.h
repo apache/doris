@@ -117,7 +117,7 @@ struct FileBuffer {
     */
     bool is_cancelled() const { return _state.is_cancelled(); }
 
-    std::string_view get_string_view_data() const;
+    Slice get_slice_data() const;
 
     BufferType _type;
     std::function<FileBlocksHolderPtr()> _alloc_holder;
