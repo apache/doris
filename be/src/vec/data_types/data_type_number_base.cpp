@@ -48,6 +48,7 @@
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+#ifdef BE_TEST
 template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
         const typename PrimitiveTypeTraits<T>::ColumnItemType& value) {
@@ -62,6 +63,7 @@ std::string DataTypeNumberBase<T>::to_string(
         return CastToString::from_number(value);
     }
 }
+#endif
 
 template <PrimitiveType T>
 Field DataTypeNumberBase<T>::get_default() const {
