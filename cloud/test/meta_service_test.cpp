@@ -11874,6 +11874,15 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         sp->disable_processing();
     }
 
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("notify_refresh_instance_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+
     // Initialize snapshot switch status to OFF so we can test snapshot functionality
     {
         InstanceKeyInfo key_info {"test_snapshot_config_instance"};
@@ -11898,7 +11907,7 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
         AlterInstanceResponse alter_res;
         alter_req.set_op(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY);
         alter_req.set_instance_id("test_snapshot_config_instance");
-        (*alter_req.mutable_properties())["enabled"] = "true";
+        (*alter_req.mutable_properties())["status"] = "enabled";
 
         meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &alter_req, &alter_res, nullptr);
