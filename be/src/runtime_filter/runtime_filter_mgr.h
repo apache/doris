@@ -100,7 +100,7 @@ public:
     Status get_merge_addr(TNetworkAddress* addr);
     Status sync_filter_size(const PSyncFilterSizeRequest* request);
 
-    std::string debug_string() const;
+    std::string debug_string();
 
 private:
     /**
