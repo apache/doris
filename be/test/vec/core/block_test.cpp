@@ -308,6 +308,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -713,6 +714,7 @@ void serialize_and_deserialize_test_array() {
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::SNAPPY);
         std::string s2 = pblock2.DebugString();
         EXPECT_EQ(s1, s2);
+        EXPECT_GT(block.dump_data_json().size(), 1);
     }
 }
 
@@ -812,6 +814,8 @@ TEST(BlockTest, dump_data) {
     // Note: here we should set 'row_num' in dump_data
     EXPECT_GT(block1.dump_data(10).size(), 1);
     EXPECT_GT(block.dump_data_json(10).size(), 1);
+
+    EXPECT_EQ("", block.dump_data_json());
 
     vectorized::IColumn::Filter filter;
     int size = block1.rows() / 2;
