@@ -86,6 +86,7 @@ import org.apache.doris.nereids.DorisParser.AdminCheckTabletsContext;
 import org.apache.doris.nereids.DorisParser.AdminCompactTableContext;
 import org.apache.doris.nereids.DorisParser.AdminDiagnoseTabletContext;
 import org.apache.doris.nereids.DorisParser.AdminRebalanceDiskContext;
+import org.apache.doris.nereids.DorisParser.AdminRotateTdeRootKeyContext;
 import org.apache.doris.nereids.DorisParser.AdminSetEncryptionRootKeyContext;
 import org.apache.doris.nereids.DorisParser.AdminSetTableStatusContext;
 import org.apache.doris.nereids.DorisParser.AdminShowReplicaDistributionContext;
@@ -600,6 +601,7 @@ import org.apache.doris.nereids.trees.plans.commands.AdminDropClusterSnapshotCom
 import org.apache.doris.nereids.trees.plans.commands.AdminRebalanceDiskCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminRepairTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetClusterSnapshotCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminRotateTdeRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetEncryptionRootKeyCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
@@ -1741,6 +1743,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAdminSetEncryptionRootKey(AdminSetEncryptionRootKeyContext ctx) {
         Map<String, String> properties = visitPropertyItemList(ctx.propertyItemList());
         return new AdminSetEncryptionRootKeyCommand(properties);
+    }
+
+    @Override
+    public LogicalPlan visitAdminRotateTdeRootKey(AdminRotateTdeRootKeyContext ctx) {
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause());
+        return new AdminRotateTdeRootKeyCommand(properties);
     }
 
     @Override
