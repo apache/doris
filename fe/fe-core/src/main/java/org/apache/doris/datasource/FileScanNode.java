@@ -52,6 +52,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -185,6 +186,8 @@ public abstract class FileScanNode extends ExternalScanNode {
         }
         output.append(String.format("numNodes=%s", numNodes)).append("\n");
 
+        printNestedColumns(output, prefix);
+
         // pushdown agg
         output.append(prefix).append(String.format("pushdown agg=%s", pushDownAggNoGroupingOp));
         if (pushDownAggNoGroupingOp.equals(TPushAggOp.COUNT)) {
@@ -210,7 +213,10 @@ public abstract class FileScanNode extends ExternalScanNode {
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
 
+        int index = 0;
+        List<SlotDescriptor> slots = desc.getSlots();
         for (Column column : getColumns()) {
+            SlotDescriptor slotDescriptor = slots.get(index++);
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
@@ -225,7 +231,9 @@ public abstract class FileScanNode extends ExternalScanNode {
                     if (useVarcharAsNull) {
                         expression = new NullLiteral(VarcharType.SYSTEM_DEFAULT);
                     } else {
-                        expression = new NullLiteral(DataType.fromCatalogType(column.getType()));
+                        // the nested type(map/array/struct) maybe pruned,
+                        // we should use the pruned type to avoid be core
+                        expression = new NullLiteral(DataType.fromCatalogType(slotDescriptor.getType()));
                     }
                 } else {
                     expression = null;

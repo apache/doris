@@ -47,6 +47,8 @@ namespace segment_v2 {
 struct SubstreamIterator;
 }
 
+using TColumnAccessPaths = std::vector<TColumnAccessPath>;
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -142,6 +144,9 @@ public:
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
     std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
     std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+
+    std::map<int32_t, TColumnAccessPaths> all_access_paths;
+    std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
 
     std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
     CollectionStatisticsPtr collection_statistics;
