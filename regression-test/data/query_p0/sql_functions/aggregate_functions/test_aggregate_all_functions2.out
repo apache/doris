@@ -246,9 +246,6 @@ true
 -- !select_minmax4 --
 243
 
--- !select_histogram_k0 --
-{"num_buckets":2,"buckets":[{"lower":"0","upper":"0","ndv":1,"count":7,"pre_sum":0},{"lower":"1","upper":"1","ndv":1,"count":8,"pre_sum":7}]}
-
 -- !select_histogram_k1 --
 {"num_buckets":1,"buckets":[{"lower":"1","upper":"15","ndv":15,"count":15,"pre_sum":0}]}
 
@@ -281,9 +278,6 @@ true
 
 -- !select_histogram_k13 --
 {"num_buckets":13,"buckets":[{"lower":"-170141183460469231731687303715884105727","upper":"-20220101","ndv":2,"count":2,"pre_sum":0},{"lower":"-11011903","upper":"-2022","ndv":2,"count":2,"pre_sum":2},{"lower":"0","upper":"0","ndv":1,"count":1,"pre_sum":4},{"lower":"11011903","upper":"11011903","ndv":1,"count":1,"pre_sum":5},{"lower":"20220101","upper":"20220101","ndv":1,"count":1,"pre_sum":6},{"lower":"20220102","upper":"20220102","ndv":1,"count":1,"pre_sum":7},{"lower":"20220104","upper":"20220104","ndv":1,"count":1,"pre_sum":8},{"lower":"701411834604692317","upper":"701411834604692317","ndv":1,"count":1,"pre_sum":9},{"lower":"701411834604692317316873","upper":"701411834604692317316873","ndv":1,"count":1,"pre_sum":10},{"lower":"1701604692317316873037158","upper":"1701604692317316873037158","ndv":1,"count":1,"pre_sum":11},{"lower":"701411834604692317316873037158","upper":"701411834604692317316873037158","ndv":1,"count":1,"pre_sum":12},{"lower":"1701411834604692317316873037158","upper":"1701411834604692317316873037158","ndv":1,"count":1,"pre_sum":13},{"lower":"170141183460469231731687303715884105727","upper":"170141183460469231731687303715884105727","ndv":1,"count":1,"pre_sum":14}]}
-
--- !select_histogram_k0_all_null --
-{"num_buckets":0,"buckets":[]}
 
 -- !select_histogram_k1_all_null --
 {"num_buckets":0,"buckets":[]}

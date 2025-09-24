@@ -185,7 +185,10 @@ suite("test_aggregate_all_functions2") {
             (NULL, NULL, 15, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
     """
 
-    qt_select_histogram_k0 """SELECT histogram(k0) FROM baseall"""
+    test {
+        sql"""SELECT histogram(k0) FROM baseall;"""
+        exception"Agg Function histogram(boolean) is not implemented"
+    }
     qt_select_histogram_k1 """SELECT histogram(k1, 1) FROM baseall"""
     qt_select_histogram_k2 """SELECT histogram(k2, 2) FROM baseall"""
     qt_select_histogram_k3 """SELECT histogram(k3, 3) FROM baseall"""
@@ -235,7 +238,11 @@ suite("test_aggregate_all_functions2") {
     INSERT INTO baseall values
             (NULL, NULL, 15, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
     """
-    qt_select_histogram_k0_all_null """SELECT histogram(k0) FROM baseall"""
+
+    test {
+        sql"""SELECT histogram(k0) FROM baseall;"""
+        exception"Agg Function histogram(boolean) is not implemented"
+    }
     qt_select_histogram_k1_all_null """SELECT histogram(k1, 1) FROM baseall"""
     qt_select_histogram_k2 """SELECT histogram(k2, 2) FROM baseall"""
     qt_select_histogram_k3_all_null """SELECT histogram(k3, 3) FROM baseall"""
