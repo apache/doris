@@ -398,6 +398,7 @@ public class AuditLogHelper {
         }
         AuditEvent event = auditEventBuilder.build();
         Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
+        auditEventBuilder.reset();
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
