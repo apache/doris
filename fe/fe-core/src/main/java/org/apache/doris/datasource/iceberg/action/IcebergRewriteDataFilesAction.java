@@ -30,19 +30,21 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileManager;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataGroup;
-import org.apache.doris.datasource.iceberg.rewrite.RewriteParameters;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteResult;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.iceberg.DataFile;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Action for rewriting Iceberg data files by executing INSERT-SELECT operations.
@@ -177,7 +179,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                 return Lists.newArrayList("0", "0", "0", "0");
             }
 
-            RewriteParameters parameters = buildRewriteParameters();
+            RewriteDataFileManager.Parameters parameters = buildRewriteParameters();
 
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext == null) {
@@ -217,15 +219,10 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                     RewriteResult groupResult = executor.executeGroup(group);
                     totalResult.merge(groupResult);
 
-                    // Add files to transaction (simulated for now)
-                    // In real implementation, extract actual DataFiles from execution result
-                    java.util.Set<org.apache.iceberg.DataFile> oldFiles = group.getDataFiles();
-                    java.util.List<org.apache.iceberg.DataFile> oldFilesList =
-                            new java.util.ArrayList<>(oldFiles);
-                    // Placeholder for actual new files
-                    java.util.List<org.apache.iceberg.DataFile> newDataFiles =
-                            new java.util.ArrayList<>();
-
+                    Set<DataFile> oldFiles = group.getDataFiles();
+                    List<DataFile> oldFilesList = new ArrayList<>(oldFiles);
+                    // TODO: implement retrieval of actual new data files from execution result
+                    List<DataFile> newDataFiles = new ArrayList<>();
                     icebergTransaction.addRewriteFiles(oldFilesList, newDataFiles);
 
                     LOG.info("Added rewrite group to transaction - old files: {}, new files: {}",
@@ -253,8 +250,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         }
     }
 
-    private RewriteParameters buildRewriteParameters() {
-        return new RewriteParameters(
+    private RewriteDataFileManager.Parameters buildRewriteParameters() {
+            return new RewriteDataFileManager.Parameters(
                 namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
                 this.minFileSizeBytes,
                 this.maxFileSizeBytes,

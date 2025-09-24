@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.iceberg.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
@@ -33,6 +36,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 /**
  * Manager for organizing and filtering file scan tasks into rewrite groups.
@@ -46,14 +50,14 @@ public class RewriteDataFileManager {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFileManager.class);
 
     private final Table icebergTable;
-    private final RewriteParameters parameters;
+    private final Parameters parameters;
 
     // File scan task management
     private Map<StructLikeWrapper, List<RewriteDataGroup>> partitionedGroups;
     private Iterator<List<RewriteDataGroup>> partitionIterator;
     private Iterator<RewriteDataGroup> groupIterator = Collections.emptyIterator();
 
-    public RewriteDataFileManager(Table icebergTable, RewriteParameters parameters) {
+    public RewriteDataFileManager(Table icebergTable, Parameters parameters) {
         this.icebergTable = icebergTable;
         this.parameters = parameters;
         this.partitionedGroups = new HashMap<>();
@@ -225,5 +229,117 @@ public class RewriteDataFileManager {
                 .flatMap(List::stream)
                 .mapToInt(RewriteDataGroup::getTaskCount)
                 .sum();
+    }
+
+    /**
+     * Parameters for Iceberg data file rewrite operation
+     */
+    public static class Parameters {
+        private final long targetFileSizeBytes;
+        private final long minFileSizeBytes;
+        private final long maxFileSizeBytes;
+        private final int minInputFiles;
+        private final boolean rewriteAll;
+        private final long maxFileGroupSizeBytes;
+        private final int deleteFileThreshold;
+        private final double deleteRatioThreshold;
+        private final long outputSpecId;
+
+        private final Optional<PartitionNamesInfo> partitionFilter;
+        private final Optional<Expression> whereCondition;
+
+        public Parameters(long targetFileSizeBytes,
+                long minFileSizeBytes,
+                long maxFileSizeBytes,
+                int minInputFiles,
+                boolean rewriteAll,
+                long maxFileGroupSizeBytes,
+                int deleteFileThreshold,
+                double deleteRatioThreshold,
+                long outputSpecId,
+                Optional<PartitionNamesInfo> partitionFilter,
+                Optional<Expression> whereCondition) {
+            this.targetFileSizeBytes = targetFileSizeBytes;
+            this.minFileSizeBytes = minFileSizeBytes;
+            this.maxFileSizeBytes = maxFileSizeBytes;
+            this.minInputFiles = minInputFiles;
+            this.rewriteAll = rewriteAll;
+            this.maxFileGroupSizeBytes = maxFileGroupSizeBytes;
+            this.deleteFileThreshold = deleteFileThreshold;
+            this.deleteRatioThreshold = deleteRatioThreshold;
+            this.outputSpecId = outputSpecId;
+            this.partitionFilter = partitionFilter;
+            this.whereCondition = whereCondition;
+        }
+
+        // Getters
+        public long getTargetFileSizeBytes() {
+            return targetFileSizeBytes;
+        }
+
+        public long getMinFileSizeBytes() {
+            return minFileSizeBytes;
+        }
+
+        public long getMaxFileSizeBytes() {
+            return maxFileSizeBytes;
+        }
+
+        public int getMinInputFiles() {
+            return minInputFiles;
+        }
+
+        public boolean isRewriteAll() {
+            return rewriteAll;
+        }
+
+        public long getMaxFileGroupSizeBytes() {
+            return maxFileGroupSizeBytes;
+        }
+
+        public int getDeleteFileThreshold() {
+            return deleteFileThreshold;
+        }
+
+        public double getDeleteRatioThreshold() {
+            return deleteRatioThreshold;
+        }
+
+        public long getOutputSpecId() {
+            return outputSpecId;
+        }
+
+        public boolean hasPartitionFilter() {
+            return partitionFilter.isPresent();
+        }
+
+        public Optional<PartitionNamesInfo> getPartitionFilter() {
+            return partitionFilter;
+        }
+
+        public boolean hasWhereCondition() {
+            return whereCondition.isPresent();
+        }
+
+        public Optional<Expression> getWhereCondition() {
+            return whereCondition;
+        }
+
+        @Override
+        public String toString() {
+            return "RewriteDataFilesParameters{"
+                    + "targetFileSizeBytes=" + targetFileSizeBytes
+                    + ", minFileSizeBytes=" + minFileSizeBytes
+                    + ", maxFileSizeBytes=" + maxFileSizeBytes
+                    + ", minInputFiles=" + minInputFiles
+                    + ", rewriteAll=" + rewriteAll
+                    + ", maxFileGroupSizeBytes=" + maxFileGroupSizeBytes
+                    + ", deleteFileThreshold=" + deleteFileThreshold
+                    + ", deleteRatioThreshold=" + deleteRatioThreshold
+                    + ", outputSpecId=" + outputSpecId
+                    + ", hasPartitionFilter=" + hasPartitionFilter()
+                    + ", hasWhereCondition=" + hasWhereCondition()
+                    + '}';
+        }
     }
 }

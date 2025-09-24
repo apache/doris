@@ -60,7 +60,6 @@ public class IcebergTransaction implements Transaction {
     private final IcebergMetadataOps ops;
     private Table table;
 
-
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
 
@@ -96,8 +95,8 @@ public class IcebergTransaction implements Transaction {
                         throw new RuntimeException(branchName + " is not founded in " + dorisTable.getName());
                     } else if (!branchRef.isBranch()) {
                         throw new RuntimeException(
-                            branchName
-                                + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
+                                branchName
+                                        + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
                 this.transaction = table.newTransaction();
@@ -128,13 +127,13 @@ public class IcebergTransaction implements Transaction {
                         throw new RuntimeException(branchName + " is not found in " + dorisTable.getName());
                     } else if (!branchRef.isBranch()) {
                         throw new RuntimeException(
-                            branchName + " is a tag, not a branch. Tags cannot be targets for rewrite operations");
+                                branchName + " is a tag, not a branch. Tags cannot be targets for rewrite operations");
                     }
                 }
 
                 this.transaction = table.newTransaction();
                 LOG.info("Started rewrite transaction for table: {}, branch: {}",
-                         dorisTable.getName(), branchName);
+                        dorisTable.getName(), branchName);
                 return null;
             });
         } catch (Exception e) {
@@ -158,17 +157,18 @@ public class IcebergTransaction implements Transaction {
             }
         }
         LOG.debug("Added {} files to delete and {} files to add for rewrite",
-                 oldFiles != null ? oldFiles.size() : 0,
-                 newFiles != null ? newFiles.size() : 0);
+                oldFiles != null ? oldFiles.size() : 0,
+                newFiles != null ? newFiles.size() : 0);
     }
 
     /**
-     * Finish rewrite operation by committing all file changes using RewriteFiles API
+     * Finish rewrite operation by committing all file changes using RewriteFiles
+     * API
      */
     public void finishRewrite() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
-                     filesToDelete.size(), filesToAdd.size());
+                    filesToDelete.size(), filesToAdd.size());
         }
 
         try {
@@ -188,7 +188,6 @@ public class IcebergTransaction implements Transaction {
             return;
         }
 
-        // Use RewriteFiles API for atomic rewrite operation
         RewriteFiles rewriteFiles = transaction.newRewrite();
 
         // Set branch if specified
@@ -196,7 +195,6 @@ public class IcebergTransaction implements Transaction {
             rewriteFiles = rewriteFiles.toBranch(branchName);
         }
 
-        // Use thread pool for manifest operations
         rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
 
         // Add files to delete
@@ -212,8 +210,10 @@ public class IcebergTransaction implements Transaction {
         // Commit the rewrite operation
         rewriteFiles.commit();
 
-        LOG.info("Rewrite committed successfully - deleted: {} files, added: {} files",
-                filesToDelete.size(), filesToAdd.size());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("Rewrite committed with {} files deleted and {} files added",
+                    filesToDelete.size(), filesToAdd.size());
+        }
     }
 
     public void finishInsert(NameMapping nameMapping) {
@@ -298,7 +298,6 @@ public class IcebergTransaction implements Transaction {
         }
         appendFiles.commit();
     }
-
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {
         if (pendingResults.isEmpty()) {
