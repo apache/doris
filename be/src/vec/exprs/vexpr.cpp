@@ -995,5 +995,29 @@ bool VExpr::has_been_executed() {
     return _has_been_executed;
 }
 
+Status VExpr::check_expr_exectued_type(Block* block, int* result_column_id) const {
+    auto return_column = block->get_by_position(*result_column_id).column;
+    auto return_type = block->get_by_position(*result_column_id).type;
+
+    if (!return_type->equals(*_data_type)) {
+        return Status::InternalError(
+                "expr execute type not match, expr name {}, expected type {} , real type {}",
+                expr_name(), _data_type->get_name(), return_type->get_name());
+    }
+
+    if (!return_column) {
+        return Status::InternalError("expr execute column is nullptr, expr name {}, type {}",
+                                     expr_name(), return_type->get_name());
+    }
+
+    if (!return_type->check_column(*return_column)) {
+        return Status::InternalError(
+                "expr execute column not match, expr name {}, type {} , column type {}",
+                expr_name(), return_type->get_name(), return_column->get_name());
+    }
+
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized

@@ -317,6 +317,22 @@ protected:
         return out.str();
     }
 
+    Status check_expr_exectued_type(Block* block, int* result_column_id) const;
+
+#ifdef NDEBUG
+#define CEHCK_EXPR_EXECTUED(stmt) stmt
+#else
+#define CEHCK_EXPR_EXECTUED(stmt)                                           \
+    ({                                                                      \
+        auto status = (stmt);                                               \
+        if (!status.ok()) {                                                 \
+            return status;                                                  \
+        }                                                                   \
+        RETURN_IF_ERROR(check_expr_exectued_type(block, result_column_id)); \
+        status;                                                             \
+    });
+#endif
+
     // used in expr name
     std::string get_child_names() {
         std::string res;

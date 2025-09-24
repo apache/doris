@@ -86,7 +86,7 @@ public:
             block->insert({create_always_true_column(block->rows(), _data_type->is_nullable()),
                            _data_type, _expr_name});
             *result_column_id = block->columns() - 1;
-            return Status::OK();
+            return CEHCK_EXPR_EXECTUED(Status::OK());
         }
 
         Field field = _predicate->get_value();
@@ -111,7 +111,7 @@ public:
             // null values ​​are always not filtered
             change_null_to_true(block->get_by_position(num_columns_without_result).column);
         }
-        return Status::OK();
+        return CEHCK_EXPR_EXECTUED(Status::OK());
     }
 
     const std::string& expr_name() const override { return _expr_name; }

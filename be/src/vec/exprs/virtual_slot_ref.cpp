@@ -165,14 +165,14 @@ Status VirtualSlotRef::execute(VExprContext* context, Block* block, int* result_
         if (col_nothing == nullptr) {
             return Status::InternalError("Logical error, virtual column can not be materialized");
         } else {
-            return Status::OK();
+            return CEHCK_EXPR_EXECTUED(Status::OK());
         }
     }
 
     *result_column_id = _column_id;
     VLOG_DEBUG << fmt::format("VirtualSlotRef execute, slot_id {}, column_id {}, column_name {}",
                               _slot_id, _column_id, *_column_name);
-    return Status::OK();
+    return CEHCK_EXPR_EXECTUED(Status::OK());
 }
 
 const std::string& VirtualSlotRef::expr_name() const {

@@ -56,7 +56,7 @@ public:
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         ColumnNumbers arguments;
-        return _do_execute(context, block, result_column_id, arguments);
+        return CEHCK_EXPR_EXECTUED(_do_execute(context, block, result_column_id, arguments));
     }
 
     Status execute_runtime_filter(doris::vectorized::VExprContext* context,
