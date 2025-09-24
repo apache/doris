@@ -649,9 +649,7 @@ TEST_F(CloneChainReaderTest, IsIndexExists) {
     CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
 
     // Case 1: No data exists anywhere - should return NOT_FOUND
-    {
-        ASSERT_EQ(reader.is_index_exists(7001), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    }
+    ASSERT_EQ(reader.is_index_exists(7001), TxnErrorCode::TXN_KEY_NOT_FOUND);
 
     // Case 2: Insert index in instance A
     {
@@ -664,9 +662,7 @@ TEST_F(CloneChainReaderTest, IsIndexExists) {
     }
 
     // Case 2: Read from instance C should find index from A through clone chain
-    {
-        ASSERT_EQ(reader.is_index_exists(7001), TxnErrorCode::TXN_OK);
-    }
+    ASSERT_EQ(reader.is_index_exists(7001), TxnErrorCode::TXN_OK);
 
     // Case 3: Insert data with version > snapshot_version in instance B (should be ignored)
     {
@@ -680,10 +676,8 @@ TEST_F(CloneChainReaderTest, IsIndexExists) {
     }
 
     // Case 3: Should not find index with large version from B
-    {
-        ASSERT_EQ(reader.is_index_exists(7002), TxnErrorCode::TXN_KEY_NOT_FOUND)
-                << "Should not read data with version > snapshot";
-    }
+    ASSERT_EQ(reader.is_index_exists(7002), TxnErrorCode::TXN_KEY_NOT_FOUND)
+            << "Should not read data with version > snapshot";
 
     // Case 4: Insert valid data in instance B (within snapshot version)
     {
@@ -696,10 +690,8 @@ TEST_F(CloneChainReaderTest, IsIndexExists) {
     }
 
     // Case 4: Should find the first encountered data (from B)
-    {
-        ASSERT_EQ(reader.is_index_exists(7003), TxnErrorCode::TXN_OK)
-                << "Should return first valid data encountered in chain";
-    }
+    ASSERT_EQ(reader.is_index_exists(7003), TxnErrorCode::TXN_OK)
+            << "Should return first valid data encountered in chain";
 }
 
 TEST_F(CloneChainReaderTest, IsPartitionExists) {
@@ -708,9 +700,7 @@ TEST_F(CloneChainReaderTest, IsPartitionExists) {
     CloneChainReader reader(instance_id, snapshot_version, txn_kv_.get(), resource_mgr_.get());
 
     // Case 1: No data exists anywhere - should return NOT_FOUND
-    {
-        ASSERT_EQ(reader.is_partition_exists(8001), TxnErrorCode::TXN_KEY_NOT_FOUND);
-    }
+    ASSERT_EQ(reader.is_partition_exists(8001), TxnErrorCode::TXN_KEY_NOT_FOUND);
 
     // Case 2: Insert partition in instance A
     {
@@ -723,9 +713,7 @@ TEST_F(CloneChainReaderTest, IsPartitionExists) {
     }
 
     // Case 2: Read from instance C should find partition from A through clone chain
-    {
-        ASSERT_EQ(reader.is_partition_exists(8001), TxnErrorCode::TXN_OK);
-    }
+    ASSERT_EQ(reader.is_partition_exists(8001), TxnErrorCode::TXN_OK);
 
     // Case 3: Insert data with version > snapshot_version in instance B (should be ignored)
     {
@@ -739,10 +727,8 @@ TEST_F(CloneChainReaderTest, IsPartitionExists) {
     }
 
     // Case 3: Should not find partition with large version from B
-    {
-        ASSERT_EQ(reader.is_partition_exists(8002), TxnErrorCode::TXN_KEY_NOT_FOUND)
-                << "Should not read data with version > snapshot";
-    }
+    ASSERT_EQ(reader.is_partition_exists(8002), TxnErrorCode::TXN_KEY_NOT_FOUND)
+            << "Should not read data with version > snapshot";
 
     // Case 4: Insert valid data in instance B (within snapshot version)
     {
@@ -755,10 +741,8 @@ TEST_F(CloneChainReaderTest, IsPartitionExists) {
     }
 
     // Case 4: Should find the first encountered data (from B)
-    {
-        ASSERT_EQ(reader.is_partition_exists(8003), TxnErrorCode::TXN_OK)
-                << "Should return first valid data encountered in chain";
-    }
+    ASSERT_EQ(reader.is_partition_exists(8003), TxnErrorCode::TXN_OK)
+            << "Should return first valid data encountered in chain";
 }
 
 TEST_F(CloneChainReaderTest, HasNoIndexes) {
