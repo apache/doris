@@ -140,9 +140,9 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
 
     if (enableHdfs()) {
 
-        tableName1 = 'tbl_test_spark_load_alter_partition_1'
-        tableName2 = 'tbl_test_spark_load_alter_partition_2'
-        tableName3 = 'tbl_test_spark_load_alter_partition_3'
+        def tableName1 = 'tbl_test_spark_load_alter_partition_1'
+        def tableName2 = 'tbl_test_spark_load_alter_partition_2'
+        def tableName3 = 'tbl_test_spark_load_alter_partition_3'
 
         try {
 
@@ -218,8 +218,9 @@ suite('test_ingestion_load_alter_partition', 'p0,external') {
             })
 
         } finally {
+//            sql "DROP TABLE ${tableName1}"
+//            sql "DROP TABLE ${tableName2}"
+//            sql "DROP TABLE ${tableName3}"
         }
-
     }
-
 }
