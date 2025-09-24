@@ -17,10 +17,13 @@
 
 package org.apache.doris.datasource.iceberg.rewrite;
 
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Group of file scan tasks to be rewritten together
@@ -69,6 +72,17 @@ public class RewriteDataGroup {
      */
     public long getTotalSize() {
         return totalSize;
+    }
+
+    /**
+     * Get all data files in this group
+     */
+    public Set<DataFile> getDataFiles() {
+        Set<DataFile> dataFiles = new HashSet<>();
+        for (FileScanTask task : tasks) {
+            dataFiles.add(task.file());
+        }
+        return dataFiles;
     }
 
     /**

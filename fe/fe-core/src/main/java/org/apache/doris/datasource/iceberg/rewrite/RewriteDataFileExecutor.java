@@ -37,11 +37,14 @@ import java.util.List;
  * Executes INSERT-SELECT statements for Iceberg data file rewriting.
  * 
  * Execution Flow:
- * 1. initialize() - Prepare SQL template and parse INSERT INTO ... SELECT statement once
- * 2. executeGroup() - Execute rewrite for each file group using pre-parsed components
+ * 1. initialize() - Prepare SQL template and parse INSERT INTO ... SELECT
+ * statement once
+ * 2. executeGroup() - Execute rewrite for each file group using pre-parsed
+ * components
  * 3. Collect execution statistics and return results
  * 
- * The executor generates SQL: INSERT INTO catalog.db.table SELECT * FROM catalog.db.table
+ * The executor generates SQL: INSERT INTO catalog.db.table SELECT * FROM
+ * catalog.db.table
  * and customizes the scan to target specific files in each RewriteDataGroup.
  */
 public class RewriteDataFileExecutor {
@@ -69,7 +72,7 @@ public class RewriteDataFileExecutor {
     }
 
     /**
-     * Initialize the executor with prepared SQL and parser
+     * Initialize the executor with prepared SQL, parser and transaction
      */
     public void initialize() throws UserException {
         if (initialized) {
@@ -133,7 +136,11 @@ public class RewriteDataFileExecutor {
             executor = new StmtExecutor(connectContext, parsedStmt);
 
             // Step 2: Execute the customized insert operation using pre-parsed components
-            return executeInsertWithGroup(executor, group);
+            RewriteResult result = executeInsertWithGroup(executor, group);
+
+            LOG.info("Completed rewrite execution for group with {} tasks", group.getTaskCount());
+
+            return result;
 
         } catch (Exception e) {
             LOG.error("Failed to execute rewrite group: ", e);
