@@ -87,6 +87,9 @@ suite("nereids_scalar_fn_A") {
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '-hello')"
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '@#￥%~|world11111....')"
 	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', 'list', null, true, null)"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', '你好 hello!@#￥%~|world11111.... 世界');"
+	qt_sql_auto_partition_name_list_literal_mixed "select auto_partition_name('list', 'this_is_a_very_long_tenant_group_name_that_will_cause_partition_name_to_exceed_fifty_characters');"
+
 	qt_sql_auto_partition_name_list_literal_null "select auto_partition_name('list', null, null, null);"
 	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'day', '2022-12-12 19:20:30')"
 	qt_sql_auto_partition_name_range_literal_notnull "select auto_partition_name('range', 'month', '2022-12-12 19:20:30')"
@@ -152,9 +155,5 @@ suite("nereids_scalar_fn_A") {
 	test{
 		sql """select auto_partition_name('range', 'years', 'hello');"""
 		exception "range auto_partition_name must accept year|month|day|hour|minute|second for 2nd argument"
-	}
-	test{
-		sql "select auto_partition_name('list', '你好', 'hello!@#￥%~|world11111....', '世界')"
-		exception "The list partition name cannot exceed 50 characters"
 	}
 }

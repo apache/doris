@@ -249,8 +249,8 @@ private:
             res_s += '_';
         }
         for (int i = 0; i < s.length(); i++) {
-            char ch = s[i];
-            if (std::isalnum(ch)) {
+            char16_t ch = s[i];
+            if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
                 res_s += ch;
             } else {
                 int unicodeValue = _get_code_point_at(s, i);
@@ -307,9 +307,9 @@ private:
 
             // check the name of length
             int len = res_p.size();
-            if (len > 50) [[unlikely]] {
-                return Status::InvalidArgument(
-                        "The list partition name cannot exceed 50 characters");
+            if (len > 50) {
+                res_p = std::format("{}_{:08x}", res_p.substr(0, 50), to_hash_code(res_p));
+                len = res_p.size();
             }
             curr_len += len;
             res_data.resize(curr_len);
@@ -400,6 +400,14 @@ private:
         }
         block.get_by_position(result).column = std::move(res);
         return Status::OK();
+    }
+
+    int32_t to_hash_code(const std::string& str) const {
+        int32_t h = 0;
+        for (uint8_t c : str) {
+            h = 31 * h + c;
+        }
+        return h;
     }
 };
 
