@@ -336,10 +336,7 @@ bool VectorizedFnCall::equals(const VExpr& other) {
     |----------------
     |               |
     |               |
-    CastToDouble    Float64Literal
-    |
-    |
-    VirtualSlotRef
+    VirtualSlotRef  Float32Literal
     |
     |
     FuncationCall
@@ -380,25 +377,19 @@ void VectorizedFnCall::prepare_ann_range_search(
 
     auto right_col = right_literal->get_column_ptr()->convert_to_full_column_if_const();
     auto right_type = right_literal->get_data_type();
-    if (right_type->get_primitive_type() != PrimitiveType::TYPE_DOUBLE) {
+    if (right_type->get_primitive_type() != PrimitiveType::TYPE_FLOAT) {
         suitable_for_ann_index = false;
-        // Right child is not a Float64Literal.
+        // Right child is not a Float32Literal.
         return;
     }
 
-    const ColumnFloat64* cf64_right = assert_cast<const ColumnFloat64*>(right_col.get());
-    range_search_runtime.radius = cf64_right->get_data()[0];
+    const ColumnFloat32* cf32_right = assert_cast<const ColumnFloat32*>(right_col.get());
+    range_search_runtime.radius = cf32_right->get_data()[0];
 
     // left side
-    auto cast_to_double_expr = std::dynamic_pointer_cast<VCastExpr>(left_child);
-    if (cast_to_double_expr == nullptr) {
-        suitable_for_ann_index = false;
-        return;
-    }
-
     std::shared_ptr<VectorizedFnCall> function_call;
     auto vir_slot_ref =
-            std::dynamic_pointer_cast<VirtualSlotRef>(cast_to_double_expr->children()[0]);
+            std::dynamic_pointer_cast<VirtualSlotRef>(left_child);
     // Return type of L2Distance is always float.
     if (vir_slot_ref != nullptr) {
         DCHECK(vir_slot_ref->get_virtual_column_expr() != nullptr);
@@ -406,7 +397,7 @@ void VectorizedFnCall::prepare_ann_range_search(
                 vir_slot_ref->get_virtual_column_expr());
     } else {
         function_call =
-                std::dynamic_pointer_cast<VectorizedFnCall>(cast_to_double_expr->children()[0]);
+                std::dynamic_pointer_cast<VectorizedFnCall>(left_child);
     }
 
     if (function_call == nullptr) {
