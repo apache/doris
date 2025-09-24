@@ -527,42 +527,6 @@ std::string Block::dump_types() const {
     return out;
 }
 
-static std::string escape_json_string(const std::string& s) {
-    std::stringstream o;
-    for (auto c : s) {
-        switch (c) {
-        case '"':
-            o << "\\\"";
-            break;
-        case '\\':
-            o << "\\\\";
-            break;
-        case '\b':
-            o << "\\b";
-            break;
-        case '\f':
-            o << "\\f";
-            break;
-        case '\n':
-            o << "\\n";
-            break;
-        case '\r':
-            o << "\\r";
-            break;
-        case '\t':
-            o << "\\t";
-            break;
-        default:
-            if ('\x00' <= c && c <= '\x1f') {
-                o << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c);
-            } else {
-                o << c;
-            }
-        }
-    }
-    return o.str();
-}
-
 std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::stringstream ss;
 
@@ -587,7 +551,7 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
             if (i > 0) {
                 ss << ",";
             }
-            ss << "\"" << escape_json_string(headers[i]) << "\":";
+            ss << "\"" << headers[i] << "\":";
             std::string s;
 
             // This value-extraction logic is preserved from your original function
@@ -605,7 +569,7 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
                 // handle all cases, including when the column is null (e.g., by returning "NULL").
                 s = data[i].to_string(row_num);
             }
-            ss << "\"" << escape_json_string(s) << "\"";
+            ss << "\"" << s << "\"";
         }
         ss << "}";
     }
@@ -1238,9 +1202,9 @@ std::string MutableBlock::dump_data_json(size_t row_limit) const {
             if (i > 0) {
                 ss << ",";
             }
-            ss << "\"" << escape_json_string(headers[i]) << "\":";
+            ss << "\"" << headers[i] << "\":";
             std::string s = _data_types[i]->to_string(*_columns[i].get(), row_num);
-            ss << "\"" << escape_json_string(s) << "\"";
+            ss << "\"" << s << "\"";
         }
         ss << "}";
     }
