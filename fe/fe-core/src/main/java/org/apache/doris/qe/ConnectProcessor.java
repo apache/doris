@@ -128,6 +128,7 @@ public abstract class ConnectProcessor {
             catalogName = dbNames[0];
             dbName = dbNames[1];
         } else if (dbNames.length > 2) {
+            // use the first part as catalog name, the rest part as db name
             catalogName = dbNames[0];
             dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
             // ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
