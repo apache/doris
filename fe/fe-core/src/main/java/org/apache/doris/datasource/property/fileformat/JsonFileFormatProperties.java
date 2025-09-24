@@ -63,10 +63,6 @@ public class JsonFileFormatProperties extends FileFormatProperties {
                     && !formatProperties.containsKey(PROP_STRIP_OUTER_ARRAY)) {
                 readJsonByLine = true;
                 stripOuterArray = false;
-                if (isRemoveOriginProperty) {
-                    formatProperties.remove(PROP_READ_JSON_BY_LINE);
-                    formatProperties.remove(PROP_STRIP_OUTER_ARRAY);
-                }
             } else {
                 readJsonByLine = Boolean.valueOf(
                         getOrDefault(formatProperties, PROP_READ_JSON_BY_LINE,
