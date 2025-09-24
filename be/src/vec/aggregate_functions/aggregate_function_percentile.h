@@ -169,12 +169,13 @@ public:
         AggregateFunctionPercentileApprox::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         AggregateFunctionPercentileApprox::data(place).merge(
                 AggregateFunctionPercentileApprox::data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         AggregateFunctionPercentileApprox::data(place).write(buf);
     }
 
@@ -202,7 +203,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
         double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -236,7 +237,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
         double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -272,7 +273,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
         double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -310,7 +311,7 @@ public:
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
         double result = AggregateFunctionPercentileApprox::data(place).get();
 
@@ -470,11 +471,12 @@ public:
         AggregateFunctionPercentile::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         AggregateFunctionPercentile::data(place).merge(AggregateFunctionPercentile::data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         AggregateFunctionPercentile::data(place).write(buf);
     }
 
@@ -483,7 +485,7 @@ public:
         AggregateFunctionPercentile::data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
         col.insert_value(AggregateFunctionPercentile::data(place).get());
     }
@@ -532,12 +534,13 @@ public:
         AggregateFunctionPercentileArray::data(place).reset();
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         AggregateFunctionPercentileArray::data(place).merge(
                 AggregateFunctionPercentileArray::data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         AggregateFunctionPercentileArray::data(place).write(buf);
     }
 
@@ -546,7 +549,7 @@ public:
         AggregateFunctionPercentileArray::data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         if (to_nested_col.is_nullable()) {

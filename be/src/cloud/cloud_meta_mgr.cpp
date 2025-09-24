@@ -383,12 +383,13 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      ::google::protobuf::Closure*);
 
 template <typename Request, typename Response>
-Status retry_rpc(std::string_view op_name, Request& req, Response* res,
+Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
                  MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
-    req.set_request_ip(BackendOptions::get_be_endpoint());
+    // Applies only to the current file, and all req are non-const, but passed as const types.
+    const_cast<Request&>(req).set_request_ip(BackendOptions::get_be_endpoint());
 
     int retry_times = 0;
     uint32_t duration_ms = 0;

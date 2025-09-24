@@ -280,11 +280,12 @@ public:
 
     void reset(AggregateDataPtr place) const override { data(place).reset(); }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         data(place).merge(data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         data(place).write(buf);
     }
 
@@ -293,7 +294,7 @@ public:
         data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = data(place)._execute_task();
         DCHECK(!result.empty()) << "AI returns an empty result";
         assert_cast<ColumnString&>(to).insert_data(result.data(), result.size());

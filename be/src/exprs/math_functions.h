@@ -24,7 +24,6 @@
 
 #include "util/slice.h"
 #include "util/string_parser.hpp"
-#include "vec/common/string_ref.h"
 
 namespace doris {
 class FunctionContext;

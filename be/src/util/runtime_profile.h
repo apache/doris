@@ -504,7 +504,7 @@ public:
     // weren't for locking.
     // Calling this concurrently on two RuntimeProfiles in reverse order results in
     // undefined behavior.
-    void merge(RuntimeProfile* src);
+    void merge(const RuntimeProfile* src);
 
     // Updates this profile w/ the thrift profile: behaves like Merge(), except
     // that existing counters are updated rather than added up.
@@ -600,7 +600,7 @@ public:
 
     RuntimeProfile* get_child(std::string name);
 
-    void get_children(std::vector<RuntimeProfile*>* children);
+    void get_children(std::vector<RuntimeProfile*>* children) const;
 
     // Gets all profiles in tree, including this one.
     void get_all_children(std::vector<RuntimeProfile*>* children);

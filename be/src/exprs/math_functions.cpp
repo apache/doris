@@ -125,6 +125,7 @@ Slice MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8
         buf[buf_index] = '-';
         ++result_len;
     }
+
     Slice result = ctx->create_temp_string_val(result_len);
     memcpy(result.data, buf + max_digits - result_len, result_len);
     return result;

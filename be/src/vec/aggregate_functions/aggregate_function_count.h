@@ -69,11 +69,12 @@ public:
         AggregateFunctionCount::data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         data(place).count += data(rhs).count;
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         buf.write_var_uint(data(place).count);
     }
 
@@ -82,7 +83,7 @@ public:
         buf.read_var_uint(data(place).count);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
 
@@ -156,7 +157,7 @@ public:
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
-    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         DCHECK(col.item_size() == sizeof(Data))
@@ -215,11 +216,12 @@ public:
 
     void reset(AggregateDataPtr place) const override { data(place).count = 0; }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         data(place).count += data(rhs).count;
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         buf.write_var_uint(data(place).count);
     }
 
@@ -228,7 +230,7 @@ public:
         buf.read_var_uint(data(place).count);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if (to.is_nullable()) {
             auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
@@ -312,7 +314,7 @@ public:
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
-    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         DCHECK(col.item_size() == sizeof(Data))

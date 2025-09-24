@@ -134,6 +134,7 @@ struct WindowFunnelState {
         }
     }
 
+    // todo: rethink thid sort method.
     void sort() {
         auto num = events_list.size();
         std::vector<size_t> indices(num);
@@ -379,11 +380,12 @@ public:
                               string_to_window_funnel_mode(mode.to_string()));
     }
 
-    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena&) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -392,8 +394,9 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(place).sort();
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        // place is essentially an AggregateDataPtr, passed as a ConstAggregateDataPtr.
+        this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(
                 IAggregateFunctionDataHelper<WindowFunnelState,
                                              AggregateFunctionWindowFunnel>::data(place)

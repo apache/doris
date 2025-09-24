@@ -2952,16 +2952,15 @@ Slice do_money_format(FunctionContext* context, UInt32 scale, T int_value, T fra
             (append_sign_manually ? 1 : 0) + integer_str_len + 1 + frac_str_len;
 
     Slice result = context->create_temp_string_val(whole_decimal_str_len);
-    char* result_data = result.data;
 
     if (append_sign_manually) {
-        memset(result_data, '-', 1);
+        memset(result.data, '-', 1);
     }
 
-    memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
-    *(result_data + whole_decimal_str_len - 3) = '.';
-    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(static_cast<int>(frac_value / 10));
-    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(static_cast<int>(frac_value % 10));
+    memcpy(result.data + (append_sign_manually ? 1 : 0), p, integer_str_len);
+    *(result.data + whole_decimal_str_len - 3) = '.';
+    *(result.data + whole_decimal_str_len - 2) = '0' + std::abs(static_cast<int>(frac_value / 10));
+    *(result.data + whole_decimal_str_len - 1) = '0' + std::abs(static_cast<int>(frac_value % 10));
     return result;
 };
 
@@ -2970,28 +2969,28 @@ static Slice do_money_format(FunctionContext* context, const std::string& value)
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
     Slice result = context->create_temp_string_val(result_len);
-    char* result_data = result.data;
+
     if (!is_positive) {
-        *result_data = '-';
+        *result.data = '-';
     }
     for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
-        *(result_data + j) = *(value.data() + i);
+        *(result.data + j) = *(value.data() + i);
         if (i - 1 < 0) {
             break;
         }
-        *(result_data + j - 1) = *(value.data() + i - 1);
+        *(result.data + j - 1) = *(value.data() + i - 1);
         if (i - 2 < 0) {
             break;
         }
-        *(result_data + j - 2) = *(value.data() + i - 2);
+        *(result.data + j - 2) = *(value.data() + i - 2);
         if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-            *(result_data + j - 3) = ',';
+            *(result.data + j - 3) = ',';
             j -= 4;
         } else {
             j -= 3;
         }
     }
-    memcpy(result_data + result_len - 3, value.data() + value.size() - 3, 3);
+    memcpy(result.data + result_len - 3, value.data() + value.size() - 3, 3);
     return result;
 };
 
@@ -3079,21 +3078,20 @@ Slice do_format_round(FunctionContext* context, UInt32 scale, T int_value, T fra
                                         (decimal_places > 0 ? 1 : 0) + frac_str_len;
 
     Slice result = context->create_temp_string_val(whole_decimal_str_len);
-    char* result_data = result.data;
 
     if (append_sign_manually) {
-        memset(result_data, '-', 1);
+        memset(result.data, '-', 1);
     }
 
-    memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
+    memcpy(result.data + (append_sign_manually ? 1 : 0), p, integer_str_len);
     if (decimal_places > 0) {
-        *(result_data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
+        *(result.data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
     }
 
     // Convert fractional part to string with proper padding
     T remaining_frac = std::abs(static_cast<int>(frac_value));
     for (int i = 0; i <= decimal_places - 1; ++i) {
-        *(result_data + whole_decimal_str_len - 1 - i) = '0' + (remaining_frac % 10);
+        *(result.data + whole_decimal_str_len - 1 - i) = '0' + (remaining_frac % 10);
         remaining_frac /= 10;
     }
     return result;
@@ -3741,8 +3739,7 @@ struct ReverseImpl {
             int64_t src_len = offsets[i] - offsets[i - 1];
             std::string dst;
             dst.resize(src_len);
-            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len),
-                                            StringRef((uint8_t*)dst.data(), src_len));
+            simd::VStringFunctions::reverse(StringRef((uint8_t*)src_str, src_len), &dst);
             StringOP::push_value_string(std::string_view(dst.data(), src_len), i, res_data,
                                         res_offsets);
         }
