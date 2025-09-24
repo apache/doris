@@ -1430,6 +1430,9 @@ void MetaServiceImpl::commit_txn_immediately(
             continue;
         }
 
+        record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
+                                txn_id);
+
         CommitTxnLogPB commit_txn_log;
         commit_txn_log.set_txn_id(txn_id);
         commit_txn_log.set_db_id(db_id);
@@ -2002,6 +2005,9 @@ void MetaServiceImpl::commit_txn_eventually(
             // partition versionPB has no txn_id
             continue;
         }
+
+        record_txn_commit_stats(txn.get(), instance_id, partition_indexes.size(), tablet_ids.size(),
+                                txn_id);
 
         std::string info_val;
         const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
@@ -4234,6 +4240,19 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     ss << "transaction not found, label=" << label;
     msg = ss.str();
     return;
+}
+
+void record_txn_commit_stats(doris::cloud::Transaction* txn, const std::string& instance_id,
+                             int64_t partition_count, int64_t tablet_count, int64_t txn_id) {
+    int64_t kv_count = txn->num_put_keys() + txn->num_del_keys() + txn->num_get_keys();
+    int64_t kv_bytes = txn->get_bytes();
+    LOG(INFO) << "txn commit stats, instance_id: " << instance_id << ", txn_id: " << txn_id
+              << ", kv_count: " << kv_count << ", kv_bytes: " << kv_bytes
+              << ", partition_count: " << partition_count << ", tablet_count: " << tablet_count;
+    g_bvar_ms_txn_commit_with_partition_count << partition_count;
+    g_bvar_ms_txn_commit_with_tablet_count << tablet_count;
+    g_bvar_instance_txn_commit_with_partition_count.put({instance_id}, partition_count);
+    g_bvar_instance_txn_commit_with_tablet_count.put({instance_id}, tablet_count);
 }
 
 } // namespace doris::cloud
