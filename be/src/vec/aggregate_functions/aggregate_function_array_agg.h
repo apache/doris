@@ -298,12 +298,12 @@ public:
         this->data(place).add(*columns[0], row_num);
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena& arena) const override {
         this->data(place).merge(this->data(rhs));
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -312,14 +312,14 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         DCHECK(to_nested_col.is_nullable());
         this->data(place).insert_result_into(to);
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }

@@ -177,8 +177,7 @@ public:
         this->data(place).count = 0;
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
         if constexpr (is_decimal(T)) {
             this->data(place).sum += this->data(rhs).sum.value;
         } else {
@@ -187,7 +186,7 @@ public:
         this->data(place).count += this->data(rhs).count;
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -196,7 +195,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).template result<ResultType>());
     }
@@ -277,7 +276,7 @@ public:
         this->merge_vec_selected(places, offset, rhs, arena, num_rows);
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnFixedLengthObject&>(to);
         col.set_item_size(sizeof(Data));

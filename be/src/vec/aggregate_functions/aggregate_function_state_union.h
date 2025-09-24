@@ -79,12 +79,12 @@ public:
     }
     void reset(AggregateDataPtr place) const override { _function->reset(place); }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs,
                Arena& arena) const override {
         _function->merge(place, rhs, arena);
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         _function->serialize(place, buf);
     }
 
@@ -93,7 +93,7 @@ public:
         _function->deserialize(place, buf, arena);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         _function->serialize_without_key_to_column(place, to);
     }
 

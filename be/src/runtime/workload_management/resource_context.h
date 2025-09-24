@@ -80,8 +80,6 @@ public:
     }
     void set_workload_group(WorkloadGroupPtr wg) { _workload_group = wg; }
 
-    RuntimeProfile* profile() { return const_cast<RuntimeProfile*>(resource_profile_.get().get()); }
-
     void to_thrift_query_statistics(TQueryStatistics* statistics) const;
 
     std::string debug_string() { return resource_profile_.get()->pretty_print(); }

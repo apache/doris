@@ -230,7 +230,7 @@ public:
         }
     }
 
-    void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
+    void serialize_without_key_to_column(AggregateDataPtr __restrict place,
                                          IColumn& to) const override {
         auto& col = assert_cast<ColumnBitmap&>(to);
         size_t old_size = col.size();
@@ -307,13 +307,11 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
-        this->data(place).merge(
-                const_cast<AggregateFunctionBitmapData<Op>&>(this->data(rhs)).get());
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+        this->data(place).merge(this->data(rhs).get());
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -322,10 +320,9 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(
-                const_cast<AggregateFunctionBitmapData<Op>&>(this->data(place)).get());
+        column.get_data().push_back(this->data(place).get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -440,12 +437,11 @@ public:
         }
     }
 
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena&) const override {
-        this->data(place).merge(const_cast<AggFunctionData&>(this->data(rhs)).get());
+    void merge(AggregateDataPtr __restrict place, AggregateDataPtr rhs, Arena&) const override {
+        this->data(place).merge(this->data(rhs).get());
     }
 
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+    void serialize(AggregateDataPtr __restrict place, BufferWritable& buf) const override {
         this->data(place).write(buf);
     }
 
@@ -454,8 +450,8 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& value_data = const_cast<AggFunctionData&>(this->data(place)).get();
+    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+        auto& value_data = this->data(place).get();
         auto& column = assert_cast<ColVecResult&>(to);
         column.get_data().push_back(value_data.cardinality());
     }

@@ -419,6 +419,8 @@ Status _submit_task(const TAgentTaskRequest& task,
     // TODO(plat1ko): check task request member
 
     // Set the receiving time of task so that we can determine whether it is timed out later
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const, so modify is ok
     (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
     auto st = submit_op(task);
     if (!st.ok()) [[unlikely]] {
@@ -614,7 +616,7 @@ Status PriorTaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     });
 }
 
-Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskRequest& task) {
+Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(TAgentTaskRequest& task) {
     const TTaskType::type task_type = task.task_type;
     int64_t signature = task.signature;
     std::string type_str;
@@ -654,7 +656,7 @@ Status PriorTaskWorkerPool::submit_high_prior_and_cancel_low(const TAgentTaskReq
     } while (false);
 
     // Set the receiving time of task so that we can determine whether it is timed out later
-    (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
+    task.__set_recv_time(time(nullptr));
 
     LOG_INFO("successfully submit task").tag("type", type_str).tag("signature", signature);
     return Status::OK();
@@ -1908,6 +1910,9 @@ void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
               << " push_type=" << push_req.push_type;
     std::vector<TTabletInfo> tablet_infos;
 
+    // exist a path task_worker_pool <- agent_server <- backend_service <- BackendService
+    // use the arg BackendService_submit_tasks_args.tasks is not const
+    // and push_req will be modify, so modify is ok
     EngineBatchLoadTask engine_task(engine, const_cast<TPushReq&>(push_req), &tablet_infos);
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     auto status = engine_task.execute();

@@ -141,7 +141,7 @@ public:
     std::string as_wkt() const override;
 
     int numPoint() const;
-    S2Point* getPoint(int i) const;
+    const S2Point* getPoint(int i) const;
 
 protected:
     void encode(std::string* buf) override;
