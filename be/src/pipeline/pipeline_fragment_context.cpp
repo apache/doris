@@ -1938,7 +1938,7 @@ std::string PipelineFragmentContext::debug_string() {
         for (size_t i = 0; i < _tasks[j].size(); i++) {
             fmt::format_to(debug_string_buffer, "Task {}: {}\n{}\n", i,
                            _tasks[j][i]->debug_string(),
-                           _task_runtime_states[j][i]->local_runtime_filter_mgr()->debug_string());
+                           _task_runtime_states[i][j]->local_runtime_filter_mgr()->debug_string());
         }
     }
 
