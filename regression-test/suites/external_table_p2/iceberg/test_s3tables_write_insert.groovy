@@ -19,8 +19,8 @@ import java.util.concurrent.ThreadLocalRandom
 
 suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
     // disable this test by default, glue + s3table is recommended
-    def enabled = false;
-    if (!enabled) {
+    def run_test = false;
+    if (!run_test) {
         return;
     }
     def format_compressions = ["parquet_zstd", "orc_zlib"]
