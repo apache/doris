@@ -659,7 +659,8 @@ struct ConvertImplGenericFromString {
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
             ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
-            const bool is_complex = is_complex_type(data_type_to);
+            const bool empty_as_null = is_complex_type(data_type_to) ||
+                                       data_type_to->get_type_id() == TypeIndex::JSONB;
             DataTypeSerDe::FormatOptions format_options;
             format_options.converted_from_string = true;
             format_options.escape_char = '\\';
@@ -670,7 +671,7 @@ struct ConvertImplGenericFromString {
                 if (val.size == 0) {
                     col_to->insert_default();
                     // empty string('') is an invalid format for complex type, set null_map to 1
-                    if (is_complex) {
+                    if (empty_as_null) {
                         (*vec_null_map_to)[i] = 1;
                     }
                     continue;
