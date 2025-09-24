@@ -30,6 +30,7 @@
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -100,6 +101,9 @@ private:
     std::vector<TReplicaInfo> get_replica_info(int64_t tablet_id, bool bypass_cache,
                                                bool& cache_hit);
 
+    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms);
+    void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
+
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,
                                int64_t expiration_time,
                                std::shared_ptr<bthread::CountdownEvent> wait, bool is_index = false,
@@ -121,6 +125,8 @@ private:
     using Cache = std::unordered_map<int64_t, CacheEntry>;
     // job_id -> cache
     std::unordered_map<int64_t, Cache> _tablet_replica_cache;
+    std::unique_ptr<ThreadPool> _thread_pool;
+    std::unique_ptr<ThreadPoolToken> _thread_pool_token;
 };
 
 } // namespace doris

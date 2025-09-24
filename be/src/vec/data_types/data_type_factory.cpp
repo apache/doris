@@ -282,6 +282,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::HLL:
         nested = std::make_shared<DataTypeHLL>();
         break;
+    case PGenericType::VARBINARY:
+        nested = std::make_shared<DataTypeVarbinary>();
+        break;
     case PGenericType::LIST:
         DCHECK(pcolumn.children_size() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(pcolumn.children(0)));

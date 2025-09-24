@@ -163,6 +163,38 @@ suite("test_json_exists_path") {
         exception "Invalid Json Path for value: \$."
     }
 
+    sql """
+        drop table if exists json_exists_path_test2;
+    """
+
+    sql """
+        create table json_exists_path_test2 (
+            id int,
+            json_col json not null,
+            json_path string
+        ) distributed by hash(id) buckets 1 properties("replication_num" = "1");
+    """
+
+    sql """
+        insert into json_exists_path_test2 values
+        (1, '{"k1":"v31","k2":300}', '\$.k1'),
+        (2, '{"k1":"v31","k2":{"sub_key": 1234.56}}', null),
+        (3, '{"k1":"v31","k2": null}', '\$.k2'),
+        (4, '{"k1":"v31","k2":300}', null),
+        (5, '{"id": 123, "name": "doris"}', '\$.'),
+        (6, '{"k1":"v31","k2":300}', null),
+        (7, '{"k1":"v31","k2":{"sub_key": 1234.56}}', null);
+    """
+
+    qt_test_all_null2 """
+        select
+            id
+            , json_col
+            , json_path
+            , json_exists_path(json_col, json_path)
+        from json_exists_path_test2 where id % 2 = 0 order by id
+    """
+
     test {
         sql """
             select json_exists_path(json_col_non_null, '\$.') from json_exists_path_test where id = 5;
