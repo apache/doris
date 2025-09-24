@@ -68,14 +68,64 @@ struct TSlotDescriptor {
   11: optional i32 col_unique_id = -1
   12: optional bool is_key = false
   // If set to false, then such slots will be ignored during
-  // materialize them.Used to optmize to read less data and less memory usage
+  // materialize them.Used to optimize to read less data and less memory usage
   13: optional bool need_materialize = true
   14: optional bool is_auto_increment = false;
   // subcolumn path info list for semi structure column(variant)
+  // deprecated: will be replaced to column_access_paths
   15: optional list<string> column_paths
   16: optional string col_default_value
   17: optional Types.TPrimitiveType primitive_type = Types.TPrimitiveType.INVALID_TYPE
   18: optional Exprs.TExpr virtual_column_expr
+  19: optional TColumnAccessPaths column_access_paths
+}
+
+enum TAccessPathType {
+  NAME = 1,
+  // ICEBERG = 2 // implement in the future
+}
+
+struct TColumnNameAccessPath {
+   // the specification of special path:
+   //   <empty>: access the whole complex column
+   //   *:
+   //     1. access every items when the type is array
+   //     2. access key and value when the type is map
+   //   KEYS: only access the keys of map
+   //   VALUES: only access the keys of map
+   //
+   // example:
+   //  s: struct<
+   //    data: array<
+   //      map<
+   //        int,
+   //        struct<
+   //          a: id
+   //          b: double
+   //        >
+   //      >
+   //    >
+   //  >
+   // if we want to access `map_keys(s.data[0])`, the path will be: ['data', '*', 'KEYS'],
+   // if we want to access `map_values(s.data[0])[0].b`, the path will be: ['data', '*', 'VALUES', 'b'],
+   // if we want to access `s.data[0]['k'].b`, the path will be ['data', '*', '*', 'b']
+   // if we want to access the whole struct of s, the path will be: [],
+   1: required list<string> path
+   2: required bool is_predicate
+}
+
+/*
+// implement in the future
+struct TIcebergColumnAccessPath {
+   1: required list<i64> path
+   2: required bool is_predicate
+}
+*/
+
+struct TColumnAccessPaths {
+  1: required TAccessPathType type
+  2: optional list<TColumnNameAccessPath> name_access_paths
+  // 3: optional list<TIcebergColumnAccessPath> iceberg_column_access_paths // implement in the future
 }
 
 struct TTupleDescriptor {
