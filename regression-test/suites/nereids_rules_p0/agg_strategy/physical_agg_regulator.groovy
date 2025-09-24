@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("physical_agg_regulator_request_deriver") {
+suite("physical_agg_regulator") {
     multi_sql"""
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
-    set be_number_for_test=1;
+    set be_number_for_test=1;`
     """
     multi_sql """
     analyze table t1025_skew5000 with sample rows 7000 with sync;
@@ -30,7 +30,7 @@ suite("physical_agg_regulator_request_deriver") {
     qt_skew """explain shape plan
     select count(distinct a_1), count(distinct b_5) from t1025_skew5000 group by d_1025;"""
 
-    // TODO 这个预期应该使用cte之后shuffle
+
     multi_sql """
     analyze table t1025 with sample rows 4000 with sync;
     --drop cached stats t1025;
