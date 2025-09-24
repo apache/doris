@@ -4762,7 +4762,8 @@ public class SessionVariable implements Serializable, Writable {
                         field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        field.set(this, root.get(attr.name()));
+                        // root.get(attr.name()) always return Double type, so need to convert it.
+                        field.set(this, Double.valueOf(root.get(attr.name()).toString()));
                         break;
                     case "String":
                         field.set(this, root.get(attr.name()));

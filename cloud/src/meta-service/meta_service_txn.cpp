@@ -610,6 +610,72 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
               << " routine load new progress: " << new_progress_info.ShortDebugString();
 }
 
+void update_streaming_job_meta(MetaServiceCode& code, std::string& msg,
+                               const std::string& instance_id, const CommitTxnRequest* request,
+                               Transaction* txn, int64_t db_id) {
+    std::stringstream ss;
+    int64_t txn_id = request->txn_id();
+    if (!request->has_commit_attachment()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        ss << "missing commit attachment, db_id=" << db_id << " txn_id=" << txn_id;
+        msg = ss.str();
+        return;
+    }
+    TxnCommitAttachmentPB txn_commit_attachment = request->commit_attachment();
+    StreamingTaskCommitAttachmentPB commit_attachment =
+            txn_commit_attachment.streaming_task_txn_commit_attachment();
+    int64_t job_id = commit_attachment.job_id();
+
+    std::string streaming_job_val;
+    bool prev_existed = true;
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    TxnErrorCode err = txn->get(streaming_job_key_str, &streaming_job_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        prev_existed = false;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get streaming job, db_id=" << db_id << " txn_id=" << txn_id
+           << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    StreamingTaskCommitAttachmentPB new_job_info;
+    if (prev_existed) {
+        if (!new_job_info.ParseFromString(streaming_job_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "failed to parse streaming job meta, db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+        new_job_info.set_scanned_rows(new_job_info.scanned_rows() +
+                                      commit_attachment.scanned_rows());
+        new_job_info.set_load_bytes(new_job_info.load_bytes() + commit_attachment.load_bytes());
+        new_job_info.set_num_files(new_job_info.num_files() + commit_attachment.num_files());
+        new_job_info.set_file_bytes(new_job_info.file_bytes() + commit_attachment.file_bytes());
+    } else {
+        new_job_info.set_job_id(commit_attachment.job_id());
+        new_job_info.set_scanned_rows(commit_attachment.scanned_rows());
+        new_job_info.set_load_bytes(commit_attachment.load_bytes());
+        new_job_info.set_num_files(commit_attachment.num_files());
+        new_job_info.set_file_bytes(commit_attachment.file_bytes());
+    }
+    if (commit_attachment.has_offset()) {
+        new_job_info.set_offset(commit_attachment.offset());
+    }
+    std::string new_job_val;
+    if (!new_job_info.SerializeToString(&new_job_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        ss << "failed to serialize new streaming job val, txn_id=" << txn_id;
+        msg = ss.str();
+        return;
+    }
+
+    txn->put(streaming_job_key_str, new_job_val);
+    LOG(INFO) << "put streaming_job_key key=" << hex(streaming_job_key_str)
+              << " streaming job new meta: " << new_job_info.ShortDebugString();
+}
+
 void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
                                                 const GetRLTaskCommitAttachRequest* request,
                                                 GetRLTaskCommitAttachResponse* response,
@@ -675,6 +741,62 @@ void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcControlle
         commit_attach->set_unselected_rows(statistic_info.unselected_rows());
         commit_attach->set_received_bytes(statistic_info.received_bytes());
         commit_attach->set_task_execution_time_ms(statistic_info.task_execution_time_ms());
+    }
+}
+
+void MetaServiceImpl::get_streaming_task_commit_attach(
+        ::google::protobuf::RpcController* controller,
+        const GetStreamingTaskCommitAttachRequest* request,
+        GetStreamingTaskCommitAttachResponse* response, ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(get_streaming_task_commit_attach, get);
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    RPC_RATE_LIMIT(get_streaming_task_commit_attach)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "filed to create txn, err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    if (!request->has_db_id() || !request->has_job_id()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty db_id or job_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t db_id = request->db_id();
+    int64_t job_id = request->job_id();
+    std::string streaming_job_val;
+    std::string streaming_job_key_str = streaming_job_key({instance_id, db_id, job_id});
+    err = txn->get(streaming_job_key_str, &streaming_job_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::STREAMING_JOB_PROGRESS_NOT_FOUND;
+        ss << "progress info not found, db_id=" << db_id << " job_id=" << job_id << " err=" << err;
+        msg = ss.str();
+        return;
+    } else if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        ss << "failed to get progress info, db_id=" << db_id << " job_id=" << job_id
+           << " err=" << err;
+        msg = ss.str();
+        return;
+    }
+
+    StreamingTaskCommitAttachmentPB* commit_attach = response->mutable_commit_attach();
+    if (!commit_attach->ParseFromString(streaming_job_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        ss << "failed to parse meta info, db_id=" << db_id << " job_id=" << job_id;
+        msg = ss.str();
+        return;
     }
 }
 
@@ -1577,6 +1699,16 @@ void MetaServiceImpl::commit_txn_immediately(
             put_routine_load_progress(code, msg, instance_id, request, txn.get(), db_id);
         }
 
+        if (txn_info.load_job_source_type() ==
+            LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB) {
+            update_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update_streaming_job_meta failed, txn_id=" << txn_id
+                             << " code=" << code << " msg=" << msg;
+                return;
+            }
+        }
+
         LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key)
                   << " txn_id=" << txn_id;
         LOG(INFO) << "commit_txn put_size=" << txn->put_bytes()
@@ -1968,6 +2100,16 @@ void MetaServiceImpl::commit_txn_eventually(
         if (txn_info.load_job_source_type() ==
             LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
             put_routine_load_progress(code, msg, instance_id, request, txn.get(), db_id);
+        }
+
+        if (txn_info.load_job_source_type() ==
+            LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB) {
+            update_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update_streaming_job_meta failed, txn_id=" << txn_id
+                             << " code=" << code << " msg=" << msg;
+                return;
+            }
         }
 
         // save versions for partition

@@ -74,7 +74,6 @@ public class HdfsPropertiesUtils {
             LOG.warn("Failed to validate uri is hdfs uri, {}", ex.getMessage());
             return false;
         }
-
         String schema = uri.getScheme();
         if (StringUtils.isBlank(schema)) {
             throw new IllegalArgumentException("Invalid uri: " + uriStr + ", extract schema is null");
