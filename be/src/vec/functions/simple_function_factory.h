@@ -139,6 +139,7 @@ class SimpleFunctionFactory {
 
 public:
     void register_function(const std::string& name, const Creator& ptr) {
+        //TODO: should add check of is_variadic. or just remove is_variadic is ok?
         DataTypes types = ptr()->get_variadic_argument_types();
         // types.empty() means function is not variadic
         if (!types.empty()) {
@@ -155,7 +156,7 @@ public:
 
     template <class Function>
     void register_function() {
-        if constexpr (std::is_base_of<IFunction, Function>::value) {
+        if constexpr (std::is_base_of_v<IFunction, Function>) {
             register_function(Function::name, &createDefaultFunction<Function>);
         } else {
             register_function(Function::name, &Function::create);
@@ -242,7 +243,7 @@ private:
     void temporary_function_update(int fe_version_now, std::string& name) {
         // replace if fe is old version.
         if (fe_version_now < NEWEST_VERSION_EXPLODE_MULTI_PARAM &&
-            function_to_replace.find(name) != function_to_replace.end()) {
+            function_to_replace.contains(name)) {
             name = function_to_replace[name];
         }
     }
