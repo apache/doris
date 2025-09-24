@@ -837,10 +837,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapTable olapTable = olapScan.getTable();
         // generate real output tuple
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, olapTable, context);
+        List<SlotDescriptor> slotDescriptors = tupleDescriptor.getSlots();
 
         // put virtual column expr into slot desc
         Map<ExprId, Expression> slotToVirtualColumnMap = olapScan.getSlotToVirtualColumnMap();
-        for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
+        for (SlotDescriptor slotDescriptor : slotDescriptors) {
             ExprId exprId = context.findExprId(slotDescriptor.getId());
             if (slotToVirtualColumnMap.containsKey(exprId)) {
                 slotDescriptor.setVirtualColumn(ExpressionTranslator.translate(
@@ -910,7 +911,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             && !isComplexDataType(slot.getDataType())
                             && !StatisticConstants.isSystemTable(olapTable)
                             && !inVisibleCol) {
-                        context.addUnknownStatsColumn(olapScanNode, tupleDescriptor.getSlots().get(i).getId());
+                        context.addUnknownStatsColumn(olapScanNode, slotDescriptors.get(i).getId());
                     }
                 }
             }

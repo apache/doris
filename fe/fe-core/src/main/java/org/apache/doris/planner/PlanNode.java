@@ -518,7 +518,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return expBuilder.toString();
     }
 
-    private String getplanNodeExplainString(String prefix, TExplainLevel detailLevel) {
+    private String getPlanNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         expBuilder.append(getNodeExplainString(prefix, detailLevel));
         if (limit != -1) {
@@ -533,7 +533,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public void getExplainStringMap(TExplainLevel detailLevel, Map<Integer, String> planNodeMap) {
-        planNodeMap.put(id.asInt(), getplanNodeExplainString("", detailLevel));
+        planNodeMap.put(id.asInt(), getPlanNodeExplainString("", detailLevel));
         for (int i = 0; i < children.size(); ++i) {
             children.get(i).getExplainStringMap(detailLevel, planNodeMap);
         }

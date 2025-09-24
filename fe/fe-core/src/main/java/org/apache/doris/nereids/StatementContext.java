@@ -285,6 +285,8 @@ public class StatementContext implements Closeable {
 
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
+    private boolean hasNestedColumns;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -1016,5 +1018,13 @@ public class StatementContext implements Closeable {
     public void setMvRefreshPredicates(
             Map<TableIf, Set<Expression>> mvRefreshPredicates) {
         this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
+    }
+
+    public boolean hasNestedColumns() {
+        return hasNestedColumns;
+    }
+
+    public void setHasNestedColumns(boolean hasNestedColumns) {
+        this.hasNestedColumns = hasNestedColumns;
     }
 }

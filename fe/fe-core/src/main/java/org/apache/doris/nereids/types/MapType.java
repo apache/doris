@@ -27,7 +27,7 @@ import java.util.Objects;
  * Struct type in Nereids.
  */
 @Developing
-public class MapType extends DataType implements ComplexDataType {
+public class MapType extends DataType implements ComplexDataType, NestedColumnPrunable {
 
     public static final MapType SYSTEM_DEFAULT = new MapType();
 
