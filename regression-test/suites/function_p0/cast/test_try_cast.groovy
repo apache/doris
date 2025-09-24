@@ -49,4 +49,54 @@ suite("test_try_cast") {
     qt_sql """
         select try_cast('123' as int);
     """
+
+
+    test {
+        sql """select cast('abc' as int);"""
+        exception "fail"
+    }
+
+
+
+    test {
+        sql """select cast('[[[]]]' as array<int>);"""
+        exception "fail"
+    }
+
+    qt_sql """
+        select try_cast('[[[]]]' as array<int>);
+    """
+
+
+    test {
+        sql """select cast('{123:456}' as json);""" 
+        exception "Failed to parse json string"
+    }
+
+    qt_sql """
+        select try_cast('{123:456}' as json);
+    """
+
+
+    test {
+        sql """select cast(12345 as tinyint);"""
+        exception "Value 12345 out of range for type tinyint"
+    }
+
+    qt_sql """
+        select try_cast(12345 as tinyint);
+    """
+
+
+     test {
+        sql """select cast(array(1) as map<int,int>);"""
+        exception "can not cast from origin type ARRAY<TINYINT> to target type=MAP<INT,INT>"
+    }
+
+
+     test {
+        sql """select try_cast(array(1) as map<int,int>);"""
+        exception "can not cast from origin type ARRAY<TINYINT> to target type=MAP<INT,INT>"
+    }
+
 }
