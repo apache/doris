@@ -387,6 +387,7 @@ public:
     void clear_stream_mgr();
 
     DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
+    Status init_mem_env();
 
 private:
     ExecEnv();
@@ -396,7 +397,6 @@ private:
                                const std::set<std::string>& broken_paths);
     void _destroy();
 
-    Status _init_mem_env();
     Status _check_deploy_mode();
 
     Status _create_internal_workload_group();
