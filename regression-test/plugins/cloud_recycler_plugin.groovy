@@ -17,7 +17,21 @@
 import groovy.json.JsonOutput
 
 import org.apache.doris.regression.suite.Suite
-import org.apache.doris.regression.util.*
+
+import com.amazonaws.auth.AWSStaticCredentialsProvider
+import com.amazonaws.auth.BasicAWSCredentials
+import com.amazonaws.client.builder.AwsClientBuilder.EndpointConfiguration
+import com.amazonaws.services.s3.AmazonS3
+import com.amazonaws.services.s3.AmazonS3ClientBuilder
+import com.amazonaws.services.s3.model.ListObjectsRequest
+import com.amazonaws.services.s3.model.ObjectListing
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.FileStatus
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.LocatedFileStatus
+import org.apache.hadoop.fs.Path
+import org.apache.hadoop.fs.RemoteIterator
+import org.apache.hadoop.security.UserGroupInformation
 
 Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ ->
     // which suite invoke current function?
@@ -37,6 +51,8 @@ Suite.metaClass.triggerRecycle = { String token, String instanceId /* param */ -
             check checkFunc
         }
     }
+
+    Thread.sleep(5000)
 
     triggerRecycleApi.call(triggerRecycleJson) {
         respCode, body ->
@@ -62,29 +78,90 @@ Suite.metaClass.checkRecycleTable = { String token, String instanceId, String cl
     def getObjStoreInfoApiResult = suite.getObjStoreInfo(token, cloudUniqueId);
     suite.getLogger().info("checkRecycleTable(): getObjStoreInfoApiResult:${getObjStoreInfoApiResult}".toString())
 
-    String ak = getObjStoreInfoApiResult.result.obj_info[0].ak
-    String sk = getObjStoreInfoApiResult.result.obj_info[0].sk
-    String endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
-    String region = getObjStoreInfoApiResult.result.obj_info[0].region
-    String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
-    String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
-
-    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
-
-    assertTrue(tabletIdList.size() > 0)
-    for (tabletId : tabletIdList) {
-        suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}");
-        // def objectListing = s3Client.listObjects(
-        //     new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
-
-        // suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, objectListing:${objectListing.getObjectSummaries()}".toString())
-        if (!client.isEmpty(tableName, tabletId)) {
-            return false;
+    if (getObjStoreInfoApiResult.result.toString().contains("obj_info")) {
+        String ak, sk, endpoint, region, prefix, bucket
+        if(!getObjStoreInfoApiResult.result.toString().contains("storage_vault=[")){
+            ak = getObjStoreInfoApiResult.result.obj_info[0].ak
+            sk = getObjStoreInfoApiResult.result.obj_info[0].sk
+            endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
+            region = getObjStoreInfoApiResult.result.obj_info[0].region
+            prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
+            bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
+        }else{
+            ak = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.ak
+            sk = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.sk
+            endpoint = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.endpoint
+            region = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.region
+            prefix = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.prefix
+            bucket = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.bucket
         }
+        suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
+
+        def credentials = new BasicAWSCredentials(ak, sk)
+        def endpointConfiguration = new EndpointConfiguration(endpoint, region)
+        def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+
+        assertTrue(tabletIdList.size() > 0)
+        for (tabletId : tabletIdList) {
+            suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}");
+            def objectListing = s3Client.listObjects(
+                new ListObjectsRequest().withMaxKeys(1).withBucketName(bucket).withPrefix("${prefix}/data/${tabletId}/"))
+
+            suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, objectListing:${objectListing.getObjectSummaries()}".toString())
+            if (!objectListing.getObjectSummaries().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
+
+    suite.getLogger().info(getObjStoreInfoApiResult.result.toString())
+    if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
+        String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
+        String kbsPrincipal = ''
+        String kbsKeytab = ''
+        Boolean isKbs = false
+        if ( getObjStoreInfoApiResult.result.toString().contains("value=kerberos")) {
+            kbsPrincipal = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.hdfs_kerberos_principal
+            kbsKeytab = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.hdfs_kerberos_keytab
+            isKbs = true
+        }
+        suite.getLogger().info("fsUri:${fsUri}, prefix:${prefix}, kbsPrincipal:${kbsPrincipal}, kbsKeytab:${kbsKeytab}".toString())
+
+        assertTrue(tabletIdList.size() > 0)
+        for (tabletId : tabletIdList) {
+            suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}");
+            String hdfsPath = "/${prefix}/data/${tabletId}/"
+            Configuration configuration = new Configuration();
+            configuration.set("fs.defaultFS", fsUri);
+            configuration.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+            if (isKbs) {
+                configuration.set("hadoop.security.authentication", "kerberos")
+                UserGroupInformation.setConfiguration(configuration)
+                UserGroupInformation.loginUserFromKeytab(kbsPrincipal, kbsKeytab)
+            }
+            FileSystem fs = FileSystem.get(configuration);
+            Path path = new Path(hdfsPath);
+            suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId} hdfsPath:${hdfsPath}");
+            try {
+                RemoteIterator<LocatedFileStatus> files = fs.listFiles(path, false); // true means recursive
+                while (files.hasNext()) {
+                    LocatedFileStatus file = files.next();
+                    suite.getLogger().info("file: ${file}".toString())
+                    suite.getLogger().info("tableName: ${tableName}, tabletId:${tabletId}, file:${file}".toString())
+                    return false
+                }
+            } catch (FileNotFoundException e) {
+                continue;
+            } finally {
+                fs.close();
+            }
+        }
+        return true;
+    }
+    return false
 }
 
 logger.info("Added 'checkRecycleTable' function to Suite")
@@ -100,26 +177,76 @@ Suite.metaClass.checkRecycleInternalStage = { String token, String instanceId, S
     def getObjStoreInfoApiResult = suite.getObjStoreInfo(token, cloudUniqueId);
     suite.getLogger().info("checkRecycleTable(): getObjStoreInfoApiResult:${getObjStoreInfoApiResult}".toString())
 
-    String ak = getObjStoreInfoApiResult.result.obj_info[0].ak
-    String sk = getObjStoreInfoApiResult.result.obj_info[0].sk
-    String endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
-    String region = getObjStoreInfoApiResult.result.obj_info[0].region
-    String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
-    String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
+    if (getObjStoreInfoApiResult.result.toString().contains("obj_info")) {
+        String ak, sk, endpoint, region, prefix, bucket
+        if(!getObjStoreInfoApiResult.result.toString().contains("storage_vault=[")){
+            ak = getObjStoreInfoApiResult.result.obj_info[0].ak
+            sk = getObjStoreInfoApiResult.result.obj_info[0].sk
+            endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
+            region = getObjStoreInfoApiResult.result.obj_info[0].region
+            prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
+            bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
+        }else{
+            ak = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.ak
+            sk = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.sk
+            endpoint = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.endpoint
+            region = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.region
+            prefix = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.prefix
+            bucket = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.bucket
+        }
+        suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
 
-    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
+        def credentials = new BasicAWSCredentials(ak, sk)
+        def endpointConfiguration = new EndpointConfiguration(endpoint, region)
+        def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
 
-    // for root and admin, userId equal userName
-    String userName = suite.context.config.jdbcUser;
-    String userId = suite.context.config.jdbcUser;
+        // for root and admin, userId equal userName
+        String userName = suite.context.config.jdbcUser;
+        String userId = suite.context.config.jdbcUser;
+        def objectListing = s3Client.listObjects(
+            new ListObjectsRequest().withMaxKeys(1)
+                .withBucketName(bucket)
+                .withPrefix("${prefix}/stage/${userName}/${userId}/${fileName}"))
 
-    if (!client.isEmpty(userName, userId, fileName)) {
-        return false;
+        suite.getLogger().info("${prefix}/stage/${userName}/${userId}/${fileName}, objectListing:${objectListing.getObjectSummaries()}".toString())
+        if (!objectListing.getObjectSummaries().isEmpty()) {
+            return false;
+        }
+        return true;
     }
 
-    return true;
+    if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
+        String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
+        // for root and admin, userId equal userName
+        String userName = suite.context.config.jdbcUser;
+        String userId = suite.context.config.jdbcUser;
+
+        String hdfsPath = "/${prefix}/stage/${userName}/${userId}/${fileName}"
+        suite.getLogger().info(":${fsUri}|${hdfsPath}".toString())
+        Configuration configuration = new Configuration();
+        configuration.set("fs.defaultFS", fsUri);
+        configuration.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        FileSystem fs = FileSystem.get(configuration);
+        Path path = new Path(hdfsPath);
+        try {
+            RemoteIterator<LocatedFileStatus> files = fs.listFiles(path, false); // true means recursive
+            while (files.hasNext()) {
+                LocatedFileStatus file = files.next();
+                suite.getLogger().info("file exist: ${file}".toString())
+                return false
+            }
+        } catch (FileNotFoundException e) {
+            return true;
+        } finally {
+            fs.close();
+        }
+
+        return true;
+    }
+
+    return false
 }
 logger.info("Added 'checkRecycleInternalStage' function to Suite")
 
@@ -133,33 +260,99 @@ Suite.metaClass.checkRecycleExpiredStageObjects = { String token, String instanc
     def getObjStoreInfoApiResult = suite.getObjStoreInfo(token, cloudUniqueId);
     suite.getLogger().info("checkRecycleExpiredStageObjects(): getObjStoreInfoApiResult:${getObjStoreInfoApiResult}".toString())
 
-    String ak = getObjStoreInfoApiResult.result.obj_info[0].ak
-    String sk = getObjStoreInfoApiResult.result.obj_info[0].sk
-    String endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
-    String region = getObjStoreInfoApiResult.result.obj_info[0].region
-    String prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
-    String bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
-    String provider = getObjStoreInfoApiResult.result.obj_info[0].provider
-    suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}, provider:${provider}".toString())
-
-    ListObjectsFileNames client = ListObjectsFileNamesUtil.getListObjectsFileNames(provider, ak, sk, endpoint, region, prefix, bucket, suite)
-
-    // for root and admin, userId equal userName
-    String userName = suite.context.config.jdbcUser;
-    String userId = suite.context.config.jdbcUser;
-
-    Set<String> fileNames = client.listObjects(userName, userId)
-    for(def f : nonExistFileNames) {
-        if (fileNames.contains(f)) {
-            return false
+    if (getObjStoreInfoApiResult.result.toString().contains("obj_info")) {
+        String ak, sk, endpoint, region, prefix, bucket
+        if(!getObjStoreInfoApiResult.result.toString().contains("storage_vault=[")){
+            ak = getObjStoreInfoApiResult.result.obj_info[0].ak
+            sk = getObjStoreInfoApiResult.result.obj_info[0].sk
+            endpoint = getObjStoreInfoApiResult.result.obj_info[0].endpoint
+            region = getObjStoreInfoApiResult.result.obj_info[0].region
+            prefix = getObjStoreInfoApiResult.result.obj_info[0].prefix
+            bucket = getObjStoreInfoApiResult.result.obj_info[0].bucket
+        }else{
+            ak = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.ak
+            sk = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.sk
+            endpoint = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.endpoint
+            region = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.region
+            prefix = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.prefix
+            bucket = getObjStoreInfoApiResult.result.storage_vault[0].obj_info.bucket
         }
-    }
-    for(def f : existFileNames) {
-        if (!fileNames.contains(f)) {
-            return false
+        suite.getLogger().info("ak:${ak}, sk:${sk}, endpoint:${endpoint}, prefix:${prefix}".toString())
+
+        def credentials = new BasicAWSCredentials(ak, sk)
+        def endpointConfiguration = new EndpointConfiguration(endpoint, region)
+        def s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
+                .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+
+        // for root and admin, userId equal userName
+        String userName = suite.context.config.jdbcUser;
+        String userId = suite.context.config.jdbcUser;
+        def objectListing = s3Client.listObjects(
+                new ListObjectsRequest()
+                        .withBucketName(bucket)
+                        .withPrefix("${prefix}/stage/${userName}/${userId}/"))
+
+        suite.getLogger().info("${prefix}/stage/${userName}/${userId}/, objectListing:${objectListing.getObjectSummaries()}".toString())
+        Set<String> fileNames = new HashSet<>()
+        for (def os: objectListing.getObjectSummaries()) {
+            def split = os.key.split("/")
+            if (split.length <= 0 ) {
+                continue
+            }
+            fileNames.add(split[split.length-1])
         }
+        for(def f : nonExistFileNames) {
+            if (fileNames.contains(f)) {
+                return false
+            }
+        }
+        for(def f : existFileNames) {
+            if (!fileNames.contains(f)) {
+                return false
+            }
+        }
+        return true
+    } else if (getObjStoreInfoApiResult.result.toString().contains("storage_vault=[") && getObjStoreInfoApiResult.result.toString().contains("hdfs_info")) {
+        String userName = suite.context.config.jdbcUser;
+        String userId = suite.context.config.jdbcUser;
+        String fsUri = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.fs_name
+        String prefix = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.prefix
+        String hdfsPath = "/${prefix}/stage/${userName}/${userId}/"
+        String username = getObjStoreInfoApiResult.result.storage_vault[0].hdfs_info.build_conf.user
+    
+        logger.info(":${fsUri}|${hdfsPath}".toString())
+        Configuration configuration = new Configuration();
+        configuration.set("fs.defaultFS", fsUri);
+        configuration.set("fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem");
+        configuration.set("hadoop.username", username);
+        FileSystem fs = FileSystem.get(configuration);
+        Path path = new Path(hdfsPath);
+        Set<String> fileNames = new HashSet<>();
+        if (fs.exists(path)) {
+            FileStatus[] fileStatuses = fs.listStatus(path);
+            for (FileStatus status : fileStatuses) {
+                String fileName = status.getPath().getName();
+                fileNames.add(fileName);
+            }
+        }
+        suite.getLogger().info("hdfsPath:${hdfsPath}, files:${fileNames}".toString())
+
+        for(def f : nonExistFileNames) {
+            if (fileNames.contains(f)) {
+                return false
+            }
+        }
+        for(def f : existFileNames) {
+            if (!fileNames.contains(f)) {
+                return false
+            }
+        }
+        fs.close()
+        return true
+    } else {
+        assertTrue(false)
     }
-    return true
+    return false
 }
 logger.info("Added 'checkRecycleExpiredStageObjects' function to Suite")
 
