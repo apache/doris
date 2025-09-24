@@ -283,7 +283,7 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
     return Status::OK();
 }
 
-std::string RuntimeFilterMgr::debug_string() const {
+std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Merger Info:\n";
     std::lock_guard l(_lock);
     for (const auto& [filter_id, merger] : _local_merge_map) {
