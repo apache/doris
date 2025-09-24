@@ -73,8 +73,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     public:
         MockMetaService(std::shared_ptr<TxnKv> txn_kv,
                         std::shared_ptr<ResourceManager> resource_mgr,
-                        std::shared_ptr<RateLimiter> rate_controller)
-                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller) {}
+                        std::shared_ptr<RateLimiter> rate_controller,
+                        std::shared_ptr<SnapshotManager> snapshot_mgr)
+                : MetaServiceImpl(txn_kv, resource_mgr, rate_controller, snapshot_mgr) {}
         ~MockMetaService() override = default;
 
         void alter_instance(google::protobuf::RpcController* controller,
@@ -104,7 +105,9 @@ TEST(MetaServerTest, FQDNRefreshInstance) {
     std::shared_ptr<cloud::TxnKv> txn_kv = std::make_shared<cloud::MemTxnKv>();
     auto resource_mgr = std::make_shared<MockResourceManager>(txn_kv);
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
-    auto mock_service = std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter);
+    auto snapshot_mgr = std::make_shared<cloud::SnapshotManager>(txn_kv);
+    auto mock_service =
+            std::make_unique<MockMetaService>(txn_kv, resource_mgr, rate_limiter, snapshot_mgr);
     MockMetaService* mock_service_ptr = mock_service.get();
     MetaServiceProxy meta_service(std::move(mock_service));
 

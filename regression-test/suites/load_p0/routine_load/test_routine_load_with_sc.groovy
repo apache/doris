@@ -101,6 +101,7 @@ suite("test_routine_load_with_sc","p0") {
                 COLUMNS TERMINATED BY ","
                 PROPERTIES
                 (
+                    "strict_mode" = "true",
                     "max_batch_interval" = "5",
                     "max_batch_rows" = "300000",
                     "max_batch_size" = "209715200"

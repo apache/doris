@@ -1,3 +1,5 @@
+import java.time.LocalDateTime
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -32,7 +34,7 @@ suite("fold_constant_by_be") {
                 curdate(),
                 DATE_FORMAT(DATE_SUB(month_ceil(CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'))
         '''
-        result([['9999-07-31']])
+        result([["9999-07-31"]])
     }
 
     sql """

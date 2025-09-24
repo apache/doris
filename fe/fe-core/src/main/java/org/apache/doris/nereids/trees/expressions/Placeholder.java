@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StringType;
 
 import java.util.Optional;
 
@@ -78,7 +78,7 @@ public class Placeholder extends Expression implements LeafExpression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        return NullType.INSTANCE;
+        return StringType.INSTANCE;
     }
 
     public Placeholder withNewMysqlColType(int mysqlTypeCode) {

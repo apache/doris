@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.io.FileType
+import java.nio.file.Files
+import java.nio.file.Paths
+
 suite("test_conditional_function") {
     sql "set batch_size = 4096;"
 
@@ -82,7 +86,7 @@ suite("test_conditional_function") {
 
     qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m'));"
 
-    qt_sql "select ifnull( user_id, to_date('9999-01-01')) r from ${tbName} order by r"
+    qt_sql "select ifnull( user_id, '9999') r from ${tbName} order by r"
 
     qt_sql "select ifnull( user_id, 999) r from ${tbName} order by r"
 
@@ -91,62 +95,6 @@ suite("test_conditional_function") {
 
     qt_if_false_then_nullable """select IF(false, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
     qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
-
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set enable_nereids_planner=true'
-
-    qt_sql "select user_id, case user_id when 1 then 'user_id = 1' when 2 then 'user_id = 2' else 'user_id not exist' end test_case from ${tbName} order by user_id;"
-    qt_sql "select user_id, case when user_id = 1 then 'user_id = 1' when user_id = 2 then 'user_id = 2' else 'user_id not exist' end test_case from ${tbName} order by user_id;"
-
-    qt_sql "select user_id, if(user_id = 1, \"true\", \"false\") test_if from ${tbName} order by user_id;"
-
-    qt_sql "select coalesce(NULL, '1111', '0000');"
-
-    qt_sql "select ifnull(1,0);"
-    qt_sql "select ifnull(null,10);"
-    qt_sql "select ifnull(1,user_id) from ${tbName} order by user_id;"
-    qt_sql "select ifnull(user_id,1) from ${tbName} order by user_id;"
-    qt_sql "select ifnull(null,user_id) from ${tbName} order by user_id;"
-    qt_sql "select ifnull(user_id,null) from ${tbName} order by user_id;"
-
-    qt_sql "select nullif(1,1);"
-    qt_sql "select nullif(1,0);"
-    qt_sql "select nullif(1,user_id) from ${tbName} order by user_id;"
-    qt_sql "select nullif(user_id,1) from ${tbName} order by user_id;"
-    qt_sql "select nullif(null,user_id) from ${tbName} order by user_id;"
-    qt_sql "select nullif(user_id,null) from ${tbName} order by user_id;"
-
-
-    qt_sql "select nullif(1,1);"
-    qt_sql "select nullif(1,0);"
-
-
-    qt_sql "select is_null_pred(user_id) from ${tbName} order by user_id"
-    qt_sql "select is_not_null_pred(user_id) from ${tbName} order by user_id"
-
-    qt_sql """select if(date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m')= DATE_FORMAT( curdate(), '%Y-%m'),
-	        curdate(),
-	        DATE_FORMAT(DATE_SUB(month_ceil ( CONCAT_WS('', '9999-07', '-26')), 1), '%Y-%m-%d'));"""
-
-    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),3);"
-
-    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-01'), '%Y-%m'),3);"
-
-    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'));"
-
-    qt_sql "select ifnull(date_format(CONCAT_WS('', '9999-07', '-00'), '%Y-%m'),date_format(CONCAT_WS('', '9999-07', '-26'), '%Y-%m'));"
-
-    qt_sql "select ifnull( user_id, to_date('9999-01-01')) r from ${tbName} order by r"
-
-    qt_sql "select ifnull( user_id, 999) r from ${tbName} order by r"
-
-    qt_if_true_then_nullable """select IF(true, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
-    qt_if_true_else_nullable """select IF(true, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
-
-    qt_if_false_then_nullable """select IF(false, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
-    qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
-
-    qt_sql "select date_add('9999-08-01 00:00:00',1);"
 
     sql "DROP TABLE ${tbName};"
 
@@ -172,7 +120,7 @@ suite("test_conditional_function") {
     """
     sql """
     insert into t1 values
-    (1, null, '2023-01-02', '2023-01-01 00:00:00', '2023-01-02 00:00:00',2222222222222222222222222222222222222222222222222222222222222222222222,3333333333333333333333333333333333333333333333333333333333333333333333),(2, '2023-02-01', null, '2023-02-01 00:00:00', '2023-02-02 00:00:00', null,5555555555555555555555555555555555555555555555555555555555555555555555),(3, '2023-03-01', '2023-03-02', null, '2023-03-02 00:00:00', null,666666666666666666666666666666666666666666666666)
+    (1, null, '2023-01-02', '2023-01-01 00:00:00', '2023-01-02 00:00:00','2222222222222222222222222222222222222222222222222222222222222222222222','3333333333333333333333333333333333333333333333333333333333333333333333'),(2, '2023-02-01', null, '2023-02-01 00:00:00', '2023-02-02 00:00:00', null,'5555555555555555555555555555555555555555555555555555555555555555555555'),(3, '2023-03-01', '2023-03-02', null, '2023-03-02 00:00:00', null,'666666666666666666666666666666666666666666666666')
     """
     sql """
     insert into t2 select k1, array_agg(k4) from t1 group by k1;
@@ -262,5 +210,129 @@ insert into table_50_undef_partitions2_keys3_properties4_distributed_by54(pk,col
     """
     qt_test """
 SELECT TO_DATE ( table1 . `col_date_undef_signed_not_null` ) AS field1, MAX( distinct table1 . `col_int_undef_signed_not_null` ) AS field2, ( TO_DATE (CASE table1 . col_date_undef_signed_not_null WHEN table1 . col_date_undef_signed_not_null THEN DATE_ADD( table1 . `col_date_undef_signed_not_null` , INTERVAL 3 YEAR ) WHEN table1 . col_date_undef_signed THEN '2024-01-31' WHEN '2025-02-18' THEN '2024-02-18' WHEN '2008-09-25' THEN DATE_SUB( table1 . `col_date_undef_signed` , INTERVAL 7 DAY ) ELSE DATE_ADD( table1 . `col_date_undef_signed_not_null` , INTERVAL 2 DAY ) END)) AS field3, COUNT( distinct TO_DATE (ifnull( table1 . `col_date_undef_signed_not_null` , table1 . `col_date_undef_signed_not_null` )) ) AS field4, table1 . col_int_undef_signed AS field5, MIN( distinct table1 . `col_int_undef_signed` ) AS field6 FROM table_50_undef_partitions2_keys3_properties4_distributed_by54 AS table1 INNER JOIN table_50_undef_partitions2_keys3_properties4_distributed_by54 AS table2 ON ( table2 . `col_date_undef_signed` = table1 . `col_date_undef_signed` ) RIGHT JOIN table_200_undef_partitions2_keys3_properties4_distributed_by5 AS table3 ON ( table3 . `col_date_undef_signed` = table2 . `col_date_undef_signed` ) WHERE  ( table2 . `col_int_undef_signed` != 4 )  GROUP BY field1,field3,field5  ORDER BY field1,field3,field5 LIMIT 1000 OFFSET 9; 
+    """
+
+    sql "drop table if exists table_800_undef_partitions2_keys3_properties4_distributed_by524;"
+    sql """
+create table table_800_undef_partitions2_keys3_properties4_distributed_by524 (
+pk int,
+col_int_undef_signed_index_inverted int  null  ,
+col_date_undef_signed_not_null date  not null  ,
+col_varchar_1024__undef_signed varchar(1024)  null  ,
+col_boolean_undef_signed boolean  null  ,
+col_boolean_undef_signed_not_null boolean  not null  ,
+col_tinyint_undef_signed tinyint  null  ,
+col_tinyint_undef_signed_index_inverted tinyint  null  ,
+col_tinyint_undef_signed_not_null tinyint  not null  ,
+col_tinyint_undef_signed_not_null_index_inverted tinyint  not null  ,
+col_smallint_undef_signed smallint  null  ,
+col_smallint_undef_signed_index_inverted smallint  null  ,
+col_smallint_undef_signed_not_null smallint  not null  ,
+col_smallint_undef_signed_not_null_index_inverted smallint  not null  ,
+col_int_undef_signed int  null  ,
+col_int_undef_signed_not_null int  not null  ,
+col_int_undef_signed_not_null_index_inverted int  not null  ,
+col_bigint_undef_signed bigint  null  ,
+col_bigint_undef_signed_index_inverted bigint  null  ,
+col_bigint_undef_signed_not_null bigint  not null  ,
+col_bigint_undef_signed_not_null_index_inverted bigint  not null  ,
+col_decimal_16__8__undef_signed decimal(16, 8)  null  ,
+col_decimal_16__8__undef_signed_index_inverted decimal(16, 8)  null  ,
+col_decimal_16__8__undef_signed_not_null decimal(16, 8)  not null  ,
+col_decimal_16__8__undef_signed_not_null_index_inverted decimal(16, 8)  not null  ,
+col_decimal_38__9__undef_signed decimal(38, 9)  null  ,
+col_decimal_38__9__undef_signed_index_inverted decimal(38, 9)  null  ,
+col_decimal_38__9__undef_signed_not_null decimal(38, 9)  not null  ,
+col_decimal_38__9__undef_signed_not_null_index_inverted decimal(38, 9)  not null  ,
+col_decimal_38__30__undef_signed decimal(38, 30)  null  ,
+col_decimal_38__30__undef_signed_index_inverted decimal(38, 30)  null  ,
+col_decimal_38__30__undef_signed_not_null decimal(38, 30)  not null  ,
+col_decimal_38__30__undef_signed_not_null_index_inverted decimal(38, 30)  not null  ,
+col_date_undef_signed date  null  ,
+col_date_undef_signed_index_inverted date  null  ,
+col_date_undef_signed_not_null_index_inverted date  not null  ,
+col_datetime_undef_signed datetime  null  ,
+col_datetime_undef_signed_index_inverted datetime  null  ,
+col_datetime_undef_signed_not_null datetime  not null  ,
+col_datetime_undef_signed_not_null_index_inverted datetime  not null  ,
+col_datetime_3__undef_signed datetime(3)  null  ,
+col_datetime_3__undef_signed_index_inverted datetime(3)  null  ,
+col_datetime_3__undef_signed_not_null datetime(3)  not null  ,
+col_datetime_3__undef_signed_not_null_index_inverted datetime(3)  not null  ,
+col_datetime_6__undef_signed datetime(6)  null  ,
+col_datetime_6__undef_signed_index_inverted datetime(6)  null  ,
+col_datetime_6__undef_signed_not_null datetime(6)  not null  ,
+col_datetime_6__undef_signed_not_null_index_inverted datetime(6)  not null  ,
+col_char_255__undef_signed char(255)  null  ,
+col_char_255__undef_signed_index_inverted char(255)  null  ,
+col_char_255__undef_signed_index_inverted_p_e char(255)  null  ,
+col_char_255__undef_signed_index_inverted_p_u char(255)  null  ,
+col_char_255__undef_signed_not_null char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted_p_e char(255)  not null  ,
+col_char_255__undef_signed_not_null_index_inverted_p_u char(255)  not null  ,
+col_varchar_1024__undef_signed_index_inverted varchar(1024)  null  ,
+col_varchar_1024__undef_signed_index_inverted_p_e varchar(1024)  null  ,
+col_varchar_1024__undef_signed_index_inverted_p_u varchar(1024)  null  ,
+col_varchar_1024__undef_signed_not_null varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted_p_e varchar(1024)  not null  ,
+col_varchar_1024__undef_signed_not_null_index_inverted_p_u varchar(1024)  not null  ,
+INDEX col_tinyint_undef_signed_index_inverted_idx (`col_tinyint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_tinyint_undef_signed_not_null_index_inverted_idx (`col_tinyint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_smallint_undef_signed_index_inverted_idx (`col_smallint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_smallint_undef_signed_not_null_index_inverted_idx (`col_smallint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_int_undef_signed_index_inverted_idx (`col_int_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_int_undef_signed_not_null_index_inverted_idx (`col_int_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_bigint_undef_signed_index_inverted_idx (`col_bigint_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_bigint_undef_signed_not_null_index_inverted_idx (`col_bigint_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_16__8__undef_signed_index_inverted_idx (`col_decimal_16__8__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_16__8__undef_signed_not_null_index_inverted_idx (`col_decimal_16__8__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__9__undef_signed_index_inverted_idx (`col_decimal_38__9__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__9__undef_signed_not_null_index_inverted_idx (`col_decimal_38__9__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__30__undef_signed_index_inverted_idx (`col_decimal_38__30__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_decimal_38__30__undef_signed_not_null_index_inverted_idx (`col_decimal_38__30__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_date_undef_signed_index_inverted_idx (`col_date_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_date_undef_signed_not_null_index_inverted_idx (`col_date_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_undef_signed_index_inverted_idx (`col_datetime_undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_undef_signed_not_null_index_inverted_idx (`col_datetime_undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_3__undef_signed_index_inverted_idx (`col_datetime_3__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_3__undef_signed_not_null_index_inverted_idx (`col_datetime_3__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_datetime_6__undef_signed_index_inverted_idx (`col_datetime_6__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_datetime_6__undef_signed_not_null_index_inverted_idx (`col_datetime_6__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_index_inverted_idx (`col_char_255__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_index_inverted_p_e_idx (`col_char_255__undef_signed_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_char_255__undef_signed_index_inverted_p_u_idx (`col_char_255__undef_signed_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_char_255__undef_signed_not_null_index_inverted_idx (`col_char_255__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_char_255__undef_signed_not_null_index_inverted_p_e_idx (`col_char_255__undef_signed_not_null_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_char_255__undef_signed_not_null_index_inverted_p_u_idx (`col_char_255__undef_signed_not_null_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_varchar_1024__undef_signed_index_inverted_idx (`col_varchar_1024__undef_signed_index_inverted`) USING INVERTED,
+INDEX col_varchar_1024__undef_signed_index_inverted_p_e_idx (`col_varchar_1024__undef_signed_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_varchar_1024__undef_signed_index_inverted_p_u_idx (`col_varchar_1024__undef_signed_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode"),
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_idx (`col_varchar_1024__undef_signed_not_null_index_inverted`) USING INVERTED,
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_e_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english"),
+INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_u_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode")
+) engine=olap
+UNIQUE KEY(pk, col_int_undef_signed_index_inverted, col_date_undef_signed_not_null, col_varchar_1024__undef_signed)
+distributed by hash(pk) buckets 10
+properties("bloom_filter_columns" = "col_int_undef_signed, col_int_undef_signed_not_null, col_date_undef_signed_not_null, col_varchar_1024__undef_signed, col_varchar_1024__undef_signed_not_null", "replication_num" = "1");
+    """
+    def sqlFile = new File(context.file.parent+'/data.txt')
+    sql """$sqlFile.text"""
+
+    qt_test """
+SELECT
+    col_date_undef_signed
+FROM
+    table_800_undef_partitions2_keys3_properties4_distributed_by524
+where
+    (
+        case
+            col_date_undef_signed
+            when "2024-01-09" then 1
+            when "2023-12-10" then 2
+            else 0
+        end
+    ) = 1;
     """
 }

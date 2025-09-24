@@ -30,6 +30,7 @@
 
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris {
 class RowsetMetaCloudPB;
@@ -118,12 +119,20 @@ public:
     // Return 0 if success, otherwise error
     int do_version_key_check();
 
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak or loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_meta_rowset_key_check();
+
+    int do_snapshots_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
     int get_bucket_lifecycle(int64_t* lifecycle_days);
     void stop() { stopped_.store(true, std::memory_order_release); }
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
+    std::string_view instance_id() const { return instance_id_; }
 
 private:
     struct RowsetIndexesFormatV1 {
@@ -186,6 +195,19 @@ private:
 
     int check_txn_running_key(std::string_view key, std::string_view value);
 
+    // Only check whether the meta rowset key is leak
+    // in do_inverted_check() function, check whether the key is lost by comparing data file with key
+    // Return 0 if success.
+    // Return 1 if meta rowset key leak is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_rowset_key(std::string_view key, std::string_view value);
+
+    // if TxnInfoKey's finish time > current time, it should not find tmp rowset
+    // Return 0 if success.
+    // Return 1 if meta tmp rowset key is abnormal.
+    // Return negative if a temporary error occurred during the check process.
+    int check_meta_tmp_rowset_key(std::string_view key, std::string_view value);
+
     /**
      * It is used to scan the key in the range from start_key to end_key 
      * and then perform handle operations on each group of kv
@@ -198,11 +220,16 @@ private:
     int scan_and_handle_kv(std::string& start_key, const std::string& end_key,
                            std::function<int(std::string_view, std::string_view)> handle_kv);
 
+    StorageVaultAccessor* get_accessor(const std::string& id);
+
+    void get_all_accessor(std::vector<StorageVaultAccessor*>* accessors);
+
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
     std::string instance_id_;
     // id -> accessor
     std::unordered_map<std::string, std::shared_ptr<StorageVaultAccessor>> accessor_map_;
+    std::shared_ptr<SnapshotManager> snapshot_manager_;
 };
 
 } // namespace doris::cloud

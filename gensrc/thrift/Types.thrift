@@ -101,6 +101,7 @@ enum TPrimitiveType {
   UINT32 = 40, // only used in BE to represent offsets
   UINT64 = 41,  // only used in BE to represent offsets
   FIXED_LENGTH_OBJECT = 42 // only used in BE to represent fixed-length object
+  VARBINARY = 43 // represent varbinary type
 }
 
 enum TTypeNodeType {
@@ -682,13 +683,6 @@ struct TReplicaInfo {
 struct TResourceInfo {
     1: required string user
     2: required string group
-}
-
-enum TExportState {
-    RUNNING = 0,
-    FINISHED = 1,
-    CANCELLED = 2,
-    UNKNOWN = 3
 }
 
 enum TFileType {

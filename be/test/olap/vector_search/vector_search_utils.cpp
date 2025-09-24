@@ -265,6 +265,16 @@ float get_radius_from_matrix(const float* vector, int dim,
 
 std::pair<std::unique_ptr<MockTabletIndex>, std::shared_ptr<segment_v2::AnnIndexReader>>
 create_tmp_ann_index_reader(std::map<std::string, std::string> properties) {
+    // Ensure required properties exist for tests
+    if (properties.find("index_type") == properties.end()) {
+        properties["index_type"] = "hnsw";
+    }
+    if (properties.find("metric_type") == properties.end()) {
+        properties["metric_type"] = "l2_distance";
+    }
+    if (properties.find("dim") == properties.end()) {
+        properties["dim"] = "4"; // default small dimension for tests
+    }
     auto mock_tablet_index = std::make_unique<MockTabletIndex>();
     mock_tablet_index->_properties = properties;
     auto mock_index_file_reader = std::make_shared<MockIndexFileReader>();

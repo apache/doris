@@ -110,15 +110,6 @@ void register_suites() {
         sp->set_call_back("VOlapTableSink::close",
                           [](auto&&) { std::this_thread::sleep_for(std::chrono::seconds(5)); });
     });
-    // curl be_ip:http_port/api/injection_point/apply_suite?name=test_ttl_lru_evict'
-    suite_map.emplace("test_ttl_lru_evict", [] {
-        auto* sp = SyncPoint::get_instance();
-        sp->set_call_back("BlockFileCache::change_limit1", [](auto&& args) {
-            LOG(INFO) << "BlockFileCache::change_limit1";
-            auto* limit = try_any_cast<size_t*>(args[0]);
-            *limit = 1;
-        });
-    });
     suite_map.emplace("test_file_segment_cache_corruption", [] {
         auto* sp = SyncPoint::get_instance();
         sp->set_call_back("Segment::open:corruption", [](auto&& args) {

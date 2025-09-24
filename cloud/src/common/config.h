@@ -118,6 +118,7 @@ CONF_mInt64(recycle_task_threshold_seconds, "10800"); // 3h
 CONF_Bool(force_immediate_recycle, "false");
 
 CONF_mBool(enable_mow_job_key_check, "false");
+
 CONF_mBool(enable_restore_job_check, "false");
 
 CONF_mBool(enable_tablet_stats_key_check, "false");
@@ -125,6 +126,9 @@ CONF_mBool(enable_txn_key_check, "false");
 
 CONF_mBool(enable_meta_key_check, "false");
 CONF_mBool(enable_version_key_check, "false");
+CONF_mBool(enable_meta_rowset_key_check, "false");
+CONF_mBool(enable_snapshot_check, "false");
+
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
 CONF_String(test_s3_ak, "");
@@ -357,5 +361,9 @@ CONF_Bool(enable_check_fe_drop_in_safe_time, "true");
 
 CONF_Bool(enable_logging_for_single_version_reading, "false");
 CONF_mBool(enable_logging_conflict_keys, "false");
+
+// The time after which an aborted snapshot can be recycled, in seconds.
+// Default is 1 hour (3600 seconds).
+CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 
 } // namespace doris::cloud::config

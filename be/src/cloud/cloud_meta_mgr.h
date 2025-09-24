@@ -161,6 +161,11 @@ public:
                                         RowsetMetaSharedPtr prev_rowset_meta,
                                         RowsetSharedPtr* rowset);
 
+    Status list_snapshot(std::vector<SnapshotInfoPB>& snapshots);
+    Status get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                   int64_t& max_reserved_snapshots,
+                                   int64_t& snapshot_interval_seconds);
+
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
                                             std::ranges::range auto&& rs_metas,
@@ -181,9 +186,14 @@ private:
     Status _check_delete_bitmap_v2_correctness(CloudTablet* tablet, GetRowsetRequest& req,
                                                GetRowsetResponse& resp, int64_t old_max_version);
 
-    void check_table_size_correctness(RowsetMeta& rs_meta);
-    int64_t get_segment_file_size(RowsetMeta& rs_meta);
-    int64_t get_inverted_index_file_size(RowsetMeta& rs_meta);
+    Status _get_delete_bitmap_from_ms(GetDeleteBitmapRequest& req, GetDeleteBitmapResponse& res);
+    Status _get_delete_bitmap_from_ms_by_batch(GetDeleteBitmapRequest& req,
+                                               GetDeleteBitmapResponse& res,
+                                               int64_t bytes_threadhold);
+
+    void check_table_size_correctness(const RowsetMeta& rs_meta);
+    int64_t get_segment_file_size(const RowsetMeta& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
 };
 
 } // namespace cloud
