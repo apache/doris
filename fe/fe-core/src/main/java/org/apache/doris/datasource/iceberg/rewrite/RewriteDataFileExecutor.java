@@ -28,25 +28,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
 /**
- * Executor for rewriting Iceberg data files.
- * This class is responsible for executing individual RewriteDataGroup:
- * 1. Initialize insert statement and prepared execution context
- * 2. Execute rewrite for individual RewriteDataGroup
- * 3. Collect execution statistics
+ * Executes INSERT-SELECT statements for Iceberg data file rewriting.
  * 
- * Performance Optimizations:
- * - Pre-parses SQL statement once during initialization
- * - Reuses parsed StatementBase, LogicalPlan, and InsertIntoTableCommand across
- * all groups
- * - Avoids repeated SQL parsing and validation for each group execution
- * - Caches SessionVariable to avoid repeated context access
+ * Execution Flow:
+ * 1. initialize() - Prepare SQL template and parse INSERT INTO ... SELECT statement once
+ * 2. executeGroup() - Execute rewrite for each file group using pre-parsed components
+ * 3. Collect execution statistics and return results
+ * 
+ * The executor generates SQL: INSERT INTO catalog.db.table SELECT * FROM catalog.db.table
+ * and customizes the scan to target specific files in each RewriteDataGroup.
  */
 public class RewriteDataFileExecutor {
     private static final Logger LOG = LogManager.getLogger(RewriteDataFileExecutor.class);
@@ -55,10 +51,6 @@ public class RewriteDataFileExecutor {
     private static final String REWRITE_SQL_TEMPLATE = "INSERT INTO %s.%s.%s SELECT * FROM %s.%s.%s";
 
     private final IcebergExternalTable dorisTable;
-    @SuppressWarnings("unused") // Will be used in future implementation
-    private final Table icebergTable;
-    @SuppressWarnings("unused") // Will be used in future implementation
-    private final RewriteParameters parameters;
     private final ConnectContext connectContext;
 
     // Pre-prepared execution context
@@ -71,12 +63,8 @@ public class RewriteDataFileExecutor {
     private InsertIntoTableCommand insertCmd;
 
     public RewriteDataFileExecutor(IcebergExternalTable dorisTable,
-            Table icebergTable,
-            RewriteParameters parameters,
             ConnectContext connectContext) {
         this.dorisTable = dorisTable;
-        this.icebergTable = icebergTable;
-        this.parameters = parameters;
         this.connectContext = connectContext;
     }
 

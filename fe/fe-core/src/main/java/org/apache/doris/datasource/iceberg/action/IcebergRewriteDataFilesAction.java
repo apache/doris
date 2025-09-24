@@ -42,9 +42,13 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Iceberg rewrite data files action implementation.
- * This action rewrites data files in Iceberg tables to optimize file sizes
- * and improve query performance.
+ * Action for rewriting Iceberg data files by executing INSERT-SELECT operations.
+ *
+ * Execution Flow:
+ * 1. Validate rewrite parameters and get Iceberg table
+ * 2. Use RewriteDataFileManager to scan files and organize them into groups
+ * 3. Create RewriteDataFileExecutor to execute rewrite for each group
+ * 4. Collect and return execution results including statistics
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);
@@ -188,7 +192,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
             // Step 2: Initialize executor for rewrite operations
             RewriteDataFileExecutor executor = new RewriteDataFileExecutor(
-                    this.icebergTable, icebergTable, parameters, connectContext);
+                            this.icebergTable, connectContext);
             executor.initialize();
 
             // Step 3: Execute rewrite for each group
