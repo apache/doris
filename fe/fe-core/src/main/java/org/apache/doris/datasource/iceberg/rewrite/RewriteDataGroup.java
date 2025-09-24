@@ -94,9 +94,9 @@ public class RewriteDataGroup {
 
     @Override
     public String toString() {
-        return "RewriteDataGroup{" +
-                "taskCount=" + tasks.size() +
-                ", totalSize=" + totalSize +
-                '}';
+        return "RewriteDataGroup{"
+                + "taskCount=" + tasks.size()
+                + ", totalSize=" + totalSize
+                + '}';
     }
 }

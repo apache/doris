@@ -115,12 +115,12 @@ public class IcebergTransaction implements Transaction {
     public void beginRewrite(ExternalTable dorisTable, String branchName) throws UserException {
         this.branchName = branchName;
         this.isRewriteMode = true;
-        
+
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
-                
+
                 // check branch if specified
                 if (branchName != null && !branchName.isEmpty()) {
                     SnapshotRef branchRef = table.refs().get(branchName);
@@ -131,9 +131,9 @@ public class IcebergTransaction implements Transaction {
                             branchName + " is a tag, not a branch. Tags cannot be targets for rewrite operations");
                     }
                 }
-                
+
                 this.transaction = table.newTransaction();
-                LOG.info("Started rewrite transaction for table: {}, branch: {}", 
+                LOG.info("Started rewrite transaction for table: {}, branch: {}",
                          dorisTable.getName(), branchName);
                 return null;
             });
@@ -157,8 +157,8 @@ public class IcebergTransaction implements Transaction {
                 filesToAdd.addAll(newFiles);
             }
         }
-        LOG.debug("Added {} files to delete and {} files to add for rewrite", 
-                 oldFiles != null ? oldFiles.size() : 0, 
+        LOG.debug("Added {} files to delete and {} files to add for rewrite",
+                 oldFiles != null ? oldFiles.size() : 0,
                  newFiles != null ? newFiles.size() : 0);
     }
 
@@ -170,7 +170,7 @@ public class IcebergTransaction implements Transaction {
             LOG.debug("Finishing rewrite with {} files to delete and {} files to add",
                      filesToDelete.size(), filesToAdd.size());
         }
-        
+
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 updateManifestAfterRewrite();
@@ -190,12 +190,12 @@ public class IcebergTransaction implements Transaction {
 
         // Use RewriteFiles API for atomic rewrite operation
         RewriteFiles rewriteFiles = transaction.newRewrite();
-        
+
         // Set branch if specified
         if (branchName != null && !branchName.isEmpty()) {
             rewriteFiles = rewriteFiles.toBranch(branchName);
         }
-        
+
         // Use thread pool for manifest operations
         rewriteFiles = rewriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
 
@@ -211,8 +211,8 @@ public class IcebergTransaction implements Transaction {
 
         // Commit the rewrite operation
         rewriteFiles.commit();
-        
-        LOG.info("Rewrite committed successfully - deleted: {} files, added: {} files", 
+
+        LOG.info("Rewrite committed successfully - deleted: {} files, added: {} files",
                 filesToDelete.size(), filesToAdd.size());
     }
 

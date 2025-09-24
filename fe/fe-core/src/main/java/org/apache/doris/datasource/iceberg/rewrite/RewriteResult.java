@@ -101,11 +101,11 @@ public class RewriteResult {
 
     @Override
     public String toString() {
-        return "RewriteResult{" +
-                "rewrittenDataFilesCount=" + rewrittenDataFilesCount +
-                ", addedDataFilesCount=" + addedDataFilesCount +
-                ", rewrittenBytesCount=" + rewrittenBytesCount +
-                ", removedDeleteFilesCount=" + removedDeleteFilesCount +
-                '}';
+        return "RewriteResult{"
+                + "rewrittenDataFilesCount=" + rewrittenDataFilesCount
+                + ", addedDataFilesCount=" + addedDataFilesCount
+                + ", rewrittenBytesCount=" + rewrittenBytesCount
+                + ", removedDeleteFilesCount=" + removedDeleteFilesCount
+                + '}';
     }
 }

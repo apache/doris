@@ -73,8 +73,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     public static final String OUTPUT_SPEC_ID = "output-spec-id";
 
     // Parameters with special default handling
-    private long min_file_size_bytes;
-    private long max_file_size_bytes;
+    private long minFileSizeBytes;
+    private long maxFileSizeBytes;
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
@@ -154,16 +154,16 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     @Override
     protected void validateIcebergAction() throws UserException {
         // Validate min and max file size parameters
-        long target_file_size_bytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
+        long targetFileSizeBytes = namedArguments.getLong(TARGET_FILE_SIZE_BYTES);
         // min-file-size-bytes default to 75% of target file size
-        this.min_file_size_bytes = namedArguments.getLong(MIN_FILE_SIZE_BYTES);
-        if (this.min_file_size_bytes == 0) {
-                this.min_file_size_bytes = (long) (target_file_size_bytes * 0.75);
+        this.minFileSizeBytes = namedArguments.getLong(MIN_FILE_SIZE_BYTES);
+        if (this.minFileSizeBytes == 0) {
+            this.minFileSizeBytes = (long) (targetFileSizeBytes * 0.75);
         }
         // max-file-size-bytes default to 180% of target file size
-        this.max_file_size_bytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
-        if (this.max_file_size_bytes == 0) {
-                this.max_file_size_bytes = (long) (target_file_size_bytes * 1.8);
+        this.maxFileSizeBytes = namedArguments.getLong(MAX_FILE_SIZE_BYTES);
+        if (this.maxFileSizeBytes == 0) {
+            this.maxFileSizeBytes = (long) (targetFileSizeBytes * 1.8);
         }
     }
 
@@ -171,7 +171,7 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     protected List<String> executeAction(TableIf table) throws UserException {
         try {
             org.apache.iceberg.Table icebergTable = IcebergUtils.getIcebergTable(this.icebergTable);
-            
+
             if (icebergTable.currentSnapshot() == null) {
                 LOG.info("Table {} has no data, skipping rewrite", table.getName());
                 return Lists.newArrayList("0", "0", "0", "0");
@@ -205,8 +205,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             IcebergTransaction icebergTransaction = new IcebergTransaction(metadataOps);
 
             try {
-                    // Step 4: Begin rewrite transaction
-                    icebergTransaction.beginRewrite(this.icebergTable, null);
+                // Step 4: Begin rewrite transaction
+                icebergTransaction.beginRewrite(this.icebergTable, null);
 
                 // Step 5: Execute rewrite for each group and collect file changes
                 RewriteResult totalResult = new RewriteResult();
@@ -220,24 +220,24 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
                     // Add files to transaction (simulated for now)
                     // In real implementation, extract actual DataFiles from execution result
                     java.util.Set<org.apache.iceberg.DataFile> oldFiles = group.getDataFiles();
-                    java.util.List<org.apache.iceberg.DataFile> oldFilesList = new java.util.ArrayList<>(oldFiles);
-                    java.util.List<org.apache.iceberg.DataFile> newDataFiles = new java.util.ArrayList<>(); // Placeholder
-                                                                                                            // for
-                                                                                                            // actual
-                                                                                                            // new files
+                    java.util.List<org.apache.iceberg.DataFile> oldFilesList =
+                            new java.util.ArrayList<>(oldFiles);
+                    // Placeholder for actual new files
+                    java.util.List<org.apache.iceberg.DataFile> newDataFiles =
+                            new java.util.ArrayList<>();
 
                     icebergTransaction.addRewriteFiles(oldFilesList, newDataFiles);
 
                     LOG.info("Added rewrite group to transaction - old files: {}, new files: {}",
-                                    oldFiles.size(), newDataFiles.size());
+                            oldFiles.size(), newDataFiles.size());
                 }
 
                 // Step 6: Commit all rewrite operations atomically
                 icebergTransaction.finishRewrite();
                 icebergTransaction.commit();
 
-                LOG.info("Rewrite data files completed for table: {}, result: {}", 
-                    table.getName(), totalResult);
+                LOG.info("Rewrite data files completed for table: {}, result: {}",
+                        table.getName(), totalResult);
                 return totalResult.toStringList();
 
             } catch (Exception e) {
@@ -252,12 +252,12 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
             throw new UserException("Rewrite data files failed: " + e.getMessage());
         }
     }
-    
+
     private RewriteParameters buildRewriteParameters() {
         return new RewriteParameters(
                 namedArguments.getLong(TARGET_FILE_SIZE_BYTES),
-                this.min_file_size_bytes,
-                this.max_file_size_bytes,
+                this.minFileSizeBytes,
+                this.maxFileSizeBytes,
                 namedArguments.getInt(MIN_INPUT_FILES),
                 namedArguments.getBoolean(REWRITE_ALL),
                 namedArguments.getLong(MAX_FILE_GROUP_SIZE_BYTES),

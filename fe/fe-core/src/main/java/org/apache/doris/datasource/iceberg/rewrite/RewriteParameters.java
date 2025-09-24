@@ -118,18 +118,18 @@ public class RewriteParameters {
 
     @Override
     public String toString() {
-        return "RewriteParameters{" +
-                "targetFileSizeBytes=" + targetFileSizeBytes +
-                ", minFileSizeBytes=" + minFileSizeBytes +
-                ", maxFileSizeBytes=" + maxFileSizeBytes +
-                ", minInputFiles=" + minInputFiles +
-                ", rewriteAll=" + rewriteAll +
-                ", maxFileGroupSizeBytes=" + maxFileGroupSizeBytes +
-                ", deleteFileThreshold=" + deleteFileThreshold +
-                ", deleteRatioThreshold=" + deleteRatioThreshold +
-                ", outputSpecId=" + outputSpecId +
-                ", hasPartitionFilter=" + hasPartitionFilter() +
-                ", hasWhereCondition=" + hasWhereCondition() +
-                '}';
+        return "RewriteParameters{"
+                + "targetFileSizeBytes=" + targetFileSizeBytes
+                + ", minFileSizeBytes=" + minFileSizeBytes
+                + ", maxFileSizeBytes=" + maxFileSizeBytes
+                + ", minInputFiles=" + minInputFiles
+                + ", rewriteAll=" + rewriteAll
+                + ", maxFileGroupSizeBytes=" + maxFileGroupSizeBytes
+                + ", deleteFileThreshold=" + deleteFileThreshold
+                + ", deleteRatioThreshold=" + deleteRatioThreshold
+                + ", outputSpecId=" + outputSpecId
+                + ", hasPartitionFilter=" + hasPartitionFilter()
+                + ", hasWhereCondition=" + hasWhereCondition()
+                + '}';
     }
 }

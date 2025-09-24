@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,14 +36,14 @@ import java.util.List;
 
 /**
  * Executes INSERT-SELECT statements for Iceberg data file rewriting.
- * 
+ *
  * Execution Flow:
  * 1. initialize() - Prepare SQL template and parse INSERT INTO ... SELECT
  * statement once
  * 2. executeGroup() - Execute rewrite for each file group using pre-parsed
  * components
  * 3. Collect execution statistics and return results
- * 
+ *
  * The executor generates SQL: INSERT INTO catalog.db.table SELECT * FROM
  * catalog.db.table
  * and customizes the scan to target specific files in each RewriteDataGroup.

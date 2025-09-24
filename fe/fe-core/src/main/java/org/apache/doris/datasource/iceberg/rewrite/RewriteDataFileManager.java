@@ -189,8 +189,8 @@ public class RewriteDataFileManager {
         // Check if any file needs rewriting based on size
         for (FileScanTask task : group.getTasks()) {
             long fileSize = task.file().fileSizeInBytes();
-            if (fileSize < parameters.getMinFileSizeBytes() ||
-                    fileSize > parameters.getMaxFileSizeBytes()) {
+            if (fileSize < parameters.getMinFileSizeBytes()
+                    || fileSize > parameters.getMaxFileSizeBytes()) {
                 return true;
             }
         }
