@@ -266,6 +266,8 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
         hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
+        hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
+        hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
         if (StringUtils.isNotBlank(getAccessKey())) {
             hadoopStorageConfig.set("fs.s3a.access.key", getAccessKey());
             hadoopStorageConfig.set("fs.s3a.secret.key", getSecretKey());
