@@ -33,16 +33,16 @@ import java.util.List;
  */
 public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
 
-    public static final List<RewriteJob> COLLECT_JOBS = buildCollectTableJobs();
+    public final List<RewriteJob> COLLECT_JOBS;
 
     /**
      * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
      *
      * @param cascadesContext current context for analyzer
      */
-    public TableCollectAndHookInitializer(CascadesContext cascadesContext) {
+    public TableCollectAndHookInitializer(CascadesContext cascadesContext, boolean firstLevel) {
         super(cascadesContext);
-
+        COLLECT_JOBS = buildCollectTableJobs(firstLevel);
     }
 
     @Override
@@ -57,17 +57,17 @@ public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
         execute();
     }
 
-    private static List<RewriteJob> buildCollectTableJobs() {
+    private static List<RewriteJob> buildCollectTableJobs(boolean firstLevel) {
         return notTraverseChildrenOf(
                 ImmutableSet.of(LogicalView.class),
-                TableCollectAndHookInitializer::buildCollectorJobs
+                () -> TableCollectAndHookInitializer.buildCollectorJobs(firstLevel)
         );
     }
 
-    private static List<RewriteJob> buildCollectorJobs() {
+    private static List<RewriteJob> buildCollectorJobs(boolean firstLevel) {
         return jobs(
                 topDown(new AddInitMaterializationHook()),
-                topDown(new CollectRelation())
+                topDown(new CollectRelation(firstLevel))
         );
     }
 }

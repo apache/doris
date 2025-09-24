@@ -36,6 +36,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -72,7 +73,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
-import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -161,7 +161,7 @@ public class MTMVPlanUtil {
         ctx.setDatabase(databaseIf.get().getFullName());
     }
 
-    public static MTMVRelation generateMTMVRelation(Set<TableIf> tablesInPlan, ConnectContext ctx, String querySql) {
+    public static MTMVRelation generateMTMVRelation(Set<TableIf> tablesInPlan, Set<TableIf> oneLevelTablesInPlan) {
         Set<BaseTableInfo> oneLevelTables = Sets.newHashSet();
         Set<BaseTableInfo> allLevelTables = Sets.newHashSet();
         Set<BaseTableInfo> oneLevelViews = Sets.newHashSet();
@@ -179,8 +179,7 @@ public class MTMVPlanUtil {
                 }
             }
         }
-        Map<List<String>, TableIf> oneLevels = PlanUtils.tableCollect(querySql, ctx);
-        for (TableIf table : oneLevels.values()) {
+        for (TableIf table : oneLevelTablesInPlan) {
             BaseTableInfo baseTableInfo = new BaseTableInfo(table);
             if (table.getType() == TableType.VIEW) {
                 oneLevelViews.add(baseTableInfo);
@@ -192,7 +191,8 @@ public class MTMVPlanUtil {
                 oneLevelViews);
     }
 
-    public static Set<TableIf> getBaseTableFromQuery(String querySql, ConnectContext ctx) {
+    // return allLevelTables:oneLevelTables
+    public static Pair<Set<TableIf>, Set<TableIf>> getBaseTableFromQuery(String querySql, ConnectContext ctx) {
         List<StatementBase> statements;
         try {
             statements = new NereidsParser().parseSQL(querySql);
@@ -207,7 +207,8 @@ public class MTMVPlanUtil {
             try {
                 NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
                 planner.planWithLock(logicalPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
-                return Sets.newHashSet(ctx.getStatementContext().getTables().values());
+                return Pair.of(Sets.newHashSet(ctx.getStatementContext().getTables().values()),
+                        Sets.newHashSet(ctx.getStatementContext().getOneLevelTables().values()));
             } finally {
                 ctx.setStatementContext(original);
             }
@@ -428,13 +429,14 @@ public class MTMVPlanUtil {
             }
 
             Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
                             + Util.getTempTableDisplayName(table.getName()) + ")");
                 }
             }
-            MTMVRelation relation = getMTMVRelation(baseTables, ctx, querySql);
+            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
@@ -518,10 +520,6 @@ public class MTMVPlanUtil {
                             + "when create materialized view if you know the property real meaning entirely",
                     functionCollectResult.stream().map(Expression::toString).collect(Collectors.joining(","))));
         }
-    }
-
-    private static MTMVRelation getMTMVRelation(Set<TableIf> tables, ConnectContext ctx, String querySql) {
-        return MTMVPlanUtil.generateMTMVRelation(tables, ctx, querySql);
     }
 
     public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {

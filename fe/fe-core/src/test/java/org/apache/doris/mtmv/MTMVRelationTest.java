@@ -75,7 +75,7 @@ public class MTMVRelationTest extends TestWithFeService {
         // test forward index
         Assertions.assertEquals(Sets.newHashSet(t1, t2, mv1), relation.getBaseTables());
         Assertions.assertEquals(Sets.newHashSet(v1, v2), relation.getBaseViews());
-        Assertions.assertEquals(Sets.newHashSet(mv1), relation.getBaseTablesOneLevelAndFromView());
+        Assertions.assertEquals(Sets.newHashSet(mv1), relation.getBaseTablesOneLevel());
         Assertions.assertEquals(Sets.newHashSet(v2), relation.getBaseViewsOneLevel());
         Assertions.assertEquals(Sets.newHashSet(mv1, t1), relation.getBaseTablesOneLevelAndFromView());
         // test inverted index

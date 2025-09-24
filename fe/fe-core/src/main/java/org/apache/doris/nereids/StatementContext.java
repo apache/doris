@@ -188,6 +188,8 @@ public class StatementContext implements Closeable {
 
     // tables in this query directly
     private final Map<List<String>, TableIf> tables = Maps.newHashMap();
+    // onelevel tables in this query directly
+    private final Map<List<String>, TableIf> oneLevelTables = Maps.newHashMap();
     // tables maybe used by mtmv rewritten in this query,
     // this contains mvs which use table in tables and the tables in mvs
     // such as
@@ -355,6 +357,10 @@ public class StatementContext implements Closeable {
 
     public Map<List<String>, TableIf> getTables() {
         return tables;
+    }
+
+    public Map<List<String>, TableIf> getOneLevelTables() {
+        return oneLevelTables;
     }
 
     public Set<MTMV> getCandidateMTMVs() {
