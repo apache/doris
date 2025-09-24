@@ -40,11 +40,14 @@ import java.util.Objects;
  */
 public class TableRefInfo {
     protected JoinOperator joinOp;
+    @SerializedName("a")
     protected String tableAlias;
     protected boolean isMark;
+    @SerializedName("n")
     protected TableNameInfo tableNameInfo;
     private TableScanParams scanParams;
     private TableSnapshot tableSnapShot;
+    @SerializedName("p")
     private PartitionNamesInfo partitionNamesInfo;
     private List<Long> sampleTabletIds;
     private TableSample tableSample;
