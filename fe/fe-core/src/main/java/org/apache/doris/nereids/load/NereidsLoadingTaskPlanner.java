@@ -144,14 +144,8 @@ public class NereidsLoadingTaskPlanner {
         }
 
         Preconditions.checkState(!fileGroups.isEmpty() && fileGroups.size() == fileStatusesList.size());
-        NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(loadJobId, txnId, table, brokerDesc,
-                fileGroups.get(0), fileStatusesList.get(0), filesAdded, strictMode, loadParallelism);
-        NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
-                partialUpdateInputColumns);
-        NereidsParamCreateContext context = loadScanProvider.createLoadContext();
+
         PartitionNames partitionNames = getPartitionNames();
-        LogicalPlan streamLoadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNames, context,
-                isPartialUpdate, partialUpdateNewKeyPolicy);
         long txnTimeout = timeoutS == 0 ? ConnectContext.get().getExecTimeoutS() : timeoutS;
         if (txnTimeout > Integer.MAX_VALUE) {
             txnTimeout = Integer.MAX_VALUE;
@@ -159,34 +153,50 @@ public class NereidsLoadingTaskPlanner {
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
                 strictMode, enableMemtableOnSinkNode, partitionNames);
-        NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table, nereidsBrokerLoadTask,
-                loadId, dbId, isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
-                partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
-        NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
-        descTable = loadPlanInfo.getDescriptorTable();
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
+
+        // Collect all file group infos, contexts, and load plan infos
         List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
         List<NereidsParamCreateContext> contexts = new ArrayList<>(fileGroups.size());
-        fileGroupInfos.add(fileGroupInfo);
-        contexts.add(context);
-        for (int i = 1; i < fileGroups.size(); ++i) {
-            fileGroupInfos.add(new NereidsFileGroupInfo(loadJobId, txnId, table, brokerDesc,
-                    fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism));
-            NereidsParamCreateContext paramCreateContext = new NereidsParamCreateContext();
-            paramCreateContext.fileGroup = fileGroups.get(i);
-            contexts.add(paramCreateContext);
+        List<NereidsLoadPlanInfoCollector.LoadPlanInfo> loadPlanInfos =
+                new ArrayList<>(fileGroups.size());
+
+        // Create a separate plan for each file group
+        for (int i = 0; i < fileGroups.size(); ++i) {
+            NereidsFileGroupInfo fileGroupInfo = new NereidsFileGroupInfo(loadJobId, txnId, table, brokerDesc,
+                    fileGroups.get(i), fileStatusesList.get(i), filesAdded, strictMode, loadParallelism);
+            NereidsLoadScanProvider loadScanProvider = new NereidsLoadScanProvider(fileGroupInfo,
+                    partialUpdateInputColumns);
+            NereidsParamCreateContext context = loadScanProvider.createLoadContext();
+            LogicalPlan loadPlan = NereidsLoadUtils.createLoadPlan(fileGroupInfo, partitionNames, context,
+                    isPartialUpdate, partialUpdateNewKeyPolicy);
+
+            NereidsLoadPlanInfoCollector planInfoCollector = new NereidsLoadPlanInfoCollector(table,
+                    nereidsBrokerLoadTask, loadId, dbId,
+                    isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
+                    partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
+            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(loadPlan);
+
+            fileGroupInfos.add(fileGroupInfo);
+            contexts.add(context);
+            loadPlanInfos.add(loadPlanInfo);
         }
-        fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfo);
+
+        // Create a single FileLoadScanNode for all file groups
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple());
+        fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
         scanNodes.add(fileScanNode);
 
-        // 3. Plan fragment
+        // Set descTable from the first file group's plan info
+        descTable = loadPlanInfos.get(0).getDescriptorTable();
+
+        // Create plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), fileScanNode, DataPartition.RANDOM);
         sinkFragment.setParallelExecNum(loadParallelism);
-        sinkFragment.setSink(loadPlanInfo.getOlapTableSink());
+        sinkFragment.setSink(loadPlanInfos.get(0).getOlapTableSink());
 
         fragments.add(sinkFragment);
 
-        // 4. finalize
+        // finalize
         for (PlanFragment fragment : fragments) {
             fragment.finalize(null);
         }

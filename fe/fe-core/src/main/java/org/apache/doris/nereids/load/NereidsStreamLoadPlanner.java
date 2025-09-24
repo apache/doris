@@ -248,7 +248,7 @@ public class NereidsStreamLoadPlanner {
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
-                loadPlanInfo);
+                Lists.newArrayList(loadPlanInfo));
         scanNode = fileScanNode;
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
