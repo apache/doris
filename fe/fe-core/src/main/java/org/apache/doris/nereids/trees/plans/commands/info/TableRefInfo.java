@@ -26,6 +26,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
