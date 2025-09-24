@@ -121,7 +121,8 @@ public:
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr =
                     TableSchemaChangeHelper::ConstNode::get_instance(),
-            bool filter_groups = true);
+            bool filter_groups = true, const std::set<uint64_t>& column_ids = {},
+            const std::set<uint64_t>& filter_column_ids = {});
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -327,6 +328,9 @@ private:
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
     bool _filter_groups = true;
+
+    std::set<uint64_t> _column_ids;
+    std::set<uint64_t> _filter_column_ids;
 
     // Since the filtering conditions for topn are dynamic, the filtering is delayed until create next row group reader.
     VExprSPtrs _top_runtime_vexprs;

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
@@ -41,7 +42,7 @@ import java.util.List;
  * fields 'key' and 'value'.
  */
 public class MapEntries extends ScalarFunction
-        implements UnaryExpression, CustomSignature, PropagateNullable {
+        implements UnaryExpression, CustomSignature, PropagateNullable, PreferPushDownProject {
 
     /**
      * constructor with 1 argument.

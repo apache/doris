@@ -1050,6 +1050,9 @@ public class OlapScanNode extends ScanNode {
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT\n");
         }
+
+        printNestedColumns(output, prefix, getTupleDesc());
+
         return output.toString();
     }
 
