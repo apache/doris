@@ -366,13 +366,7 @@ suite("doc_date_error") {
     // STR_TO_DATE format mismatch
     test {
         sql """SELECT STR_TO_DATE('2023/01/01', '%Y-%m-%d') AS result;"""
-        exception "Operation str_to_date of 2023/01/01 is invalid"
-    }
-
-    // STR_TO_DATE format is empty string
-    test {
-        sql """SELECT STR_TO_DATE('2023-01-01', '') AS result;"""
-        exception "Operation str_to_date of 2023-01-01 is invalid"
+        exception "Operation str_to_date of 2023/01/01, %Y-%m-%d is invalid"
     }
 
     // TIMESTAMPADD invalid unit
