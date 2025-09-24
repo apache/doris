@@ -53,7 +53,8 @@ import java.util.Set;
  * 1. Validate rewrite parameters and get Iceberg table
  * 2. Use RewriteDataFileManager to scan files and organize them into groups
  * 3. Create RewriteDataFileExecutor to execute rewrite for each group
- * 4. Collect and return execution results including statistics
+ * 4. Manage IcebergTransaction directly to commit all changes atomically
+ * 5. Collect and return execution results including statistics
  */
 public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
     private static final Logger LOG = LogManager.getLogger(IcebergRewriteDataFilesAction.class);

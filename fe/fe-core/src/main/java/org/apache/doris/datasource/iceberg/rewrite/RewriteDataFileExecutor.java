@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertExecuto
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -184,13 +185,13 @@ public class RewriteDataFileExecutor {
      * Customize insert executor for Iceberg file rewrite
      */
     private void customizeInsertExecutorForRewrite(
-            org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor insertExecutor,
-            RewriteDataGroup group) throws Exception {
+            IcebergInsertExecutor insertExecutor,
+                    RewriteDataGroup group) throws Exception {
 
         LOG.debug("Customizing insert executor for rewrite with {} tasks", group.getTaskCount());
 
         // Get the coordinator from the insert executor
-        org.apache.doris.qe.Coordinator coordinator = insertExecutor.getCoordinator();
+        Coordinator coordinator = insertExecutor.getCoordinator();
         if (coordinator == null) {
             throw new UserException("No coordinator found in insert executor");
         }
@@ -198,20 +199,14 @@ public class RewriteDataFileExecutor {
         LOG.info("Insert executor prepared for rewrite with coordinator: {}",
                 coordinator.getClass().getSimpleName());
 
-        // The actual customization will happen during execution when the scan nodes are
-        // created
-        // We'll store the group tasks for later use
         storeRewriteTasksForExecution(group);
     }
 
     /**
-     * Store rewrite tasks for execution (temporary storage)
+     * Store rewrite tasks for execution
      */
     private void storeRewriteTasksForExecution(RewriteDataGroup group) {
-        // This is a placeholder - in a real implementation, we might:
-        // 1. Store tasks in a thread-local variable
-        // 2. Use a callback mechanism
-        // 3. Modify the table metadata to include these specific tasks
+        // TODO: Implement a mechanism to pass the group tasks to the scan nodes
         LOG.debug("Stored {} tasks for rewrite execution", group.getTasks().size());
     }
 
@@ -219,16 +214,12 @@ public class RewriteDataFileExecutor {
      * Collect execution statistics from insert executor
      */
     private long collectExecutionStatistics(
-            org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor insertExecutor) {
+            IcebergInsertExecutor insertExecutor) {
         try {
             // Get coordinator statistics
-            org.apache.doris.qe.Coordinator coordinator = insertExecutor.getCoordinator();
-            if (coordinator != null && coordinator.getLoadCounters() != null) {
-                String loadedRowsStr = coordinator.getLoadCounters().get("dpp.norm.ALL");
-                if (loadedRowsStr != null) {
-                    return Long.parseLong(loadedRowsStr);
-                }
-            }
+            // org.apache.doris.qe.Coordinator coordinator =
+            // insertExecutor.getCoordinator();
+            // TODO: Extract actual processed rows from coordinator statistics
         } catch (Exception e) {
             LOG.warn("Failed to collect execution statistics: ", e);
         }
