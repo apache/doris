@@ -84,6 +84,7 @@ public class MTMV extends OlapTable {
     private MTMVRefreshSnapshot refreshSnapshot;
     // Should update after every fresh, not persist
     private MTMVCache cache;
+    private long schemaChangeVersion;
 
     // For deserialization
     public MTMV() {
@@ -179,13 +180,26 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             // only can update state, refresh state will be change by add task
+            this.schemaChangeVersion++;
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public void addTaskResult(MTMVTask task, MTMVRelation relation,
+    public void processBaseViewChange(String schemaChangeDetail) {
+        writeMvLock();
+        try {
+            this.schemaChangeVersion++;
+            this.status.setState(MTMVState.SCHEMA_CHANGE);
+            this.status.setSchemaChangeDetail(schemaChangeDetail);
+            this.refreshSnapshot = new MTMVRefreshSnapshot();
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
             Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
         MTMVCache mtmvCache = null;
         boolean needUpdateCache = false;
@@ -208,6 +222,14 @@ public class MTMV extends OlapTable {
         }
         writeMvLock();
         try {
+            if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
+                LOG.warn(
+                        "addTaskResult failed, schemaChangeVersion has changed. "
+                                + "mvName: {}, taskId: {}, taskSchemaChangeVersion: {}, "
+                                + "mvSchemaChangeVersion: {}",
+                        name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
+                return false;
+            }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
@@ -223,6 +245,7 @@ public class MTMV extends OlapTable {
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
+            return true;
         } finally {
             writeMvUnlock();
         }
@@ -349,6 +372,15 @@ public class MTMV extends OlapTable {
 
     public MTMVRefreshSnapshot getRefreshSnapshot() {
         return refreshSnapshot;
+    }
+
+    public long getSchemaChangeVersion() {
+        readMvLock();
+        try {
+            return schemaChangeVersion;
+        } finally {
+            readMvUnlock();
+        }
     }
 
     /**

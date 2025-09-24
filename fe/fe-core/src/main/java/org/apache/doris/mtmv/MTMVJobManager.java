@@ -216,4 +216,13 @@ public class MTMVJobManager implements MTMVHookService {
         return (MTMVJob) Env.getCurrentEnv().getJobManager().getJob(mtmv.getId());
     }
 
+    @Override
+    public void alterView(BaseTableInfo baseViewInfo) {
+
+    }
+
+    @Override
+    public void dropView(BaseTableInfo baseViewInfo) {
+
+    }
 }

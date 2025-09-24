@@ -319,6 +319,7 @@ public class MTMVPlanUtil {
 
     /**
      * generate DataType by Slot
+     *
      * @param s
      * @param i
      * @param ctx
@@ -533,7 +534,8 @@ public class MTMVPlanUtil {
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
     }
 
-    private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo) throws JobException {
+    private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)
+            throws JobException {
         MTMVPartitionInfo originalMvPartitionInfo = mtmv.getMvPartitionInfo();
         if (!analyzedMvPartitionInfo.equals(originalMvPartitionInfo)) {
             throw new JobException("async materialized view partition info changed, analyzed: %s, original: %s",
@@ -541,7 +543,8 @@ public class MTMVPlanUtil {
         }
     }
 
-    private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions) throws JobException {
+    private static void checkColumnIfChange(MTMV mtmv, List<ColumnDefinition> analyzedColumnDefinitions)
+            throws JobException {
         List<Column> analyzedColumns = analyzedColumnDefinitions.stream()
                 .map(ColumnDefinition::translateToCatalogStyle)
                 .collect(Collectors.toList());

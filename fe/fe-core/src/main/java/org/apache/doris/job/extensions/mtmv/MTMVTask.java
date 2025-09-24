@@ -155,6 +155,7 @@ public class MTMVTask extends AbstractTask {
     private MTMVRelation relation;
     private StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+    private long mtmvSchemaChangeVersion;
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -179,6 +180,7 @@ public class MTMVTask extends AbstractTask {
         if (LOG.isDebugEnabled()) {
             LOG.debug("mtmv task run, taskId: {}", super.getTaskId());
         }
+        mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         try {
             if (LOG.isDebugEnabled()) {
@@ -251,7 +253,8 @@ public class MTMVTask extends AbstractTask {
                         .subList(start, Math.min(end, needRefreshPartitions.size())));
                 // need get names before exec
                 Map<String, MTMVRefreshPartitionSnapshot> execPartitionSnapshots = MTMVPartitionUtil
-                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(), execPartitionNames);
+                        .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
+                                execPartitionNames);
                 try {
                     executeWithRetry(execPartitionNames, tableWithPartKey);
                 } catch (Exception e) {
@@ -300,7 +303,7 @@ public class MTMVTask extends AbstractTask {
 
                 retryCount++;
                 LOG.warn("Retrying execution due to exception: {}. Attempt {}/{}, "
-                        + "taskId {} execPartitionNames {} lastQueryId {}, randomMillis {}",
+                                + "taskId {} execPartitionNames {} lastQueryId {}, randomMillis {}",
                         e.getMessage(), retryCount, retryTime, getTaskId(),
                         execPartitionNames, lastQueryId, randomMillis);
                 if (retryCount >= retryTime) {
@@ -625,6 +628,10 @@ public class MTMVTask extends AbstractTask {
 
     public MTMVTaskContext getTaskContext() {
         return taskContext;
+    }
+
+    public long getMtmvSchemaChangeVersion() {
+        return mtmvSchemaChangeVersion;
     }
 
     @Override

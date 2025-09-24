@@ -92,6 +92,11 @@ public class MTMVRelationTest extends TestWithFeService {
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(v1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(v2));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(mv2));
-
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(t1));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(t2));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(mv1));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(mv2));
+        Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseView(v1));
+        Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseView(v2));
     }
 }

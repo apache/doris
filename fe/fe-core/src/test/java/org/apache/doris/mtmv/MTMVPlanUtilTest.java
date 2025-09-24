@@ -411,7 +411,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
     @Test
     public void testEnsureMTMVQueryAnalyzeFailed() throws Exception {
-        createTable( "CREATE TABLE IF NOT EXISTS t_partition (\n"
+        createTable("CREATE TABLE IF NOT EXISTS t_partition (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -423,7 +423,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")\n");
-        createTable( "CREATE TABLE IF NOT EXISTS t_not_partition (\n"
+        createTable("CREATE TABLE IF NOT EXISTS t_not_partition (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -452,7 +452,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
     @Test
     public void testEnsureMTMVQueryNotEqual() throws Exception {
-        createTable( "CREATE TABLE IF NOT EXISTS t_partition1 (\n"
+        createTable("CREATE TABLE IF NOT EXISTS t_partition1 (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -464,7 +464,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")\n");
-        createTable( "CREATE TABLE IF NOT EXISTS t_partition2 (\n"
+        createTable("CREATE TABLE IF NOT EXISTS t_partition2 (\n"
                 + "    id bigint not null,\n"
                 + "    score bigint\n"
                 + ")\n"

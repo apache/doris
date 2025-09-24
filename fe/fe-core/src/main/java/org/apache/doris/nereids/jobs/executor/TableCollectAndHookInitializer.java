@@ -33,7 +33,7 @@ import java.util.List;
  */
 public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
 
-    public final List<RewriteJob> COLLECT_JOBS;
+    public final List<RewriteJob> collectJobs;
 
     /**
      * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
@@ -42,12 +42,12 @@ public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
      */
     public TableCollectAndHookInitializer(CascadesContext cascadesContext, boolean firstLevel) {
         super(cascadesContext);
-        COLLECT_JOBS = buildCollectTableJobs(firstLevel);
+        collectJobs = buildCollectTableJobs(firstLevel);
     }
 
     @Override
     public List<RewriteJob> getJobs() {
-        return COLLECT_JOBS;
+        return collectJobs;
     }
 
     /**
