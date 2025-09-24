@@ -1124,12 +1124,13 @@ public class StringArithmetic {
         final StringBuilder sb = new StringBuilder();
         int pos = Long.numberOfTrailingZeros(bit);
         while (pos != 64 && pos < args.length && bit != 0) {
-            if (!sb.toString().isEmpty()) {
-                sb.append(',');
-            }
             sb.append(args[pos].getValue());
+            sb.append(',');
             bit &= ~(1 << pos);
             pos = Long.numberOfTrailingZeros(bit);
+        }
+        if (sb.length() != 0) {
+            sb.deleteCharAt(sb.length() - 1);
         }
         return castStringLikeLiteral(args[0], sb.toString());
     }

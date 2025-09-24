@@ -4985,7 +4985,7 @@ public:
                 res_col->insert_many_defaults(input_rows_count);
                 null_map->insert_many_vals(1, input_rows_count);
             } else {
-                const int64_t bit_data =
+                const uint64_t bit_data =
                         assert_cast<const ColumnInt64*>(bit_col.get())->get_element(0);
                 vector_execute<true>(block, arguments, input_rows_count, *res_col, bit_data,
                                      null_map->get_data());
@@ -5018,7 +5018,7 @@ private:
                         ColumnString& res_col, const ColumnInt64& bit_col,
                         PaddedPODArray<uint8_t>& null_map) const {
         if constexpr (bit_const) {
-            int64_t bit = bit_col.get_element(0);
+            uint64_t bit = bit_col.get_element(0);
             for (size_t i = 0; i < input_rows_count; ++i) {
                 execute_one_row(block, arguments, res_col, bit, i);
             }
@@ -5034,21 +5034,27 @@ private:
     }
 
     void execute_one_row(const Block& block, const ColumnNumbers& arguments, ColumnString& res_col,
-                         int64_t bit, int row_num) const {
+                         uint64_t bit, int row_num) const {
         static constexpr char SEPARATOR = ',';
-        int64_t pos = __builtin_ffs(bit);
+        uint64_t pos = __builtin_ffs(bit);
         ColumnString::Chars data;
         while (pos != 0 && pos < arguments.size() && bit != 0) {
             auto col = block.get_by_position(arguments[pos]).column;
             if (!col->is_null_at(row_num)) {
+                /* Here insert `str,` directly to support the case below:
+                 * SELECT MAKE_SET(3, '', 'a');
+                 * the exception result should be ',a'
+                 */
                 auto s_ref = col->get_data_at(row_num);
-                if (data.size()) {
-                    data.push_back(SEPARATOR);
-                }
                 data.insert(s_ref.data, s_ref.data + s_ref.size);
+                data.push_back(SEPARATOR);
             }
-            bit &= ~(1 << (pos - 1));
-            pos = __builtin_ffs(bit);
+            bit &= ~(1ULL << (pos - 1));
+            pos = __builtin_ffsll(bit);
+        }
+        // remove the last ','
+        if (!data.empty()) {
+            data.pop_back();
         }
         res_col.insert_data(reinterpret_cast<const char*>(data.data()), data.size());
     }

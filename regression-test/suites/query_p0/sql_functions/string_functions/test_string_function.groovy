@@ -454,7 +454,9 @@ suite("test_string_function", "arrow_flight_sql") {
     (9, -2, 'test1', 'test2', 'test3'),
     (10, -3, '汽车', '自行车', '火车'),
     (11, NULL, 'a', 'b', 'c'),
-    (12, 1, NULL, NULL, NULL);"""
+    (12, 7, NULL, NULL, NULL),
+    (13, 3, '', 'should after ,', 'useless'),
+    (14, BIT_SHIFT_LEFT(1, 50) - 3, 'first', 'second', 'third');"""
 
     qt_mask_set_1"""SELECT MAKE_SET(bit_num, vc1, vc2, vc3) FROM test_make_set;"""
     qt_mask_set_2"""SELECT MAKE_SET(id, vc1, vc2, vc3) FROM test_make_set;"""
@@ -465,6 +467,8 @@ suite("test_string_function", "arrow_flight_sql") {
     testFoldConst("SELECT MAKE_SET(NULL, 'a', 'b', 'c');")
     testFoldConst("SELECT MAKE_SET(4, 'a', 'b', NULL);")
     testFoldConst("SELECT MAKE_SET(4611686018427387903, 'a', 'b', 'c');")
+    testFoldConst("SELECT MAKE_SET(BIT_SHIFT_LEFT(1, 50) - 3, 'first', 'second', 'third');")
+    testFoldConst("SELECT MAKE_SET(3, '', 'a');")
 
     test {
         sql"""SELECT MAKE_SET(184467440737095516156, 'a', 'b', 'c');"""
