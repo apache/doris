@@ -47,13 +47,13 @@ public class TableRefInfo {
     protected boolean isMark;
     @SerializedName("n")
     protected TableNameInfo tableNameInfo;
-    private TableScanParams scanParams;
-    private TableSnapshot tableSnapShot;
+    private final TableScanParams scanParams;
+    private final TableSnapshot tableSnapShot;
     @SerializedName("p")
-    private PartitionNamesInfo partitionNamesInfo;
-    private List<Long> sampleTabletIds;
-    private TableSample tableSample;
-    private List<String> commonHints;
+    private final PartitionNamesInfo partitionNamesInfo;
+    private final List<Long> sampleTabletIds;
+    private final TableSample tableSample;
+    private final List<String> commonHints;
 
     /**
      * constructor
