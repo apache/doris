@@ -125,7 +125,7 @@ suite("test_json_function", "arrow_flight_sql") {
         k1, k2, path, path_n, JSON_CONTAINS(k1, k2, path), JSON_CONTAINS(k1, k2, path_n)
       from d_table
       where (path != '\$.' or path is null) and path_n != '\$.'
-      order by k1,k2;
+      order by k1, k2, path, path_n;
     """
 
     test {
