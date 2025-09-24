@@ -264,13 +264,15 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     /**
      * visit logical plan tree and create a LoadPlanInfo
      */
-    public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan) {
+    public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan, DescriptorTable descTable,
+            TupleDescriptor scanDescriptor) {
         this.logicalPlan = logicalPlan;
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
                 logicalPlan, PhysicalProperties.ANY);
-        PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
-        logicalPlan.accept(this, context);
+        PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext, descTable);
         loadPlanInfo.descriptorTable = context.getDescTable();
+        loadPlanInfo.destTuple = scanDescriptor;
+        logicalPlan.accept(this, context);
         return loadPlanInfo;
     }
 
@@ -366,7 +368,12 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
         }
 
-        loadPlanInfo.destTuple = generateTupleDesc(newSlotList, destTable, context);
+        if (loadPlanInfo.destTuple.getSlots().size() == 0) {
+            for (Slot slot : newSlotList) {
+                context.createSlotDesc(loadPlanInfo.destTuple, (SlotReference) slot, destTable);
+            }
+        }
+
         loadPlanInfo.destSlotIdToExprMap = Maps.newHashMap();
         List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
         for (int i = 0; i < slotDescriptorList.size(); ++i) {

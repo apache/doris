@@ -20,6 +20,7 @@ package org.apache.doris.nereids.load;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
@@ -74,7 +75,7 @@ public class NereidsLoadingTaskPlanner {
     private final boolean singleTabletLoadPerSink;
     private final boolean enableMemtableOnSinkNode;
     private UserIdentity userInfo;
-    private DescriptorTable descTable;
+    private final DescriptorTable descTable = new DescriptorTable();
 
     // Output params
     private List<PlanFragment> fragments = Lists.newArrayList();
@@ -154,6 +155,8 @@ public class NereidsLoadingTaskPlanner {
                 sendBatchParallelism,
                 strictMode, enableMemtableOnSinkNode, partitionNames);
 
+        TupleDescriptor scanDescriptor = descTable.createTupleDescriptor();
+        scanDescriptor.setTable(table);
         // Collect all file group infos, contexts, and load plan infos
         List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
         List<NereidsParamCreateContext> contexts = new ArrayList<>(fileGroups.size());
@@ -174,7 +177,8 @@ public class NereidsLoadingTaskPlanner {
                     nereidsBrokerLoadTask, loadId, dbId,
                     isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
                     partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
-            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(loadPlan);
+            NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(loadPlan,
+                    descTable, scanDescriptor);
 
             fileGroupInfos.add(fileGroupInfo);
             contexts.add(context);
@@ -185,9 +189,6 @@ public class NereidsLoadingTaskPlanner {
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple());
         fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
         scanNodes.add(fileScanNode);
-
-        // Set descTable from the first file group's plan info
-        descTable = loadPlanInfos.get(0).getDescriptorTable();
 
         // Create plan fragment
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(0), fileScanNode, DataPartition.RANDOM);
