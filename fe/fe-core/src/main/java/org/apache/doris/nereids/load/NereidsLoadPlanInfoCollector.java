@@ -387,7 +387,8 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
             loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), expr);
         }
-        LOG.info("table {} loadPlanInfo.destSlotIdToExprMap: {}", destTable.getName(),
+        LOG.info("table {} loadPlanInfo.destTuple: {}, loadPlanInfo.destSlotIdToExprMap: {}", destTable.getName(),
+                 loadPlanInfo.destTuple,
                  loadPlanInfo.destSlotIdToExprMap);
         return null;
     }
