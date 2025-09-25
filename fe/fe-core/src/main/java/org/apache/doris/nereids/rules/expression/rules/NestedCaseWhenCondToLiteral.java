@@ -44,7 +44,6 @@ import java.util.Set;
  *    e.g.
  *      case when A then
  *                  (case when A then 1 else 2 end)
- *                  end
  *          ...
  *      end
  *     then inner case condition A will replace with TRUE:
@@ -56,17 +55,15 @@ import java.util.Set;
  * <br>
  *  2. if it exists in outer case's previous branch condition, replace it with FALSE
  *    e.g.
- *      case when A then ... end
- *      case when B then
+ *      case when A then ...
+ *           when B then
  *                  (case when A then 1 else 2 end)
- *                  end
  *          ...
  *      end
  *     then inner case condition A will replace with FALSE:
- *      case when A then ... end
- *      case when B then
+ *      case when A then ...
+ *           when B then
  *                  (case when FALSE then 1 else 2 end)
- *                  end
  *          ...
  *      end
  * </br>
