@@ -1723,14 +1723,17 @@ public:
     };
 struct AddTimeImpl {
     static constexpr auto name = "add_time";
+    static bool is_negative() { return false; }
 };
 
 struct SubTimeImpl {
     static constexpr auto name = "sub_time";
+    static bool is_negative() { return true; }
 };
 
 template <PrimitiveType PType, typename Impl>
-struct TimeComputeImpl {
+class FunctionAddTime : public IFunction {
+public:
     static constexpr auto name = Impl::name;
     static constexpr PrimitiveType ReturnType = PType;
     static constexpr PrimitiveType ArgType1 = PType;
@@ -1741,13 +1744,23 @@ struct TimeComputeImpl {
     using InputType2 = typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType::FieldType;
     using ReturnNativeType = InputType1;
     using ReturnDataType = typename PrimitiveTypeTraits<PType>::DataType;
-    ReturnNativeType execute(const InputType1& arg1, const InputType2& arg2) {
+
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 2; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
+    }
+    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        return std::make_shared<ReturnDataType>();
+    }
+
+    ReturnNativeType compute(const InputType1& arg1, const InputType2& arg2) const {
         if constexpr (PType == TYPE_DATETIMEV2) {
             DateV2Value<DateTimeV2ValueType> dtv1 =
                     binary_cast<InputType1, DateV2Value<DateTimeV2ValueType>>(arg1);
             auto tv2 = static_cast<TimeValue::TimeType>(arg2);
-            bool neg = std::string_view(name) == "sub_time";
-            TimeInterval interval(TimeUnit::MICROSECOND, tv2, neg);
+            TimeInterval interval(TimeUnit::MICROSECOND, tv2, Impl::is_negative());
             bool out_range = dtv1.template date_add_interval<TimeUnit::MICROSECOND>(interval);
             if (!out_range) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -1761,40 +1774,11 @@ struct TimeComputeImpl {
             double res = TimeValue::limit_with_bound(neg ? tv1 - tv2 : tv1 + tv2);
             return res;
         } else {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "not support type for function {}", name);
+            throw Exception(ErrorCode::INTERNAL_ERROR, "not support type for function {}", name);
         }
     }
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<TYPE_TIMEV2>::DataType>()};
-    }
-};
-
-template <typename Transform>
-class FunctionAddTime : public IFunction {
-public:
-    using ColumnType1 = typename Transform::ColumnType1;
-    using ColumnType2 = typename Transform::ColumnType2;
-    using NativeType1 = typename Transform::InputType1;
-    using NativeType2 = typename Transform::InputType2;
-    using ReturnNativeType = typename Transform::ReturnNativeType;
-    static constexpr auto name = Transform::name;
-    static constexpr bool has_variadic_argument =
-            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
-
-    static FunctionPtr create() { return std::make_shared<FunctionAddTime<Transform>>(); }
-    String get_name() const override { return name; }
-    size_t get_number_of_arguments() const override { return 2; }
-    DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (has_variadic_argument) {
-            return Transform::get_variadic_argument_types();
-        }
-        return {};
-    }
-    DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<typename Transform::ReturnDataType>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionAddTime>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -1805,68 +1789,49 @@ public:
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         ColumnPtr nest_col1 = remove_nullable(left_col);
         ColumnPtr nest_col2 = remove_nullable(right_col);
-        auto res = ColumnVector<Transform::ReturnType>::create(input_rows_count, 0);
+        auto res = ColumnVector<ReturnType>::create(input_rows_count, 0);
 
-        if (left_const && right_const) {
-            execute_constant_constant(
-                    assert_cast<const typename Transform::ColumnType1&>(*nest_col1).get_element(0),
-                    assert_cast<const typename Transform::ColumnType2&>(*nest_col2).get_element(0),
-                    res->get_data(), input_rows_count);
-        } else if (left_const) {
-            execute_constant_vector(
-                    assert_cast<const typename Transform::ColumnType1&>(*nest_col1).get_element(0),
-                    assert_cast<const typename Transform::ColumnType2&>(*nest_col2).get_data(),
-                    res->get_data(), input_rows_count);
+        if (left_const) {
+            execute_constant_vector(assert_cast<const ColumnType1&>(*nest_col1).get_element(0),
+                                    assert_cast<const ColumnType2&>(*nest_col2).get_data(),
+                                    res->get_data(), input_rows_count);
         } else if (right_const) {
-            execute_vector_constant(
-                    assert_cast<const typename Transform::ColumnType1&>(*nest_col1).get_data(),
-                    assert_cast<const typename Transform::ColumnType2&>(*nest_col2).get_element(0),
-                    res->get_data(), input_rows_count);
+            execute_vector_constant(assert_cast<const ColumnType1&>(*nest_col1).get_data(),
+                                    assert_cast<const ColumnType2&>(*nest_col2).get_element(0),
+                                    res->get_data(), input_rows_count);
         } else {
-            execute_vector_vector(
-                    assert_cast<const typename Transform::ColumnType1&>(*nest_col1).get_data(),
-                    assert_cast<const typename Transform::ColumnType2&>(*nest_col2).get_data(),
-                    res->get_data(), input_rows_count);
+            execute_vector_vector(assert_cast<const ColumnType1&>(*nest_col1).get_data(),
+                                  assert_cast<const ColumnType2&>(*nest_col2).get_data(),
+                                  res->get_data(), input_rows_count);
         }
 
         block.replace_by_position(result, std::move(res));
         return Status::OK();
     }
-    void execute_vector_vector(const PaddedPODArray<NativeType1>& left_col,
-                               const PaddedPODArray<NativeType2>& right_col,
+    void execute_vector_vector(const PaddedPODArray<InputType1>& left_col,
+                               const PaddedPODArray<InputType2>& right_col,
                                PaddedPODArray<ReturnNativeType>& res_data,
                                size_t input_rows_count) const {
-        Transform transform;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = transform.execute(left_col[i], right_col[i]);
+            res_data[i] = compute(left_col[i], right_col[i]);
         }
     }
 
-    void execute_vector_constant(const PaddedPODArray<NativeType1>& left_col,
-                                 const NativeType2 right_value,
+    void execute_vector_constant(const PaddedPODArray<InputType1>& left_col,
+                                 const InputType2 right_value,
                                  PaddedPODArray<ReturnNativeType>& res_data,
                                  size_t input_rows_count) const {
-        Transform transform;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = transform.execute(left_col[i], right_value);
+            res_data[i] = compute(left_col[i], right_value);
         }
     }
 
-    void execute_constant_vector(const NativeType1 left_value,
-                                 const PaddedPODArray<NativeType2>& right_col,
+    void execute_constant_vector(const InputType1 left_value,
+                                 const PaddedPODArray<InputType2>& right_col,
                                  PaddedPODArray<ReturnNativeType>& res_data,
                                  size_t input_rows_count) const {
-        Transform transform;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = transform.execute(left_value, right_col[i]);
-        }
-    }
-    void execute_constant_constant(const NativeType1 left_value, const NativeType2 right_value,
-                                   PaddedPODArray<ReturnNativeType>& res_data,
-                                   size_t input_rows_count) const {
-        Transform transform;
-        for (size_t i = 0; i < input_rows_count; ++i) {
-            res_data[i] = transform.execute(left_value, right_value);
+            res_data[i] = compute(left_value, right_col[i]);
         }
     }
 };

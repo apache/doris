@@ -21,10 +21,10 @@
 
 namespace doris::vectorized {
 
-using FunctionAddTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_DATETIMEV2, AddTimeImpl>>;
-using FunctionSubTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_DATETIMEV2, SubTimeImpl>>;
-using FunctionDateTimeAddTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_TIMEV2, AddTimeImpl>>;
-using FunctionDateTimeSubTimeV2 = FunctionAddTime<TimeComputeImpl<TYPE_TIMEV2, SubTimeImpl>>;
+using FunctionAddTimeV2 = FunctionAddTime<TYPE_DATETIMEV2, AddTimeImpl>;
+using FunctionSubTimeV2 = FunctionAddTime<TYPE_DATETIMEV2, SubTimeImpl>;
+using FunctionDateTimeAddTimeV2 = FunctionAddTime<TYPE_TIMEV2, AddTimeImpl>;
+using FunctionDateTimeSubTimeV2 = FunctionAddTime<TYPE_TIMEV2, SubTimeImpl>;
 using FunctionAddDaysV2 = FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_DATEV2>>;
 using FunctionAddWeeksV2 = FunctionDateOrDateTimeComputation<AddWeeksImpl<TYPE_DATEV2>>;
 using FunctionAddMonthsV2 = FunctionDateOrDateTimeComputation<AddMonthsImpl<TYPE_DATEV2>>;
