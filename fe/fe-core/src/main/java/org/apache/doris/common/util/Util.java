@@ -616,10 +616,6 @@ public class Util {
         }
         final String upperCaseType = compressType.toUpperCase();
         try {
-            // for compatibility, convert lz4 to lz4frame
-            if (upperCaseType.equals("LZ4")) {
-                return TFileCompressType.LZ4FRAME;
-            }
             return TFileCompressType.valueOf(upperCaseType);
         } catch (IllegalArgumentException e) {
             throw new AnalysisException("Unknown compression type: " + compressType);
