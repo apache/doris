@@ -877,6 +877,9 @@ public class StringArithmetic {
             throw new RuntimeException(e);
         }
         StringBuilder sb = new StringBuilder();
+        if (uri.getScheme() == null) {
+            return new NullLiteral(first.getDataType());
+        }
         switch (second.getValue().toUpperCase()) {
             case "PROTOCOL":
                 String scheme = uri.getScheme();
@@ -936,7 +939,11 @@ public class StringArithmetic {
                 sb.append(query);  // e.g., param1=value1&param2=value2
                 break;
             case "PORT":
-                sb.append(uri.getPort());
+                int port = uri.getPort();
+                if (port == -1) {
+                    return new NullLiteral(first.getDataType());
+                }
+                sb.append(port);
                 break;
             case "USERINFO":
                 String userInfo = uri.getUserInfo();
