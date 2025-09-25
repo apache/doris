@@ -1,5 +1,3 @@
-import java.util.concurrent.ThreadLocalRandom
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,20 +15,17 @@ import java.util.concurrent.ThreadLocalRandom
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
-    // disable this test by default, glue + s3table is recommended
-    def run_test = false;
-    if (!run_test) {
-        return;
-    }
+import java.util.concurrent.ThreadLocalRandom
+
+suite("test_s3tables_glue_insert_partitions", "p0,external,iceberg,external_docker,external_docker_iceberg") {
     def format_compressions = ["parquet_snappy", "orc_zlib"]
 
     def test_s3_columns_out_of_order = {  String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"+ ThreadLocalRandom.current().nextInt(1000)
-        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master" + ThreadLocalRandom.current().nextInt(1000)
+        def source_tbl = "s3_columns_out_of_order_source_tbl_${format_compression}_master"
+        def target_tbl = "s3_columns_out_of_order_target_tbl_${format_compression}_master"
         sql """ drop table if exists ${source_tbl} """
         sql """
             CREATE TABLE ${source_tbl} (
@@ -91,8 +86,8 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
         return
     }
 
-    String catalog_name = "test_s3tables_write_partitions"
-    String props = context.config.otherConfigs.get("icebergS3TablesCatalog")
+    String catalog_name = "test_s3tables_glue_rest_insert_partitions"
+    String props = context.config.otherConfigs.get("icebergS3TablesCatalogGlueRest")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
         create catalog ${catalog_name} properties (
@@ -100,11 +95,12 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
         );
     """
 
+    def tmpdb = "s3table_glue_db_insert_partitions_" + ThreadLocalRandom.current().nextInt(1000);
     sql """ switch ${catalog_name};"""
-    sql """ use my_namespace;""" 
+    sql """ drop database if exists ${tmpdb} force"""
+    sql """ create database ${tmpdb}"""
+    sql """ use ${tmpdb};""" 
     sql """ set enable_fallback_to_original_planner=false """
-    // def tables = sql """ show tables; """
-    // assertTrue(tables.size() > 0)
 
     try {
         for (String format_compression in format_compressions) {
@@ -112,6 +108,7 @@ suite("test_s3tables_write_partitions", "p0,external,iceberg,external_docker,ext
             test_s3_columns_out_of_order(format_compression, catalog_name)
         }
     } finally {
+        sql """drop database if exists ${tmpdb} force"""
     }
 
 }
