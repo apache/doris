@@ -338,28 +338,7 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
         return err;
     }
     if (tablet_stats) {
-        tablet_stats->set_base_compaction_cnt(compact_stats.base_compaction_cnt());
-        tablet_stats->set_cumulative_compaction_cnt(compact_stats.cumulative_compaction_cnt());
-        tablet_stats->set_cumulative_point(compact_stats.cumulative_point());
-        tablet_stats->set_last_base_compaction_time_ms(
-                compact_stats.last_base_compaction_time_ms());
-        tablet_stats->set_last_cumu_compaction_time_ms(
-                compact_stats.last_cumu_compaction_time_ms());
-        tablet_stats->set_full_compaction_cnt(compact_stats.full_compaction_cnt());
-        tablet_stats->set_last_full_compaction_time_ms(
-                compact_stats.last_full_compaction_time_ms());
-
-        tablet_stats->set_num_rows(load_stats.num_rows() + compact_stats.num_rows());
-        tablet_stats->set_num_rowsets(load_stats.num_rowsets() + compact_stats.num_rowsets());
-        tablet_stats->set_num_segments(load_stats.num_segments() + compact_stats.num_segments());
-        tablet_stats->set_data_size(load_stats.data_size() + compact_stats.data_size());
-        tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
-        tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
-        if (load_stats.has_idx()) {
-            tablet_stats->mutable_idx()->CopyFrom(load_stats.idx());
-        } else if (compact_stats.has_idx()) {
-            tablet_stats->mutable_idx()->CopyFrom(compact_stats.idx());
-        }
+        merge_tablet_stats(load_stats, compact_stats, tablet_stats);
     }
     Versionstamp read_version = std::min(load_version, compact_version);
     if (versionstamp) {
@@ -367,6 +346,30 @@ TxnErrorCode MetaReader::get_tablet_merged_stats(Transaction* txn, int64_t table
     }
     min_read_versionstamp_ = std::min(min_read_versionstamp_, read_version);
     return TxnErrorCode::TXN_OK;
+}
+
+void MetaReader::merge_tablet_stats(const TabletStatsPB& load_stats,
+                                    const TabletStatsPB& compact_stats,
+                                    TabletStatsPB* tablet_stats) {
+    tablet_stats->set_base_compaction_cnt(compact_stats.base_compaction_cnt());
+    tablet_stats->set_cumulative_compaction_cnt(compact_stats.cumulative_compaction_cnt());
+    tablet_stats->set_cumulative_point(compact_stats.cumulative_point());
+    tablet_stats->set_last_base_compaction_time_ms(compact_stats.last_base_compaction_time_ms());
+    tablet_stats->set_last_cumu_compaction_time_ms(compact_stats.last_cumu_compaction_time_ms());
+    tablet_stats->set_full_compaction_cnt(compact_stats.full_compaction_cnt());
+    tablet_stats->set_last_full_compaction_time_ms(compact_stats.last_full_compaction_time_ms());
+
+    tablet_stats->set_num_rows(load_stats.num_rows() + compact_stats.num_rows());
+    tablet_stats->set_num_rowsets(load_stats.num_rowsets() + compact_stats.num_rowsets());
+    tablet_stats->set_num_segments(load_stats.num_segments() + compact_stats.num_segments());
+    tablet_stats->set_data_size(load_stats.data_size() + compact_stats.data_size());
+    tablet_stats->set_index_size(load_stats.index_size() + compact_stats.index_size());
+    tablet_stats->set_segment_size(load_stats.segment_size() + compact_stats.segment_size());
+    if (load_stats.has_idx()) {
+        tablet_stats->mutable_idx()->CopyFrom(load_stats.idx());
+    } else if (compact_stats.has_idx()) {
+        tablet_stats->mutable_idx()->CopyFrom(compact_stats.idx());
+    }
 }
 
 TxnErrorCode MetaReader::get_tablet_index(int64_t tablet_id, TabletIndexPB* tablet_index,
