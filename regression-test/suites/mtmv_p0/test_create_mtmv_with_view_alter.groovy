@@ -62,7 +62,7 @@ suite("test_create_mtmv_with_view_alter","mtmv") {
         """
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_select_1 "SELECT * FROM ${mvName}"
-
+    // should refresh all
     sql"""
         alter view ${viewName} as select k2,k3+2 as k4 from ${tableName};
         """
@@ -76,6 +76,17 @@ suite("test_create_mtmv_with_view_alter","mtmv") {
     order_qt_state_after_refresh "select State from mv_infos('database'='${dbName}') where Name='${mvName}'"
     order_qt_need_refresh_complete "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
     order_qt_select_2 "SELECT * FROM ${mvName}"
+
+    // column k4 not exist, should refresh failed
+    sql"""
+        alter view ${viewName} as select k2,k3+3 as k5 from ${tableName};
+        """
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} AUTO
+        """
+    def jobName = getJobName(dbName, mvName);
+    waitingMTMVTaskFinishedNotNeedSuccess(jobName)
+    order_qt_need_refresh_failed "select Status,ErrorMsg from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
 
     sql """drop view if exists `${viewName}`"""
     sql """drop table if exists `${tableName}`"""
