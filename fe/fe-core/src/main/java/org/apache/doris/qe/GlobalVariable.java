@@ -83,7 +83,7 @@ public final class GlobalVariable {
     public static int variableVersion = CURRENT_VARIABLE_VERSION;
 
     @VariableMgr.VarAttr(name = VERSION_COMMENT, flag = VariableMgr.READ_ONLY)
-    public static String versionComment = "Doris version "
+    public static String versionComment = Version.DORIS_BUILD_VERSION_PREFIX + " version "
             + Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH
             + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
@@ -141,7 +141,7 @@ public final class GlobalVariable {
     public static String sqlConverterServiceUrl = "";
 
     @VariableMgr.VarAttr(name = ENABLE_AUDIT_PLUGIN, flag = VariableMgr.GLOBAL)
-    public static boolean enableAuditLoader = false;
+    public static boolean enableAuditLoader = true;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_BATCH_BYTES, flag = VariableMgr.GLOBAL)
     public static long auditPluginMaxBatchBytes = 50 * 1024 * 1024;
@@ -150,7 +150,7 @@ public final class GlobalVariable {
     public static long auditPluginMaxBatchInternalSec = 60;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_SQL_LENGTH, flag = VariableMgr.GLOBAL)
-    public static int auditPluginMaxSqlLength = 4096;
+    public static int auditPluginMaxSqlLength = 2097152;
 
     @VariableMgr.VarAttr(name = AUDIT_PLUGIN_MAX_INSERT_STMT_LENGTH, flag = VariableMgr.GLOBAL,
             description = {"专门用于限制 INSERT 语句的长度。如果该值大于 AUDIT_PLUGIN_MAX_SQL_LENGTH，"
