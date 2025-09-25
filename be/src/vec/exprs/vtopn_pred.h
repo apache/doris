@@ -171,7 +171,7 @@ public:
             new_root->add_child(VLiteral::create_shared(node));
         }
 
-        //  `xxx or col is null`.
+        // Since the normal greater than or less than relationship does not consider the relationship of null values, the generated `col >=/<= xxx OR col is null.`
         if (_predicate->nulls_first()) {
             VExprSPtr col_is_null_node;
             {

@@ -154,11 +154,11 @@ Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT, 1);
 
     _file_read_bytes_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
-                                                      "FileReadBytes", TUnit::BYTES, 1);
+                                                      FileReadBytesProfile, TUnit::BYTES, 1);
     _file_read_calls_counter = ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
                                                       "FileReadCalls", TUnit::UNIT, 1);
     _file_read_time_counter =
-            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
+            ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), FileReadTimeProfile, 1);
 
     _runtime_filter_partition_pruned_range_counter =
             ADD_COUNTER_WITH_LEVEL(_local_state->scanner_profile(),
@@ -1154,17 +1154,7 @@ Status FileScanner::_get_next_reader() {
         }
 
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
-        if (_get_push_down_agg_type() == TPushAggOp::type::COUNT &&
-            range.__isset.table_format_params &&
-            range.table_format_params.table_level_row_count >= 0) {
-            // This is a table level count push down operation, no need to call
-            // _set_fill_or_truncate_columns.
-            // in _set_fill_or_truncate_columns, we will use [range.start_offset, end offset]
-            // to filter the row group. But if this is count push down, the offset is undefined,
-            // causing incorrect row group filter and may return empty result.
-        } else {
-            RETURN_IF_ERROR(_set_fill_or_truncate_columns(need_to_get_parsed_schema));
-        }
+        RETURN_IF_ERROR(_set_fill_or_truncate_columns(need_to_get_parsed_schema));
         _cur_reader_eof = false;
         break;
     }
@@ -1427,6 +1417,10 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _file_reader_stats.reset(new io::FileReaderStats());
 
+    _file_read_bytes_counter =
+            ADD_COUNTER_WITH_LEVEL(_profile, FileReadBytesProfile, TUnit::BYTES, 1);
+    _file_read_time_counter = ADD_TIMER_WITH_LEVEL(_profile, FileReadTimeProfile, 1);
+
     RETURN_IF_ERROR(_init_io_ctx());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
@@ -1508,6 +1502,9 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 
     _cur_reader->collect_profile_before_close();
     RETURN_IF_ERROR(_cur_reader->close());
+
+    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
+    COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
     return Status::OK();
 }
 
