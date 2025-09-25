@@ -17,17 +17,37 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/composite_reader.h"
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
+namespace lucene::index {
+class IndexReader;
+}
+
 namespace doris::segment_v2::inverted_index::query_v2 {
+
+struct QueryExecutionContext {
+    uint32_t segment_num_rows = 0;
+    std::vector<std::shared_ptr<lucene::index::IndexReader>> readers;
+    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
+    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
+            field_reader_bindings;
+};
 
 class Weight {
 public:
     Weight() = default;
     virtual ~Weight() = default;
 
-    virtual ScorerPtr scorer(const CompositeReaderPtr& composite_reader) = 0;
+    virtual ScorerPtr scorer(const QueryExecutionContext& context) = 0;
+    virtual ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) {
+        (void)binding_key;
+        return scorer(context);
+    }
 };
 using WeightPtr = std::shared_ptr<Weight>;
 

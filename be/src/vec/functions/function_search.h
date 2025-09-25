@@ -17,6 +17,14 @@
 
 #pragma once
 
+#include <CLucene.h>
+
+#include <map>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "gen_cpp/Exprs_types.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/boolean_query.h"
@@ -26,7 +34,66 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
 
+CL_NS_USE(index)
 namespace doris::vectorized {
+
+using namespace doris::segment_v2;
+
+struct FieldReaderBinding {
+    std::string logical_field_name;
+    std::string stored_field_name;
+    std::wstring stored_field_wstr;
+    vectorized::DataTypePtr column_type;
+    InvertedIndexQueryType query_type;
+    InvertedIndexReaderPtr inverted_reader;
+    std::shared_ptr<lucene::index::IndexReader> lucene_reader;
+    std::map<std::string, std::string> index_properties;
+    std::string binding_key;
+};
+
+class FieldReaderResolver {
+public:
+    FieldReaderResolver(
+            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
+                    data_type_with_names,
+            const std::unordered_map<std::string, IndexIterator*>& iterators,
+            std::shared_ptr<IndexQueryContext> context)
+            : _data_type_with_names(data_type_with_names),
+              _iterators(iterators),
+              _context(std::move(context)) {}
+
+    Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
+                   FieldReaderBinding* binding);
+
+    const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers() const {
+        return _readers;
+    }
+
+    const std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>>&
+    reader_bindings() const {
+        return _binding_readers;
+    }
+
+    const std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>&
+    field_readers() const {
+        return _field_readers;
+    }
+
+private:
+    std::string binding_key_for(const std::string& stored_field_name,
+                                InvertedIndexQueryType query_type) const {
+        return stored_field_name + "#" + std::to_string(static_cast<int>(query_type));
+    }
+
+    const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
+            _data_type_with_names;
+    const std::unordered_map<std::string, IndexIterator*>& _iterators;
+    std::shared_ptr<IndexQueryContext> _context;
+    std::unordered_map<std::string, FieldReaderBinding> _cache;
+    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
+    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;
+    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
+};
 
 class FunctionSearch : public IFunction {
 public:
@@ -58,15 +125,15 @@ public:
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
-            std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
-            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
+            std::vector<IndexIterator*> iterators, uint32_t num_rows,
+            InvertedIndexResultBitmap& bitmap_result) const override;
 
     Status evaluate_inverted_index_with_search_param(
             const TSearchParam& search_param,
             const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
                     data_type_with_names,
-            std::unordered_map<std::string, segment_v2::IndexIterator*> iterators,
-            uint32_t num_rows, segment_v2::InvertedIndexResultBitmap& bitmap_result) const;
+            std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+            InvertedIndexResultBitmap& bitmap_result) const;
 
     // Public methods for testing
     enum class ClauseTypeCategory {
@@ -78,38 +145,13 @@ public:
     ClauseTypeCategory get_clause_type_category(const std::string& clause_type) const;
 
     // Analyze query type for a specific field in the search clause
-    segment_v2::InvertedIndexQueryType analyze_field_query_type(const std::string& field_name,
-                                                                const TSearchClause& clause) const;
+    InvertedIndexQueryType analyze_field_query_type(const std::string& field_name,
+                                                    const TSearchClause& clause) const;
 
     // Map clause_type string to InvertedIndexQueryType
-    segment_v2::InvertedIndexQueryType clause_type_to_query_type(
-            const std::string& clause_type) const;
+    InvertedIndexQueryType clause_type_to_query_type(const std::string& clause_type) const;
 
 private:
-    std::shared_ptr<segment_v2::inverted_index::query_v2::BooleanQuery> build_query_from_clause(
-            const TSearchClause& clause,
-            const std::shared_ptr<segment_v2::IndexQueryContext>& context,
-            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                    data_type_with_names,
-            const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators) const;
-
-    std::shared_ptr<segment_v2::inverted_index::query_v2::Query> build_leaf_query(
-            const TSearchClause& clause,
-            const std::shared_ptr<segment_v2::IndexQueryContext>& context,
-            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                    data_type_with_names,
-            const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators) const;
-
-    segment_v2::InvertedIndexReaderPtr get_field_inverted_reader(
-            const std::string& field_name,
-            const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators,
-            const vectorized::DataTypePtr& column_type = nullptr,
-            segment_v2::InvertedIndexQueryType query_type =
-                    segment_v2::InvertedIndexQueryType::EQUAL_QUERY) const;
-
-    std::map<std::string, std::string> get_field_index_properties(
-            const std::string& field_name,
-            const std::unordered_map<std::string, segment_v2::IndexIterator*>& iterators) const;
 };
 
 } // namespace doris::vectorized
