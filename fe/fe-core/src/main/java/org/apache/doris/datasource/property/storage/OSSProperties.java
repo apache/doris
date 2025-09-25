@@ -137,11 +137,14 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
      * use-amazon-s3-sdks-to-access-oss">...</a>
      * - s3.cn-hangzhou.aliyuncs.com              => region = cn-hangzhou
      * <p>
+     * https://help.aliyun.com/zh/dlf/dlf-1-0/developer-reference/api-datalake-2020-07-10-endpoint
+     * - detalake.cn-hangzhou.aliyuncs.com          => region = cn-hangzhou
      */
     public static final Set<Pattern> ENDPOINT_PATTERN = ImmutableSet.of(Pattern
                     .compile("^(?:https?://)?(?:s3\\.)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com$"),
             Pattern.compile("(?:https?://)?([a-z]{2}-[a-z0-9-]+)\\.oss-dls\\.aliyuncs\\.com"),
-            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
+            Pattern.compile("^(?:https?://)?dlf(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"),
+            Pattern.compile("^(?:https?://)?datalake(?:-vpc)?\\.([a-z0-9-]+)\\.aliyuncs\\.com(?:/.*)?$"));
 
     private static final List<String> URI_KEYWORDS = Arrays.asList("uri", "warehouse");
 
