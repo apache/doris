@@ -123,12 +123,19 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
         auto num_rows = _segment->num_rows();
         if (_find_condition_cache) {
             const auto& filter_result = *(handle.get_filter_result());
+            int64_t filtered_blocks = 0;
             for (int i = 0; i < filter_result.size(); i++) {
                 if (!filter_result[i]) {
                     _row_bitmap.removeRange(i * CONDITION_CACHE_OFFSET,
                                             i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
+                    filtered_blocks++;
                 }
             }
+            // Record condition_cache hit segment number
+            _opts.stats->condition_cache_hit_seg_nums++;
+            // Record rows filtered by condition cache hit
+            _opts.stats->condition_cache_filtered_rows +=
+                    filtered_blocks * SegmentIterator::CONDITION_CACHE_OFFSET;
         } else {
             _condition_cache = std::make_shared<std::vector<bool>>(
                     num_rows / CONDITION_CACHE_OFFSET + 1, false);
@@ -2308,7 +2315,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
         auto& condition_cache = *_condition_cache;
         for (size_t i = 0; i < select_size; ++i) {
             rowids[i] = rowid_vector[sel_rowid_idx[i]];
-            condition_cache[rowids[i] / CONDITION_CACHE_OFFSET] = true;
+            condition_cache[rowids[i] / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
         }
     } else {
         for (size_t i = 0; i < select_size; ++i) {
@@ -2554,7 +2561,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                     auto& condition_cache = *_condition_cache;
                     for (size_t i = 0; i < _selected_size; ++i) {
                         auto rowid = _block_rowids[_sel_rowid_idx[i]];
-                        condition_cache[rowid / CONDITION_CACHE_OFFSET] = true;
+                        condition_cache[rowid / SegmentIterator::CONDITION_CACHE_OFFSET] = true;
                     }
                 }
             }
