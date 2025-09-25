@@ -128,6 +128,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -431,6 +432,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                 StringLiteral.of("%y %m %d"));
         rewritten = executor.rewrite(d, context);
         Assertions.assertEquals(new VarcharLiteral("01 01 01"), rewritten);
+
+        d = new DateFormat(DateV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
+                        StringLiteral.of(StringUtils.repeat("s", 128) + "   "));
+
+        rewritten = executor.rewrite(d, context);
+        Assertions.assertEquals(new VarcharLiteral(StringUtils.repeat("s", 128) + "   "), rewritten);
 
         DateTrunc t = new DateTrunc(DateTimeLiteral.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                 StringLiteral.of("week"));
