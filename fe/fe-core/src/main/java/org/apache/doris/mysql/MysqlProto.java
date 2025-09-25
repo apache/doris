@@ -18,14 +18,15 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectProcessor;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -33,7 +34,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.stream.Stream;
+import java.util.Optional;
 
 // MySQL protocol util
 public class MysqlProto {
@@ -225,45 +226,9 @@ public class MysqlProto {
         // set database
         String db = authPacket.getDb();
         if (!Strings.isNullOrEmpty(db)) {
-            String catalogName = null;
-            String dbName = null;
-            String[] dbNames = db.split("\\.");
-            if (dbNames.length == 1) {
-                dbName = db;
-            } else if (dbNames.length == 2) {
-                catalogName = dbNames[0];
-                dbName = dbNames[1];
-            } else if (dbNames.length > 2) {
-                // use the first part as catalog name, the rest part as db name
-                catalogName = dbNames[0];
-                dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
-                // context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
-                // sendResponsePacket(context);
-                // return false;
-            }
-
-            // mysql -d
-            if (Config.isCloudMode()) {
-                try {
-                    dbName = ((CloudEnv) Env.getCurrentEnv()).analyzeCloudCluster(dbName, context);
-                } catch (DdlException e) {
-                    context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                    sendResponsePacket(context);
-                    return false;
-                }
-
-                if (dbName == null || dbName.isEmpty()) {
-                    return true;
-                }
-            }
-
-            try {
-                if (catalogName != null) {
-                    context.getEnv().changeCatalog(context, catalogName);
-                }
-                Env.getCurrentEnv().changeDb(context, dbName);
-            } catch (DdlException e) {
-                context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            Optional<Pair<ErrorCode, String>> res = ConnectProcessor.initCatalogAndDb(context, db);
+            if (res.isPresent()) {
+                context.getState().setError(res.get().first, res.get().second);
                 sendResponsePacket(context);
                 return false;
             }
