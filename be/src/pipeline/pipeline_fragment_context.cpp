@@ -459,7 +459,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
                         pipeline_id_to_profile[pip_idx].get(), get_shared_state(pipeline), i);
                 pipeline->incr_created_tasks(i, task.get());
                 pipeline_id_to_task.insert({pipeline->id(), task.get()});
-                _tasks[i].emplace_back({std::move(task), std::move(task_runtime_state)});
+                _tasks[i].emplace_back(
+                        std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>> {
+                                std::move(task), std::move(task_runtime_state)});
             }
         }
 
@@ -1692,7 +1694,7 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _query_ctx->get_pipe_exec_scheduler();
     for (auto& task : _tasks) {
         for (auto& t : task) {
-            st = scheduler->submit(t);
+            st = scheduler->submit(t.first);
             DBUG_EXECUTE_IF("PipelineFragmentContext.submit.failed",
                             { st = Status::Aborted("PipelineFragmentContext.submit.failed"); });
             if (!st) {
@@ -1881,15 +1883,15 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
     // here to traverse the vector.
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
-            if (task->is_running()) {
+            if (task.first->is_running()) {
                 LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
-                                      << " is running, task: " << (void*)task.get()
-                                      << ", is_running: " << task->is_running();
+                                      << " is running, task: " << (void*)task.first.get()
+                                      << ", is_running: " << task.first->is_running();
                 *has_running_task = true;
                 return 0;
             }
 
-            size_t revocable_size = task->get_revocable_size();
+            size_t revocable_size = task.first->get_revocable_size();
             if (revocable_size >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
                 res += revocable_size;
             }
@@ -1902,9 +1904,9 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     std::vector<PipelineTask*> revocable_tasks;
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
-            size_t revocable_size_ = task->get_revocable_size();
+            size_t revocable_size_ = task.first->get_revocable_size();
             if (revocable_size_ >= vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-                revocable_tasks.emplace_back(task.get());
+                revocable_tasks.emplace_back(task.first.get());
             }
         }
     }
