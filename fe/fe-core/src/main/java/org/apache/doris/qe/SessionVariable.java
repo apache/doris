@@ -699,6 +699,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
     // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
     //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
@@ -706,6 +708,9 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_DELETE_BITMAP,
             SKIP_DELETE_SIGN,
             SKIP_STORAGE_ENGINE_MERGE,
+            SKIP_MISSING_VERSION,
+            SKIP_BAD_TABLET,
+            SKIP_CHECKING_ACID_VERSION_FILE,
             SHOW_HIDDEN_COLUMNS
     );
 
@@ -749,7 +754,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
             "enable_cooldown_replica_affinity";
-    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
     public static final String READ_HIVE_JSON_IN_ONE_COLUMN = "read_hive_json_in_one_column";
 
@@ -1872,7 +1876,7 @@ public class SessionVariable implements Serializable, Writable {
     // You should only open it in the emergency scenarios mentioned above, only used for temporary recovery queries.
     // This variable conflicts with the use_fix_replica variable, when the use_fix_replica variable is not -1,
     // this variable will not work.
-    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION)
+    @VariableMgr.VarAttr(name = SKIP_MISSING_VERSION, affectQueryResult = true)
     public boolean skipMissingVersion = false;
 
     // This variable is used to control whether to skip the bad tablet.
@@ -1880,7 +1884,7 @@ public class SessionVariable implements Serializable, Writable {
     // the table, if one of the tablet is damaged, the table will not be able to be select. If the user does not care
     // about the integrity of the data, they can use this variable to temporarily skip the bad tablet for querying and
     // load the remaining data into a new table.
-    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET)
+    @VariableMgr.VarAttr(name = SKIP_BAD_TABLET, affectQueryResult = true)
     public boolean skipBadTablet = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
@@ -2877,7 +2881,8 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableTextValidateUtf8 = true;
 
-    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, affectQueryResult = true,
+            description = {
             "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
             "Skip checking transactional hive version file '_orc_acid_version.'"
     })
@@ -3208,7 +3213,8 @@ public class SessionVariable implements Serializable, Writable {
     private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
 
     public boolean isInDebugMode() {
-        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge;
+        return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
+                || skipMissingVersion || skipBadTablet || skipCheckingAcidVersionFile;
     }
 
     public String printDebugModeVariables() {

@@ -211,6 +211,9 @@ public class CacheAnalyzer {
                 && !sessionVariable.skipDeleteSign
                 && !sessionVariable.skipDeletePredicate
                 && !sessionVariable.skipStorageEngineMerge
+                && !sessionVariable.skipMissingVersion
+                && !sessionVariable.skipBadTablet
+                && !sessionVariable.skipCheckingAcidVersionFile
                 && !sessionVariable.showHiddenColumns;
     }
 
