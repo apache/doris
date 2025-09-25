@@ -25,21 +25,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
@@ -88,7 +85,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -119,56 +115,10 @@ public abstract class ConnectProcessor {
 
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
-        Optional<Pair<ErrorCode, String>> res = initCatalogAndDb(ctx, fullDbName);
+        Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, fullDbName);
         if (res.isPresent()) {
             ctx.getState().setError(res.get().first, res.get().second);
         }
-    }
-
-    public static Optional<Pair<ErrorCode, String>> initCatalogAndDb(ConnectContext ctx, String fullDbName) {
-        String catalogName = null;
-        String dbName = null;
-        String[] dbNames = fullDbName.split("\\.");
-        if (dbNames.length == 1) {
-            dbName = fullDbName;
-        } else if (dbNames.length == 2) {
-            catalogName = dbNames[0];
-            dbName = dbNames[1];
-        } else if (dbNames.length > 2) {
-            if (GlobalVariable.enableNestedNamespace) {
-                // use the first part as catalog name, the rest part as db name
-                catalogName = dbNames[0];
-                dbName = Stream.of(dbNames).skip(1).reduce((a, b) -> a + "." + b).get();
-            } else {
-                return Optional.of(
-                        Pair.of(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName));
-            }
-        }
-
-        //  mysql client
-        if (Config.isCloudMode()) {
-            try {
-                dbName = ((CloudEnv) ctx.getEnv()).analyzeCloudCluster(dbName, ctx);
-            } catch (DdlException e) {
-                return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
-            }
-            if (dbName == null || dbName.isEmpty()) {
-                return Optional.empty();
-            }
-        }
-
-        try {
-            if (catalogName != null) {
-                ctx.getEnv().changeCatalog(ctx, catalogName);
-            }
-            ctx.getEnv().changeDb(ctx, dbName);
-        } catch (DdlException e) {
-            return Optional.of(Pair.of(e.getMysqlErrorCode(), e.getMessage()));
-        } catch (Throwable t) {
-            return Optional.of(Pair.of(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t)));
-        }
-        ctx.getState().setOk();
-        return Optional.empty();
     }
 
     // set killed flag

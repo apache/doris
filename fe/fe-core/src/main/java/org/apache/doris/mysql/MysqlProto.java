@@ -26,7 +26,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectProcessor;
+import org.apache.doris.qe.ConnectContextUtil;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -226,7 +226,7 @@ public class MysqlProto {
         // set database
         String db = authPacket.getDb();
         if (!Strings.isNullOrEmpty(db)) {
-            Optional<Pair<ErrorCode, String>> res = ConnectProcessor.initCatalogAndDb(context, db);
+            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(context, db);
             if (res.isPresent()) {
                 context.getState().setError(res.get().first, res.get().second);
                 sendResponsePacket(context);

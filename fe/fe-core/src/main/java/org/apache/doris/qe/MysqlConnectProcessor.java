@@ -353,7 +353,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (Strings.isNullOrEmpty(db)) {
             ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         } else {
-            Optional<Pair<ErrorCode, String>> res = ConnectProcessor.initCatalogAndDb(ctx, db);
+            Optional<Pair<ErrorCode, String>> res = ConnectContextUtil.initCatalogAndDb(ctx, db);
             if (res.isPresent()) {
                 ctx.getState().setError(res.get().first, res.get().second);
                 return;
