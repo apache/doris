@@ -565,9 +565,9 @@ public class DorisFE {
 
         Config.max_hive_partition_cache_num = Util.getRandomLong(0, 10, 10000);
         Config.max_hive_partition_table_cache_num = Util.getRandomLong(0, 10, 10000);
-        Config.external_cache_expire_time_seconds_after_access = Util.getRandomLong(0, 1, 10, 86400);
-        Config.external_cache_refresh_time_minutes = Util.getRandomLong(1, 10);
-        Config.max_external_cache_loader_thread_pool_size = Util.getRandomInt(1, 10, 64);
+        // Config.external_cache_expire_time_seconds_after_access = Util.getRandomLong(0, 1, 10, 86400);
+        // Config.external_cache_refresh_time_minutes = Util.getRandomLong(1, 10);
+        // Config.max_external_cache_loader_thread_pool_size = Util.getRandomInt(1, 10, 64);
         Config.max_external_file_cache_num = Util.getRandomInt(0, 10, 10000);
         Config.max_external_schema_cache_num = Util.getRandomInt(0, 1, 10, 10000);
         Config.max_external_table_cache_num = Util.getRandomInt(0, 1, 10, 10000);
