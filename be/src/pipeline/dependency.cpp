@@ -72,10 +72,10 @@ void Dependency::set_ready() {
     if (_ready) {
         return;
     }
-    _watcher.stop();
     std::vector<std::weak_ptr<PipelineTask>> local_block_task {};
     {
         std::unique_lock<std::mutex> lc(_task_lock);
+        _watcher.stop();
         if (_ready) {
             return;
         }
