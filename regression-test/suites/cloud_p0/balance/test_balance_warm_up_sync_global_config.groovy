@@ -29,7 +29,7 @@ suite('test_balance_warm_up_sync_cache', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'cloud_warm_up_for_rebalance_type=sync_cache',
+        'cloud_warm_up_for_rebalance_type=sync_warmup',
         'cloud_pre_heating_time_limit_sec=30'
     ]
     options.beConfigs += [
@@ -100,7 +100,7 @@ suite('test_balance_warm_up_sync_cache', 'docker') {
             .inject([:]) { acc, m -> mergeDirs(acc, m) }
         logger.info("after version 4 fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, afterMerged23CacheDir)
 
-        // after cloud_pre_heating_time_limit_sec = 50s 
+        // after cloud_pre_heating_time_limit_sec = 30s 
         sleep(40 * 1000)
         // check tablet still in old be
         def beforeWarmUpTaskOkDis = sql_return_maparray """ADMIN SHOW REPLICA DISTRIBUTION FROM $table"""

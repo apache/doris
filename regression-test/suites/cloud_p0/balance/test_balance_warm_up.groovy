@@ -29,7 +29,7 @@ suite('test_balance_warm_up', 'docker') {
         'sys_log_verbose_modules=org',
         'heartbeat_interval_second=1',
         'rehash_tablet_after_be_dead_seconds=3600',
-        'cloud_warm_up_for_rebalance_type=warmup_cache'
+        'cloud_warm_up_for_rebalance_type=async_warmup'
     ]
     options.beConfigs += [
         'report_tablet_interval_seconds=1',

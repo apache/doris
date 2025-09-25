@@ -25,7 +25,7 @@ suite('test_warmup_rebalance_in_cloud', 'multi_cluster, docker') {
     def options = new ClusterOptions()
     options.feConfigs += [
         'cloud_cluster_check_interval_second=1',
-        'cloud_warm_up_for_rebalance_type=warmup_cache',
+        'cloud_warm_up_for_rebalance_type=async_warmup',
         'cloud_tablet_rebalancer_interval_second=1',
         'cloud_balance_tablet_percent_per_run=0.5',
         'sys_log_verbose_modules=org',
