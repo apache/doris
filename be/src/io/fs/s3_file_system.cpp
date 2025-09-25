@@ -428,7 +428,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     Aws::OFStream local_file_s;
     local_file_s.open(local_file, std::ios::out | std::ios::binary);
     if (local_file_s.good()) {
-        local_file_s << StringViewStream(buf.get(), size).rdbuf();
+        local_file_s << StringViewOutStream(buf.get(), size).rdbuf();
     } else {
         return localfs_error(errno, fmt::format("failed to write file {}", local_file.native()));
     }
