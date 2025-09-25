@@ -168,6 +168,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
     public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
+    public static final String ENABLE_CONDITION_CACHE = "enable_condition_cache";
 
     public static final String ENABLE_COST_BASED_JOIN_REORDER = "enable_cost_based_join_reorder";
 
@@ -1271,6 +1272,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
     private long queryCacheEntryMaxRows = 500000;
+
+    @VariableMgr.VarAttr(name = ENABLE_CONDITION_CACHE)
+    public boolean enableConditionCache = true;
 
     @VariableMgr.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
@@ -4574,6 +4578,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setPartitionTopnMaxPartitions(partitionTopNMaxPartitions);
         tResult.setPartitionTopnPrePartitionRows(partitionTopNPerPartitionRows);
+        tResult.setEnableConditionCache(enableConditionCache);
 
         if (maxScanKeyNum > 0) {
             tResult.setMaxScanKeyNum(maxScanKeyNum);
