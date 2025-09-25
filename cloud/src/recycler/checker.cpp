@@ -2048,10 +2048,21 @@ int InstanceChecker::scan_and_handle_kv(
         return -1;
     }
     std::unique_ptr<RangeGetIterator> it;
+    int limit = 10000;
+    TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:limit", &limit);
     do {
-        err = txn->get(start_key, end_key, &it);
+        err = txn->get(start_key, end_key, &it, false, limit);
+        TEST_SYNC_POINT_CALLBACK("InstanceChecker:scan_and_handle_kv:get_err", &err);
+        if (err == TxnErrorCode::TXN_TOO_OLD) {
+            LOG(WARNING) << "failed to get range kv, err=txn too old, "
+                         << " now fallback to non snapshot scan";
+            err = txn_kv_->create_txn(&txn);
+            if (err == TxnErrorCode::TXN_OK) {
+                err = txn->get(start_key, end_key, &it);
+            }
+        }
         if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get tablet idx, ret=" << err;
+            LOG(WARNING) << "internal error, failed to get range kv, err=" << err;
             return -1;
         }
 
