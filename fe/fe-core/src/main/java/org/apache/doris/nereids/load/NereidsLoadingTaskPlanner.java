@@ -155,8 +155,8 @@ public class NereidsLoadingTaskPlanner {
                 sendBatchParallelism,
                 strictMode, enableMemtableOnSinkNode, partitionNames);
 
-        TupleDescriptor scanDescriptor = descTable.createTupleDescriptor();
-        scanDescriptor.setTable(table);
+        TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
+        scanTupleDesc.setTable(table);
         // Collect all file group infos, contexts, and load plan infos
         List<NereidsFileGroupInfo> fileGroupInfos = new ArrayList<>(fileGroups.size());
         List<NereidsParamCreateContext> contexts = new ArrayList<>(fileGroups.size());
@@ -178,7 +178,7 @@ public class NereidsLoadingTaskPlanner {
                     isPartialUpdate ? TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS : TUniqueKeyUpdateMode.UPSERT,
                     partialUpdateNewKeyPolicy, partialUpdateInputColumns, context.exprMap);
             NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(loadPlan,
-                    descTable, scanDescriptor);
+                    descTable, scanTupleDesc);
 
             fileGroupInfos.add(fileGroupInfo);
             contexts.add(context);

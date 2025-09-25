@@ -248,10 +248,10 @@ public class NereidsStreamLoadPlanner {
                 db.getId(), uniquekeyUpdateMode, partialUpdateNewRowPolicy, partialUpdateInputColumns,
                 context.exprMap);
         DescriptorTable descriptorTable = new DescriptorTable();
-        TupleDescriptor scanDescriptor = descriptorTable.createTupleDescriptor();
-        scanDescriptor.setTable(destTable);
+        TupleDescriptor scanTupleDesc = descriptorTable.createTupleDescriptor();
+        scanTupleDesc.setTable(destTable);
         NereidsLoadPlanInfoCollector.LoadPlanInfo loadPlanInfo = planInfoCollector.collectLoadPlanInfo(streamLoadPlan,
-                descriptorTable, scanDescriptor);
+                descriptorTable, scanTupleDesc);
         FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfo.getDestTuple());
         fileScanNode.finalizeForNereids(loadId, Lists.newArrayList(fileGroupInfo), Lists.newArrayList(context),
                 Lists.newArrayList(loadPlanInfo));
@@ -268,7 +268,7 @@ public class NereidsStreamLoadPlanner {
         params.setProtocolVersion(PaloInternalServiceVersion.V1);
         params.setFragment(fragment.toThrift());
 
-        params.setDescTbl(loadPlanInfo.getDescriptorTable().toThrift());
+        params.setDescTbl(descriptorTable.toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
 
