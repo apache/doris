@@ -147,20 +147,6 @@ public abstract class ConnectProcessor {
             }
         }
 
-        // check catalog and db exists
-        if (catalogName != null) {
-            CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
-            if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
-                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
-                return;
-            }
-            if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
-                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
-                return;
-            }
-        }
         try {
             if (catalogName != null) {
                 ctx.getEnv().changeCatalog(ctx, catalogName);
@@ -173,7 +159,6 @@ public abstract class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_INTERNAL_ERROR, Util.getRootCauseMessage(t));
             return;
         }
-
         ctx.getState().setOk();
     }
 
