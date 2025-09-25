@@ -68,6 +68,7 @@ class HdfsMgr;
 namespace segment_v2 {
 class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
+class ConditionCache;
 class TmpFileDirs;
 
 namespace inverted_index {
@@ -364,6 +365,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    segment_v2::ConditionCache* get_condition_cache() { return _condition_cache; }
     QueryCache* get_query_cache() { return _query_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
@@ -514,6 +516,7 @@ private:
     HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    segment_v2::ConditionCache* _condition_cache = nullptr;
     QueryCache* _query_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};

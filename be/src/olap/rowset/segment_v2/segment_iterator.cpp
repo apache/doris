@@ -38,7 +38,6 @@
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/collection_similarity.h"
@@ -55,6 +54,7 @@
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/column_reader_cache.h"
+#include "olap/rowset/segment_v2/condition_cache.h"
 #include "olap/rowset/segment_v2/index_file_reader.h"
 #include "olap/rowset/segment_v2/index_iterator.h"
 #include "olap/rowset/segment_v2/index_query_context.h"
@@ -102,7 +102,6 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/functions/array/function_array_index.h"
-#include "vec/json/path_in_data.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -111,6 +110,31 @@ namespace segment_v2 {
 #include "common/compile_check_begin.h"
 
 SegmentIterator::~SegmentIterator() = default;
+
+void SegmentIterator::_init_row_bitmap_by_condition_cache() {
+    if (_opts.condition_cache_digest) {
+        auto* condition_cache = ConditionCache::instance();
+        ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                           _opts.condition_cache_digest);
+
+        ConditionCacheHandle handle;
+        _find_condition_cache = condition_cache->lookup(cache_key, &handle);
+
+        auto num_rows = _segment->num_rows();
+        if (_find_condition_cache) {
+            const auto& filter_result = *(handle.get_filter_result());
+            for (int i = 0; i < filter_result.size(); i++) {
+                if (!filter_result[i]) {
+                    _row_bitmap.removeRange(i * CONDITION_CACHE_OFFSET,
+                                            i * CONDITION_CACHE_OFFSET + CONDITION_CACHE_OFFSET);
+                }
+            }
+        } else {
+            _condition_cache = std::make_shared<std::vector<bool>>(
+                    num_rows / CONDITION_CACHE_OFFSET + 1, false);
+        }
+    }
+}
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
 // Example:
@@ -403,6 +427,8 @@ Status SegmentIterator::_lazy_init(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->block_init_ns);
     DorisMetrics::instance()->segment_read_total->increment(1);
     _row_bitmap.addRange(0, _segment->num_rows());
+    _init_row_bitmap_by_condition_cache();
+
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
         _segment->_tablet_schema->cluster_key_uids().empty()) {
@@ -2272,11 +2298,22 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
-                                                vectorized::MutableColumns* mutable_columns) {
+                                                vectorized::MutableColumns* mutable_columns,
+                                                bool init_condition_cache) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
-    for (size_t i = 0; i < select_size; ++i) {
-        rowids[i] = rowid_vector[sel_rowid_idx[i]];
+
+    if (init_condition_cache) {
+        DCHECK(_condition_cache);
+        auto& condition_cache = *_condition_cache;
+        for (size_t i = 0; i < select_size; ++i) {
+            rowids[i] = rowid_vector[sel_rowid_idx[i]];
+            condition_cache[rowids[i] / CONDITION_CACHE_OFFSET] = true;
+        }
+    } else {
+        for (size_t i = 0; i < select_size; ++i) {
+            rowids[i] = rowid_vector[sel_rowid_idx[i]];
+        }
     }
 
     for (auto cid : read_column_ids) {
@@ -2320,7 +2357,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         RETURN_IF_CATCH_EXCEPTION({
             auto res = _next_batch_internal(block);
 
-            if (res.is<END_OF_FILE>() && block->rows() == 0) {
+            if (res.is<END_OF_FILE>()) {
                 // Since we have a type check at the caller.
                 // So a replacement of nothing column with real column is needed.
                 const auto& idx_to_datatype = _opts.vir_col_idx_to_type;
@@ -2328,6 +2365,13 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                     size_t idx = pair.second;
                     auto type = idx_to_datatype.find(idx)->second;
                     block->replace_by_position(idx, type->create_column());
+                }
+
+                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                    auto* condition_cache = ConditionCache::instance();
+                    ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                                       _opts.condition_cache_digest);
+                    condition_cache->insert(cache_key, std::move(_condition_cache));
                 }
                 return res;
             }
@@ -2498,11 +2542,22 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         }
 
         // step4: read non_predicate column
-        if (_selected_size > 0 && !_non_predicate_columns.empty()) {
-            RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                    _sel_rowid_idx.data(), _selected_size,
-                                                    &_current_return_columns));
-            _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+        if (_selected_size > 0) {
+            if (!_non_predicate_columns.empty()) {
+                RETURN_IF_ERROR(_read_columns_by_rowids(
+                        _non_predicate_columns, _block_rowids, _sel_rowid_idx.data(),
+                        _selected_size, &_current_return_columns,
+                        _opts.condition_cache_digest && !_find_condition_cache));
+                _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
+            } else {
+                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                    auto& condition_cache = *_condition_cache;
+                    for (size_t i = 0; i < _selected_size; ++i) {
+                        auto rowid = _block_rowids[_sel_rowid_idx[i]];
+                        condition_cache[rowid / CONDITION_CACHE_OFFSET] = true;
+                    }
+                }
+            }
         }
     }
 
