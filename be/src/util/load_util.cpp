@@ -37,8 +37,7 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         *compress_type = TFileCompressType::LZO;
     } else if (iequal(compress_type_str, "BZ2")) {
         *compress_type = TFileCompressType::BZ2;
-    } else if (iequal(compress_type_str, "LZ4") ||
-               iequal(compress_type_str, "LZ4FRAME")) {
+    } else if (iequal(compress_type_str, "LZ4") || iequal(compress_type_str, "LZ4FRAME")) {
         *compress_type = TFileCompressType::LZ4FRAME;
     } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
         *compress_type = TFileCompressType::LZ4BLOCK;
@@ -63,8 +62,7 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
             *format_type = TFileFormatType::FORMAT_CSV_LZO;
         } else if (iequal(compress_type_str, "BZ2")) {
             *format_type = TFileFormatType::FORMAT_CSV_BZ2;
-        } else if (iequal(compress_type_str, "LZ4") ||
-                   iequal(compress_type_str, "LZ4FRAME")) {
+        } else if (iequal(compress_type_str, "LZ4") || iequal(compress_type_str, "LZ4FRAME")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
         } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZ4BLOCK;
