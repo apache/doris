@@ -70,7 +70,7 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 IllegalArgumentException.class,
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("glue.secret_key is required"));
+        Assertions.assertTrue(ex.getMessage().contains("glue.access_key and glue.secret_key must be set together"));
     }
 
     @Test
@@ -82,7 +82,7 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 IllegalArgumentException.class,
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
-        Assertions.assertTrue(ex.getMessage().contains("glue.endpoint is required"));
+        Assertions.assertTrue(ex.getMessage().contains("At least one of glue.endpoint or glue.region must be set"));
     }
 
     @Test
@@ -107,5 +107,15 @@ public class AWSGlueMetaStoreBasePropertiesTest {
                 () -> AWSGlueMetaStoreBaseProperties.of(props)
         );
         Assertions.assertTrue(ex.getMessage().contains("Invalid AWS Glue endpoint"));
+    }
+
+    @Test
+    void testIamRole() {
+        Map<String, String> props = baseValidProps();
+        props.remove("glue.access_key");
+        props.remove("glue.secret_key");
+        props.put("glue.role_arn", "arn:aws:iam::1001:role/doris-glue-role");
+        AWSGlueMetaStoreBaseProperties glueProps = AWSGlueMetaStoreBaseProperties.of(props);
+        Assertions.assertEquals("arn:aws:iam::1001:role/doris-glue-role", glueProps.glueIAMRole);
     }
 }
