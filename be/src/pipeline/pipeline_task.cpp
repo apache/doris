@@ -735,13 +735,15 @@ std::string PipelineTask::debug_string() {
         return fmt::to_string(debug_string_buffer);
     }
     auto elapsed = fragment->elapsed_time() / NANOS_PER_SEC;
-    fmt::format_to(debug_string_buffer,
-                   " elapse time = {}s, block dependency = [{}]\nlocal_runtime_filter_mgr: "
-                   "[{}]\noperators: ",
-                   elapsed,
-                   cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL",
-                   _state->local_runtime_filter_mgr()->debug_string());
+    fmt::format_to(debug_string_buffer, " elapse time = {}s, block dependency = [{}]\n", elapsed,
+                   cur_blocked_dep && !is_finalized() ? cur_blocked_dep->debug_string() : "NULL");
 
+    if (_state && _state->local_runtime_filter_mgr()) {
+        fmt::format_to(debug_string_buffer, "local_runtime_filter_mgr: [{}]\n",
+                       _state->local_runtime_filter_mgr()->debug_string());
+    }
+
+    fmt::format_to(debug_string_buffer, "operators: ");
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}",
                        _opened && !is_finalized()
