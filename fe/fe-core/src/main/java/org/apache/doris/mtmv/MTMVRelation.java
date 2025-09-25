@@ -42,9 +42,9 @@ public class MTMVRelation {
     private Set<BaseTableInfo> baseViews;
     @SerializedName("btol")
     private Set<BaseTableInfo> baseTablesOneLevel;
-    @SerializedName("btwv")
+    @SerializedName("btolafv")
     private Set<BaseTableInfo> baseTablesOneLevelAndFromView;
-    @SerializedName("btol")
+    @SerializedName("bvol")
     private Set<BaseTableInfo> baseViewsOneLevel;
 
     public MTMVRelation(Set<BaseTableInfo> baseTables, Set<BaseTableInfo> baseTablesOneLevel,
