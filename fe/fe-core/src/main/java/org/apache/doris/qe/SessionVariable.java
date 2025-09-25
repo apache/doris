@@ -699,6 +699,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXCHANGE_MULTI_BLOCKS_BYTE_SIZE = "exchange_multi_blocks_byte_size";
 
+    // NOTE: if you want to add some debug variables, please disable sql cache in `CacheAnalyzer.commonCacheCondition`,
+    //       and set affectQueryResult=true
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1278,7 +1280,12 @@ public class SessionVariable implements Serializable, Writable {
     public int maxScanKeyNum = 48;
     @VariableMgr.VarAttr(name = MAX_PUSHDOWN_CONDITIONS_PER_COLUMN)
     public int maxPushdownConditionsPerColumn = 1024;
-    @VariableMgr.VarAttr(name = SHOW_HIDDEN_COLUMNS, flag = VariableMgr.SESSION_ONLY, needForward = true)
+    @VariableMgr.VarAttr(
+            name = SHOW_HIDDEN_COLUMNS,
+            flag = VariableMgr.SESSION_ONLY,
+            needForward = true,
+            affectQueryResult = true
+    )
     public boolean showHiddenColumns = false;
 
     @VariableMgr.VarAttr(name = ALLOW_PARTITION_COLUMN_NULLABLE, description = {
@@ -1834,25 +1841,25 @@ public class SessionVariable implements Serializable, Writable {
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_STORAGE_ENGINE_MERGE, needForward = true, affectQueryResult = true)
     public boolean skipStorageEngineMerge = false;
 
     /**
      * For debug purpose, skip delete predicate when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_PREDICATE, needForward = true, affectQueryResult = true)
     public boolean skipDeletePredicate = false;
 
     /**
      * For debug purpose, skip delete sign when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN, needForward = true, affectQueryResult = true)
     public boolean skipDeleteSign = false;
 
     /**
      * For debug purpose, skip delete bitmap when reading data.
      */
-    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true)
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP, needForward = true, affectQueryResult = true)
     public boolean skipDeleteBitmap = false;
 
     // This variable replace the original FE config `recover_with_skip_missing_version`.
