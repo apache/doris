@@ -1998,6 +1998,7 @@ message ListSnapshotRequest {
     optional string required_snapshot_id = 2;   // Return all snapshots if not set.
     optional bool include_aborted = 3;
     optional string request_ip = 4;
+    optional string instance_id = 5;
 }
 
 message ListSnapshotResponse {

@@ -21,6 +21,7 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <numeric>
@@ -47,7 +48,7 @@ using namespace std::chrono;
 namespace {
 constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
 
-constexpr char SNAPSHOT_ENABLED_KEY[] = "enabled";
+constexpr char SNAPSHOT_STATUS_KEY[] = "status";
 constexpr char SNAPSHOT_MAX_RESERVED_KEY[] = "max_reserved_snapshots";
 constexpr char SNAPSHOT_INTERVAL_SECONDS_KEY[] = "snapshot_interval_seconds";
 
@@ -1820,30 +1821,50 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string
                                                                const std::string& key,
                                                                const std::string& value,
                                                                InstanceInfoPB* instance) {
-    if (value != "true" && value != "false") {
+    // Only allow "ENABLED" and "DISABLED" values (case insensitive)
+    std::string value_upper = value;
+    std::ranges::transform(value_upper, value_upper.begin(), ::toupper);
+
+    if (value_upper != "ENABLED" && value_upper != "DISABLED") {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
                               "Invalid value for enabled property: " + value +
-                                      ", expected 'true' or 'false'" +
+                                      ", expected 'ENABLED' or 'DISABLED' (case insensitive)" +
                                       ", instance_id: " + instance_id);
     }
+
+    // Check if snapshot is not ready (UNSUPPORTED state)
     if (instance->snapshot_switch_status() == SNAPSHOT_SWITCH_DISABLED) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
                               "Snapshot not ready, instance_id: " + instance_id);
     }
-    if (value == "true" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_ON) {
+
+    // Determine target status
+    SnapshotSwitchStatus target_status =
+            (value_upper == "ENABLED") ? SNAPSHOT_SWITCH_ON : SNAPSHOT_SWITCH_OFF;
+
+    // Check if the status is already set to the target value
+    if (instance->snapshot_switch_status() == target_status) {
+        std::string status_name = (target_status == SNAPSHOT_SWITCH_ON) ? "ENABLED" : "DISABLED";
         return std::make_pair(
                 MetaServiceCode::INVALID_ARGUMENT,
-                "Snapshot is already set to SNAPSHOT_SWITCH_ON, instance_id: " + instance_id);
+                "Snapshot is already set to " + status_name + ", instance_id: " + instance_id);
     }
-    if (value == "false" && instance->snapshot_switch_status() == SNAPSHOT_SWITCH_OFF) {
-        return std::make_pair(
-                MetaServiceCode::INVALID_ARGUMENT,
-                "Snapshot is already set to SNAPSHOT_SWITCH_OFF, instance_id: " + instance_id);
-    }
-    if (value == "true") {
-        instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_ON);
-    } else {
-        instance->set_snapshot_switch_status(SNAPSHOT_SWITCH_OFF);
+
+    // Set the new status
+    instance->set_snapshot_switch_status(target_status);
+
+    // Set default values when first enabling snapshot
+    if (target_status == SNAPSHOT_SWITCH_ON) {
+        if (!instance->has_snapshot_interval_seconds() ||
+            instance->snapshot_interval_seconds() == 0) {
+            instance->set_snapshot_interval_seconds(3600);
+            LOG(INFO) << "Set default snapshot_interval_seconds to 3600 for instance "
+                      << instance_id;
+        }
+        if (!instance->has_max_reserved_snapshot() || instance->max_reserved_snapshot() == 0) {
+            instance->set_max_reserved_snapshot(1);
+            LOG(INFO) << "Set default max_reserved_snapshots to 1 for instance " << instance_id;
+        }
     }
 
     std::string msg = "Set snapshot enabled to " + value + " for instance " + instance_id;
@@ -1862,9 +1883,11 @@ std::pair<MetaServiceCode, std::string> handle_max_reserved_snapshots(
             return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
                                   "max_reserved_snapshots must be non-negative, got: " + value);
         }
-        if (max_snapshots > 35) {
+        if (max_snapshots > config::snapshot_max_reserved_num) {
             return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
-                                  "max_reserved_snapshots too large, maximum is 35, got: " + value);
+                                  "max_reserved_snapshots too large, maximum is " +
+                                          std::to_string(config::snapshot_max_reserved_num) +
+                                          ", got: " + value);
         }
     } catch (const std::exception& e) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
@@ -1886,10 +1909,11 @@ std::pair<MetaServiceCode, std::string> handle_snapshot_intervals(const std::str
     int intervals;
     try {
         intervals = std::stoi(value);
-        if (intervals < 3600) {
-            return std::make_pair(
-                    MetaServiceCode::INVALID_ARGUMENT,
-                    "snapshot_intervals too small, minimum is 3600 seconds, got: " + value);
+        if (intervals < config::snapshot_min_interval_seconds) {
+            return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
+                                  "snapshot_intervals too small, minimum is " +
+                                          std::to_string(config::snapshot_min_interval_seconds) +
+                                          " seconds, got: " + value);
         }
     } catch (const std::exception& e) {
         return std::make_pair(MetaServiceCode::INVALID_ARGUMENT,
@@ -2097,8 +2121,8 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
      * Handle SET_SNAPSHOT_PROPERTY operation - configures snapshot-related properties for an instance.
      * 
      * Supported property keys and their expected values:
-     * - "enabled": "true" | "false" 
-     *   Controls whether snapshot functionality is enabled for the instance
+     * - "status": "UNSUPPORTED" | "ENABLED" | "DISABLED"
+     *   Controls the snapshot functionality status for the instance
      * 
      * - "max_reserved_snapshots": numeric string (0-35)
      *   Sets the maximum number of snapshots to retain for the instance
@@ -2124,7 +2148,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 
                 std::pair<MetaServiceCode, std::string> result;
 
-                if (key == SNAPSHOT_ENABLED_KEY) {
+                if (key == SNAPSHOT_STATUS_KEY) {
                     result = handle_snapshot_switch(request->instance_id(), key, value, instance);
                 } else if (key == SNAPSHOT_MAX_RESERVED_KEY) {
                     result = handle_max_reserved_snapshots(request->instance_id(), key, value,
@@ -4277,6 +4301,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
 void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
                              KVStats* stats) {
     LOG(INFO) << "begin notify_refresh_instance";
+    TEST_SYNC_POINT_RETURN_WITH_VOID("notify_refresh_instance_return");
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {

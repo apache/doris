@@ -48,8 +48,7 @@ public:
                                 CloneInstanceResponse* response);
 
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
-            std::string_view instance_id, std::string_view cloud_unique_id,
-            MultiVersionStatus multi_version_status);
+            std::string_view instance_id, MultiVersionStatus multi_version_status);
 
     virtual int check_snapshots(InstanceChecker* checker);
 
