@@ -31,6 +31,63 @@
 #include "vec/functions/function_search.h"
 
 namespace doris::vectorized {
+using namespace segment_v2;
+
+namespace {
+
+struct SearchInputBundle {
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> field_types;
+    std::vector<int> column_ids;
+    vectorized::ColumnsWithTypeAndName literal_args;
+};
+
+Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
+                             SearchInputBundle* bundle) {
+    DCHECK(bundle != nullptr);
+
+    auto index_context = context->get_inverted_index_context();
+    if (index_context == nullptr) {
+        return Status::OK();
+    }
+
+    for (const auto& child : expr.children()) {
+        if (child->is_slot_ref()) {
+            auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
+            int column_id = column_slot_ref->column_id();
+            auto* iterator = index_context->get_inverted_index_iterator_by_column_id(column_id);
+            if (iterator == nullptr) {
+                continue;
+            }
+
+            const auto* storage_name_type =
+                    index_context->get_storage_name_and_type_by_column_id(column_id);
+            if (storage_name_type == nullptr) {
+                auto err_msg = fmt::format(
+                        "storage_name_type cannot be found for column {} while in {} evaluate",
+                        column_id, expr.expr_name());
+                LOG(ERROR) << err_msg;
+                return Status::InternalError(err_msg);
+            }
+
+            auto column_name = column_slot_ref->column_name();
+            bundle->iterators.emplace(column_name, iterator);
+            bundle->field_types.emplace(column_name, *storage_name_type);
+            bundle->column_ids.emplace_back(column_id);
+        } else if (child->is_literal()) {
+            auto* literal = assert_cast<VLiteral*>(child.get());
+            bundle->literal_args.emplace_back(literal->get_column_ptr(), literal->get_data_type(),
+                                              literal->expr_name());
+        } else {
+            LOG(WARNING) << "VSearchExpr: Unsupported child node type encountered";
+            return Status::InvalidArgument("search expression child type unsupported");
+        }
+    }
+
+    return Status::OK();
+}
+
+} // namespace
 
 VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
     if (node.__isset.search_param) {
@@ -72,52 +129,18 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return Status::OK();
     }
 
-    std::unordered_map<std::string, segment_v2::IndexIterator*> iterators;
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> data_type_with_names;
-    std::vector<int> column_ids;
-    vectorized::ColumnsWithTypeAndName arguments;
+    SearchInputBundle bundle;
+    RETURN_IF_ERROR(collect_search_inputs(*this, context, &bundle));
 
-    for (const auto& child : children()) {
-        if (child->is_slot_ref()) {
-            auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
-            auto column_id = column_slot_ref->column_id();
-            auto* iter = index_context->get_inverted_index_iterator_by_column_id(column_id);
-            //column does not have inverted index
-            if (iter == nullptr) {
-                continue;
-            }
-            const auto* storage_name_type =
-                    index_context->get_storage_name_and_type_by_column_id(column_id);
-            if (storage_name_type == nullptr) {
-                auto err_msg = fmt::format(
-                        "storage_name_type cannot be found for column {} while in {} "
-                        "evaluate_inverted_index",
-                        column_id, expr_name());
-                LOG(ERROR) << err_msg;
-                return Status::InternalError(err_msg);
-            }
-            auto column_name = column_slot_ref->column_name();
-            iterators.emplace(column_name, iter);
-            data_type_with_names.emplace(column_name, *storage_name_type);
-            column_ids.emplace_back(column_id);
-        } else if (child->is_literal()) {
-            auto* column_literal = assert_cast<VLiteral*>(child.get());
-            arguments.emplace_back(column_literal->get_column_ptr(),
-                                   column_literal->get_data_type(), column_literal->expr_name());
-        } else {
-            return Status::OK(); // others cases
-        }
-    }
-
-    if (iterators.empty()) {
+    if (bundle.iterators.empty()) {
         LOG(WARNING) << "VSearchExpr: No indexed columns available for evaluation";
         return Status::OK();
     }
 
     auto function = std::make_shared<FunctionSearch>();
-    auto result_bitmap = segment_v2::InvertedIndexResultBitmap();
+    auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
-            _search_param, data_type_with_names, iterators, segment_num_rows, result_bitmap);
+            _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
@@ -127,7 +150,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     // Store results in index context if we have matches
     if (!result_bitmap.is_empty()) {
         index_context->set_inverted_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
+        for (int column_id : bundle.column_ids) {
             index_context->set_true_for_inverted_index_status(this, column_id);
         }
         LOG(INFO) << "VSearchExpr: Found " << result_bitmap.get_data_bitmap()->cardinality()

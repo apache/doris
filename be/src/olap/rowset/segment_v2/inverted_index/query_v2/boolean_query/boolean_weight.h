@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -32,13 +34,14 @@ template <typename ScoreCombinerPtrT>
 class BooleanWeight : public Weight {
 public:
     BooleanWeight(OperatorType type, std::vector<WeightPtr> sub_weights,
-                  ScoreCombinerPtrT score_combiner)
+                  std::vector<std::string> binding_keys, ScoreCombinerPtrT score_combiner)
             : _type(type),
               _sub_weights(std::move(sub_weights)),
+              _binding_keys(std::move(binding_keys)),
               _score_combiner(std::move(score_combiner)) {}
     ~BooleanWeight() override = default;
 
-    ScorerPtr scorer(const CompositeReaderPtr& composite_reader) override {
+    ScorerPtr scorer(const QueryExecutionContext& context) override {
         const auto make_empty = []() -> ScorerPtr { return std::make_shared<EmptyScorer>(); };
 
         auto collect_and_scorers = [&]() {
@@ -46,11 +49,13 @@ public:
             result.first.reserve(_sub_weights.size());
             result.second.reserve(_sub_weights.size());
 
-            for (const auto& sub_weight : _sub_weights) {
+            for (size_t i = 0; i < _sub_weights.size(); ++i) {
+                const auto& sub_weight = _sub_weights[i];
+                const auto& binding_key = _binding_keys[i];
                 auto boolean_weight =
                         std::dynamic_pointer_cast<BooleanWeight<ScoreCombinerPtrT>>(sub_weight);
                 if (boolean_weight != nullptr && boolean_weight->_type == OperatorType::OP_NOT) {
-                    auto excludes = boolean_weight->per_scorers(composite_reader);
+                    auto excludes = boolean_weight->per_scorers(context);
                     for (auto& exclude : excludes) {
                         if (exclude != nullptr) {
                             result.second.emplace_back(std::move(exclude));
@@ -59,7 +64,7 @@ public:
                     continue;
                 }
 
-                auto scorer = sub_weight->scorer(composite_reader);
+                auto scorer = sub_weight->scorer(context, binding_key);
                 if (scorer != nullptr) {
                     result.first.emplace_back(std::move(scorer));
                 }
@@ -84,23 +89,22 @@ public:
                                                   std::move(exclude_scorers));
         }
         case OperatorType::OP_NOT: {
-            uint32_t max_doc = composite_reader->max_doc();
+            uint32_t max_doc = context.segment_num_rows;
             if (max_doc == 0) {
                 return make_empty();
             }
-            auto match_all =
-                    std::make_shared<MatchAllDocsScorer>(max_doc, composite_reader->readers());
+            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
             if (_sub_weights.empty()) {
                 return match_all;
             }
-            auto excludes = per_scorers(composite_reader);
+            auto excludes = per_scorers(context);
             if (excludes.empty()) {
                 return match_all;
             }
             return std::make_shared<AndNotScorer>(std::move(match_all), std::move(excludes));
         }
         case OperatorType::OP_OR: {
-            auto sub_scorers = per_scorers(composite_reader);
+            auto sub_scorers = per_scorers(context);
             if (sub_scorers.empty()) {
                 return make_empty();
             }
@@ -112,11 +116,11 @@ public:
     }
 
 private:
-    std::vector<ScorerPtr> per_scorers(const CompositeReaderPtr& composite_reader) {
+    std::vector<ScorerPtr> per_scorers(const QueryExecutionContext& context) {
         std::vector<ScorerPtr> sub_scorers;
         sub_scorers.reserve(_sub_weights.size());
-        for (const auto& sub_weight : _sub_weights) {
-            auto scorer = sub_weight->scorer(composite_reader);
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
             if (scorer != nullptr) {
                 sub_scorers.emplace_back(std::move(scorer));
             }
@@ -126,6 +130,7 @@ private:
 
     OperatorType _type;
     std::vector<WeightPtr> _sub_weights;
+    std::vector<std::string> _binding_keys;
     ScoreCombinerPtrT _score_combiner;
 };
 

@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <memory>
+#include <string>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"

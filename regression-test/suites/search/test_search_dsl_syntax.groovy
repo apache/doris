@@ -59,11 +59,29 @@ suite("test_search_dsl_syntax") {
         [7, "Natural Language Processing", "NLP algorithms, sentiment analysis, and text mining", "AI", "NLP, text-mining, sentiment-analysis", "Eve Adams", "review", 3, "2023-07-22", "2023-07-22 15:45:00", 4.4],
         [8, "Cloud Computing AWS", "Amazon Web Services deployment and scaling strategies", "Cloud", "cloud-computing, AWS, deployment", "Frank Miller", "published", 1, "2023-08-14", "2023-08-14 08:20:00", 4.7],
         [9, "Kubernetes Orchestration", "Container orchestration with Kubernetes and Docker", "DevOps", "kubernetes, docker, containers", "Grace Lee", "published", 2, "2023-09-09", "2023-09-09 12:50:00", 4.1],
-        [10, "Microservices Architecture", "Design patterns for scalable microservices systems", "Architecture", "microservices, scalability, patterns", "Henry Taylor", "published", 1, "2023-10-01", "2023-10-01 17:25:00", 4.5]
+        [10, "Microservices Architecture", "Design patterns for scalable microservices systems", "Architecture", "microservices, scalability, patterns", "Henry Taylor", "published", 1, "2023-10-01", "2023-10-01 17:25:00", 4.5],
+        // Test data with null values for null handling tests
+        [11, "Test with null content", null, "Test", "test, null", "Test Author", "draft", 1, "2023-11-01", "2023-11-01 10:00:00", 3.0],
+        [12, "Test with null title", "This content has a title but title field is null", "Test", "test, null-title", "Test Author", "draft", 1, "2023-11-02", "2023-11-02 10:00:00", 3.0],
+        [13, "Test with null category", "Content with null category field", null, "test, null-category", "Test Author", "draft", 1, "2023-11-03", "2023-11-03 10:00:00", 3.0],
+        [14, "Test with null tags", "Content with null tags field", "Test", null, "Test Author", "draft", 1, "2023-11-04", "2023-11-04 10:00:00", 3.0],
+        [15, "Test with null author", "Content with null author field", "Test", "test, null-author", null, "draft", 1, "2023-11-05", "2023-11-05 10:00:00", 3.0],
+        [16, "Test with null status", "Content with null status field", "Test", "test, null-status", "Test Author", null, 1, "2023-11-06", "2023-11-06 10:00:00", 3.0],
+        // Test data for NOT search functionality
+        [17, "Message about success", "This is a success message for testing", "Message", "success, message", "System", "published", 1, "2023-11-07", "2023-11-07 10:00:00", 3.5],
+        [18, "Error message details", "This is an error message for testing", "Message", "error, message", "System", "published", 1, "2023-11-08", "2023-11-08 10:00:00", 3.5],
+        [19, "Warning message content", "This is a warning message for testing", "Message", "warning, message", "System", "published", 1, "2023-11-09", "2023-11-09 10:00:00", 3.5],
+        [20, "Regular article without msg", "This is a regular article without any message content", "Article", "article, regular", "Author", "published", 1, "2023-11-10", "2023-11-10 10:00:00", 4.0]
     ]
     
     for (def row : testData) {
-        sql """INSERT INTO ${tableName} VALUES (${row[0]}, '${row[1]}', '${row[2]}', '${row[3]}', '${row[4]}', '${row[5]}', '${row[6]}', ${row[7]}, '${row[8]}', '${row[9]}', ${row[10]})"""
+        def title = row[1] == null ? "NULL" : "'${row[1]}'"
+        def content = row[2] == null ? "NULL" : "'${row[2]}'"
+        def category = row[3] == null ? "NULL" : "'${row[3]}'"
+        def tags = row[4] == null ? "NULL" : "'${row[4]}'"
+        def author = row[5] == null ? "NULL" : "'${row[5]}'"
+        def status = row[6] == null ? "NULL" : "'${row[6]}'"
+        sql """INSERT INTO ${tableName} VALUES (${row[0]}, ${title}, ${content}, ${category}, ${tags}, ${author}, ${status}, ${row[7]}, '${row[8]}', '${row[9]}', ${row[10]})"""
     }
     
     // Wait for index building
@@ -219,4 +237,79 @@ suite("test_search_dsl_syntax") {
     } catch (Exception e) {
         logger.info("Unicode search error: " + e.getMessage())
     }
+
+    // NOT search functionality tests
+
+    // NOT Search Test 1: Basic NOT search for content field
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') ORDER BY id"
+
+    // NOT Search Test 2: NOT search with specific field
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Message') ORDER BY id"
+
+    // NOT Search Test 3: NOT search with multiple terms
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:message AND category:Message') ORDER BY id"
+
+    // NOT Search Test 4: NOT search with complex boolean logic
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('(content:msg OR title:Message) AND status:published') ORDER BY id"
+
+    // NOT Search Test 5: NOT search with wildcard
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:*msg*') ORDER BY id"
+
+    // NOT Search Test 6: NOT search with phrase
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('content:\"success message\"') ORDER BY id"
+
+    // Null value handling tests
+
+    // Null Test 1: Search on field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE search('content:null') ORDER BY id"
+
+    // Null Test 2: Search on null field should return no results
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE search('title:null') ORDER BY id"
+
+    // Null Test 3: NOT search on field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:null') ORDER BY id"
+
+    // Null Test 4: Search on category field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE search('category:Test') ORDER BY id"
+
+    // Null Test 5: NOT search on category field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') ORDER BY id"
+
+    // Null Test 6: Search on tags field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE search('tags:test') ORDER BY id"
+
+    // Null Test 7: NOT search on tags field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') ORDER BY id"
+
+    // Null Test 8: Search on author field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE search('author:Test') ORDER BY id"
+
+    // Null Test 9: NOT search on author field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') ORDER BY id"
+
+    // Null Test 10: Search on status field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE search('status:draft') ORDER BY id"
+
+    // Null Test 11: NOT search on status field with null values
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') ORDER BY id"
+
+    // Combined NOT search and null handling tests
+
+    // Combined Test 1: NOT search with null content handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content FROM ${tableName} WHERE NOT search('content:msg') AND content IS NOT NULL ORDER BY id"
+
+    // Combined Test 2: NOT search with null title handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title FROM ${tableName} WHERE NOT search('title:Test') AND title IS NOT NULL ORDER BY id"
+
+    // Combined Test 3: NOT search with null category handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category FROM ${tableName} WHERE NOT search('category:Test') AND category IS NOT NULL ORDER BY id"
+
+    // Combined Test 4: NOT search with null tags handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, tags FROM ${tableName} WHERE NOT search('tags:test') AND tags IS NOT NULL ORDER BY id"
+
+    // Combined Test 5: NOT search with null author handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, author FROM ${tableName} WHERE NOT search('author:Test') AND author IS NOT NULL ORDER BY id"
+
+    // Combined Test 6: NOT search with null status handling
+    qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, status FROM ${tableName} WHERE NOT search('status:draft') AND status IS NOT NULL ORDER BY id"
 }
