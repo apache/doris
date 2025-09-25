@@ -56,9 +56,9 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     DistinctPredicatesRule.INSTANCE,
                     ExtractCommonFactorRule.INSTANCE,
 
-                    ReplaceNullWithFalseForCond.INSTANCE,
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
+                    ReplaceNullWithFalseForCond.INSTANCE,
                     CaseWhenToIf.INSTANCE,
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
