@@ -159,8 +159,8 @@ using SparseColumnCacheSPtr = std::shared_ptr<SparseColumnCache>;
 
 // key is column path, value is the sparse column cache
 // now column path is only SPARSE_COLUMN_PATH, in the future, we can add more sparse column paths
-using PathToSparseColumnCacheUPtr =
-        std::unique_ptr<std::unordered_map<std::string, SparseColumnCacheSPtr>>;
+using PathToSparseColumnCache = std::unordered_map<std::string, SparseColumnCacheSPtr>;
+using PathToSparseColumnCacheUPtr = std::unique_ptr<PathToSparseColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
@@ -174,7 +174,7 @@ public:
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
-                        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr);
+                        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
 
     virtual const SubcolumnColumnMetaInfo::Node* get_subcolumn_meta_by_path(
             const vectorized::PathInData& relative_path) const;
@@ -215,7 +215,7 @@ private:
             ColumnIteratorUPtr* iterator, const TabletColumn& col, const StorageReadOptions* opts,
             bool exceeded_sparse_column_limit, bool existed_in_sparse_column,
             ColumnReaderCache* column_reader_cache,
-            PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr);
+            PathToSparseColumnCache* sparse_column_cache_ptr = nullptr);
 
     Status _create_hierarchical_reader(ColumnIteratorUPtr* reader, int32_t col_uid,
                                        vectorized::PathInData path,
@@ -229,7 +229,7 @@ private:
                                        ColumnReaderCache* column_reader_cache);
 
     Result<SparseColumnCacheSPtr> _get_shared_column_cache(
-            PathToSparseColumnCacheUPtr* sparse_column_cache_ptr, const std::string& path);
+            PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path);
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     std::shared_ptr<ColumnReader> _sparse_column_reader;
     std::shared_ptr<ColumnReader> _root_column_reader;

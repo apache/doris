@@ -720,10 +720,11 @@ Status Segment::new_default_iterator(const TabletColumn& tablet_column,
 // in the new schema column c's cid == 2
 // but in the old schema column b's cid == 2
 // but they are not the same column
-Status Segment::new_column_iterator(
-        const TabletColumn& tablet_column, std::unique_ptr<ColumnIterator>* iter,
-        const StorageReadOptions* opt,
-        std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>* variant_sparse_column_cache) {
+Status Segment::new_column_iterator(const TabletColumn& tablet_column,
+                                    std::unique_ptr<ColumnIterator>* iter,
+                                    const StorageReadOptions* opt,
+                                    const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                                            variant_sparse_column_cache) {
     if (opt->runtime_state != nullptr) {
         _be_exec_version = opt->runtime_state->be_exec_version();
     }
@@ -744,17 +745,17 @@ Status Segment::new_column_iterator(
         return Status::InternalError("column reader is nullptr, unique_id={}", unique_id);
     }
     if (reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        // use _column_reader_cache to get variant subcolumn(path column) reader
-        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr = nullptr;
-        if (variant_sparse_column_cache && !variant_sparse_column_cache->contains(unique_id)) {
-            variant_sparse_column_cache->emplace(
-                    unique_id,
-                    std::make_unique<std::unordered_map<std::string, SparseColumnCacheSPtr>>());
-            sparse_column_cache_ptr = &(*variant_sparse_column_cache)[unique_id];
-        } else if (variant_sparse_column_cache) {
-            sparse_column_cache_ptr = &(*variant_sparse_column_cache)[unique_id];
-        }
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
+        PathToSparseColumnCache* sparse_column_cache_ptr = nullptr;
+        if (variant_sparse_column_cache) {
+            auto it = variant_sparse_column_cache->find(unique_id);
+            if (it != variant_sparse_column_cache->end()) {
+                sparse_column_cache_ptr = it->second.get();
+            } else {
+                DCHECK(false) << "sparse column cache is not found, unique_id=" << unique_id;
+            }
+        }
+        // use _column_reader_cache to get variant subcolumn(path column) reader
         RETURN_IF_ERROR(assert_cast<VariantColumnReader*>(reader.get())
                                 ->new_iterator(iter, &tablet_column, opt,
                                                _column_reader_cache.get(),

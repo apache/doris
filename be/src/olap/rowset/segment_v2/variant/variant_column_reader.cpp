@@ -227,8 +227,8 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
 }
 
 Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
-        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr, const std::string& path) {
-    if (!sparse_column_cache_ptr || !(*sparse_column_cache_ptr)->contains(path)) {
+        PathToSparseColumnCache* sparse_column_cache_ptr, const std::string& path) {
+    if (!sparse_column_cache_ptr || !sparse_column_cache_ptr->contains(path)) {
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR_RESULT(_sparse_column_reader->new_iterator(&inner_iter, nullptr));
         vectorized::MutableColumnPtr sparse_column =
@@ -237,18 +237,18 @@ Result<SparseColumnCacheSPtr> VariantColumnReader::_get_shared_column_cache(
                                                                        std::move(sparse_column));
         // if sparse_column_cache_ptr is nullptr, means the sparse column cache is not used
         if (sparse_column_cache_ptr) {
-            (*sparse_column_cache_ptr)->emplace(path, sparse_column_cache);
+            sparse_column_cache_ptr->emplace(path, sparse_column_cache);
         }
         return sparse_column_cache;
     }
-    return (*sparse_column_cache_ptr)->at(path);
+    return sparse_column_cache_ptr->at(path);
 }
 
 Status VariantColumnReader::_new_iterator_with_flat_leaves(
         ColumnIteratorUPtr* iterator, const TabletColumn& target_col,
         const StorageReadOptions* opts, bool exceeded_sparse_column_limit,
         bool existed_in_sparse_column, ColumnReaderCache* column_reader_cache,
-        PathToSparseColumnCacheUPtr* sparse_column_cache_ptr) {
+        PathToSparseColumnCache* sparse_column_cache_ptr) {
     DCHECK(opts != nullptr);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     // compaction need to read flat leaves nodes data to prevent from amplification
@@ -313,7 +313,7 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
                                          const StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache,
-                                         PathToSparseColumnCacheUPtr* sparse_column_cache_ptr) {
+                                         PathToSparseColumnCache* sparse_column_cache_ptr) {
     int32_t col_uid =
             target_col->unique_id() >= 0 ? target_col->unique_id() : target_col->parent_unique_id();
     // root column use unique id, leaf column use parent_unique_id

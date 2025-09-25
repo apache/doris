@@ -114,7 +114,7 @@ public:
     // if variant_sparse_column_cache is nullptr, means the sparse column cache is not used
     Status new_column_iterator(const TabletColumn& tablet_column,
                                std::unique_ptr<ColumnIterator>* iter, const StorageReadOptions* opt,
-                               std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
+                               const std::unordered_map<int32_t, PathToSparseColumnCacheUPtr>*
                                        variant_sparse_column_cache = nullptr);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column,
