@@ -328,7 +328,7 @@ public class MTMVTask extends AbstractTask {
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey);
+                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
         try {
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             ctx.setExecutor(executor);

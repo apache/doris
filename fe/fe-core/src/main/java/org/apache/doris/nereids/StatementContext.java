@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAddContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -276,6 +277,8 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
+
+    private PredicateAddContext predicateAddContext;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -999,5 +1002,14 @@ public class StatementContext implements Closeable {
 
     public boolean isInsert() {
         return isInsert;
+    }
+
+    public PredicateAddContext getPredicateAddContext() {
+        return predicateAddContext;
+    }
+
+    public void setPredicateAddContext(
+            PredicateAddContext predicateAddContext) {
+        this.predicateAddContext = predicateAddContext;
     }
 }
