@@ -120,6 +120,12 @@ public class OSSPropertiesTest {
         Assertions.assertEquals("cn-hongkong", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
         origProps.put("oss.endpoint", "https://dlf.cn-beijing.aliyuncs.com");
         Assertions.assertEquals("cn-beijing", ((OSSProperties) StorageProperties.createAll(origProps).get(1)).getRegion());
+        origProps.put("oss.endpoint", "datalake-vpc.cn-shenzhen.aliyuncs.com");
+        Assertions.assertEquals("cn-shenzhen", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "https://datalake-vpc.cn-shenzhen.aliyuncs.com");
+        Assertions.assertEquals("cn-shenzhen", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
+        origProps.put("oss.endpoint", "http://datalake-vpc.eu-central-1.aliyuncs.com");
+        Assertions.assertEquals("eu-central-1", ((OSSProperties) StorageProperties.createPrimary(origProps)).getRegion());
     }
 
     @Test

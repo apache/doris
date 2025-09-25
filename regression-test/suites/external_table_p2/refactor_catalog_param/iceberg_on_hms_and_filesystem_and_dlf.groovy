@@ -515,7 +515,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external,new_catalog_property
 
 
     String dlf_uid = context.config.otherConfigs.get("dlf_uid")
-    String dlf_catalog_id = context.config.otherConfigs("dlf_catalog_id")
+    String dlf_catalog_id = context.config.otherConfigs.get("dlf_catalog_id")
     String dlf_access_key = context.config.otherConfigs.get("dlf_access_key")
     String dlf_secret_key = context.config.otherConfigs.get("dlf_secret_key")
 /**************** DLF *******************/
