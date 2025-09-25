@@ -65,7 +65,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -373,7 +372,7 @@ public class MaterializedViewUtils {
     public static Plan normalizeSinkExpressions(Plan rewrittenPlan, Plan originPlan) {
         return rewrittenPlan.accept(new DefaultPlanRewriter<Void>() {
             @Override
-            public Plan visitLogicalSink(LogicalSink<? extends Plan> rewrittenPlan, Void context) {
+            public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> rewrittenPlan, Void context) {
                 if (rewrittenPlan.getOutput().size() != originPlan.getOutput().size()) {
                     return null;
                 }
@@ -392,9 +391,7 @@ public class MaterializedViewUtils {
                     normalizedOutputExprList.add(normalizeExpression(originalExpression,
                             rewrittenExpression, true));
                 }
-                LogicalProject<Plan> project = new LogicalProject<>(normalizedOutputExprList,
-                        rewrittenPlan.child());
-                return rewrittenPlan.withChildren(project);
+                return rewrittenPlan.withOutputExprs(normalizedOutputExprList);
             }
         }, null);
 

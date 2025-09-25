@@ -464,9 +464,16 @@ public class NereidsPlanner extends Planner {
                 // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
                 Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
                         ruleOptimizedPlan, originalPlan);
-                if (normalizedPlan != null) {
-                    plansWhichContainMv.add(normalizedPlan);
+                if (normalizedPlan == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.error("pre mv rewrite in rbo rewrite normalizeSinkExpressions fail,"
+                                        + "query id is {}, ruleOptimizedPlan = {}",
+                                cascadesContext.getConnectContext().getQueryIdentifier(),
+                                ruleOptimizedPlan.treeString());
+                    }
+                    continue;
                 }
+                plansWhichContainMv.add(normalizedPlan);
             } catch (Exception e) {
                 LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
                         cascadesContext.getConnectContext().getQueryIdentifier(), e);
