@@ -246,7 +246,8 @@ public final class GlobalVariable {
                     "是否允许访问 `ns1.ns2` 这种类型的 database。当前仅适用于 External Catalog 中映射 Database 并访问。"
                             + "不支持创建。",
                     "Whether to allow accessing databases of the form `ns1.ns2`. "
-                            + "Currently, this only applies to mapping databases in External Catalogs and accessing them. "
+                            + "Currently, this only applies to mapping databases in "
+                            + "External Catalogs and accessing them. "
                             + "Creation is not supported."})
     public static boolean enableNestedNamespace = false;
 
