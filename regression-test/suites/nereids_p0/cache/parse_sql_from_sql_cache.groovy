@@ -84,6 +84,41 @@ suite("parse_sql_from_sql_cache") {
                 sql "insert into test_use_plan_cache2 values(6, 1)"
                 assertNoCache "select * from test_use_plan_cache2"
             }),
+            extraThread("testAddPartitionAndInsertOverwrite", {
+                def tb_name = "test_insert_overwrite_use_plan_cache2"
+                createTestTable tb_name
+
+                // after partition changed 10s, the sql cache can be used
+                sleep(10000)
+
+                sql "set enable_nereids_planner=true"
+                sql "set enable_fallback_to_original_planner=false"
+                sql "set enable_sql_cache=true"
+
+                assertNoCache "select * from ${tb_name}"
+                sql "select * from ${tb_name}"
+                assertHasCache "select * from ${tb_name}"
+
+                // insert overwrite data can not use cache
+                sql "INSERT OVERWRITE table ${tb_name} PARTITION(p5) VALUES (5, 6);"
+                sleep(10 * 1000)
+                assertNoCache "select * from ${tb_name}"
+                sql "select * from ${tb_name}"
+                assertHasCache "select * from ${tb_name}"
+
+                // NOTE: in cloud mode, add empty partition can not use cache, because the table version already update,
+                //       but in native mode, add empty partition can use cache
+                sql "alter table ${tb_name} add partition p6 values[('6'),('7'))"
+                if (isCloudMode()) {
+                    assertNoCache "select * from ${tb_name}"
+                } else {
+                    assertHasCache "select * from ${tb_name}"
+                }
+
+                // insert overwrite data can not use cache
+                sql "INSERT OVERWRITE table ${tb_name} PARTITION(p6) VALUES (6, 6);"
+                assertNoCache "select * from ${tb_name}"
+            }),
             extraThread("testDropPartition", {
                 createTestTable "test_use_plan_cache3"
 
