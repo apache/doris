@@ -94,7 +94,7 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
                 _column_id, block->dump_structure());
     }
     *result_column_id = _column_id;
-    return CEHCK_EXPR_EXECTUED(Status::OK());
+    return Status::OK();
 }
 
 const std::string& VSlotRef::expr_name() const {

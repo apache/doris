@@ -44,7 +44,7 @@ public:
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         DCHECK(_open_finished || _getting_const_col);
-        return CEHCK_EXPR_EXECTUED(get_child(0)->execute(context, block, result_column_id));
+        return get_child(0)->execute(context, block, result_column_id);
     }
 
     const std::string& expr_name() const override { return _expr_name; }
