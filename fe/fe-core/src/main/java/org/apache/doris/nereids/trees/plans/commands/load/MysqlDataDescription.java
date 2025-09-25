@@ -27,10 +27,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
