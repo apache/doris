@@ -16,56 +16,80 @@
 // under the License.
 
 suite("test_tz_streamload") {
-    def table1 = "global_timezone_test"
-    
-    sql "drop table if exists ${table1}"
+    def table1 = "timezone"
+    def table2 = "datetime"
 
-    sql "SET GLOBAL time_zone = 'Asia/Shanghai'"
-    
+    sql "drop table if exists ${table1}"
     sql """
     CREATE TABLE IF NOT EXISTS ${table1} (
-      `id` int NULL,
-      `dt_datetime` datetime NULL,
-      `dt_date` date NULL,
+      `k1` datetimev2(3) NULL,
+      `k2` datev2 NULL
     ) ENGINE=OLAP
-    DUPLICATE KEY(`id`)
-    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    DUPLICATE KEY(`k1`)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
     PROPERTIES (
-        "replication_num" = "1"
+    "replication_num" = "1"
     )
     """
 
-    // case1 stream load set timezone = UTC
+    sql "drop table if exists ${table2}"
+    sql """
+    CREATE TABLE ${table2} (
+        id int NULL,
+        createTime datetime NULL
+    )ENGINE=OLAP
+    UNIQUE KEY(`id`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`id`) BUCKETS 3
+    PROPERTIES (
+        "replication_num" = "1",
+        "colocate_with" = "lineitem_orders",
+        "enable_unique_key_merge_on_write" = "true"
+    );
+    """
+
     streamLoad {
         table "${table1}"
+        set 'column_separator', ','
+        set 'timezone', '+02:00'
+        file "test_tz_streamload.csv"
+        time 20000
+    }
+    sql "sync"
+    qt_table1 "select * from ${table1} order by k1"
+
+    streamLoad { // contain more complex format
+        table "${table2}"
+        set 'column_separator', ','
+        set 'columns', 'id,createTime,createTime=date_add(createTime, INTERVAL 8 HOUR)'
+        // use default timezone for this
+        file "test_tz_streamload2.csv"
+        time 20000
+    }
+    sql "sync"
+    qt_table2 "select * from ${table2} order by id"
+
+    // test rounding for date type. from hour to date.
+    sql "drop table if exists d"
+    sql """
+        CREATE TABLE d (
+            `k1` int,
+            `k2` date,
+            `k3` datetime
+        )
+        DISTRIBUTED BY HASH(k1) BUCKETS 3
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+
+    streamLoad {
+        table "d"
         set 'column_separator', ','
         set 'timezone', 'UTC'
-        file "test_global_timezone_streamload.csv"
+        file "only_date.csv"
         time 20000
     }
     sql "sync"
-    qt_global_offset "select * from ${table1} order by id"
-    sql "truncate table ${table1}"
-
-    // case2 not set timezone
-    streamLoad {
-        table "${table1}"
-        set 'column_separator', ','
-        file "test_global_timezone_streamload.csv"
-        time 20000
-    }
-    sql "sync"
-    qt_global_offset "select * from ${table1} order by id"
-    sql "truncate table ${table1}"
-
-    // case3 not set timezone but default is UTC
-    sql "SET GLOBAL time_zone = 'UTC'"
-    streamLoad {
-        table "${table1}"
-        set 'column_separator', ','
-        file "test_global_timezone_streamload.csv"
-        time 20000
-    }
-    sql "sync"
-    qt_global_offset "select * from ${table1} order by id"
+    qt_table1 "select * from d order by k1, k2, k3"
 }
