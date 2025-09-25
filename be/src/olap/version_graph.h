@@ -20,6 +20,7 @@
 #include <rapidjson/document.h>
 #include <stdint.h>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -55,8 +56,39 @@ public:
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
 
+    Status capture_consistent_versions_prefer_cache(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    // Given a start, this method can find a version path which satisfy the following conditions:
+    // 1. all edges satisfy the conditions specified by `validator` in the graph.
+    // 2. the destination version is as far as possible.
+    // 3. the path is the shortest path.
+    // The version paths are added to version_path as return info.
+    // If this version not in main version, version_path can be included expired rowset.
+    // NOTE: this method may return edges which is in stale path
+    //
+    // @param validator: Function that takes (start_version, end_version) representing a rowset
+    //                   and returns true if the rowset should be included in the path, false to skip it
+    Status capture_consistent_versions_with_validator(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    // Capture consistent versions with validator for merge-on-write (MOW) tables.
+    // Similar to capture_consistent_versions_with_validator but with special handling for MOW tables.
+    // For MOW tables, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
+    // So we can only capture rowsets which are in newest data layout to ensure data correctness.
+    //
+    // @param validator: Function that takes (start_version, end_version) representing a rowset
+    //                   and returns true if the rowset is warmed up, false if not warmed up
+    Status capture_consistent_versions_with_validator_mow(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
     double get_orphan_vertex_ratio();
+
+    std::string debug_string() const;
 
 private:
     /// Private method add a version to graph.
@@ -168,6 +200,35 @@ public:
     Status capture_consistent_versions(const Version& spec_version,
                                        std::vector<Version>* version_path) const;
 
+    Status capture_consistent_versions_prefer_cache(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    // Given a start, this method can find a version path which satisfy the following conditions:
+    // 1. all edges satisfy the conditions specified by `validator` in the graph.
+    // 2. the destination version is as far as possible.
+    // 3. the path is the shortest path.
+    // The version paths are added to version_path as return info.
+    // If this version not in main version, version_path can be included expired rowset.
+    // NOTE: this method may return edges which is in stale path
+    //
+    // @param validator: Function that takes (start_version, end_version) representing a rowset
+    //                   and returns true if the rowset should be included in the path, false to skip it
+    Status capture_consistent_versions_with_validator(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
+    // Capture consistent versions with validator for merge-on-write (MOW) tables.
+    // Similar to capture_consistent_versions_with_validator but with special handling for MOW tables.
+    // For MOW tables, newly generated delete bitmap marks will be on the rowsets which are in newest layout.
+    // So we can only capture rowsets which are in newest data layout to ensure data correctness.
+    //
+    // @param validator: Function that takes (start_version, end_version) representing a rowset
+    //                   and returns true if the rowset is warmed up, false if not warmed up
+    Status capture_consistent_versions_with_validator_mow(
+            const Version& spec_version, std::vector<Version>& version_path,
+            const std::function<bool(int64_t, int64_t)>& validator) const;
+
     /// Capture all expired path version.
     /// When the last rowset create time of a path greater than expired time  which can be expressed
     /// "now() - tablet_rowset_stale_sweep_time_sec" , this path will be remained.
@@ -192,6 +253,8 @@ public:
     // Return proportion of orphan vertex in VersionGraph's _version_graph.
     // If a vertex is no longer the starting point of any edge, then this vertex is defined as orphan vertex
     double get_orphan_vertex_ratio();
+
+    std::string debug_string() const;
 
 private:
     /// Construct rowsets version tracker with main path rowset meta.

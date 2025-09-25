@@ -945,11 +945,11 @@ void Tablet::acquire_version_and_rowsets(
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
-                                  bool skip_missing_version) {
+                                  const CaptureRowsetOps& opts) {
     std::shared_lock rlock(_meta_lock);
     std::vector<Version> version_path;
     *rs_splits = DORIS_TRY(capture_rs_readers_unlocked(
-            spec_version, CaptureRowsetOps {.skip_missing_versions = skip_missing_version}));
+            spec_version, CaptureRowsetOps {.skip_missing_versions = opts.skip_missing_versions}));
     return Status::OK();
 }
 

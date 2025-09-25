@@ -433,6 +433,20 @@ public:
         return _query_options.partitioned_hash_agg_rows_threshold;
     }
 
+    bool enable_prefer_cached_rowset() const {
+        return _query_options.__isset.enable_prefer_cached_rowset &&
+               _query_options.enable_prefer_cached_rowset;
+    }
+
+    int64_t query_freshness_tolerance_ms() const {
+        return _query_options.query_freshness_tolerance_ms;
+    }
+
+    bool enable_query_freshness_tolerance() const {
+        return _query_options.__isset.query_freshness_tolerance_ms &&
+               _query_options.query_freshness_tolerance_ms > 0;
+    }
+
     std::vector<TTabletCommitInfo> tablet_commit_infos() const {
         std::lock_guard<std::mutex> lock(_tablet_infos_mutex);
         return _tablet_commit_infos;

@@ -73,6 +73,12 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
     @SerializedName(value = "wg", alternate = {"workloadGroup"})
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
+    @SerializedName(value = "epcr", alternate = {"enablePreferCachedRowset"})
+    private boolean enablePreferCachedRowset = false;
+
+    @SerializedName(value = "qft", alternate = {"queryFreshnessTolerance"})
+    private long queryFreshnessToleranceMs = -1;
+
     private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
@@ -184,6 +190,22 @@ public class CommonUserProperties implements Writable, GsonPostProcessable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public long getQueryFreshnessToleranceMs() {
+        return queryFreshnessToleranceMs;
+    }
+
+    public void setQueryFreshnessToleranceMs(long queryFreshnessToleranceMs) {
+        this.queryFreshnessToleranceMs = queryFreshnessToleranceMs;
+    }
+
+    public boolean getEnablePreferCachedRowset() {
+        return enablePreferCachedRowset;
+    }
+
+    public void setEnablePreferCachedRowset(boolean enablePreferCachedRowset) {
+        this.enablePreferCachedRowset = enablePreferCachedRowset;
     }
 
     @Override

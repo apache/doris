@@ -56,7 +56,7 @@ struct TabletWithVersion {
 enum class CompactionStage { NOT_SCHEDULED, PENDING, EXECUTING };
 
 // Base class for all tablet classes
-class BaseTablet {
+class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
     explicit BaseTablet(TabletMetaSharedPtr tablet_meta);
     virtual ~BaseTablet();
@@ -114,7 +114,7 @@ public:
 
     virtual Status capture_rs_readers(const Version& spec_version,
                                       std::vector<RowSetSplits>* rs_splits,
-                                      bool skip_missing_version) = 0;
+                                      const CaptureRowsetOps& opts) = 0;
 
     virtual size_t tablet_footprint() = 0;
 
@@ -305,11 +305,16 @@ public:
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor,
                           bool include_stale = false) {
         std::shared_lock rlock(_meta_lock);
-        for (auto& [v, rs] : _rs_version_map) {
+        traverse_rowsets_unlocked(visitor, include_stale);
+    }
+
+    void traverse_rowsets_unlocked(std::function<void(const RowsetSharedPtr&)> visitor,
+                                   bool include_stale = false) const {
+        for (const auto& [v, rs] : _rs_version_map) {
             visitor(rs);
         }
         if (!include_stale) return;
-        for (auto& [v, rs] : _stale_rs_version_map) {
+        for (const auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
     }
@@ -333,7 +338,7 @@ public:
     [[nodiscard]] Result<CaptureRowsetResult> capture_consistent_rowsets_unlocked(
             const Version& version_range, const CaptureRowsetOps& options) const;
 
-    [[nodiscard]] Result<std::vector<Version>> capture_consistent_versions_unlocked(
+    [[nodiscard]] virtual Result<std::vector<Version>> capture_consistent_versions_unlocked(
             const Version& version_range, const CaptureRowsetOps& options) const;
 
     [[nodiscard]] Result<std::vector<RowSetSplits>> capture_rs_readers_unlocked(
@@ -409,6 +414,21 @@ struct CaptureRowsetOps {
     bool quiet = false;
     bool include_stale_rowsets = true;
     bool enable_fetch_rowsets_from_peers = false;
+
+    // ======== only take effect in cloud mode ========
+
+    // Enable preference for cached/warmed-up rowsets when building version paths.
+    // When enabled, the capture process will prioritize already cached rowsets
+    // to avoid cold data reads and improve query performance.
+    bool enable_prefer_cached_rowset {false};
+
+    // Query freshness tolerance in milliseconds.
+    // Defines the time window for considering data as "fresh enough".
+    // Rowsets that became visible within this time range can be skipped if not warmed up,
+    // but older rowsets (before current_time - query_freshness_tolerance_ms) that are
+    // not warmed up will trigger fallback to normal capture.
+    // Set to -1 to disable freshness tolerance checking.
+    int64_t query_freshness_tolerance_ms {-1};
 };
 
 struct CaptureRowsetResult {

@@ -297,11 +297,11 @@ TEST_F(TestTablet, pad_rowset) {
 
     Version version(5, 5);
     std::vector<RowSetSplits> splits;
-    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, false).ok());
+    ASSERT_FALSE(_tablet->capture_rs_readers(version, &splits, {}).ok());
     splits.clear();
 
     static_cast<void>(PadRowsetAction::_pad_rowset(_tablet.get(), version));
-    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, false).ok());
+    ASSERT_TRUE(_tablet->capture_rs_readers(version, &splits, {}).ok());
 }
 
 TEST_F(TestTablet, cooldown_policy) {
