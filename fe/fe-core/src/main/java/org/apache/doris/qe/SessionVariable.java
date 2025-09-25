@@ -711,7 +711,6 @@ public class SessionVariable implements Serializable, Writable {
             SKIP_STORAGE_ENGINE_MERGE,
             SKIP_MISSING_VERSION,
             SKIP_BAD_TABLET,
-            SKIP_CHECKING_ACID_VERSION_FILE,
             SHOW_HIDDEN_COLUMNS
     );
 
@@ -3216,7 +3215,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
-                || skipMissingVersion || skipBadTablet || skipCheckingAcidVersionFile;
+                || skipMissingVersion || skipBadTablet;
     }
 
     public String printDebugModeVariables() {
