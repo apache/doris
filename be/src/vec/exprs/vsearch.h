@@ -37,6 +37,8 @@ public:
         return std::make_shared<VSearchExpr>(node);
     }
 
+    bool can_push_down_to_index() const override { return true; }
+
 private:
     TSearchParam _search_param;
     std::string _original_dsl;

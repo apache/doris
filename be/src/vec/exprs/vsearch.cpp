@@ -112,7 +112,10 @@ const std::string& VSearchExpr::expr_name() const {
 }
 
 Status VSearchExpr::execute(VExprContext* context, Block* block, int* result_column_id) {
-    // query_string expressions should only be evaluated via inverted index
+    if (fast_execute(context, block, result_column_id)) {
+        return Status::OK();
+    }
+
     return Status::InternalError("SearchExpr should not be executed without inverted index");
 }
 
@@ -147,13 +150,15 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return status;
     }
 
-    // Store results in index context if we have matches
-    if (!result_bitmap.is_empty()) {
-        index_context->set_inverted_index_result_for_expr(this, result_bitmap);
-        for (int column_id : bundle.column_ids) {
-            index_context->set_true_for_inverted_index_status(this, column_id);
-        }
-        LOG(INFO) << "VSearchExpr: Found " << result_bitmap.get_data_bitmap()->cardinality()
+    index_context->set_inverted_index_result_for_expr(this, result_bitmap);
+    for (int column_id : bundle.column_ids) {
+        index_context->set_true_for_inverted_index_status(this, column_id);
+    }
+
+    const auto& data_bitmap = result_bitmap.get_data_bitmap();
+    const uint64_t match_count = data_bitmap ? data_bitmap->cardinality() : 0;
+    if (match_count > 0) {
+        LOG(INFO) << "VSearchExpr: Found " << match_count
                   << " matching rows for DSL: " << _search_param.original_dsl;
     } else {
         LOG(INFO) << "VSearchExpr: No matches found for DSL: " << _search_param.original_dsl;

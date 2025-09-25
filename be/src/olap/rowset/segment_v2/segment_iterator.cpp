@@ -2698,21 +2698,47 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
         for (auto& inverted_index_result_bitmap_for_expr :
              expr_ctx->get_inverted_index_context()->get_inverted_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
-            const auto& index_result_bitmap =
-                    inverted_index_result_bitmap_for_expr.second.get_data_bitmap();
+            const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
+            const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
             auto index_result_column = vectorized::ColumnUInt8::create();
-
             vectorized::ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
             vec_match_pred.resize(block->rows());
+            std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
+
+            vectorized::ColumnUInt8::MutablePtr null_map_column = nullptr;
+            const auto& null_bitmap = result_bitmap.get_null_bitmap();
+            bool has_nulls = null_bitmap != nullptr && !null_bitmap->isEmpty();
+            vectorized::ColumnUInt8::Container* null_map_data = nullptr;
+            if (has_nulls) {
+                null_map_column = vectorized::ColumnUInt8::create();
+                auto& null_map_vec = null_map_column->get_data();
+                null_map_vec.resize(block->rows());
+                std::fill(null_map_vec.begin(), null_map_vec.end(), 0);
+                null_map_data = &null_map_column->get_data();
+            }
+
             roaring::BulkContext bulk_context;
             for (uint32_t i = 0; i < select_size; i++) {
                 auto rowid = sel_rowid_idx ? _block_rowids[sel_rowid_idx[i]] : _block_rowids[i];
-                vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
+                if (index_result_bitmap) {
+                    vec_match_pred[i] = index_result_bitmap->containsBulk(bulk_context, rowid);
+                }
+                if (has_nulls && null_bitmap->contains(rowid)) {
+                    (*null_map_data)[i] = 1;
+                    vec_match_pred[i] = 0;
+                }
             }
 
             DCHECK(block->rows() == vec_match_pred.size());
-            expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
-                    expr, std::move(index_result_column));
+
+            if (has_nulls) {
+                expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
+                        expr, vectorized::ColumnNullable::create(std::move(index_result_column),
+                                                                 std::move(null_map_column)));
+            } else {
+                expr_ctx->get_inverted_index_context()->set_inverted_index_result_column_for_expr(
+                        expr, std::move(index_result_column));
+            }
         }
     }
 }
