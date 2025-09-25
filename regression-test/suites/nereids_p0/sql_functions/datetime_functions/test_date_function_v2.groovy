@@ -156,11 +156,12 @@ suite("test_date_function_v2") {
     testFoldConst("SELECT GET_FORMAT(TIME, '你好');")
     qt_sql_addtime1 "select add_time('2023-10-14 00:00:00', '22:35:22');"
     testFoldConst("select add_time('2023-10-14 00:00:00', '22:35:22');")
-    qt_sql_addtime2 "select add_time('2023-10-14 00:00:00', '22:35:22.123456');"
-    testFoldConst("select add_time('2023-10-14 00:00:00', '22:35:22.123456');")
+    qt_sql_addtime2 "select add_time('2023-10-14 00:00:00.12', '22:35:22.123456');"
+    testFoldConst("select add_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     qt_sql_addtime3 "select add_time(dt, '122:35:22.123456') from ${tableName};"
+    qt_sql_addtime4 "select add_time(cast('822:35:22.123456' as time), cast('421:01:01' as time));"
+    qt_sql_addtime5 "select add_time(cast('-82:35:22.123456' as time), cast('-421:01:01' as time));"
 
-    qt_sql_addtime4 "select add_time(cast('421:01:01' as time), cast('822:35:22.123456' as time));"
     test{
         sql("select add_time('9999-12-29 00:00:00', '122:35:22.123456');")
         exception "datetime value is out of range in function add_time"
@@ -168,10 +169,11 @@ suite("test_date_function_v2") {
 
     qt_sql_subtime1("select sub_time('2023-10-14 00:00:00', '22:35:22');")
     testFoldConst("select sub_time('2023-10-14 00:00:00', '22:35:22');")
-    qt_sql_subtime2("select sub_time('2023-10-14 00:00:00', '22:35:22.123456');")
-    testFoldConst("select sub_time('2023-10-14 00:00:00', '22:35:22.123456');")
+    qt_sql_subtime2("select sub_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
+    testFoldConst("select sub_time('2023-10-14 00:00:00.12', '22:35:22.123456');")
     qt_sql_subtime3("select sub_time(dt, '22:35:22.123456') from ${tableName};")
-    qt_sql_subtime4 "select sub_time(cast('-421:01:01' as time), cast('822:35:22.123456' as time));"
+    qt_sql_subtime4("select sub_time(cast('-421:01:01' as time), cast('822:35:22' as time));")
+    qt_sql_subtime5("select sub_time(cast('421:01:01' as time), cast('-82:35:22.123456' as time));")
     test{
         sql("select sub_time('0000-01-01 00:00:00', '122:35:22.123456');")
         exception "datetime value is out of range in function sub_time"
