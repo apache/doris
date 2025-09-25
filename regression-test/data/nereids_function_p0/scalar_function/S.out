@@ -2727,6 +2727,122 @@ g3
 
 
 
+-- !sql_substring_Varchar_Integer_From --
+\N
+varchar11
+char11
+r11
+
+archar12
+har12
+12
+
+rchar13
+ar13
+3
+
+
+-- !sql_substring_Varchar_Integer_notnull_From --
+varchar11
+char11
+r11
+
+archar12
+har12
+12
+
+rchar13
+ar13
+3
+
+
+-- !sql_substring_String_Integer_From --
+\N
+string1
+ing1
+1
+
+tring2
+ng2
+
+
+ring3
+g3
+
+
+
+-- !sql_substring_String_Integer_notnull_From --
+string1
+ing1
+1
+
+tring2
+ng2
+
+
+ring3
+g3
+
+
+
+-- !sql_substring_Varchar_Integer_Integer_From_For --
+\N
+v
+char
+r11
+
+ar
+har12
+12
+
+rch
+ar13
+3
+
+
+-- !sql_substring_Varchar_Integer_Integer_notnull_From_For --
+v
+char
+r11
+
+ar
+har12
+12
+
+rch
+ar13
+3
+
+
+-- !sql_substring_String_Integer_Integer_From_For --
+\N
+s
+ing1
+1
+
+tr
+ng2
+
+
+rin
+g3
+
+
+
+-- !sql_substring_String_Integer_Integer_notnull_From_For --
+s
+ing1
+1
+
+tr
+ng2
+
+
+rin
+g3
+
+
+
 -- !sql_substring_index_Varchar_Varchar_Integer --
 null
 varchar11

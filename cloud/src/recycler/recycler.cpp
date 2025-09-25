@@ -207,7 +207,8 @@ Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
+    auto resource_mgr = std::make_shared<ResourceManager>(txn_kv_);
+    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_, std::move(resource_mgr));
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
 }
 
@@ -538,6 +539,10 @@ InstanceRecycler::InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const Instance
           _thread_pool_group(std::move(thread_pool_group)),
           txn_lazy_committer_(std::move(txn_lazy_committer)) {
     snapshot_manager_ = std::make_shared<SnapshotManager>(txn_kv_);
+
+    // Since the recycler's resource manager could not be notified when instance info changes,
+    // we need to refresh the instance info here to ensure the resource manager has the latest info.
+    txn_lazy_committer_->resource_manager()->refresh_instance(instance_id_, instance);
 };
 
 InstanceRecycler::~InstanceRecycler() = default;
@@ -3572,9 +3577,16 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
     constexpr int MAX_RETRY = 10;
     int64_t tablet_id = rowset_meta.tablet_id();
     const std::string& rowset_id = rowset_meta.rowset_id_v2();
+    std::string_view reference_instance_id = instance_id_;
+    if (rowset_meta.has_reference_instance_id()) {
+        reference_instance_id = rowset_meta.reference_instance_id();
+    }
+
     AnnotateTag tablet_id_tag("tablet_id", tablet_id);
     AnnotateTag rowset_id_tag("rowset_id", rowset_id);
     AnnotateTag rowset_key_tag("recycle_rowset_key", hex(recycle_rowset_key));
+    AnnotateTag instance_id_tag("instance_id", instance_id_);
+    AnnotateTag ref_instance_id_tag("ref_instance_id", reference_instance_id);
     for (int i = 0; i < MAX_RETRY; ++i) {
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -3584,7 +3596,7 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
         }
 
         std::string rowset_ref_count_key =
-                versioned::data_rowset_ref_count_key({instance_id_, tablet_id, rowset_id});
+                versioned::data_rowset_ref_count_key({reference_instance_id, tablet_id, rowset_id});
         int64_t ref_count = 0;
         {
             std::string value;
@@ -3599,7 +3611,7 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
                 LOG_WARNING("failed to decode rowset data ref count").tag("value", hex(value));
                 return -1;
             }
-        };
+        }
 
         if (ref_count == 1) {
             // It would not be added since it is recycling.
@@ -3615,7 +3627,9 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
                 return -1;
             }
             txn->remove(rowset_ref_count_key);
-            LOG_INFO("delete rowset data ref count key").tag("txn_id", rowset_meta.txn_id());
+            LOG_INFO("delete rowset data ref count key")
+                    .tag("txn_id", rowset_meta.txn_id())
+                    .tag("ref_count_key", hex(rowset_ref_count_key));
         } else {
             // Decrease the rowset ref count.
             //
@@ -3624,7 +3638,8 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
             txn->atomic_add(rowset_ref_count_key, -1);
             LOG_INFO("decrease rowset data ref count")
                     .tag("txn_id", rowset_meta.txn_id())
-                    .tag("ref_count", ref_count - 1);
+                    .tag("ref_count", ref_count - 1)
+                    .tag("ref_count_key", hex(rowset_ref_count_key));
         }
 
         txn->remove(recycle_rowset_key);

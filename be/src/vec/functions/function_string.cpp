@@ -1475,6 +1475,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNgramSearch>();
     factory.register_function<FunctionXPathString>();
     factory.register_function<FunctionCrc32Internal>();
+    factory.register_function<FunctionMakeSet>();
 
     factory.register_alias(FunctionLeft::name, "strleft");
     factory.register_alias(FunctionRight::name, "strright");
@@ -1485,6 +1486,7 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionStringUTF8Length::name, "character_length");
     factory.register_alias(FunctionStringDigestOneArg<SM3Sum>::name, "sm3");
     factory.register_alias(FunctionStringDigestSHA1::name, "sha");
+    factory.register_alias(FunctionStringLocatePos::name, "position");
 }
 
 } // namespace doris::vectorized

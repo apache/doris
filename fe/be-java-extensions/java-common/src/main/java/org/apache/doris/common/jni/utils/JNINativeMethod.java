@@ -22,11 +22,6 @@ package org.apache.doris.common.jni.utils;
  */
 public class JNINativeMethod {
     /**
-     * Resize string column and return the new column address in off heap.
-     */
-    public static native long resizeStringColumn(long columnAddr, int byteSize);
-
-    /**
      * Allocate memory in off heap, which will be tracked by memory tracker.
      */
     public static native long memoryTrackerMalloc(long size);
@@ -35,4 +30,16 @@ public class JNINativeMethod {
      * Free memory in off heap, which will be tracked by memory tracker.
      */
     public static native void memoryTrackerFree(long address);
+
+    /**
+     * Allocate multiple off-heap memory blocks in a single JNI call. Each element in sizes
+     * corresponds to one allocation. Returns an array of addresses with the same length.
+     */
+    public static native long[] memoryTrackerMallocBatch(int[] sizes);
+
+    /**
+     * Free multiple off-heap memory blocks in a single JNI call. Each element in addrs
+     * corresponds to one deallocation.
+     */
+    public static native void memoryTrackerFreeBatch(long[] addrs);
 }

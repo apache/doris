@@ -49,33 +49,6 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 template <PrimitiveType T>
-void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
-                                      BufferWritable& ostr) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
-        std::string hex =
-                int128_to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                             TypeCheckOnRelease::DISABLE>(*ptr)
-                                         .get_element(row_num));
-        ostr.write(hex.data(), hex.size());
-    } else if constexpr (std::numeric_limits<
-                                 typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        auto str = CastToString::from_number(
-                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
-        ostr.write(str.data(), str.size());
-    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value) {
-        ostr.write_number(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                      TypeCheckOnRelease::DISABLE>(*ptr)
-                                  .get_element(row_num));
-    }
-}
-
-template <PrimitiveType T>
 std::string DataTypeNumberBase<T>::to_string(
         const typename PrimitiveTypeTraits<T>::ColumnItemType& value) {
     if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, int128_t>::value ||
@@ -120,31 +93,6 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
                 typename PrimitiveTypeTraits<T>::NearestFieldType(node.float_literal.value));
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
-}
-
-template <PrimitiveType T>
-std::string DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    if constexpr (std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, int128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, uint128_t>::value ||
-                  std::is_same<typename PrimitiveTypeTraits<T>::ColumnItemType, UInt128>::value) {
-        return int128_to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                            TypeCheckOnRelease::DISABLE>(*ptr)
-                                        .get_element(row_num));
-    } else if constexpr (std::is_integral<typename PrimitiveTypeTraits<T>::ColumnItemType>::value) {
-        return std::to_string(assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                                          TypeCheckOnRelease::DISABLE>(*ptr)
-                                      .get_element(row_num));
-    } else if constexpr (std::numeric_limits<
-                                 typename PrimitiveTypeTraits<T>::ColumnItemType>::is_iec559) {
-        return CastToString::from_number(
-                assert_cast<const typename PrimitiveTypeTraits<T>::ColumnType&,
-                            TypeCheckOnRelease::DISABLE>(*ptr)
-                        .get_element(row_num));
-    }
 }
 
 // binary: const flag| row num | real saved num| data
