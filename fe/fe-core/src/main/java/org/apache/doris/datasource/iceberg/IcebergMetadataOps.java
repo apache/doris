@@ -56,6 +56,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types.NestedField;
@@ -254,21 +255,27 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         if (force) {
-            // try to drop all tables in the database
-            List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
-            for (String remoteTableName : remoteTableNames) {
-                performDropTable(dorisDb.getRemoteName(), remoteTableName, true);
-            }
-            if (!remoteTableNames.isEmpty()) {
-                LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, remoteTableNames.size());
-            }
-            // try to drop all views in the database
-            List<String> remoteViewNames = listViewNames(dorisDb.getRemoteName());
-            for (String remoteViewName : remoteViewNames) {
-                performDropView(dorisDb.getRemoteName(), remoteViewName);
-            }
-            if (!remoteViewNames.isEmpty()) {
-                LOG.info("drop database[{}] with force, drop all views, num: {}", dbName, remoteViewNames.size());
+            try {
+                // try to drop all tables in the database
+                List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
+                for (String remoteTableName : remoteTableNames) {
+                    performDropTable(dorisDb.getRemoteName(), remoteTableName, true);
+                }
+                if (!remoteTableNames.isEmpty()) {
+                    LOG.info("drop database[{}] with force, drop all tables, num: {}", dbName, remoteTableNames.size());
+                }
+                // try to drop all views in the database
+                List<String> remoteViewNames = listViewNames(dorisDb.getRemoteName());
+                for (String remoteViewName : remoteViewNames) {
+                    performDropView(dorisDb.getRemoteName(), remoteViewName);
+                }
+                if (!remoteViewNames.isEmpty()) {
+                    LOG.info("drop database[{}] with force, drop all views, num: {}", dbName, remoteViewNames.size());
+                }
+            } catch (NoSuchNamespaceException e) {
+                // just ignore
+                LOG.info("drop database[{}] force which does not exist", dbName);
+                return;
             }
         }
         nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));

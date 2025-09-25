@@ -331,13 +331,15 @@ public class FeNameFormatTest {
                     // Test always invalid names
                     for (String s : alwaysInvalid) {
                         Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                "name should be invalid: " + s + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                                "name should be invalid: " + s
+                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
                     }
 
                     // Test names with invalid dot patterns (always invalid)
                     for (String s : invalidDotNames) {
                         Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                "name should be invalid: " + s + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                                "name should be invalid: " + s
+                                        + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
                     }
 
                     // Test names with dots (valid only when nested namespace is enabled)
@@ -356,7 +358,7 @@ public class FeNameFormatTest {
                             ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
                         } else {
                             Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                    "unicode name should be invalid when unicode is disabled: " + s);
+                                    "unicode name should be invalid when unicode issh bi     disabled: " + s);
                         }
                     }
 
@@ -366,7 +368,8 @@ public class FeNameFormatTest {
                             ExceptionChecker.expectThrowsNoException(() -> FeNameFormat.checkDbName(s));
                         } else {
                             Assertions.assertThrowsExactly(AnalysisException.class, () -> FeNameFormat.checkDbName(s),
-                                    "unicode dot name should be invalid: " + s + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
+                                    "unicode dot name should be invalid: " + s
+                                            + " (unicode=" + unicode + ", nested=" + nestedNamespace + ")");
                         }
                     }
                 }
