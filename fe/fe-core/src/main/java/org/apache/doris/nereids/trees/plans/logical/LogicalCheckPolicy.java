@@ -50,6 +50,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -137,8 +138,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
-        if (cascadesContext.getStatementContext().getMvCanRewritePartitionsMap().size() != 0) {
-            return findPolicyByMvRefresh(cascadesContext.getStatementContext(), logicalPlan);
+        Map<TableIf, Set<Expression>> mvRefreshPredicates = cascadesContext.getStatementContext()
+                .getMvRefreshPredicates();
+        if (!MapUtils.isEmpty(mvRefreshPredicates)) {
+            return findPolicyByMvRefresh(mvRefreshPredicates, logicalPlan);
         }
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
@@ -202,11 +205,10 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         );
     }
 
-    private RelatedPolicy findPolicyByMvRefresh(StatementContext statementContext, LogicalPlan logicalPlan) {
+    private RelatedPolicy findPolicyByMvRefresh(Map<TableIf, Set<Expression>> mvRefreshPredicates,
+            LogicalPlan logicalPlan) {
         TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
                 : ((LogicalView<?>) logicalPlan).getView();
-
-        Map<TableIf, Set<Expression>> mvRefreshPredicates = statementContext.getMvRefreshPredicates();
         if (mvRefreshPredicates.containsKey(table)) {
             return new RelatedPolicy(Optional.of(ExpressionUtils.or(mvRefreshPredicates.get(table))), Optional.empty());
         }
