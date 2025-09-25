@@ -260,19 +260,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
     }
 
     @Test
-    public void testGetSmallestSlotVarbinaryType() {
-        // Test VARBINARY type
-        SlotDescriptor varbinarySlot = createSlotDescriptor(Type.VARBINARY, "varbinary_col");
-        SlotDescriptor intSlot = createSlotDescriptor(Type.INT, "int_col");
-
-        List<SlotDescriptor> slots = Lists.newArrayList(varbinarySlot, intSlot);
-        SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-
-        // INT should win due to numeric priority
-        Assertions.assertEquals(intSlot, result);
-    }
-
-    @Test
     public void testGetSmallestSlotLambdaFunctionType() {
         // Test LAMBDA_FUNCTION type
         SlotDescriptor lambdaSlot = createSlotDescriptor(Type.LAMBDA_FUNCTION, "lambda_col");
@@ -332,7 +319,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
         slots.add(createSlotDescriptor(Type.QUANTILE_STATE, "quantile_col")); // Other priority
         slots.add(createSlotDescriptor(Type.JSONB, "jsonb_col"));             // Other priority
         slots.add(createSlotDescriptor(Type.VARIANT, "variant_col"));         // Other priority
-        slots.add(createSlotDescriptor(Type.VARBINARY, "varbinary_col"));     // Other priority
 
         slots.add(createSlotDescriptor(Type.ARRAY, "array_col"));             // Complex priority
         slots.add(createSlotDescriptor(Type.MAP, "map_col"));                 // Complex priority
@@ -423,9 +409,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.JSONB);
                     break;
                 case 25:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.VARBINARY);
-                    break;
-                case 26:
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.VARIANT);
                     break;
                 default:
