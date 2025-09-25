@@ -69,7 +69,7 @@ suite("test_create_mtmv_with_view","mtmv") {
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_not_need_refresh =  "select RefreshMode from tasks("type"="mv") where MvName="${mvName}" order by CreateTime desc limit 1;"
+    order_qt_not_need_refresh =  "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
 
     sql """
         insert into ${tableName} values(2,2);
