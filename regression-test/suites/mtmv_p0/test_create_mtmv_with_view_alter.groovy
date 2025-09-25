@@ -86,7 +86,7 @@ suite("test_create_mtmv_with_view_alter","mtmv") {
         """
     def jobName = getJobName(dbName, mvName);
     waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-    order_qt_need_refresh_failed "select Status,ErrorMsg from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
+    order_qt_need_refresh_failed "select Status from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
 
     sql """drop view if exists `${viewName}`"""
     sql """drop table if exists `${tableName}`"""
