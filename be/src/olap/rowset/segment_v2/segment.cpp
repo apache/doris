@@ -604,15 +604,26 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     // Case 1: Node not found for the given path within the variant reader.
     // If relative_path is empty, it means the original path pointed to the root
     // of the variant column itself. We should return the Variant type.
+    // If node is nullptr, it means the path is not exist in the variant sub columns.
     if (node == nullptr || relative_path.empty()) {
+        // nested subcolumn is not exist in the sparse column
         if (column.is_nested_subcolumn()) {
             return vectorized::DataTypeFactory::instance().create_data_type(column);
         }
-        return column.is_nullable()
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count()))
-                       : std::make_shared<vectorized::DataTypeObject>(
-                                 column.variant_max_subcolumns_count());
+
+        // when the path is in the sparse column or exceeded the limit, return the variant type.
+        if (variant_reader->exist_in_sparse_column(relative_path) ||
+            variant_reader->is_exceeded_sparse_column_limit()) {
+            return column.is_nullable()
+                           ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
+                                     column.variant_max_subcolumns_count()))
+                           : std::make_shared<vectorized::DataTypeObject>(
+                                     column.variant_max_subcolumns_count());
+        }
+        // now, path is not in this segment, return the default type from column.
+        else {
+            return vectorized::DataTypeFactory::instance().create_data_type(column);
+        }
     }
 
     bool exist_in_sparse = variant_reader->exist_in_sparse_column(relative_path);
@@ -630,11 +641,9 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
                              !variant_reader->is_exceeded_sparse_column_limit())) {
         return node->data.file_column_type;
     }
-    return column.is_nullable()
-                   ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>(
-                             column.variant_max_subcolumns_count()))
-                   : std::make_shared<vectorized::DataTypeObject>(
-                             column.variant_max_subcolumns_count());
+
+    // not the compaction read, return the default type from column.
+    return vectorized::DataTypeFactory::instance().create_data_type(column);
 }
 
 Status Segment::_create_column_meta_once(OlapReaderStatistics* stats) {
