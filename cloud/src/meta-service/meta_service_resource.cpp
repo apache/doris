@@ -199,6 +199,25 @@ static int decrypt_and_update_ak_sk(ObjectStoreInfoPB& obj_info, MetaServiceCode
     return 0;
 };
 
+// Asynchronously notify refresh instance in background thread
+static void async_notify_refresh_instance(
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+        std::function<void(const KVStats&)> stats_handler = nullptr) {
+    auto f = new std::function<void()>(
+            [instance_id, txn_kv = std::move(txn_kv), stats_handler = std::move(stats_handler)] {
+                KVStats stats;
+                notify_refresh_instance(txn_kv, instance_id, &stats);
+                if (stats_handler) {
+                    stats_handler(stats);
+                }
+            });
+    bthread_t bid;
+    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
+        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << instance_id;
+        run_bthread_work(f);
+    }
+}
+
 void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* controller,
                                          const GetObjStoreInfoRequest* request,
                                          GetObjStoreInfoResponse* response,
@@ -1786,6 +1805,15 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
     }
+
+    async_notify_refresh_instance(
+            txn_kv_, request->instance_id(),
+            [instance_id = request->instance_id()](const KVStats& stats) {
+                if (config::use_detailed_metrics && !instance_id.empty()) {
+                    g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);
+                    g_bvar_rpc_kv_create_instance_get_counter.put({instance_id}, stats.get_counter);
+                }
+            });
 }
 
 std::pair<MetaServiceCode, std::string> handle_snapshot_switch(const std::string& instance_id,
@@ -2142,14 +2170,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
 
     if (request->op() == AlterInstanceRequest::REFRESH) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        notify_refresh_instance(txn_kv, instance_id, nullptr);
-    });
-    bthread_t bid;
-    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
-        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
-        run_bthread_work(f);
-    }
+    async_notify_refresh_instance(txn_kv_, request->instance_id());
 }
 
 void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
@@ -2767,20 +2788,14 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
 
     if (code != MetaServiceCode::OK) return;
 
-    auto f = new std::function<void()>([instance_id = request->instance_id(), txn_kv = txn_kv_] {
-        // the func run with a thread, so if use macro proved stats, maybe cause stack-use-after-return error
-        KVStats stats;
-        notify_refresh_instance(txn_kv, instance_id, &stats);
-        if (config::use_detailed_metrics && !instance_id.empty()) {
-            g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
-            g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
-        }
-    });
-    bthread_t bid;
-    if (bthread_start_background(&bid, nullptr, run_bthread_work, f) != 0) {
-        LOG(WARNING) << "notify refresh instance inplace, instance_id=" << request->instance_id();
-        run_bthread_work(f);
-    }
+    async_notify_refresh_instance(
+            txn_kv_, request->instance_id(),
+            [instance_id = request->instance_id()](const KVStats& stats) {
+                if (config::use_detailed_metrics && !instance_id.empty()) {
+                    g_bvar_rpc_kv_alter_cluster_get_bytes.put({instance_id}, stats.get_bytes);
+                    g_bvar_rpc_kv_alter_cluster_get_counter.put({instance_id}, stats.get_counter);
+                }
+            });
 }
 
 void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,

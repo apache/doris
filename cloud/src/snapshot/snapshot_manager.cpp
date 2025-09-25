@@ -17,6 +17,7 @@
 
 #include "snapshot/snapshot_manager.h"
 
+#include "recycler/checker.h"
 #include "recycler/recycler.h"
 
 namespace doris::cloud {
@@ -62,7 +63,21 @@ void SnapshotManager::clone_instance(const CloneInstanceRequest& request,
     response->mutable_status()->set_msg("Not implemented");
 }
 
+std::pair<MetaServiceCode, std::string> SnapshotManager::set_multi_version_status(
+        std::string_view instance_id, std::string_view cloud_unique_id,
+        MultiVersionStatus multi_version_status) {
+    return {MetaServiceCode::UNDEFINED_ERR, "Not implemented"};
+}
+
 int SnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
+    return 0;
+}
+
+int SnapshotManager::check_snapshots(InstanceChecker* checker) {
+    return 0;
+}
+
+int SnapshotManager::inverted_check_snapshots(InstanceChecker* checker) {
     return 0;
 }
 

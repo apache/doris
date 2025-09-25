@@ -17,6 +17,8 @@
 
 #include "cloud/cloud_warm_up_manager.h"
 
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <bvar/bvar.h>
 #include <bvar/reducer.h>
 
@@ -42,6 +44,8 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_skipped_rowset_num(
+        "file_cache_event_driven_warm_up_skipped_rowset_num");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_size(
         "file_cache_event_driven_warm_up_requested_segment_size");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_num(
@@ -83,6 +87,11 @@ bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
 
 CloudWarmUpManager::CloudWarmUpManager(CloudStorageEngine& engine) : _engine(engine) {
     _download_thread = std::thread(&CloudWarmUpManager::handle_jobs, this);
+    static_cast<void>(ThreadPoolBuilder("CloudWarmUpManagerThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::warm_up_manager_thread_pool_size)
+                              .build(&_thread_pool));
+    _thread_pool_token = _thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT);
 }
 
 CloudWarmUpManager::~CloudWarmUpManager() {
@@ -549,11 +558,29 @@ std::vector<TReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_id
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
+    bthread::Mutex mu;
+    bthread::ConditionVariable cv;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
+        _warm_up_rowset(rs_meta, sync_wait_timeout_ms);
+        cv.notify_one();
+    });
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
+        file_cache_warm_up_failed_task_num << 1;
+    } else {
+        cv.wait(lock);
+    }
+}
+
+void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_timeout_ms) {
     bool cache_hit = false;
     auto replicas = get_replica_info(rs_meta.tablet_id(), false, cache_hit);
     if (replicas.empty()) {
         VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                    << ", skipping rowset=" << rs_meta.rowset_id().to_string();
+        g_file_cache_event_driven_warm_up_skipped_rowset_num << 1;
         return;
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
@@ -684,6 +711,24 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta,
 
 void CloudWarmUpManager::recycle_cache(int64_t tablet_id,
                                        const std::vector<RecycledRowsets>& rowsets) {
+    bthread::Mutex mu;
+    bthread::ConditionVariable cv;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    auto st = _thread_pool_token->submit_func([&, this]() {
+        std::unique_lock<bthread::Mutex> l(mu);
+        _recycle_cache(tablet_id, rowsets);
+        cv.notify_one();
+    });
+    if (!st.ok()) {
+        LOG(WARNING) << "Failed to submit recycle cache task, tablet_id=" << tablet_id
+                     << ", error=" << st;
+    } else {
+        cv.wait(lock);
+    }
+}
+
+void CloudWarmUpManager::_recycle_cache(int64_t tablet_id,
+                                        const std::vector<RecycledRowsets>& rowsets) {
     LOG(INFO) << "recycle_cache: tablet_id=" << tablet_id << ", num_rowsets=" << rowsets.size();
     bool cache_hit = false;
     auto replicas = get_replica_info(tablet_id, false, cache_hit);

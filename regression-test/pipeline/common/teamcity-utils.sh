@@ -25,8 +25,9 @@
 # 控制哪些分支可以跑哪些流水线
 declare -A targetBranch_to_pipelines
 targetBranch_to_pipelines=(
-    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
+    ['master']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-4.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
+    ['branch-3.1']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
     ['branch-3.0']='feut beut cloudut compile p0 p1 external arm performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
     ['branch-2.1']='feut beut compile p0 p1 external arm'
     ['branch-2.0']='feut beut compile p0 p1 external arm performance'
