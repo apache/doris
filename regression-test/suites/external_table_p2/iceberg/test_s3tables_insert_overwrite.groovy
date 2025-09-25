@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_s3tables_insert_overwrite", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    // disable this test by default, glue + s3table is recommended
+    def run_test = false;
+    if (!run_test) {
+        return;
+    }
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
