@@ -95,6 +95,7 @@ suite("test_create_mtmv_with_view_alter_table","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_need_refresh_complete "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
     order_qt_select_2 "SELECT * FROM ${mvName}"
+    order_qt_state_after_refresh "select State from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     sql """drop view if exists `${viewName}`"""
     sql """drop table if exists `${tableName}`"""
