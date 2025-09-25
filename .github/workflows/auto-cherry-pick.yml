@@ -31,7 +31,7 @@ permissions:
 jobs:
   auto_cherry_pick:
     runs-on: ubuntu-latest
-    if: ${{(contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') || contains(github.event.pull_request.labels.*.name, 'dev/2.1.x') || contains(github.event.pull_request.labels.*.name, 'dev/3.1.x') || github.event.label.name == 'dev/3.0.x' || github.event.label.name == 'dev/2.1.x' || github.event.label.name == 'dev/3.1.x') && github.event.pull_request.merged == true }}
+    if: ${{(contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') || contains(github.event.pull_request.labels.*.name, 'dev/4.0.x') || contains(github.event.pull_request.labels.*.name, 'dev/2.1.x') || contains(github.event.pull_request.labels.*.name, 'dev/3.1.x') || github.event.label.name == 'dev/4.0.x' || github.event.label.name == 'dev/3.0.x' || github.event.label.name == 'dev/2.1.x' || github.event.label.name == 'dev/3.1.x') && github.event.pull_request.merged == true }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3

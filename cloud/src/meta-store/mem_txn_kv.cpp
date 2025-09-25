@@ -195,7 +195,9 @@ TxnErrorCode MemTxnKv::update(const std::set<std::string>& read_set,
         if (iter != log_kv_.end()) {
             auto log_item = iter->second;
             if (log_item.front().commit_version_ > read_version) {
-                LOG(WARNING) << "commit conflict";
+                LOG(WARNING) << "commit conflict, key: " << k
+                             << ", log_version: " << log_item.front().commit_version_
+                             << ", read_version: " << read_version;
                 //keep the same behaviour with fdb.
                 return TxnErrorCode::TXN_CONFLICT;
             }

@@ -727,7 +727,7 @@ public:
                 VectorizedUtils::update_null_map(*result_null_map, *path_null_map, path_const);
             }
 
-            if (0 == simd::count_zero_num(reinterpret_cast<const int8_t*>(data_null_map->data()),
+            if (0 == simd::count_zero_num(reinterpret_cast<const int8_t*>(result_null_map->data()),
                                           input_rows_count)) {
                 return create_all_null_result();
             }

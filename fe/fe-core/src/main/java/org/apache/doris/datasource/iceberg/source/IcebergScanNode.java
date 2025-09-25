@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -613,13 +614,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         EXAMPLE:
              CREATE TABLE iceberg_tb(col1 INT,col2 STRING) USING ICEBERG PARTITIONED BY (bucket(10,col2));
              INSERT INTO iceberg_tb VALUES( ... );
-             ALTER  TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
-             ALTER TABLE iceberg_tb DROP COLUMNS col2 STRING;
+             ALTER TABLE iceberg_tb DROP PARTITION FIELD bucket(10,col2);
+             ALTER TABLE iceberg_tb DROP COLUMNS col2;
         Link: https://github.com/apache/iceberg/pull/10755
-        */
-            LOG.warn("Iceberg TableScanUtil.splitFiles throw NullPointerException. Cause : ", e);
+            */
+            LOG.warn("Unable to plan for iceberg table {}", this.desc.getTable().getName(), e);
             return Optional.of(
-                new NotSupportedException("Unable to read Iceberg table with dropped old partition column."));
+                    new NotSupportedException("Unable to plan for this table. "
+                            + "Maybe read Iceberg table with dropped old partition column. Cause: "
+                            + Util.getRootCauseMessage(e)));
         }
         return Optional.empty();
     }

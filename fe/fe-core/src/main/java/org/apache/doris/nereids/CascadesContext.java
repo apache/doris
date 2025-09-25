@@ -132,6 +132,8 @@ public class CascadesContext implements ScheduleContext {
     private int distinctAggLevel;
     private final boolean isEnableExprTrace;
 
+    private int groupExpressionCount = 0;
+
     /**
      * Constructor of OptimizerContext.
      *
@@ -288,7 +290,17 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public void releaseMemo() {
-        this.memo = null;
+        if (memo != null) {
+            groupExpressionCount = memo.getGroupExpressionsSize();
+            this.memo = null;
+        }
+    }
+
+    public int getGroupExpressionCount() {
+        if (memo != null) {
+            return memo.getGroupExpressionsSize();
+        }
+        return groupExpressionCount;
     }
 
     public final ConnectContext getConnectContext() {

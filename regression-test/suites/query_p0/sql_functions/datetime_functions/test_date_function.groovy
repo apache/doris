@@ -489,7 +489,7 @@ suite("test_date_function") {
     qt_sql """ select weekofyear('2008-02-20 00:00:00') """
 
     sql """ truncate table ${tableName} """
-    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0-08-01 13:21:03")"""
+    sql """ insert into ${tableName} values ("2019-08-01 13:21:03"), ("9999-08-01 13:21:03"),("0000-08-01 13:21:03")"""
 
     // YEAR
     qt_sql """ select year('1987-01-01') """

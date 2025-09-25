@@ -306,6 +306,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeSet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -802,7 +803,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Crc32Internal.class, "crc32_internal"),
             scalar(Like.class, "like"),
             scalar(Ln.class, "ln", "dlog1"),
-            scalar(Locate.class, "locate"),
+            scalar(Locate.class, "position", "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
             scalar(Log2.class, "log2"),
@@ -1045,7 +1046,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(AISummarize.class, "ai_summarize"),
             scalar(AISimilarity.class, "ai_similarity"),
             scalar(Embed.class, "embed"),
-            scalar(Uniform.class, "uniform"));
+            scalar(Uniform.class, "uniform"),
+            scalar(MakeSet.class, "make_set"));
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();
 
