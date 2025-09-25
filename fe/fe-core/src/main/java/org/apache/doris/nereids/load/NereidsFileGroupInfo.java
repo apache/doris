@@ -168,7 +168,7 @@ public class NereidsFileGroupInfo {
         return fileType;
     }
 
-    public String getExplainString(String prefix) {
+    public String getExplainString() {
         StringBuilder sb = new StringBuilder();
         sb.append("file scan\n");
         return sb.toString();

@@ -269,11 +269,13 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
      */
     public LoadPlanInfo collectLoadPlanInfo(LogicalPlan logicalPlan) {
         this.logicalPlan = logicalPlan;
+        LOG.info("yyq logicalPlan: {}", logicalPlan);
         CascadesContext cascadesContext = CascadesContext.initContext(new StatementContext(),
                 logicalPlan, PhysicalProperties.ANY);
         PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
         logicalPlan.accept(this, context);
         loadPlanInfo.descriptorTable = context.getDescTable();
+        LOG.info("yyq loadPlanInfo.descriptorTable: {}", loadPlanInfo.descriptorTable);
         return loadPlanInfo;
     }
 
@@ -339,6 +341,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
     public Void visitLogicalProject(LogicalProject<? extends Plan> logicalProject, PlanTranslatorContext context) {
         logicalProject.child().accept(this, context);
         List<NamedExpression> outputs = logicalProject.getOutputs();
+        LOG.info("yyq outputs: {}", outputs);
         for (NamedExpression expr : outputs) {
             if (expr.containsType(AggregateFunction.class)) {
                 throw new AnalysisException("Don't support aggregation function in load expression");
@@ -347,7 +350,9 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
 
         List<Expr> projectList = outputs.stream().map(e -> ExpressionTranslator.translate(e, context))
                 .collect(Collectors.toList());
+        LOG.info("yyq projectList: {}", projectList);
         List<Slot> slotList = outputs.stream().map(NamedExpression::toSlot).collect(Collectors.toList());
+        LOG.info("yyq slotList: {}", slotList);
 
         // ignore projectList's nullability and set the expr's nullable info same as dest table column
         // why do this? looks like be works in this way...
@@ -369,9 +374,13 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
         }
 
+        LOG.info("yyq newSlotList: {}", newSlotList);
+
         loadPlanInfo.destTuple = generateTupleDesc(newSlotList, destTable, context);
+        LOG.info("yyq loadPlanInfo.destTuple: {}", loadPlanInfo.destTuple);
         loadPlanInfo.destSlotIdToExprMap = Maps.newHashMap();
         List<SlotDescriptor> slotDescriptorList = loadPlanInfo.destTuple.getSlots();
+        LOG.info("yyq slotDescriptorList: {}", slotDescriptorList);
         for (int i = 0; i < slotDescriptorList.size(); ++i) {
             SlotDescriptor slotDescriptor = slotDescriptorList.get(i);
             Expr expr = projectList.get(i);
@@ -387,7 +396,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
             }
             loadPlanInfo.destSlotIdToExprMap.put(slotDescriptor.getId(), expr);
         }
-        LOG.info("table {} loadPlanInfo.destTuple: {}, loadPlanInfo.destSlotIdToExprMap: {}", destTable.getName(),
+        LOG.info("yyq table {} loadPlanInfo.destTuple: {}, loadPlanInfo.destSlotIdToExprMap: {}", destTable.getName(),
                  loadPlanInfo.destTuple,
                  loadPlanInfo.destSlotIdToExprMap);
         return null;

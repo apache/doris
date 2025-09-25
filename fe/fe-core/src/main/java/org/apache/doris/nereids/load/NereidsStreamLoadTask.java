@@ -516,7 +516,13 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         }
     }
 
-    // used for stream load
+    /**
+     * used for stream load.
+     * Exapmle:
+     *      HttpHeader: columns:tmp_col1, tmp_col2, tmp_col3, col1=tmp_col1, col2=tmp_col2, col3=tmp_col3
+     * expressions incluses:
+     *      tmp_col1, tmp_col2, tmp_col3, col1=tmp_col1, col2=tmp_col2, col3=tmp_col3
+     */
     private void setColumnToColumnExpr(String columns) throws UserException {
         List<Expression> expressions = NereidsLoadUtils.parseExpressionSeq(columns);
         for (Expression expr : expressions) {
