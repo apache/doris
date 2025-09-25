@@ -102,7 +102,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * @param mv materialize view
      * @param partitionNames update partitions in mv and tables
      * @param tableWithPartKey the partitions key for different table
-     * @param statementContext
+     * @param statementContext statementContext
      * @return command
      */
     public static UpdateMvByPartitionCommand from(MTMV mv, Set<String> partitionNames,
