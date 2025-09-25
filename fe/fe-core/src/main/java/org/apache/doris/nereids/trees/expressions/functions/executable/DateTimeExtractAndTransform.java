@@ -490,8 +490,7 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_days")
     public static Expression fromDays(IntegerLiteral n) {
-        // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar
-        // year.
+        // doris treat 0000AD as ordinary year but java LocalDateTime treat it as lunar year.
         LocalDateTime res = LocalDateTime.of(0, 1, 1, 0, 0, 0)
                 .plusDays(n.getValue());
         if (res.isBefore(LocalDateTime.of(0, 3, 1, 0, 0, 0))) {
@@ -672,14 +671,15 @@ public class DateTimeExtractAndTransform {
     private static String getTimestamp(LocalDateTime dateTime) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
         dateTime = dateTime.atZone(DateUtils.getTimeZone())
-                .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                .toLocalDateTime();
+                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
+                        .toLocalDateTime();
         if (dateTime.isBefore(specialLowerBound)) {
             return "0";
         }
         Duration duration = Duration.between(
                 specialLowerBound,
-                dateTime);
+                dateTime
+                );
         if (duration.getNano() == 0) {
             return String.valueOf(duration.getSeconds());
         } else {
@@ -978,7 +978,7 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                        WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
+                                WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
             case 1: {
                 return new IntegerLiteral(localDateTime.get(WeekFields.ISO.weekBasedYear()) * 100
@@ -988,7 +988,7 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                        WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
+                                WeekFields.of(DayOfWeek.SUNDAY, 7).weekOfWeekBasedYear()));
             }
             case 3: {
                 return new IntegerLiteral(localDateTime.get(WeekFields.ISO.weekBasedYear()) * 100
@@ -998,25 +998,25 @@ public class DateTimeExtractAndTransform {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekBasedYear()) * 100
                                 + localDateTime
-                                        .get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
+                                .get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
             }
             case 5: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.MONDAY, 7).weekBasedYear()) * 100
                                 + localDateTime
-                                        .get(WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
+                                .get(WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
             }
             case 6: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.SUNDAY, 4).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                        WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
+                                WeekFields.of(DayOfWeek.SUNDAY, 4).weekOfWeekBasedYear()));
             }
             case 7: {
                 return new IntegerLiteral(
                         localDateTime.get(WeekFields.of(DayOfWeek.MONDAY, 7).weekBasedYear()) * 100
                                 + localDateTime.get(
-                                        WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
+                                WeekFields.of(DayOfWeek.MONDAY, 7).weekOfWeekBasedYear()));
             }
             default: {
                 throw new AnalysisException(
