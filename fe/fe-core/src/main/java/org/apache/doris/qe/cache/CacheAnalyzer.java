@@ -213,7 +213,7 @@ public class CacheAnalyzer {
                 && !sessionVariable.skipStorageEngineMerge
                 && !sessionVariable.skipMissingVersion
                 && !sessionVariable.skipBadTablet
-                && !sessionVariable.skipCheckingAcidVersionFile
+                && sessionVariable.skipCheckingAcidVersionFile
                 && !sessionVariable.showHiddenColumns;
     }
 
