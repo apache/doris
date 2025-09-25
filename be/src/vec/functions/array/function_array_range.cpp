@@ -232,7 +232,7 @@ private:
                         offset++;
                         move++;
                         idx = doris::vectorized::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(
-                                idx, step_row, is_null);
+                                idx, step_row);
                     }
                     dest_offsets.push_back(offset);
                 }

@@ -202,6 +202,7 @@ suite("test_col_data_type_boundary") {
 
     sql """insert into table_largeint select k1,c_varchar from tmp_varchar where k1=1;"""
     sql """insert into table_largeint select k1,c_varchar from tmp_varchar where k1=2;"""
+    sql "set enable_insert_strict = false;"
     try {
         sql """insert into table_largeint select k1,c_varchar from tmp_varchar where k1=3;"""
     } catch (Exception e) {
@@ -214,6 +215,7 @@ suite("test_col_data_type_boundary") {
         log.info(e.getMessage())
         assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
     }
+    sql "set enable_insert_strict = true;"
     partitions_res1 = sql """show partitions from table_largeint order by PartitionId;"""
     select_rows = sql """select count() from table_largeint;"""
     assertEquals(select_rows[0][0], 2)

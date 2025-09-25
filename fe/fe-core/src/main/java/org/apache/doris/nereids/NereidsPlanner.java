@@ -101,6 +101,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -111,6 +112,7 @@ public class NereidsPlanner extends Planner {
     // private static final AtomicInteger executeCount = new AtomicInteger(0);
     public static final Logger LOG = LogManager.getLogger(NereidsPlanner.class);
 
+    public static AtomicLong runningPlanNum = new AtomicLong(0L);
     protected Plan parsedPlan;
     protected Plan analyzedPlan;
     protected Plan rewrittenPlan;
@@ -154,6 +156,7 @@ public class NereidsPlanner extends Planner {
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
         statementContext.getStopwatch().reset().start();
+        NereidsPlanner.runningPlanNum.incrementAndGet();
         try {
             boolean showPlanProcess = showPlanProcess(queryStmt.getExplainOptions());
             planWithLock(parsedPlan, requireProperties, explainLevel, showPlanProcess, plan -> {
@@ -165,6 +168,7 @@ public class NereidsPlanner extends Planner {
             });
         } finally {
             statementContext.getStopwatch().stop();
+            NereidsPlanner.runningPlanNum.decrementAndGet();
         }
 
         if (LOG.isDebugEnabled()) {
@@ -896,7 +900,12 @@ public class NereidsPlanner extends Planner {
                     }
                 }
         }
-
+        if (ConnectContext.get() != null && cascadesContext != null
+                && cascadesContext.getGroupExpressionCount()
+                        > ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize) {
+            plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
+                    + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
+        }
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());
@@ -979,7 +988,7 @@ public class NereidsPlanner extends Planner {
         return PhysicalProperties.GATHER;
     }
 
-    private ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
+    protected ExplainLevel getExplainLevel(ExplainOptions explainOptions) {
         if (explainOptions == null) {
             return ExplainLevel.NONE;
         }

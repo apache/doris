@@ -222,7 +222,7 @@ public:
     TxnErrorCode get_partition_pending_txn_id(int64_t partition_id, int64_t* first_txn_id,
                                               int64_t* partition_version, bool snapshot = false);
     TxnErrorCode get_partition_pending_txn_id(Transaction* txn, int64_t partition_id,
-                                              int64_t* partition_version, int64_t* first_txn_id,
+                                              int64_t* first_txn_id, int64_t* partition_version,
                                               bool snapshot = false);
 
     // Get the index of the given index id.
@@ -262,6 +262,9 @@ public:
                                 bool snapshot = false);
     TxnErrorCode has_no_indexes(Transaction* txn, int64_t db_id, int64_t table_id, bool* no_indexes,
                                 bool snapshot = false);
+
+    static void merge_tablet_stats(const TabletStatsPB& load_stats,
+                                   const TabletStatsPB& compact_stats, TabletStatsPB* merged_stats);
 
 private:
     const std::string_view instance_id_;

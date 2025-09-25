@@ -30,9 +30,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline.h"
-#include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -62,12 +60,12 @@ public:
     // because they take locks.
     using report_status_callback = std::function<Status(
             const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
-    PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
+    PipelineFragmentContext(TUniqueId query_id, const TPipelineFragmentParams& request,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb);
+                            report_status_callback report_status_cb);
 
-    ~PipelineFragmentContext();
+    ~PipelineFragmentContext() override;
 
     void print_profile(const std::string& extra_info);
 
@@ -85,7 +83,7 @@ public:
     QueryContext* get_query_ctx() { return _query_ctx.get(); }
     [[nodiscard]] bool is_canceled() const { return _query_ctx->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
+    Status prepare(ThreadPool* thread_pool);
 
     Status submit();
 
@@ -119,7 +117,7 @@ public:
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {
             for (size_t i = 0; i < _tasks[j].size(); i++) {
-                _tasks[j][i]->stop_if_finished();
+                _tasks[j][i].first->stop_if_finished();
             }
         }
     }
@@ -128,24 +126,21 @@ public:
     std::string get_first_error_msg();
 
 private:
-    Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorPtr* root, PipelinePtr cur_pipe);
+    Status _build_pipelines(ObjectPool* pool, const DescriptorTbl& descs, OperatorPtr* root,
+                            PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
-                               const doris::TPipelineFragmentParams& request,
                                const DescriptorTbl& descs, OperatorPtr parent, int* node_idx,
                                OperatorPtr* root, PipelinePtr& cur_pipe, int child_idx,
                                const bool followed_by_shuffled_join);
 
-    Status _create_operator(ObjectPool* pool, const TPlanNode& tnode,
-                            const doris::TPipelineFragmentParams& request,
-                            const DescriptorTbl& descs, OperatorPtr& op, PipelinePtr& cur_pipe,
-                            int parent_idx, int child_idx, const bool followed_by_shuffled_join);
+    Status _create_operator(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
+                            OperatorPtr& op, PipelinePtr& cur_pipe, int parent_idx, int child_idx,
+                            const bool followed_by_shuffled_join);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx,
-                                                   const doris::TPipelineFragmentParams& request);
+                                                   int child_idx);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -171,8 +166,7 @@ private:
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                 ThreadPool* thread_pool);
+    Status _build_pipeline_tasks(ThreadPool* thread_pool);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -234,8 +228,25 @@ private:
     bool _use_serial_source = false;
 
     OperatorPtr _root_op = nullptr;
-    // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
-    std::vector<std::vector<std::shared_ptr<PipelineTask>>> _tasks;
+    //
+    /**
+     * Matrix stores tasks with local runtime states.
+     * This is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
+     *
+     * 2-D matrix:
+     * +-------------------------+------------+-------+
+     * |            | Pipeline 0 | Pipeline 1 |  ...  |
+     * +------------+------------+------------+-------+
+     * | Instance 0 |  task 0-0  |  task 0-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | Instance 1 |  task 1-0  |  task 1-1  |  ...  |
+     * +------------+------------+------------+-------+
+     * | ...                                          |
+     * +--------------------------------------+-------+
+     */
+    std::vector<
+            std::vector<std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>>>>
+            _tasks;
 
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
@@ -305,25 +316,13 @@ private:
     //    - _task_runtime_states is at the task level, unique to each task.
 
     std::vector<TUniqueId> _fragment_instance_ids;
-    /**
-     * Local runtime states for each task.
-     *
-     * 2-D matrix:
-     * +-------------------------+------------+-------+
-     * |            | Instance 0 | Instance 1 |  ...  |
-     * +------------+------------+------------+-------+
-     * | Pipeline 0 |  task 0-0  |  task 0-1  |  ...  |
-     * +------------+------------+------------+-------+
-     * | Pipeline 1 |  task 1-0  |  task 1-1  |  ...  |
-     * +------------+------------+------------+-------+
-     * | ...                                          |
-     * +--------------------------------------+-------+
-     */
-    std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;
     bool _require_bucket_distribution = false;
+
+    TPipelineFragmentParams _params;
+    int32_t _parallel_instances = 0;
 };
 } // namespace pipeline
 } // namespace doris

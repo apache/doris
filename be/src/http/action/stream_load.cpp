@@ -491,14 +491,16 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     } else {
         request.__set_negative(false);
     }
+    bool strictMode = false;
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
         if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
-            request.__set_strictMode(false);
+            strictMode = false;
         } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
-            request.__set_strictMode(true);
+            strictMode = true;
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
         }
+        request.__set_strictMode(strictMode);
     }
     // timezone first. if not, try time_zone (global)
     if (!http_req->header(HTTP_TIMEZONE).empty()) {
@@ -768,6 +770,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
+    DCHECK(ctx->put_result.__isset.pipeline_params);
+    ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
+    ctx->put_result.pipeline_params.query_options.__set_enable_insert_strict(strictMode);
     if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
         return Status::NotSupported("stream load 2pc is unsupported for mow table");
     }

@@ -34,7 +34,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
 import org.apache.doris.nereids.CascadesContext;
@@ -377,8 +376,6 @@ public class NereidsSqlCacheManager {
             boolean usedVariablesChanged
                     = checkUserVariable && usedVariablesChanged(currentVariables, sqlCacheContext, sessionVariable);
             if (resultSetInFe.isPresent() && !usedVariablesChanged) {
-                MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
-
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
                         sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
@@ -410,9 +407,6 @@ public class NereidsSqlCacheManager {
                 List<InternalService.PCacheValue> cacheValues = cacheData.getValuesList();
                 String cachedPlan = sqlCacheContext.getPhysicalPlan();
                 String backendAddress = SqlCache.findCacheBe(cacheKeyMd5).getAddress();
-
-                MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
-
                 LogicalSqlCache logicalSqlCache = new LogicalSqlCache(
                         sqlCacheContext.getQueryId(), sqlCacheContext.getColLabels(), sqlCacheContext.getFieldInfos(),
                         sqlCacheContext.getResultExprs(), Optional.empty(),
@@ -696,6 +690,10 @@ public class NereidsSqlCacheManager {
             super.handle(field, confVal);
             NereidsSqlCacheManager.updateConfig();
         }
+    }
+
+    public long getSqlCacheNum() {
+        return sqlCaches.estimatedSize();
     }
 
     private static class IsChanged {
