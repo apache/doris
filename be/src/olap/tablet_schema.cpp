@@ -689,6 +689,11 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_pattern_type()) {
         _pattern_type = column.pattern_type();
     }
+    if (column.variant_flatten_keys_size() > 0) {
+        for (auto& key : column.variant_flatten_keys()) {
+            _variant_flatten_keys.push_back(key);
+        }
+    }
 }
 
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
@@ -771,6 +776,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_variant_enable_typed_paths_to_sparse(_variant_enable_typed_paths_to_sparse);
     column->set_variant_max_sparse_column_statistics_size(
             _variant_max_sparse_column_statistics_size);
+    for (auto& key : _variant_flatten_keys) {
+        column->add_variant_flatten_keys(key);
+    }
 }
 
 void TabletColumn::add_sub_column(TabletColumn& sub_column) {

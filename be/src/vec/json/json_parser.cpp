@@ -20,21 +20,36 @@
 
 #include "vec/json/json_parser.h"
 
-#include <assert.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <cassert>
 #include <string_view>
+#include <unordered_set>
 
 #include "common/cast_set.h"
-#include "common/config.h"
+#include "common/consts.h"
 #include "common/status.h"
 #include "vec/json/path_in_data.h"
 #include "vec/json/simd_json_parser.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
+
+bool should_flatten_key(const std::string_view& key_name,
+                        const std::unordered_set<std::string>& flatten_keys, bool has_wildcard) {
+    // if empty key name, return false
+    if (key_name.empty()) {
+        return false;
+    }
+    // Check if "*" is in flatten_keys, which means all keys should be flattened
+    if (has_wildcard) {
+        return true;
+    }
+    // Otherwise, check if the specific key is in flatten_keys (O(1) lookup)
+    return flatten_keys.contains(std::string(key_name));
+}
 
 template <typename ParserImpl>
 std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, size_t length,
@@ -45,8 +60,18 @@ std::optional<ParseResult> JSONDataParser<ParserImpl>::parse(const char* begin, 
     }
     ParseContext context;
     context.enable_flatten_nested = config.enable_flatten_nested;
+    context.flatten_keys = config.getFlattenKeys();
+    context.has_wildcard = config.hasWildcard();
+    context.is_top_array_to_flatten = false;
     context.is_top_array = document.isArray();
-    traverse(document, context);
+    if (context.is_top_array && context.has_wildcard) {
+        context.builder.append(BeConsts::VIRTUAL_ROOT_PATH, false);
+        context.is_top_array_to_flatten = true;
+        traverse(document, context);
+        context.builder.pop_back();
+    } else {
+        traverse(document, context);
+    }
     ParseResult result;
     result.values = std::move(context.values);
     result.paths.reserve(context.paths.size());
@@ -69,8 +94,13 @@ void JSONDataParser<ParserImpl>::traverse(const Element& element, ParseContext& 
         }
         has_nested = false;
         check_has_nested_object(element);
-        ctx.has_nested_in_flatten = has_nested && ctx.enable_flatten_nested;
-        if (has_nested && !ctx.enable_flatten_nested) {
+        // check here if the array is top array or nested array is in flatten_keys
+        std::string_view current_nested_path = ctx.builder.build().get_path();
+        ctx.has_nested_in_flatten =
+                has_nested && ctx.enable_flatten_nested &&
+                (should_flatten_key(current_nested_path, ctx.flatten_keys, ctx.has_wildcard) ||
+                 ctx.is_top_array_to_flatten);
+        if (!ctx.has_nested_in_flatten) {
             // Parse nested arrays to JsonbField
             JsonbWriter writer;
             traverseArrayAsJsonb(element.getArray(), writer);
@@ -172,6 +202,7 @@ void JSONDataParser<ParserImpl>::traverseArray(const JSONArray& array, ParseCont
     ParseArrayContext array_ctx;
     array_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     array_ctx.is_top_array = ctx.is_top_array;
+
     array_ctx.total_size = array.size();
     for (auto it = array.begin(); it != array.end(); ++it) {
         traverseArrayElement(*it, array_ctx);
@@ -201,7 +232,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
     element_ctx.has_nested_in_flatten = ctx.has_nested_in_flatten;
     element_ctx.is_top_array = ctx.is_top_array;
     traverse(element, element_ctx);
-    auto& [_, paths, values, flatten_nested, __, is_top_array] = element_ctx;
+    auto& [_, paths, values, enable_flatten_nested, has_nested_in_flatten, is_top_array,
+           flatten_keys, has_wildcard, is_top_array_to_flatten] = element_ctx;
 
     if (element_ctx.has_nested_in_flatten && is_top_array) {
         checkAmbiguousStructure(ctx, paths);
@@ -225,7 +257,7 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
         }
     }
 
-    if (keys_to_update && !(is_top_array && ctx.has_nested_in_flatten)) {
+    if (keys_to_update) {
         fillMissedValuesInArrays(ctx);
     }
 }
@@ -285,11 +317,7 @@ void JSONDataParser<ParserImpl>::handleNewPath(UInt128 hash, const PathInData::P
     Array path_array;
     path_array.reserve(ctx.total_size);
 
-    // For top_array structure we no need to resize array
-    // because we no need to fill default values for maintaining the association information between Nested in array
-    if (!(ctx.is_top_array && ctx.has_nested_in_flatten)) {
-        path_array.resize(ctx.current_size);
-    }
+    path_array.resize(ctx.current_size);
 
     auto nested_key = getNameOfNested(path, value);
     if (!nested_key.empty()) {

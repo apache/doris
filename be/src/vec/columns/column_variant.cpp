@@ -1635,6 +1635,26 @@ struct Prefix {
     bool root_is_first_flag = true;
 };
 
+const ColumnVariant::Subcolumn* ColumnVariant::is_top_array_variant(int64_t row) const {
+    const auto* nested_node = subcolumns.find_best_match(PathInData(BeConsts::VIRTUAL_ROOT_PATH));
+    if (nested_node == nullptr) {
+        return nullptr;
+    }
+    const auto* top_array_variant = const_cast<ColumnVariant::Subcolumn*>(&nested_node->data);
+    FieldWithDataType field;
+    top_array_variant->get(row, field);
+    if (field.field.get_type() == PrimitiveType::TYPE_ARRAY) {
+        const auto& array = field.field.get<Array>();
+        for (const auto& elem : array) {
+            if (elem.get_type() != PrimitiveType::TYPE_VARIANT) {
+                return nullptr;
+            }
+        }
+        return top_array_variant;
+    }
+    return nullptr;
+}
+
 // skip empty nested json:
 // 1. nested array with only nulls, eg. [null. null],todo: think a better way to deal distinguish array null value and real null value.
 // 2. type is nothing
@@ -1707,6 +1727,11 @@ void ColumnVariant::serialize_one_row_to_json_format(int64_t row_num, BufferWrit
     // root is not eighther null or empty, we should only process root value
     if (is_visible_root_value(row_num)) {
         subcolumns.get_root()->data.serialize_text_json(row_num, output);
+        return;
+    }
+    // check if this row is top array variant
+    if (auto* top_array_variant = is_top_array_variant(row_num); top_array_variant != nullptr) {
+        top_array_variant->serialize_text_json(row_num, output);
         return;
     }
     const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);

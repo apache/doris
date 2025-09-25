@@ -1776,8 +1776,17 @@ variantTypeDefinitions
     : VARIANT LT variantSubColTypeList COMMA properties=propertyClause GT  #variant
     | VARIANT LT variantSubColTypeList GT                                  #variant
     | VARIANT LT properties=propertyClause GT                              #variant
+    | VARIANT LT flattenKeys=flattenKeyList COMMA properties=propertyClause GT  #variant
+    | VARIANT LT flattenKeys=flattenKeyList GT                             #variant
+    | VARIANT LT flattenKeys=flattenKeyList COMMA variantSubColTypeList COMMA properties=propertyClause GT  #variant
+    | VARIANT LT flattenKeys=flattenKeyList COMMA variantSubColTypeList GT                              #variant
     | VARIANT                                                              #variant
     ;
+
+flattenKeyList
+    : ASTERISK COLON ENABLE_FLATTEN_NESTED   
+    | keyNames=identifierSeq COLON ENABLE_FLATTEN_NESTED
+    ;  
 
 variantSubColTypeList
     : variantSubColType (COMMA variantSubColType)*

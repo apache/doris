@@ -357,6 +357,9 @@ public:
     // Only single scalar root column
     bool is_scalar_variant() const;
 
+    // check if this row is top array variant
+    const Subcolumn* is_top_array_variant(int64_t row) const;
+
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 
     bool has_subcolumn(const PathInData& key) const;

@@ -50,12 +50,15 @@ public class VariantType extends PrimitiveType {
 
     private final List<VariantField> predefinedFields;
 
+    private final List<String> flattenKeys;
+
     // No predefined fields
     public VariantType(int variantMaxSubcolumnsCount) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 0;
+        this.flattenKeys = Lists.newArrayList();
     }
 
     /**
@@ -66,21 +69,23 @@ public class VariantType extends PrimitiveType {
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 0;
+        this.flattenKeys = Lists.newArrayList();
     }
 
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount, boolean enableTypedPathsToSparse,
-            int variantMaxSparseColumnStatisticsSize) {
+            int variantMaxSparseColumnStatisticsSize, List<String> flattenKeys) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+        this.flattenKeys = ImmutableList.copyOf(Objects.requireNonNull(flattenKeys, "flattenKeys should not be null"));
     }
 
     @Override
     public DataType conversion() {
         return new VariantType(predefinedFields.stream().map(VariantField::conversion)
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                                    variantMaxSparseColumnStatisticsSize);
+                                    variantMaxSparseColumnStatisticsSize, flattenKeys);
     }
 
     @Override
@@ -88,7 +93,7 @@ public class VariantType extends PrimitiveType {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                     variantMaxSparseColumnStatisticsSize);
+                        variantMaxSparseColumnStatisticsSize, new ArrayList<>(flattenKeys));
         return type;
     }
 
@@ -133,6 +138,11 @@ public class VariantType extends PrimitiveType {
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
         }
+        if (flattenKeys.size() > 0) {
+            sb.append(",");
+            sb.append("\"variant_flatten_keys\" = \"")
+                                    .append(String.valueOf(flattenKeys)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }
@@ -149,13 +159,14 @@ public class VariantType extends PrimitiveType {
         return this.variantMaxSubcolumnsCount == other.variantMaxSubcolumnsCount
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.variantMaxSparseColumnStatisticsSize == other.variantMaxSparseColumnStatisticsSize
-                    && Objects.equals(predefinedFields, other.predefinedFields);
+                    && Objects.equals(predefinedFields, other.predefinedFields)
+                    && Objects.equals(flattenKeys, other.flattenKeys);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                            variantMaxSparseColumnStatisticsSize, predefinedFields);
+                            variantMaxSparseColumnStatisticsSize, predefinedFields, flattenKeys);
     }
 
     @Override
@@ -178,5 +189,9 @@ public class VariantType extends PrimitiveType {
 
     public int getVariantMaxSparseColumnStatisticsSize() {
         return variantMaxSparseColumnStatisticsSize;
+    }
+
+    public List<String> getFlattenKeys() {
+        return flattenKeys;
     }
 }

@@ -40,6 +40,9 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "fields")
     private final ArrayList<VariantField> predefinedFields;
 
+    @SerializedName(value = "flattenKeys")
+    private final ArrayList<String> flattenKeys;
+
     @SerializedName(value = "variantMaxSubcolumnsCount")
     private int variantMaxSubcolumnsCount = 0;
 
@@ -57,6 +60,7 @@ public class VariantType extends ScalarType {
         this.variantMaxSubcolumnsCount = 0;
         this.enableTypedPathsToSparse = false;
         this.variantMaxSparseColumnStatisticsSize = 0;
+        this.flattenKeys = Lists.newArrayList();
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -66,12 +70,14 @@ public class VariantType extends ScalarType {
         for (VariantField predefinedField : this.predefinedFields) {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
+        this.flattenKeys = Lists.newArrayList();
     }
 
     public VariantType(Map<String, String> properties) {
         super(PrimitiveType.VARIANT);
         this.predefinedFields = Lists.newArrayList();
         this.properties = properties;
+        this.flattenKeys = Lists.newArrayList();
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -82,6 +88,7 @@ public class VariantType extends ScalarType {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
         this.properties = properties;
+        this.flattenKeys = Lists.newArrayList();
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -90,6 +97,22 @@ public class VariantType extends ScalarType {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
+        for (VariantField predefinedField : this.predefinedFields) {
+            fieldMap.put(predefinedField.getPattern(), predefinedField);
+        }
+        this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
+        this.enableTypedPathsToSparse = enableTypedPathsToSparse;
+        this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+        this.flattenKeys = Lists.newArrayList();
+    }
+
+    public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
+                        boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
+                        ArrayList<String> flattenKeys) {
+        super(PrimitiveType.VARIANT);
+        Preconditions.checkNotNull(fields);
+        this.predefinedFields = fields;
+        this.flattenKeys = flattenKeys;
         for (VariantField predefinedField : this.predefinedFields) {
             fieldMap.put(predefinedField.getPattern(), predefinedField);
         }
@@ -134,6 +157,11 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
         }
+        if (flattenKeys.size() > 0) {
+            sb.append(",");
+            sb.append("\"variant_flatten_keys\" = \"")
+                                    .append(String.valueOf(flattenKeys)).append("\"");
+        }
         sb.append(")>");
         return sb.toString();
     }
@@ -172,7 +200,8 @@ public class VariantType extends ScalarType {
         }
         VariantType otherVariantType = (VariantType) other;
         return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
-                && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount;
+                && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
+                && Objects.equals(flattenKeys, otherVariantType.flattenKeys);
     }
 
     @Override
@@ -206,5 +235,9 @@ public class VariantType extends ScalarType {
 
     public void setVariantMaxSparseColumnStatisticsSize(int variantMaxSparseColumnStatisticsSize) {
         this.variantMaxSparseColumnStatisticsSize = variantMaxSparseColumnStatisticsSize;
+    }
+
+    public ArrayList<String> getFlattenKeys() {
+        return flattenKeys;
     }
 }
