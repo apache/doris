@@ -46,25 +46,20 @@ import java.util.Optional;
  */
 public class ReplaceNullWithFalseForCond implements ExpressionPatternRuleFactory {
 
-    public static final ReplaceNullWithFalseForCond INSTANCE = new ReplaceNullWithFalseForCond(false);
-    private final boolean replacedCaseThen;
-
-    public ReplaceNullWithFalseForCond(boolean replacedCaseThen) {
-        this.replacedCaseThen = replacedCaseThen;
-    }
+    public static final ReplaceNullWithFalseForCond INSTANCE = new ReplaceNullWithFalseForCond();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                matchesTopType(CaseWhen.class).then(this::simplify)
+                matchesTopType(CaseWhen.class).then(this::rewrite)
                         .toRule(ExpressionRuleType.REPLACE_NULL_WITH_FALSE_FOR_COND),
-                matchesTopType(If.class).then(this::simplify)
+                matchesTopType(If.class).then(this::rewrite)
                         .toRule(ExpressionRuleType.REPLACE_NULL_WITH_FALSE_FOR_COND)
         );
     }
 
-    private Expression simplify(Expression expression) {
-        return replace(expression, replacedCaseThen);
+    protected Expression rewrite(Expression expression) {
+        return replace(expression, false);
     }
 
     /**

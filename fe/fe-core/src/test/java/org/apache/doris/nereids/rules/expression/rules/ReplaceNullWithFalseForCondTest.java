@@ -34,6 +34,13 @@ import java.util.function.Function;
 
 class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
 
+    private final ReplaceNullWithFalseForCond replaceCaseThenInstance = new ReplaceNullWithFalseForCond() {
+        @Override
+        protected Expression rewrite(Expression expression) {
+            return replace(expression, true);
+        }
+    };
+
     @Test
     void testCaseWhen() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
@@ -61,7 +68,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
         assertRewrite(sql, expectedSql);
 
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(new ReplaceNullWithFalseForCond(true))
+                bottomUp(replaceCaseThenInstance)
         ));
 
         expectedSql = "case when false then false"
@@ -97,7 +104,7 @@ class ReplaceNullWithFalseForCondTest extends ExpressionRewriteTestHelper {
         assertRewrite(sql, expectedSql);
 
         executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(new ReplaceNullWithFalseForCond(true))
+                bottomUp(replaceCaseThenInstance)
         ));
 
         expectedSql = "if("
