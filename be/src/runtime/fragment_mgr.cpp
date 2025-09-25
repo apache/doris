@@ -803,7 +803,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                 if (!query_id_set.contains(it.first.first)) {
                     query_id_set.insert(it.first.first);
                     fmt::format_to(
-                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr:\n",
+                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr: {}\n",
                             print_id(it.first.first),
                             it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
                 }
@@ -811,7 +811,7 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                 auto timeout_second = it.second->timeout_second();
                 fmt::format_to(
                         debug_string_buffer,
-                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}) : {}\n",
+                        "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}): {}\n",
                         i, elapsed, timeout_second, it.second->is_timeout(now),
                         it.second->debug_string());
                 i++;
