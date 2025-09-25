@@ -20,6 +20,7 @@ suite("distinct_agg_rewriter") {
     SET ignore_shape_nodes='PhysicalProject';
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
+    set be_number_for_test=1;
     """
     multi_sql """
     analyze table t1000_2 with sync;

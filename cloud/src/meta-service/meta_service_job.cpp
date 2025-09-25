@@ -1234,7 +1234,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         return;
     }
 
-    // We don't actually need to parse the rowset meta
     doris::RowsetMetaCloudPB rs_meta;
     rs_meta.ParseFromString(tmp_rowset_val);
     if (rs_meta.txn_id() <= 0) {
@@ -1249,9 +1248,22 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     INSTANCE_LOG(INFO) << "remove tmp rowset meta, tablet_id=" << tablet_id
                        << " tmp_rowset_key=" << hex(tmp_rowset_key);
 
+    using namespace std::chrono;
+    auto rowset_visible_time =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    rs_meta.set_visible_ts_ms(rowset_visible_time);
+    std::string rowset_val;
+    if (!rs_meta.SerializeToString(&rowset_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        SS << "failed to serialize rowset meta, tablet_id=" << tablet_id
+           << " rowset_id=" << rowset_id;
+        msg = ss.str();
+        return;
+    }
+
     int64_t version = compaction.output_versions(0);
     auto rowset_key = meta_rowset_key({instance_id, tablet_id, version});
-    txn->put(rowset_key, tmp_rowset_val);
+    txn->put(rowset_key, rowset_val);
     if (is_versioned_write) {
         std::string meta_rowset_compact_key =
                 versioned::meta_rowset_compact_key({instance_id, tablet_id, version});
@@ -1622,6 +1634,20 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
     new_tablet_meta.SerializeToString(&new_tablet_val);
     txn->put(new_tablet_key, new_tablet_val);
 
+    if (is_versioned_write) {
+        std::string versioned_new_tablet_key =
+                versioned::meta_tablet_key({instance_id, new_tablet_id});
+        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
+                                     std::move(new_tablet_meta))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
+                              hex(versioned_new_tablet_key));
+            return;
+        }
+        LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
+                  << " key=" << hex(versioned_new_tablet_key);
+    }
+
     // process mow table, check lock
     if (new_tablet_meta.enable_unique_key_merge_on_write()) {
         bool success = check_and_remove_delete_bitmap_update_lock(
@@ -1636,20 +1662,6 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
         txn->remove(pending_key);
         LOG(INFO) << "xxx sc remove delete bitmap pending key, pending_key=" << hex(pending_key)
                   << " tablet_id=" << new_tablet_id << ", job_id=" << schema_change.id();
-    }
-
-    if (is_versioned_write) {
-        std::string versioned_new_tablet_key =
-                versioned::meta_tablet_key({instance_id, new_tablet_id});
-        if (!versioned::document_put(txn.get(), versioned_new_tablet_key,
-                                     std::move(new_tablet_meta))) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            msg = fmt::format("failed to serialize versioned tablet meta, key={}",
-                              hex(versioned_new_tablet_key));
-            return;
-        }
-        LOG(INFO) << "put versioned new tablet meta, new_tablet_id=" << new_tablet_id
-                  << " key=" << hex(versioned_new_tablet_key);
     }
 
     //==========================================================================
@@ -1867,9 +1879,31 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
                                                           : cast_as<ErrCategory::READ>(err);
             return;
         }
+
+        RowsetMetaCloudPB tmp_rowset_meta;
+        if (!tmp_rowset_meta.ParseFromString(tmp_rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            SS << "malformed tmp rowset meta, unable to deserialize, tablet_id=" << new_tablet_id
+               << " key=" << hex(tmp_rowset_key);
+            msg = ss.str();
+            return;
+        }
+        using namespace std::chrono;
+        auto rowset_visible_time =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        tmp_rowset_meta.set_visible_ts_ms(rowset_visible_time);
+        std::string rowset_val;
+        if (!tmp_rowset_meta.SerializeToString(&rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            SS << "failed to serialize rowset meta, tablet_id=" << new_tablet_id
+               << " rowset_id=" << tmp_rowset_meta.rowset_id_v2();
+            msg = ss.str();
+            return;
+        }
+
         auto rowset_key = meta_rowset_key(
                 {instance_id, new_tablet_id, schema_change.output_versions().at(i)});
-        txn->put(rowset_key, tmp_rowset_val);
+        txn->put(rowset_key, rowset_val);
         txn->remove(tmp_rowset_key);
         if (is_versioned_write) {
             doris::RowsetMetaCloudPB rs_meta;
@@ -1930,7 +1964,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
 
     need_commit = true;
 
-    if (!schema_change_log.recycle_rowsets().empty() && is_versioned_write) {
+    if (is_versioned_write) {
         std::string operation_log_key = versioned::log_key({instance_id});
         std::string operation_log_value;
         OperationLogPB operation_log;

@@ -44,21 +44,17 @@ import java.util.Objects;
  */
 public class Cast extends Expression implements UnaryExpression, Monotonic {
 
-    // CAST can be from SQL Query or Type Coercion.
-    private final boolean isExplicitType;
+    // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
+    private final boolean isExplicitType; //FIXME: now not useful
 
     private final DataType targetType;
 
-    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = isExplicitType;
+    public Cast(Expression child, DataType targetType) {
+        this(child, targetType, false);
     }
 
-    public Cast(Expression child, DataType targetType) {
-        super(ImmutableList.of(child));
-        this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
-        this.isExplicitType = false;
+    public Cast(Expression child, DataType targetType, boolean isExplicitType) {
+        this(ImmutableList.of(child), targetType, isExplicitType);
     }
 
     private Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
@@ -201,6 +197,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                     : ((DecimalV3Type) targetType).getRange()) < 1;
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
+            return true;
+        } else if (childDataType.isVariantType() && targetType.isJsonType()) {
+            // Variant to Json is always nullable
             return true;
         }
         return false;

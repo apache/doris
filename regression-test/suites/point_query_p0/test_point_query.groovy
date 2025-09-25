@@ -342,10 +342,12 @@ suite("test_point_query") {
 
     // skip delete sign
     sql """set skip_delete_bitmap=true; set skip_delete_sign=true;"""
-    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select col1, col2, loc3, 'value' from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
     sql """set skip_delete_bitmap=false; set skip_delete_sign=false;"""
 
+    sql "set enable_insert_strict = false;"
     sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
+    sql "set enable_insert_strict = true;"
     qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 
     sql "DROP TABLE IF EXISTS test_partial_prepared_statement"

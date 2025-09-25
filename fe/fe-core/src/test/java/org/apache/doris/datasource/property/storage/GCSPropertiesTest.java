@@ -20,6 +20,8 @@ package org.apache.doris.datasource.property.storage;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -95,5 +97,17 @@ public class GCSPropertiesTest {
         Assertions.assertEquals("999", s3Props.get("AWS_REQUEST_TIMEOUT_MS"));
         Assertions.assertEquals("888", s3Props.get("AWS_CONNECTION_TIMEOUT_MS"));
         Assertions.assertEquals("true", s3Props.get("use_path_style"));
+    }
+
+    @Test
+    public void testGCSAwsCredentialsProvider() throws Exception {
+        Map<String, String> gcsProps = new HashMap<>();
+        gcsProps.put("fs.gcs.support", "true");
+        GCSProperties gcsStorageProperties = (GCSProperties) StorageProperties.createPrimary(gcsProps);
+        Assertions.assertEquals(AnonymousCredentialsProvider.class, gcsStorageProperties.getAwsCredentialsProvider().getClass());
+        gcsProps.put("gs.access_key", "myAccessKey");
+        gcsProps.put("gs.secret_key", "mySecretKey");
+        gcsStorageProperties = (GCSProperties) StorageProperties.createPrimary(gcsProps);
+        Assertions.assertEquals(StaticCredentialsProvider.class, gcsStorageProperties.getAwsCredentialsProvider().getClass());
     }
 }

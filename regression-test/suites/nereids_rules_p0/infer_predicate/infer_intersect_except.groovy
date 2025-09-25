@@ -126,7 +126,8 @@ suite("infer_intersect_except") {
             select a, b from infer_intersect_except3 where a < 10;
             """
         notContains("a < 10")
-        contains("(infer_intersect_except3.a = 1) and (infer_intersect_except3.b = 'abc')")
+        contains("cast(b as TEXT) = 'abc'")
+        contains("infer_intersect_except3.a = 1")
 // PhysicalResultSink
 // --PhysicalExcept
 // ----filter((infer_intersect_except1.a > 0))
@@ -204,12 +205,6 @@ suite("infer_intersect_except") {
             ,(14,'01234567890123456789', 33,23,'2024-01-04','2020-01-11 10:00:00.99','2020-01-11'),
             (14,'01234567890123456789', 33,23,'2024-01-03 10:00:00','2020-01-11 10:00:00.99','2020-01-11');"""
 
-    test {
-        sql """
-        select d_datetimev2 from infer_intersect_except4 where d_datetimev2>'2020-01-01'  intersect select d_int from infer_intersect_except4 where d_int<10;
-        """
-        exception("can not cast from origin type DATETIMEV2(0) to target type=UNSUPPORTED")
-    }
     qt_different_type_date_string """
     explain shape plan
     select d_datetimev2 from infer_intersect_except4 where d_datetimev2>'2020-01-01'  intersect select d_char100 from infer_intersect_except4 where d_char100<'abc';

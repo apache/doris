@@ -18,17 +18,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * table ref info
@@ -55,6 +52,7 @@ public class TableRefInfo {
                         TableSnapshot tableSnapShot, PartitionNamesInfo partitionNamesInfo,
                         List<Long> tabletIdList, String tableAlias,
                         TableSample tableSample, List<String> relationHints) {
+        Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
         this.tableNameInfo = tableNameInfo;
         this.scanParams = scanParams;
         this.tableSnapShot = tableSnapShot;
@@ -88,28 +86,16 @@ public class TableRefInfo {
         return tableAlias != null;
     }
 
-    /**
-     * translateToLegacyTableRef
-     */
-    public TableRef translateToLegacyTableRef() {
-        TableName tableName = tableNameInfo != null
-                ? new TableName(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl()) : null;
-        String alias = tableAlias;
-        PartitionNames partitionNames =
-                partitionNamesInfo != null ? partitionNamesInfo.translateToLegacyPartitionNames() : null;
-        ArrayList<Long> sampleTabletIds = tabletIdList != null ? new ArrayList<>(tabletIdList) : new ArrayList<>();
-        org.apache.doris.analysis.TableSample legacyTableSample =
-                tableSample != null ? tableSample.translateToLegacyTableSample() : null;
-        ArrayList<String> commonHints = relationHints != null ? new ArrayList<>(relationHints) : new ArrayList<>();
-        TableSnapshot tableSnapshot = tableSnapShot;
-        TableScanParams tableScanParams = scanParams;
-        return new TableRef(tableName,
-            alias,
-            partitionNames,
-            sampleTabletIds,
-            legacyTableSample,
-            commonHints,
-            tableSnapshot,
-            tableScanParams);
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(tableNameInfo);
+        if (partitionNamesInfo != null) {
+            sb.append(partitionNamesInfo.toSql());
+        }
+        if (tableAlias != null) {
+            sb.append(" AS ").append(tableAlias);
+        }
+        return sb.toString();
     }
 }

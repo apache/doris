@@ -79,13 +79,15 @@ namespace doris::cloud {
 
 MetaServiceImpl::MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv,
                                  std::shared_ptr<ResourceManager> resource_mgr,
-                                 std::shared_ptr<RateLimiter> rate_limiter) {
-    txn_kv_ = txn_kv;
-    resource_mgr_ = resource_mgr;
-    rate_limiter_ = rate_limiter;
+                                 std::shared_ptr<RateLimiter> rate_limiter,
+                                 std::shared_ptr<SnapshotManager> snapshot_manager)
+        : txn_kv_(std::move(txn_kv)),
+          resource_mgr_(std::move(resource_mgr)),
+          rate_limiter_(std::move(rate_limiter)),
+          txn_lazy_committer_(std::make_shared<TxnLazyCommitter>(txn_kv_)),
+          delete_bitmap_lock_white_list_(std::make_shared<DeleteBitmapLockWhiteList>()),
+          snapshot_manager_(std::move(snapshot_manager)) {
     rate_limiter_->init(this);
-    txn_lazy_committer_ = std::make_shared<TxnLazyCommitter>(txn_kv_);
-    delete_bitmap_lock_white_list_ = std::make_shared<DeleteBitmapLockWhiteList>();
     delete_bitmap_lock_white_list_->init();
 }
 
@@ -731,6 +733,32 @@ void internal_create_tablet(const CreateTabletsRequest* request, MetaServiceCode
     std::string key;
     std::string val;
     meta_tablet_key(key_info, &key);
+
+    err = txn->get(key, &val);
+    TEST_SYNC_POINT_CALLBACK("meta_service_test:get_meta_tablet_key_error", &err);
+    if (err == TxnErrorCode::TXN_OK) {
+        doris::TabletMetaCloudPB exists_tablet_meta;
+        if (!exists_tablet_meta.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = fmt::format("malformed tablet meta, unable to initialize, key={}", hex(key));
+            return;
+        }
+        if (exists_tablet_meta.tablet_id() == tablet_meta.tablet_id() &&
+            exists_tablet_meta.schema_version() == tablet_meta.schema_version()) {
+            // idempotent
+            code = MetaServiceCode::OK;
+            msg = fmt::format("tablet already exists, tablet_id={} schema_version={} key={}",
+                              tablet_id, tablet_meta.schema_version(), hex(key));
+            LOG(WARNING) << msg;
+            return;
+        }
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to get tablet key, key=" + hex(key);
+        LOG(WARNING) << msg;
+        return;
+    }
     if (!tablet_meta.SerializeToString(&val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = "failed to serialize tablet meta";
@@ -3948,6 +3976,9 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     auto& begin_versions = request->begin_versions();
     auto& end_versions = request->end_versions();
     auto store_version = request->has_store_version() ? request->store_version() : 1;
+    int64_t dbm_bytes_threshold = request->has_dbm_bytes_threshold()
+                                          ? request->dbm_bytes_threshold()
+                                          : std::numeric_limits<int64_t>::max();
     if (store_version != 1 && store_version != 2 && store_version != 3) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "delete bitmap store version must be 1, 2, 3";
@@ -4158,6 +4189,20 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                       << delete_bitmap_storage.delete_bitmap().rowset_ids_size();
             delete_bitmap_num += delete_bitmap_storage.delete_bitmap().rowset_ids_size();
             delete_bitmap_byte += val_buf.value().size();
+        }
+
+        response->add_returned_rowset_ids(rowset_ids[i]);
+        if (delete_bitmap_byte >= dbm_bytes_threshold && i < rowset_ids.size() - 1) {
+            response->set_has_more(true);
+            LOG_INFO("stop in advance to get delete bitmap due to reach bytes threshold")
+                    .tag("instance_id", instance_id)
+                    .tag("tablet_id", tablet_id)
+                    .tag("req_rowset_num", rowset_ids.size())
+                    .tag("finished_rowset_num", response->returned_rowset_ids_size())
+                    .tag("delete_bitmap_num", delete_bitmap_num)
+                    .tag("delete_bitmap_byte", delete_bitmap_byte)
+                    .tag("bytes_threshold", dbm_bytes_threshold);
+            break;
         }
     }
     LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id

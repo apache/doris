@@ -1978,7 +1978,6 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     std::shared_ptr<vectorized::Block> block;
-    bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
@@ -1990,8 +1989,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
 
     _row_distribution_watch.start();
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
-            _number_input_rows));
+            input_block, block, filtered_rows, _row_part_tablet_ids, _number_input_rows));
 
     ChannelDistributionPayloadVec channel_to_payload;
 

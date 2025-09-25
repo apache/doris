@@ -31,7 +31,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/rowset/segment_v2/inverted_index_iterator.h"
+#include "olap/rowset/segment_v2/inverted_index_iterator.h" // IWYU pragma: keep
 #include "udf/udf.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -211,6 +211,8 @@ public:
     virtual bool is_udf_function() const { return false; }
 
     virtual bool can_push_down_to_index() const { return false; }
+
+    virtual bool is_blockable() const { return false; }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -224,6 +226,8 @@ public:
     virtual String get_name() const = 0;
 
     /// Override and return true if function could take different number of arguments.
+    ///TODO: this function is not actually used now. but in check_number_of_arguments we still need it because for many
+    /// functions we didn't set the correct number of arguments.
     virtual bool is_variadic() const = 0;
 
     /// For non-variadic functions, return number of arguments; otherwise return zero (that should be ignored).
@@ -470,6 +474,8 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
+
+    bool is_blockable() const override { return function->is_blockable(); }
 
 private:
     std::shared_ptr<IFunction> function;

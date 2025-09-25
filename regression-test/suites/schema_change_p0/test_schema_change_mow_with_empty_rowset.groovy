@@ -62,6 +62,7 @@ suite("test_schema_change_mow_with_empty_rowset", "p0") {
     for (int i = 0; i < 20; i++) {
         sql """ insert into ${tableName} values (100, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00') """
+        sleep(20)
     }   
 
     Awaitility.await().atMost(30, TimeUnit.SECONDS).pollDelay(10, TimeUnit.MILLISECONDS).pollInterval(10, TimeUnit.MILLISECONDS).until(

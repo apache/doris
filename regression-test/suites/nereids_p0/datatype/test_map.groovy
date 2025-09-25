@@ -35,6 +35,11 @@ suite("test_map") {
     sql 'insert into `test_map_table` values (5, 2, {"key2_2": "value2_2", "key22_2": "value22_2"});'
     sql 'insert into `test_map_table` values (6, 3, {"key3": "value3", "key33": "value33", "key3333": "value333"});'
     sql 'insert into `test_map_table` values (7, 4, {"key4": "value4", "key44": "value44", "key444": "value444", "key4444": "value4444"});'
+    sql 'insert into `test_map_table` values (7, 5, {"key5": "value5", "key44": "value44", null: "null", "key4": "value444", null: "null2", "key44": "value4444"});'
+
+    qt_sql """
+        select id, k1, array_sort(map_keys(value)) as v1, array_sort(map_values(value)) as v2 from test_map_table order by 1, 2;
+    """
 
     sql "DROP TABLE IF EXISTS `test_map_table_right`"
     sql """
@@ -52,6 +57,13 @@ suite("test_map") {
     sql 'insert into `test_map_table_right` values(6, 3);'
 
     qt_sql """
-        select * from test_map_table left join test_map_table_right on test_map_table.k1 = test_map_table_right.value order by 1,2,4,5;
+        select 
+            test_map_table.id id
+            , test_map_table.k1 k1
+            , array_sort(map_keys(test_map_table.value)) as v1
+            , array_sort(map_values(test_map_table.value)) as v2
+            , test_map_table_right.id r_id
+            , test_map_table_right.value r_value
+        from test_map_table left join test_map_table_right on test_map_table.k1 = test_map_table_right.value order by 1,2,5,6;
     """
 }

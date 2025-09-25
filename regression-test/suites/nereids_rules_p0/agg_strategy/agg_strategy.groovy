@@ -20,6 +20,7 @@ suite("agg_strategy") {
     sql "set enable_parallel_result_sink=false"
     sql "set global enable_auto_analyze=false"
     sql "set runtime_filter_mode=OFF"
+    sql "set be_number_for_test=1;"
 
     for (int i = 0; i < 2; i++) {
         if (i == 0) {
@@ -138,4 +139,27 @@ suite("agg_strategy") {
 
     qt_group_concat_distinct_key_is_varchar_and_distribute_key """explain shape plan
     select group_concat(distinct dst_key1 ,' ') from t_gbykey_10_dstkey_10_1000_dst_key1;"""
+
+    // multi_distinct and count distinct multi expr
+    qt_multi_distinct_count_and_count_distinct_multi_expr """
+    select multi_distinct_count(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_sum_and_count_distinct_multi_expr """
+    select multi_distinct_sum(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_sum0_and_count_distinct_multi_expr """
+    select multi_distinct_sum0(dst_key1), count(distinct dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;
+    """
+    qt_multi_distinct_group_concat_and_count_distinct_multi_expr """
+    explain shape plan
+    select multi_distinct_group_concat(dst_key1 order by dst_key2), count(distinct dst_key1,dst_key2) from t_gbykey_10_dstkey_10_1000_id;
+    """
+
+    // multi_distinct_count only accept one arg
+    test {
+        sql "select multi_distinct_count(dst_key1,dst_key2) from t_gbykey_2_dstkey_10_30_id;"
+        exception "multi_distinct_count(dst_key1, dst_key2), MultiDistinctCount's children size must be 1"
+    }
+    // multi_distinct_count only accept 2 same args
+    qt_multi_distinct_count_2_same_args "select multi_distinct_count(dst_key2,dst_key2) from t_gbykey_2_dstkey_10_30_id;"
 }

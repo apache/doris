@@ -813,44 +813,5 @@ public:
     }
 };
 
-struct FetchRpcStruct {
-    std::shared_ptr<PBackendService_Stub> stub;
-    PMultiGetRequestV2 request;
-    std::shared_ptr<doris::DummyBrpcCallback<PMultiGetResponseV2>> callback;
-    MonotonicStopWatch rpc_timer;
-};
-
-struct MaterializationSharedState : public BasicSharedState {
-    ENABLE_FACTORY_CREATOR(MaterializationSharedState)
-public:
-    MaterializationSharedState() = default;
-
-    Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
-    Status create_muiltget_result(const vectorized::Columns& columns, bool eos, bool gc_id_map);
-    Status merge_multi_response(vectorized::Block* block);
-
-    void create_counter_dependency(int operator_id, int node_id, const std::string& name);
-
-private:
-    void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
-
-public:
-    bool rpc_struct_inited = false;
-    AtomicStatus rpc_status;
-
-    bool last_block = false;
-    // empty materialization sink block not need to merge block
-    bool need_merge_block = true;
-    vectorized::Block origin_block;
-    // The rowid column of the origin block. should be replaced by the column of the result block.
-    std::vector<int> rowid_locs;
-    std::vector<vectorized::MutableBlock> response_blocks;
-    std::map<int64_t, FetchRpcStruct> rpc_struct_map;
-    // Register each line in which block to ensure the order of the result.
-    // Zero means NULL value.
-    std::vector<std::vector<int64_t>> block_order_results;
-    // backend id => <rpc profile info string key, rpc profile info string value>.
-    std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
-};
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline
