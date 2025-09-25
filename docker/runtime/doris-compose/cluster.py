@@ -620,8 +620,6 @@ class BE(Node):
         cfg += [
             'enable_java_support = false',
         ]
-        if self.cluster.be_config:
-            cfg += self.cluster.be_config
         if self.cluster.is_cloud:
             cfg += [
                 'tmp_file_dirs = [ {"path":"./storage/tmp","max_cache_bytes":10240000, "max_upload_bytes":10240000}]',
@@ -644,6 +642,8 @@ class BE(Node):
                 cfg += [
                     "cloud_unique_id = " + self.cloud_unique_id(),
                 ]
+        if self.cluster.be_config:
+            cfg += self.cluster.be_config
         return cfg
 
     def init_disk(self, be_disks):
