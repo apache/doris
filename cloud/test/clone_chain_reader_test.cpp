@@ -119,7 +119,6 @@ public:
         // A has no source
         for (size_t i = 1; i < instance_ids_.size(); ++i) {
             std::string instance_id = instance_ids_[i];
-            Versionstamp snapshot_version = snapshot_versions_[i];
             resource_mgr->add_instance_source_snapshot_info(instance_id, instance_ids_[i - 1],
                                                             snapshot_versions_[i - 1]);
         }
