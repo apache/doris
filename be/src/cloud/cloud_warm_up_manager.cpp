@@ -145,7 +145,7 @@ void CloudWarmUpManager::submit_download_tasks(io::Path path, int64_t file_size,
                         .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                         .is_warmup = true},
                 .download_done =
-                        [&](Status st) {
+                        [&, done_cb = std::move(done_cb)](Status st) {
                             if (done_cb) done_cb(st);
                             if (!st) {
                                 LOG_WARNING("Warm up error ").error(st);
