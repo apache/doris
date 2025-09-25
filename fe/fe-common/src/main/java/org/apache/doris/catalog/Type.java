@@ -304,6 +304,7 @@ public abstract class Type {
                     .put(PrimitiveType.IPV4, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.IPV6, Sets.newHashSet(InetAddress.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.VARBINARY, Sets.newHashSet(Byte[].class, byte[].class))
                     .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
