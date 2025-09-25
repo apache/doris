@@ -23,7 +23,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;

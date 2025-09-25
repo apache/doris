@@ -94,7 +94,7 @@ import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.plsql.metastore.PlsqlPackage;

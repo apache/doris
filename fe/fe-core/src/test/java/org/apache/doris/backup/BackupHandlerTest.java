@@ -39,7 +39,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;

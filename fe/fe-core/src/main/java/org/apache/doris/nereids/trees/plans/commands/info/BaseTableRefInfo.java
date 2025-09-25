@@ -21,6 +21,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.info.TableRefInfo;
 
 /**
  * BaseTableRefInfo

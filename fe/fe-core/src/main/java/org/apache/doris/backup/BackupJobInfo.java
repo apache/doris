@@ -34,7 +34,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Version;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TNetworkAddress;

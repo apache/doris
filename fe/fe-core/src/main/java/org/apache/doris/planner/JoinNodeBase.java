@@ -21,7 +21,7 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.statistics.StatisticalType;
 
 import com.google.common.base.Preconditions;

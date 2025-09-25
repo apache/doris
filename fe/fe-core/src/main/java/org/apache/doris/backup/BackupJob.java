@@ -37,7 +37,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand.BackupContent;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;

@@ -18,7 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;

@@ -34,7 +34,7 @@ import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.TableRefInfo;
+import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
