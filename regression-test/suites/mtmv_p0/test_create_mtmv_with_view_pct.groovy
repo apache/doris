@@ -94,6 +94,9 @@ suite("test_create_mtmv_with_view_pct","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_pct_refresh "select RefreshMode from tasks('type'='mv') where MvName='${mvName}' order by CreateTime desc limit 1;"
 
+    mv_rewrite_success("select * from ${viewName}", "${mvName}")
+    mv_rewrite_success("select * from ${tableName}", "${mvName}")
+
     sql """drop view if exists `${viewName}`"""
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
