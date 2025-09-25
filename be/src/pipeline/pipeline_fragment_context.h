@@ -125,7 +125,13 @@ public:
     std::string get_load_error_url();
     std::string get_first_error_msg();
 
+    Status reset(ThreadPool* thread_pool);
+
 private:
+    void _release_resource();
+
+    Status _build_and_prepare_full_pipeline(ThreadPool* thread_pool);
+
     Status _build_pipelines(ObjectPool* pool, const DescriptorTbl& descs, OperatorPtr* root,
                             PipelinePtr cur_pipe);
     Status _create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,

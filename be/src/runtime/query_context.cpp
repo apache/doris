@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "olap/olap_common.h"
 #include "pipeline/dependency.h"
+#include "pipeline/exec/rec_cte_scan_operator.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -49,6 +50,16 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
+
+bool TUniqueId::operator<(const TUniqueId& rhs) const {
+    if (hi < rhs.hi) {
+        return true;
+    }
+    if (hi > rhs.hi) {
+        return false;
+    }
+    return lo < rhs.lo;
+}
 
 class DelayReleaseToken : public Runnable {
     ENABLE_FACTORY_CREATOR(DelayReleaseToken);
@@ -493,6 +504,41 @@ TReportExecStatusParams QueryContext::get_realtime_exec_status() {
             /*is_done=*/false);
 
     return exec_status;
+}
+
+Status QueryContext::send_block_to_cte_scan(
+        const TUniqueId& instance_id, int node_id,
+        const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks, bool eos) {
+    std::unique_lock<std::mutex> l(_cte_scan_lock);
+    auto it = _cte_scan.find(std::make_pair(instance_id, node_id));
+    if (it == _cte_scan.end()) {
+        return Status::InternalError("CTE scan not found for instance {}, node {}",
+                                     print_id(instance_id), node_id);
+    }
+    for (const auto& pblock : pblocks) {
+        RETURN_IF_ERROR(it->second->add_block(pblock));
+    }
+    if (eos) {
+        it->second->set_ready();
+    }
+    return Status::OK();
+}
+
+void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
+                                    pipeline::RecCTEScanLocalState* scan) {
+    std::unique_lock<std::mutex> l(_cte_scan_lock);
+    auto key = std::make_pair(instance_id, node_id);
+    DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "
+                                     << print_id(instance_id) << ", node " << node_id;
+    _cte_scan.emplace(key, scan);
+}
+
+void QueryContext::deregiste_cte_scan(const TUniqueId& instance_id, int node_id) {
+    std::lock_guard<std::mutex> l(_cte_scan_lock);
+    auto key = std::make_pair(instance_id, node_id);
+    DCHECK(_cte_scan.contains(key)) << "Duplicate deregiste cte scan for instance "
+                                    << print_id(instance_id) << ", node " << node_id;
+    _cte_scan.erase(key);
 }
 
 } // namespace doris
