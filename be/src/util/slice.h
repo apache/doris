@@ -91,7 +91,7 @@ public:
     const char* get_data() const { return data; }
 
     /// @return A mutable pointer to the beginning of the referenced data.
-    char* mutable_data() { return const_cast<char*>(data); }
+    char* mutable_data() const { return data; }
 
     /// @return The length (in bytes) of the referenced data.
     size_t get_size() const { return size; }
