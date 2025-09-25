@@ -34,11 +34,13 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.ImmutableList;
 
 public class ShowClusterStmt extends ShowStmt implements NotFallbackInParser {
+    // sql: show clusters;
     public static final ImmutableList<String> CLUSTER_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("cluster").add("is_current").add("users").add("backend_num").add("sub_clusters").add("policy").build();
 
+    // sql: show compute groups;
     public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IsCurrent").add("Users").add("BackendNum").add("SubClusters").add("Policy").build();
+            .add("Name").add("IsCurrent").add("Users").add("BackendNum").add("SubComputeGroups").add("Policy").build();
 
     boolean isComputeGroup = true;
 
