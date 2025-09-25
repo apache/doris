@@ -31,15 +31,22 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
  * For nested CaseWhen/IF expression, replace the inner CaseWhen/IF condition with TRUE/FALSE literal
  * when the condition also exists in the outer CaseWhen/IF conditions.
- * <br/>
+ *
+ * on the nested CASE/IF path, a condition may exist in multiple CASE/IF branches,
+ * for any inner case when or if condition, its boolean value is determined by the outermost CASE/IF branch,
+ * that is the first occurrence of the condition on the nested CASE/IF path.
+ *
+ * <br>
  *  1. if it exists in outer case's current branch condition, replace it with TRUE
  *    e.g.
  *      case when A then
@@ -51,7 +58,6 @@ import java.util.Set;
  *                  (case when TRUE then 1 else 2 end)
  *          ...
  *      end
- * </br>
  * <br>
  *  2. if it exists in outer case's previous branch condition, replace it with FALSE
  *    e.g.
@@ -66,7 +72,7 @@ import java.util.Set;
  *                  (case when FALSE then 1 else 2 end)
  *          ...
  *      end
- * </br>
+ * <br>
  */
 public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory {
 
@@ -87,17 +93,18 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
     }
 
     private Expression rewrite(Expression expression, ExpressionRewriteContext context) {
-        return expression.accept(new NestCaseLikeCondReplacer(), context);
+        return expression.accept(new NestedCondReplacer(), context);
     }
 
-    private static class NestCaseLikeCondReplacer extends DefaultExpressionRewriter<ExpressionRewriteContext> {
+    private static class NestedCondReplacer extends DefaultExpressionRewriter<ExpressionRewriteContext> {
 
-        // trueConditions/falseConditions is used to record the case/if conditions for the first time occur.
-        // when enter a case/if branch, add the condition to trueConditions,
-        // when leave a case/if branch, remove the condition from trueConditions, add the condition to falseConditions,
-        // when leave the whole case/if statement, remove the condition from falseConditions.
-        private final Set<Expression> trueConditions = Sets.newHashSet();
-        private final Set<Expression> falseConditions = Sets.newHashSet();
+        // condition literals is used to record the boolean literal for a condition expression,
+        // 1. if a condition, if it exists in outer case/if conditions, it will be replaced with the literal.
+        // 2. otherwise it's the first time occur, then:
+        //    a) when enter a case/if branch, set this condition to TRUE literal
+        //    b) when leave a case/if branch, set this condition to FALSE literal
+        //    c) when leave the whole case/if statement, remove this condition literal
+        private final Map<Expression, BooleanLiteral> conditionLiterals = Maps.newHashMap();
 
         @Override
         public Expression visit(Expression expr, ExpressionRewriteContext context) {
@@ -126,20 +133,20 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             for (WhenClause whenClause : caseWhen.getWhenClauses()) {
                 Expression oldCondition = whenClause.getOperand();
                 if (!uniqueConditions.add(oldCondition)) {
-                    // remove duplicated when condition
+                    // the later same condition will rewrite to FALSE,
+                    // but we can skip it directly for effective.
                     continue;
                 }
                 Pair<Expression, Boolean> replaceResult = replaceCondition(oldCondition, context);
                 Expression newCondition = replaceResult.first;
                 boolean condFirstOccur = replaceResult.second;
                 if (condFirstOccur) {
-                    trueConditions.add(oldCondition);
                     firstOccurConds.add(oldCondition);
+                    conditionLiterals.put(oldCondition, BooleanLiteral.TRUE);
                 }
                 Expression newResult = whenClause.getResult().accept(this, context);
                 if (condFirstOccur) {
-                    trueConditions.remove(oldCondition);
-                    falseConditions.add(oldCondition);
+                    conditionLiterals.put(oldCondition, BooleanLiteral.FALSE);
                 }
                 if (whenClause.getOperand() != newCondition || whenClause.getResult() != newResult) {
                     newWhenClausesBuilder.add(new WhenClause(newCondition, newResult));
@@ -152,8 +159,8 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             if (newDefaultValue != null) {
                 newDefaultValue = newDefaultValue.accept(this, context);
             }
-            for (Expression newAddCond : firstOccurConds) {
-                falseConditions.remove(newAddCond);
+            for (Expression cond : firstOccurConds) {
+                conditionLiterals.remove(cond);
             }
             List<WhenClause> newWhenClauses = newWhenClausesBuilder.build();
             boolean hasNewChildren = false;
@@ -186,16 +193,15 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             Expression newCondition = replaceResult.first;
             boolean condFirstOccur = replaceResult.second;
             if (condFirstOccur) {
-                trueConditions.add(oldCondition);
+                conditionLiterals.put(oldCondition, BooleanLiteral.TRUE);
             }
             Expression newTrueValue = ifExpr.getTrueValue().accept(this, context);
             if (condFirstOccur) {
-                trueConditions.remove(oldCondition);
-                falseConditions.add(oldCondition);
+                conditionLiterals.put(oldCondition, BooleanLiteral.FALSE);
             }
             Expression newFalseValue = ifExpr.getFalseValue().accept(this, context);
             if (condFirstOccur) {
-                falseConditions.remove(oldCondition);
+                conditionLiterals.remove(oldCondition);
             }
             if (newCondition != oldCondition
                     || newTrueValue != ifExpr.getTrueValue()
@@ -211,10 +217,8 @@ public class NestedCaseWhenCondToLiteral implements ExpressionPatternRuleFactory
             if (condition.isLiteral()) {
                 // literal condition do not need to replace, and do not record it
                 return Pair.of(condition, false);
-            } else if (trueConditions.contains(condition)) {
-                return Pair.of(BooleanLiteral.TRUE, false);
-            } else if (falseConditions.contains(condition)) {
-                return Pair.of(BooleanLiteral.FALSE, false);
+            } else if (conditionLiterals.containsKey(condition)) {
+                return Pair.of(conditionLiterals.get(condition), false);
             } else {
                 return Pair.of(condition.accept(this, context), true);
             }
