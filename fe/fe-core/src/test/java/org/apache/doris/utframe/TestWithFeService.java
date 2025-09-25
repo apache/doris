@@ -144,9 +144,9 @@ public abstract class TestWithFeService {
         Config.enable_advance_next_id = this.enableAdvanceNextId;
         FeConstants.enableInternalSchemaDb = false;
         FeConstants.disableWGCheckerForUT = true;
+        FeConstants.runningUnitTest = true;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
-        connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
         Env.getCurrentEnv().getWorkloadGroupMgr().createNormalWorkloadGroupForUT();
