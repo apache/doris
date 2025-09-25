@@ -47,7 +47,7 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
            log.info("database = ${res_dbs_log[i][0]} => tables = " + tbs.toString())
        }
 
-       order_qt_schema_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey limit 1;"""
+       order_qt_schema_1 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table order by l_orderkey,l_partkey limit 1;"""
        order_qt_schema_2 """select * from ${catalog_name}.${ex_db_name}.parquet_delta_binary_packed order by int_value limit 1;"""
        order_qt_schema_3 """select * from ${catalog_name}.${ex_db_name}.parquet_alltypes_tiny_pages  order by id desc  limit 5;"""
        order_qt_schema_4 """select * from ${catalog_name}.${ex_db_name}.orc_all_types_partition order by bigint_col desc limit 3;"""
