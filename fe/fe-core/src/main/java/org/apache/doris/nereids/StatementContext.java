@@ -277,7 +277,7 @@ public class StatementContext implements Closeable {
 
     private boolean isInsert = false;
 
-    private Map<TableIf, Set<Expression>> mvRefreshPredicates = new HashMap<>();
+    private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -1003,12 +1003,12 @@ public class StatementContext implements Closeable {
         return isInsert;
     }
 
-    public Map<TableIf, Set<Expression>> getMvRefreshPredicates() {
+    public Optional<Map<TableIf, Set<Expression>>> getMvRefreshPredicates() {
         return mvRefreshPredicates;
     }
 
     public void setMvRefreshPredicates(
             Map<TableIf, Set<Expression>> mvRefreshPredicates) {
-        this.mvRefreshPredicates = mvRefreshPredicates;
+        this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
     }
 }
