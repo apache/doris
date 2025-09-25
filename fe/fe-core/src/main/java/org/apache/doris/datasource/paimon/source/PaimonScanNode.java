@@ -242,6 +242,9 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         if (paimonSplit.getRowCount().isPresent()) {
             tableFormatFileDesc.setTableLevelRowCount(paimonSplit.getRowCount().get());
+        } else {
+            // MUST explicitly set to -1, to be distinct from valid row count >= 0
+            tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
         Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
@@ -689,3 +692,4 @@ public class PaimonScanNode extends FileQueryScanNode {
         return baseTable;
     }
 }
+
