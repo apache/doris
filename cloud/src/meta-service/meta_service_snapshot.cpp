@@ -101,16 +101,20 @@ void MetaServiceImpl::list_snapshot(::google::protobuf::RpcController* controlle
                                     ListSnapshotResponse* response,
                                     ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(list_snapshot, get, put, del);
-    if (!request->has_cloud_unique_id() || request->cloud_unique_id().empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "cloud_unique_id not set";
-        return;
-    }
 
-    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
-    if (instance_id.empty()) {
+    // Prefer instance_id if provided, fallback to cloud_unique_id
+    if (request->has_instance_id() && !request->instance_id().empty()) {
+        instance_id = request->instance_id();
+    } else if (request->has_cloud_unique_id() && !request->cloud_unique_id().empty()) {
+        instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+        if (instance_id.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "empty instance_id";
+            return;
+        }
+    } else {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "empty instance_id";
+        msg = "either instance_id or cloud_unique_id must be provided";
         return;
     }
     RPC_RATE_LIMIT(list_snapshot);

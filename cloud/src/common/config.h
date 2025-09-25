@@ -370,4 +370,9 @@ CONF_Int64(prune_aborted_snapshot_seconds, "3600"); // 1h
 CONF_mString(aws_credentials_provider_version, "v2");
 CONF_Validator(aws_credentials_provider_version,
                [](const std::string& config) -> bool { return config == "v1" || config == "v2"; });
+
+// Snapshot configuration limits
+CONF_Int32(snapshot_min_interval_seconds, "3600"); // 1h min interval limit
+CONF_Int32(snapshot_max_reserved_num, "35");       // max reserved snapshots limit
+
 } // namespace doris::cloud::config
