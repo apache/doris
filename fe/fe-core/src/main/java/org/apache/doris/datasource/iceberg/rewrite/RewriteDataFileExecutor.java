@@ -20,19 +20,25 @@ package org.apache.doris.datasource.iceberg.rewrite;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import com.google.common.base.Preconditions;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 /**
@@ -186,7 +192,7 @@ public class RewriteDataFileExecutor {
      */
     private void customizeInsertExecutorForRewrite(
             IcebergInsertExecutor insertExecutor,
-                    RewriteDataGroup group) throws Exception {
+            RewriteDataGroup group) throws Exception {
 
         LOG.debug("Customizing insert executor for rewrite with {} tasks", group.getTaskCount());
 
@@ -199,15 +205,21 @@ public class RewriteDataFileExecutor {
         LOG.info("Insert executor prepared for rewrite with coordinator: {}",
                 coordinator.getClass().getSimpleName());
 
-        storeRewriteTasksForExecution(group);
-    }
+        // Access coordinator context to get scan nodes
+        Preconditions.checkState(coordinator instanceof NereidsCoordinator,
+                "Expected NereidsCoordinator, got: " + coordinator.getClass());
+        // TODO: Use public API instead of reflection
+        Field contextField = NereidsCoordinator.class.getDeclaredField("coordinatorContext");
+        contextField.setAccessible(true);
+        CoordinatorContext context = (CoordinatorContext) contextField.get(coordinator);
+        Preconditions.checkState(context != null && context.scanNodes != null && context.scanNodes.size() == 1,
+                "No scan nodes found in coordinator context");
 
-    /**
-     * Store rewrite tasks for execution
-     */
-    private void storeRewriteTasksForExecution(RewriteDataGroup group) {
-        // TODO: Implement a mechanism to pass the group tasks to the scan nodes
-        LOG.debug("Stored {} tasks for rewrite execution", group.getTasks().size());
+        // Find and customize IcebergScanNode
+        ScanNode scanNode = context.scanNodes.get(0);
+        Preconditions.checkState(scanNode instanceof IcebergScanNode,
+                "Expected IcebergScanNode, got: " + scanNode.getClass());
+        ((IcebergScanNode) scanNode).resetFileScanTasks(group.getTasks());
     }
 
     /**
