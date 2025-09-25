@@ -340,6 +340,10 @@ Status OlapScanLocalState::_init_profile() {
     _variant_subtree_sparse_iter_count =
             ADD_COUNTER(_segment_profile, "VariantSubtreeSparseIterCount", TUnit::UNIT);
 
+    _condition_cache_hit_segment_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheSegmentHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(_segment_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
     return Status::OK();
 }
 
