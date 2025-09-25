@@ -22,7 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.commands.info.PartitionNamesInfo;
+import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.qe.ResultSet;
 
 import java.util.Map;
