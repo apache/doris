@@ -235,6 +235,7 @@ public class MysqlProto {
                 dbName = dbNames[1];
             } else if (dbNames.length > 2) {
                 context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
+                sendResponsePacket(context);
                 return false;
             }
 
@@ -253,27 +254,11 @@ public class MysqlProto {
                 }
             }
 
-            String dbFullName = dbName;
-
-            // check catalog and db exists
-            if (catalogName != null) {
-                CatalogIf catalogIf = context.getEnv().getCatalogMgr().getCatalog(catalogName);
-                if (catalogIf == null) {
-                    context.getState()
-                            .setError(ErrorCode.ERR_BAD_DB_ERROR, ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(db));
-                    return false;
-                }
-                if (catalogIf.getDbNullable(dbFullName) == null) {
-                    context.getState()
-                            .setError(ErrorCode.ERR_BAD_DB_ERROR, ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(db));
-                    return false;
-                }
-            }
             try {
                 if (catalogName != null) {
                     context.getEnv().changeCatalog(context, catalogName);
                 }
-                Env.getCurrentEnv().changeDb(context, dbFullName);
+                Env.getCurrentEnv().changeDb(context, dbName);
             } catch (DdlException e) {
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 sendResponsePacket(context);
