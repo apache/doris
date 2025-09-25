@@ -793,12 +793,21 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                                     std::pair<TUniqueId, int>,
                                     std::shared_ptr<pipeline::PipelineFragmentContext>>& map)
                                     -> Status {
+            std::set<TUniqueId> query_id_set;
             for (auto& it : map) {
                 auto elapsed = it.second->elapsed_time() / 1000000000;
                 if (elapsed < duration) {
                     // Only display tasks which has been running for more than {duration} seconds.
                     continue;
                 }
+                if (!query_id_set.contains(it.first.first)) {
+                    query_id_set.insert(it.first.first);
+                    fmt::format_to(
+                            debug_string_buffer, "QueryId: {}, global_runtime_filter_mgr:\n",
+                            print_id(it.first.first),
+                            it.second->get_query_ctx()->runtime_filter_mgr()->debug_string());
+                }
+
                 auto timeout_second = it.second->timeout_second();
                 fmt::format_to(
                         debug_string_buffer,
