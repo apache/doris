@@ -147,8 +147,11 @@ public class ColumnType {
     }
 
     public boolean isStringType() {
-        return type == Type.STRING || type == Type.BINARY || type == Type.VARBINARY || type == Type.CHAR
-                || type == Type.VARCHAR;
+        return type == Type.STRING || type == Type.CHAR || type == Type.VARCHAR;
+    }
+
+    public boolean isVarbinaryType() {
+        return type == Type.BINARY || type == Type.VARBINARY;
     }
 
     public boolean isComplexType() {
@@ -239,10 +242,8 @@ public class ColumnType {
                 }
                 return size;
             case STRING:
-            case BINARY:
             case CHAR:
             case VARCHAR:
-            case VARBINARY:
                 // [const | nullMap | offsets | data ]
                 return 4;
             default:

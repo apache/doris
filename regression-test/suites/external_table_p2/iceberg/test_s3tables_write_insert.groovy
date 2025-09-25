@@ -18,6 +18,11 @@ import java.util.concurrent.ThreadLocalRandom
 // under the License.
 
 suite("test_s3tables_write_insert", "p2,external,iceberg,external_remote,external_remote_iceberg") {
+    // disable this test by default, glue + s3table is recommended
+    def run_test = false;
+    if (!run_test) {
+        return;
+    }
     def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
