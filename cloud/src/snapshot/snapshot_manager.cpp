@@ -81,6 +81,14 @@ int SnapshotManager::inverted_check_snapshots(InstanceChecker* checker) {
     return 0;
 }
 
+int SnapshotManager::check_mvcc_meta_key(InstanceChecker* checker) {
+    return 0;
+}
+
+int SnapshotManager::inverted_check_mvcc_meta_key(InstanceChecker* checker) {
+    return 0;
+}
+
 int SnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id,
                                                     std::string_view resource_id,
                                                     StorageVaultAccessor* accessor,
