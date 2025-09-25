@@ -1917,9 +1917,8 @@ std::string PipelineFragmentContext::debug_string() {
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
-            fmt::format_to(debug_string_buffer, "Task {}: {}\n{}\n", i,
-                           _tasks[j][i].first->debug_string(),
-                           _tasks[j][i].second->local_runtime_filter_mgr()->debug_string());
+            fmt::format_to(debug_string_buffer, "Task {}: {}\n", i,
+                           _tasks[j][i].first->debug_string());
         }
     }
 
