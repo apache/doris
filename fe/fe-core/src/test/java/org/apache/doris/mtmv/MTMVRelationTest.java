@@ -78,6 +78,7 @@ public class MTMVRelationTest extends TestWithFeService {
         Assertions.assertEquals(Sets.newHashSet(mv1), relation.getBaseTablesOneLevel());
         Assertions.assertEquals(Sets.newHashSet(v2), relation.getBaseViewsOneLevel());
         Assertions.assertEquals(Sets.newHashSet(mv1, t1), relation.getBaseTablesOneLevelAndFromView());
+
         // test inverted index
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
         Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseTable(t1));
@@ -86,17 +87,31 @@ public class MTMVRelationTest extends TestWithFeService {
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(v1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(v2));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(mv2));
+
         Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseTableOneLevelAndFromView(t1));
         Assertions.assertEquals(Sets.newHashSet(mv1), relationManager.getMtmvsByBaseTableOneLevelAndFromView(t2));
         Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseTableOneLevelAndFromView(mv1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(v1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(v2));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(mv2));
+
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(t1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(t2));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(mv1));
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(mv2));
         Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseView(v1));
         Assertions.assertEquals(Sets.newHashSet(mv2), relationManager.getMtmvsByBaseView(v2));
+
+        dropMvByNereids("drop materialized view mv2");
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(t1));
+        Assertions.assertEquals(Sets.newHashSet(mv1), relationManager.getMtmvsByBaseTable(t2));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(mv1));
+
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(t1));
+        Assertions.assertEquals(Sets.newHashSet(mv1), relationManager.getMtmvsByBaseTableOneLevelAndFromView(t2));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTableOneLevelAndFromView(mv1));
+
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(v1));
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseView(v2));
     }
 }
