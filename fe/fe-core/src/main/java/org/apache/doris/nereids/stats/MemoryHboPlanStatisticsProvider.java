@@ -112,14 +112,18 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
     private void sendPlanStats(Frontend frontend, TUpdatePlanStatsCacheRequest updateFollowerPlanStatsCacheRequest) {
         TNetworkAddress address = new TNetworkAddress(frontend.getHost(), frontend.getRpcPort());
         FrontendService.Client client = null;
+        boolean isReturnToPool = false;
         try {
             client = ClientPool.frontendPool.borrowObject(address);
             client.updatePlanStatsCache(updateFollowerPlanStatsCacheRequest);
+            isReturnToPool = true;
         } catch (Throwable t) {
             LOG.warn("Failed to sync plan stats to fe client: {}", address, t);
         } finally {
-            if (client != null) {
+            if (client != null && isReturnToPool) {
                 ClientPool.frontendPool.returnObject(address, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(address, client);
             }
         }
     }
