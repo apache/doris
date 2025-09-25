@@ -234,7 +234,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
         try {
             executionAuthenticator.execute(() -> {
-                preformDropDb(dbName, ifExists, force);
+                performDropDb(dbName, ifExists, force);
                 return null;
             });
         } catch (Exception e) {
@@ -243,7 +243,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private void preformDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private void performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
