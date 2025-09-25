@@ -33,6 +33,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -131,24 +133,34 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         try {
-            return executionAuthenticator.execute(() -> listNamespaces(getNamespace()));
+            return executionAuthenticator.execute(() -> listNestedNamespaces(getNamespace()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list database names, error message is:" + e.getMessage(), e);
         }
     }
 
     @NotNull
-    private List<String> listNamespaces(Namespace parentNs) {
-        // return nsCatalog.listNamespaces(parentNs)
-        //         .stream()
-        //         .map(n -> n.level(n.length() - 1))
-        //         .collect(Collectors.toList());
+    private List<String> listNestedNamespaces(Namespace parentNs) {
+        // Handle nested namespaces for Iceberg REST catalog,
+        // only if "iceberg.rest.nested-namespace-enabled" is true.
+        if (dorisCatalog instanceof IcebergRestExternalCatalog) {
+            IcebergRestExternalCatalog restCatalog = (IcebergRestExternalCatalog) dorisCatalog;
+            MetastoreProperties metaProps = restCatalog.getCatalogProperty().getMetastoreProperties();
+            if (metaProps instanceof IcebergRestProperties
+                    && ((IcebergRestProperties) metaProps).isIcebergRestNestedNamespaceEnabled()) {
+                return nsCatalog.listNamespaces(parentNs)
+                        .stream()
+                        .flatMap(childNs -> Stream.concat(
+                                Stream.of(childNs.toString()),
+                                listNestedNamespaces(childNs).stream()
+                        )).collect(Collectors.toList());
+            }
+        }
+
         return nsCatalog.listNamespaces(parentNs)
                 .stream()
-                .flatMap(childNs -> Stream.concat(
-                        Stream.of(childNs.toString()),
-                        listNamespaces(childNs).stream()
-                )).collect(Collectors.toList());
+                .map(n -> n.level(n.length() - 1))
+                .collect(Collectors.toList());
     }
 
     @Override
