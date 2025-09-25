@@ -40,6 +40,8 @@
 
 namespace doris {
 
+bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_skipped_rowset_num(
+        "file_cache_event_driven_warm_up_skipped_rowset_num");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_size(
         "file_cache_event_driven_warm_up_requested_segment_size");
 bvar::Adder<uint64_t> g_file_cache_event_driven_warm_up_requested_segment_num(
@@ -507,6 +509,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t sync_wait_t
     if (replicas.empty()) {
         VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                    << ", skipping rowset=" << rs_meta.rowset_id().to_string();
+        g_file_cache_event_driven_warm_up_skipped_rowset_num << 1;
         return;
     }
     Status st = _do_warm_up_rowset(rs_meta, replicas, sync_wait_timeout_ms, !cache_hit);
