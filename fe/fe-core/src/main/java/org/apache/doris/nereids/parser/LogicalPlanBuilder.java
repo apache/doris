@@ -1042,6 +1042,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
@@ -5250,11 +5251,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         // [db].
         if (size == 1) {
-            return new RefreshDatabaseCommand(dbName, properties);
+            return new RefreshDatabaseCommand(parts.get(0), properties);
         } else if (parts.size() == 2) {  // [ctl,db].
-            return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
+            return new RefreshDatabaseCommand(parts.get(0), parts.get(1), properties);
+        } else {
+            if (GlobalVariable.enableNestedNamespace) {
+                // use the first part as catalog name, the rest part as db name
+                return new RefreshDatabaseCommand(parts.get(0),
+                        String.join(".", parts.subList(1, size)), properties);
+            } else {
+                throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
+            }
         }
-        throw new ParseException("Only one dot can be in the name: " + String.join(".", parts));
     }
 
     @Override

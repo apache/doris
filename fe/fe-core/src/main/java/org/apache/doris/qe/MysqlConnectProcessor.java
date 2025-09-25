@@ -21,14 +21,11 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AuthenticationException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -58,6 +55,7 @@ import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
@@ -355,47 +353,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         if (Strings.isNullOrEmpty(db)) {
             ctx.changeDefaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         } else {
-            String catalogName = null;
-            String dbName = null;
-            String[] dbNames = db.split("\\.");
-            if (dbNames.length == 1) {
-                dbName = db;
-            } else if (dbNames.length == 2) {
-                catalogName = dbNames[0];
-                dbName = dbNames[1];
-            } else if (dbNames.length > 2) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + db);
-                return;
-            }
-
-            if (Config.isCloudMode()) {
-                try {
-                    dbName = ((CloudEnv) Env.getCurrentEnv()).analyzeCloudCluster(dbName, ctx);
-                } catch (DdlException e) {
-                    ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-                    return;
-                }
-            }
-
-            // check catalog and db exists
-            if (catalogName != null) {
-                CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
-                if (catalogIf == null) {
-                    ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
-                    return;
-                }
-                if (catalogIf.getDbNullable(dbName) == null) {
-                    ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
-                    return;
-                }
-            }
-            try {
-                if (catalogName != null) {
-                    ctx.getEnv().changeCatalog(ctx, catalogName);
-                }
-                Env.getCurrentEnv().changeDb(ctx, dbName);
-            } catch (DdlException e) {
-                ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+            Optional<Pair<ErrorCode, String>> res = ConnectProcessor.initCatalogAndDb(ctx, db);
+            if (res.isPresent()) {
+                ctx.getState().setError(res.get().first, res.get().second);
                 return;
             }
         }
