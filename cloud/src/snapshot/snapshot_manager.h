@@ -55,6 +55,10 @@ public:
 
     virtual int inverted_check_snapshots(InstanceChecker* checker);
 
+    virtual int check_mvcc_meta_key(InstanceChecker* checker);
+
+    virtual int inverted_check_mvcc_meta_key(InstanceChecker* checker);
+
     // Recycle snapshots that are expired or marked as recycled, based on the retention policy.
     // Return 0 for success otherwise error.
     virtual int recycle_snapshots(InstanceRecycler* recycler);
