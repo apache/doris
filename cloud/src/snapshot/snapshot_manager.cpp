@@ -17,10 +17,57 @@
 
 #include "snapshot/snapshot_manager.h"
 
+#include "meta-store/versionstamp.h"
 #include "recycler/checker.h"
 #include "recycler/recycler.h"
 
 namespace doris::cloud {
+
+bool SnapshotManager::parse_snapshot_versionstamp(std::string_view snapshot_id,
+                                                  Versionstamp* versionstamp) {
+    if (snapshot_id.size() != 20) {
+        return false;
+    }
+
+    std::array<uint8_t, 10> versionstamp_data;
+    for (size_t i = 0; i < 10; ++i) {
+        const char* hex_chars = snapshot_id.data() + (i * 2);
+
+        // Convert two hex digits to one byte more efficiently
+        uint8_t high_nibble = 0, low_nibble = 0;
+
+        // Parse high nibble
+        if (hex_chars[0] >= '0' && hex_chars[0] <= '9') {
+            high_nibble = hex_chars[0] - '0';
+        } else if (hex_chars[0] >= 'a' && hex_chars[0] <= 'f') {
+            high_nibble = hex_chars[0] - 'a' + 10;
+        } else if (hex_chars[0] >= 'A' && hex_chars[0] <= 'F') {
+            high_nibble = hex_chars[0] - 'A' + 10;
+        } else {
+            return false;
+        }
+
+        // Parse low nibble
+        if (hex_chars[1] >= '0' && hex_chars[1] <= '9') {
+            low_nibble = hex_chars[1] - '0';
+        } else if (hex_chars[1] >= 'a' && hex_chars[1] <= 'f') {
+            low_nibble = hex_chars[1] - 'a' + 10;
+        } else if (hex_chars[1] >= 'A' && hex_chars[1] <= 'F') {
+            low_nibble = hex_chars[1] - 'A' + 10;
+        } else {
+            return false;
+        }
+
+        versionstamp_data[i] = (high_nibble << 4) | low_nibble;
+    }
+
+    *versionstamp = Versionstamp(versionstamp_data);
+    return true;
+}
+
+std::string SnapshotManager::serialize_snapshot_id(Versionstamp snapshot_versionstamp) {
+    return snapshot_versionstamp.to_string();
+}
 
 void SnapshotManager::begin_snapshot(std::string_view instance_id,
                                      const BeginSnapshotRequest& request,

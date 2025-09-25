@@ -65,6 +65,13 @@ public:
                                                Versionstamp snapshot_version,
                                                const SnapshotPB& snapshot_pb);
 
+    // Serialize snapshot versionstamp to string (snapshot id) for external use.
+    static std::string serialize_snapshot_id(Versionstamp snapshot_versionstamp);
+
+    // Parse the serialized snapshot id to versionstamp.
+    static bool parse_snapshot_versionstamp(std::string_view snapshot_id,
+                                            Versionstamp* versionstamp);
+
 private:
     SnapshotManager(const SnapshotManager&) = delete;
     SnapshotManager& operator=(const SnapshotManager&) = delete;
