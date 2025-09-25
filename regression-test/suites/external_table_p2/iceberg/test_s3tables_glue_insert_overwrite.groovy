@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_remote_iceberg,new_catalog_property") {
-    def format_compressions = ["parquet_zstd"]
+import java.util.concurrent.ThreadLocalRandom
+
+suite("test_s3tables_glue_insert_overwrite", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    def format_compressions = ["parquet_zstd", "orc_zlib"]
 
     def q01 = { String format_compression, String catalog_name ->
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def all_types_table = "iceberg_glue_rest_${format_compression}_master"
+        def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master"
         sql """ DROP TABLE IF EXISTS `${all_types_table}`; """
         sql """
         CREATE TABLE `${all_types_table}`(
@@ -83,7 +86,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_table}
+        INSERT OVERWRITE table ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -141,7 +144,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_table}
+        INSERT OVERWRITE table ${all_types_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -303,7 +306,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
+        INSERT OVERWRITE table ${all_types_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls)
         VALUES (
           CAST(123.45 AS FLOAT), -- float_col
           MAP(1, 10), -- t_map_int
@@ -321,7 +324,8 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         def parts = format_compression.split("_")
         def format = parts[0]
         def compression = parts[1]
-        def all_types_partition_table = "iceberg_all_types_par_glue_rest_${format_compression}_master"
+        def all_types_table = "iceberg_overwrite_all_types_${format_compression}_master"
+        def all_types_partition_table = "iceberg_overwrite_types_par_${format_compression}_master"
         sql """ DROP TABLE IF EXISTS `${all_types_partition_table}`; """
         sql """
         CREATE TABLE `${all_types_partition_table}`(
@@ -383,7 +387,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_partition_table}
+        INSERT OVERWRITE TABLE ${all_types_partition_table}
         VALUES (
           1, -- boolean_col
           2147483647, -- int_col
@@ -441,7 +445,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_partition_table}
+        INSERT OVERWRITE TABLE ${all_types_partition_table}
         VALUES  (
           1, -- boolean_col
           2147483647, -- int_col
@@ -603,7 +607,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         """
 
         sql """
-        INSERT INTO ${all_types_partition_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
+        INSERT OVERWRITE TABLE ${all_types_partition_table}(float_col, t_map_int, t_ARRAY_decimal_precision_8, t_ARRAY_string_starting_with_nulls, dt)
         VALUES (
           123.45, -- float_col
           MAP(1, 10), -- t_map_int
@@ -615,23 +619,6 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         order_qt_q03 """ select * from ${all_types_partition_table};
         """
 
-        // just test
-        sql """
-            SELECT
-              CASE
-                WHEN file_size_in_bytes BETWEEN 0 AND 8 * 1024 * 1024 THEN '0-8M'
-                WHEN file_size_in_bytes BETWEEN 8 * 1024 * 1024 + 1 AND 32 * 1024 * 1024 THEN '8-32M'
-                WHEN file_size_in_bytes BETWEEN 2 * 1024 * 1024 + 1 AND 128 * 1024 * 1024 THEN '32-128M'
-                WHEN file_size_in_bytes BETWEEN 128 * 1024 * 1024 + 1 AND 512 * 1024 * 1024 THEN '128-512M'
-                WHEN file_size_in_bytes > 512 * 1024 * 1024 THEN '> 512M'
-                ELSE 'Unknown'
-              END AS SizeRange,
-              COUNT(*) AS FileNum
-            FROM ${all_types_partition_table}\$data_files
-            GROUP BY
-              SizeRange;
-        """
-
         sql """ DROP TABLE ${all_types_partition_table}; """
     }
 
@@ -641,7 +628,7 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         return
     }
 
-    String catalog_name = "test_s3tables_glue_rest"
+    String catalog_name = "test_s3tables_glue_rest_insert_overwrite"
     String props = context.config.otherConfigs.get("icebergS3TablesCatalogGlueRest")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
@@ -650,10 +637,11 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
         );
     """
 
+    def tmpdb = "s3table_glue_db_insert_overwrite_" + ThreadLocalRandom.current().nextInt(1000);
     sql """ switch ${catalog_name};"""
-    sql """ drop database if exists iceberg_s3tables_glue_rest_master force"""
-    sql """ create database iceberg_s3tables_glue_rest_master"""
-    sql """ use iceberg_s3tables_glue_rest_master;""" 
+    sql """ drop database if exists ${tmpdb} force"""
+    sql """ create database ${tmpdb}"""
+    sql """ use ${tmpdb};""" 
     sql """ set enable_fallback_to_original_planner=false """
 
     try {
@@ -663,5 +651,6 @@ suite("test_glue_rest_s3tables", "p2,external,iceberg,external_remote,external_r
             q03(format_compression, catalog_name)
         }
     } finally {
+        """drop database if exists ${tmpdb} force"""
     }
 }
