@@ -414,7 +414,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
         ColumnIteratorUPtr it;
         st = variant_column_reader->new_iterator(&it, &subcolumn_in_sparse, &storage_read_opts,
-                                                 &column_reader_cache, &sparse_column_cache);
+                                                 &column_reader_cache, sparse_column_cache.get());
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(assert_cast<SparseColumnExtractIterator*>(it.get()) != nullptr);
         st = it->init(column_iter_opts);
