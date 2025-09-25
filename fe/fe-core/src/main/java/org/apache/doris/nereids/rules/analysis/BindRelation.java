@@ -94,7 +94,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -109,9 +108,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Rule to bind relations in query plan.
@@ -406,19 +403,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             switch (table.getType()) {
                 case OLAP:
                 case MATERIALIZED_VIEW:
-                    LogicalPlan logicalPlan1 = makeOlapScan(table, unboundRelation, qualifierWithoutTableName,
-                            cascadesContext);
-                    Map<TableIf, Set<Expression>> mvRefreshPredicates = cascadesContext.getStatementContext()
-                            .getMvRefreshPredicates();
-                    if (mvRefreshPredicates.containsKey(table)) {
-                        return new LogicalFilter<>(
-                                ExpressionUtils.extractConjunctionToSet(
-                                        ExpressionUtils.or(mvRefreshPredicates.get(table))
-                                ),
-                                logicalPlan1
-                        );
-                    }
-                    return logicalPlan1;
+                    return makeOlapScan(table, unboundRelation, qualifierWithoutTableName, cascadesContext);
                 case VIEW:
                     View view = (View) table;
                     isView = true;

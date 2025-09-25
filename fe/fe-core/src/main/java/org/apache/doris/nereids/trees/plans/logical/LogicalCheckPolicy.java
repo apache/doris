@@ -53,7 +53,9 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Logical Check Policy
@@ -135,6 +137,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
+        if (cascadesContext.getStatementContext().getMvCanRewritePartitionsMap().size() != 0) {
+            return findPolicyByMvRefresh(cascadesContext.getStatementContext(), logicalPlan);
+        }
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
@@ -195,6 +200,17 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
                 Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
+    }
+
+    private RelatedPolicy findPolicyByMvRefresh(StatementContext statementContext, LogicalPlan logicalPlan) {
+        TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
+                : ((LogicalView<?>) logicalPlan).getView();
+
+        Map<TableIf, Set<Expression>> mvRefreshPredicates = statementContext.getMvRefreshPredicates();
+        if (mvRefreshPredicates.containsKey(table)) {
+            return new RelatedPolicy(Optional.of(ExpressionUtils.or(mvRefreshPredicates.get(table))), Optional.empty());
+        }
+        return RelatedPolicy.NO_POLICY;
     }
 
     private Expression mergeRowPolicy(List<? extends RowFilterPolicy> policies) {
