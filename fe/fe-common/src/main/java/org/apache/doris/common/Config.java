@@ -3630,4 +3630,7 @@ public class Config extends ConfigBase {
     public static long cloud_auto_snapshot_max_reversed_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
+
+    @ConfField(mutable = true)
+    public static boolean enable_custom_aws_credentials_chain = true;
 }

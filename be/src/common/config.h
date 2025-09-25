@@ -1652,6 +1652,8 @@ DECLARE_mBool(print_stack_when_cache_miss);
 
 DECLARE_mBool(read_cluster_cache_opt_verbose_log);
 
+DECLARE_mBool(enable_custom_aws_credentials_chain);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
